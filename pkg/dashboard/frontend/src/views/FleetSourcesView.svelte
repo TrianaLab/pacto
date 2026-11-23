@@ -293,6 +293,8 @@
   .sc-chip { display: inline-flex; align-items: center; gap: var(--sp-2); max-inline-size: 100%; min-inline-size: 0; padding: 2px var(--sp-1) 2px var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-pill); font-size: var(--text-sm); }
   .sc-dot { flex: none; inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--tone-c); }
   /* A 63-character cluster name ends in an ellipsis; its title holds it whole. */
+  /* A matched candidate card focuses its chip by script, which :focus-visible skips after a click. */
+  .sc-chip:focus { outline: 2px solid var(--c-accent); outline-offset: 2px; }
   .sc-chip bdi { min-inline-size: 0; max-inline-size: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
   .sc-word { flex: none; color: var(--c-text-2); }
   /* The member's channel and identity model (514-S4): discreet, details in the tip. */

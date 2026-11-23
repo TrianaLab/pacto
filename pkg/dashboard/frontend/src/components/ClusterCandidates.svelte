@@ -15,18 +15,25 @@
 
   const groups = $derived(candidateGroups(candidates));
   const partial = $derived(!!completeness && completeness !== 'complete');
-  let error = $state('');
+  // One error per engine, shown under the button that failed; busy is the engine whose
+  // download runs, so a second tap waits for the first.
+  let errors = $state({});
+  let busy = $state('');
 
   const nameOf = (c) => c.displayName || c.name;
 
   async function download(from) {
-    error = '';
+    if (busy) return;
+    busy = from;
+    errors = { ...errors, [from]: '' };
     try {
       saveFile(`pacto-members-${from}.yaml`, await api.fleetClusterInstall(from));
     } catch (e) {
-      error = e instanceof ApiError && e.status === 403
+      errors = { ...errors, [from]: e instanceof ApiError && e.status === 403
         ? 'Only those who may approve clusterjoins can download the member install.'
-        : e?.message || 'Pacto could not generate the member install.';
+        : e?.message || 'Pacto could not generate the member install.' };
+    } finally {
+      busy = '';
     }
   }
 
@@ -44,10 +51,12 @@
     <section class="scc-group" data-testid="cluster-candidate-group" data-source={g.source} aria-label={`Candidate clusters from ${g.label}`}>
       <p class="scc-head">
         <span class="scc-from">From {g.label}</span>
-        {#if g.install}<button type="button" class="btn btn-sm scc-action" data-testid="cluster-candidate-install" onclick={() => download(g.install)}>{g.action}</button>{/if}
+        {#if g.install}<button type="button" class="btn btn-sm scc-action" data-testid="cluster-candidate-install" disabled={busy === g.install} aria-busy={busy === g.install} onclick={() => download(g.install)}>{g.action}</button>{/if}
       </p>
+      {#if g.install && errors[g.install]}<p class="scc-error" role="alert" data-testid="cluster-candidate-error">{errors[g.install]}</p>{/if}
       <ul class="scc-cards">
-        {#each g.items as c (`${c.kind}/${c.namespace ?? ''}/${c.name}`)}
+        <!-- A Flux kubeconfig named with two keys gives two candidates of one name, so the index keys too. -->
+        {#each g.items as c, i (`${c.kind}/${c.namespace ?? ''}/${c.name}/${i}`)}
           {@const l = candidateLabels(c.labels)}
           <li class="scc-card" class:scc-muted={c.match !== 'matched'} data-testid="cluster-candidate" data-match={c.match}>
             {#if c.match === 'matched' && c.member && members.has(c.member.uid)}
@@ -55,15 +64,19 @@
             {:else}
               <bdi class="scc-name" title={nameOf(c)}>{nameOf(c)}</bdi>
             {/if}
-            {#if l.shown.length}<span class="scc-labels" title={l.title}>{l.shown.join(' ')}{l.more ? ` +${l.more}` : ''}</span>{/if}
-            <span class="scc-word">{candidateWord(c)}</span>
+            {#if l.shown.length}<span class="scc-labels" title={l.title}>{l.shown.join(' ')}</span>{/if}
+            {#if l.more}<span class="scc-more" title={l.title}>+{l.more}</span>{/if}
+            {#if c.match === 'matched' && c.member?.name}
+              <span class="scc-word">matched to</span><bdi class="scc-member" title={c.member.name}>{c.member.name}</bdi>
+            {:else}
+              <span class="scc-word">{candidateWord(c)}</span>
+            {/if}
             <ProvenanceMark label={`Where ${nameOf(c)} came from`} text={candidateTip(c)} />
           </li>
         {/each}
       </ul>
     </section>
   {/each}
-  {#if error}<p class="scc-error" role="alert" data-testid="cluster-candidate-error">{error}</p>{/if}
 </details>
 
 <style>
@@ -79,7 +92,10 @@
   .scc-name, .scc-name bdi { min-inline-size: 0; max-inline-size: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
   .scc-open { display: inline-flex; padding: 0; border: 0; background: none; color: var(--c-accent); font: inherit; font-weight: 600; text-decoration: underline; cursor: pointer; }
   .scc-labels { min-inline-size: 0; max-inline-size: 36ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: var(--font-mono); font-size: var(--text-xs); color: var(--c-text-3); }
+  .scc-more { flex: none; font-size: var(--text-xs); color: var(--c-text-3); }
+  /* The member name of a matched card is a 63-character label at most: an ellipsis, whole in its title. */
   .scc-word { flex: none; color: var(--c-text-2); }
+  .scc-member { min-inline-size: 0; max-inline-size: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--c-text-2); }
   .scc-error { margin: 0; color: var(--c-warn); overflow-wrap: anywhere; }
   @media (pointer: coarse) { .scc-open, .scc-action { min-block-size: 44px; } }
 </style>

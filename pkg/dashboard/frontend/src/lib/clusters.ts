@@ -151,6 +151,9 @@ export function candidateTip(c: ClusterCandidate): string {
   if (c.uid) parts.push(`States UID ${c.uid}${c.uidSource ? ` (${c.uidSource})` : ''}.`);
   if (c.match === 'matched') parts.push(['The approved member', c.member?.name, 'publishes that UID under its approved key.'].filter(Boolean).join(' '));
   if (c.reason) parts.push(`${c.reason[0].toUpperCase()}${c.reason.slice(1)}.`);
+  // The card shows three labels; the rest are here, where touch reaches them too.
+  const labels = candidateLabels(c.labels);
+  if (labels.title) parts.push(`Labels: ${labels.title}.`);
   return parts.join(' ');
 }
 

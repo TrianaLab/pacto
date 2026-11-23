@@ -133,11 +133,16 @@ describe('candidate clusters', () => {
     const uid = '9f1c4e2a-0000-4000-8000-000000000001';
     const c = cand({ match: 'matched', uid, uidSource: 'annotation pacto.trianalab.io/cluster-uid', member: { uid, name: 'eu-prod' }, labels: { env: 'prod' } });
     expect(candidateWord(c) + candidateLabels(c.labels).shown.join(' ')).not.toContain(uid.slice(0, 8));
-    expect(candidateTip(c)).toBe(`From Argo CD Secret argocd/eu-prod. States UID ${uid} (annotation pacto.trianalab.io/cluster-uid). The approved member eu-prod publishes that UID under its approved key.`);
+    expect(candidateTip(c)).toBe(`From Argo CD Secret argocd/eu-prod. States UID ${uid} (annotation pacto.trianalab.io/cluster-uid). The approved member eu-prod publishes that UID under its approved key. Labels: env=prod.`);
     expect(candidateTip(cand({ source: 'rancher', kind: 'Cluster', namespace: undefined, name: 'c-1', reason: 'the candidate states no cluster UID' })))
       .toBe('From Rancher Cluster c-1. The candidate states no cluster UID.');
     expect(candidateTip(cand({ match: 'same-uid', uid: 'x', reason: 'a person has not approved it' }))).toBe('From Argo CD Secret argocd/eu-prod. States UID x. A person has not approved it.');
     expect(candidateTip(cand({ match: 'matched', member: { uid: 'u' } }))).toContain('The approved member publishes that UID');
+  });
+
+  it('the tip holds every label, so touch reaches those past the first three', () => {
+    expect(candidateTip(cand({ labels: { 'cluster.x-k8s.io/cluster-name': 'capi-workload', env: 'prod', region: 'eu', tier: 'gold' } })))
+      .toBe('From Argo CD Secret argocd/eu-prod. Labels: cluster.x-k8s.io/cluster-name=capi-workload, env=prod, region=eu, tier=gold.');
   });
 
   it('labels collapse after three with the rest in the title', () => {

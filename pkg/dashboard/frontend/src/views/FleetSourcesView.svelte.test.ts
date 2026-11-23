@@ -216,7 +216,7 @@ describe('FleetSourcesView Clusters block', () => {
 
   it('never says not joined', async () => {
     const { det, cards, done } = await openCandidates(one);
-    expect(cards.map((c) => c.querySelector('.scc-word')?.textContent)).toEqual(['matched to eu-prod', 'states the same UID', 'not matched']);
+    expect(cards.map((c) => c.querySelector('.scc-word')?.textContent)).toEqual(['matched to', 'states the same UID', 'not matched']);
     expect(det.textContent).not.toMatch(/not joined|not a member/);
     done();
   });
@@ -260,7 +260,9 @@ describe('FleetSourcesView Clusters block', () => {
   it('labels collapse after three with the rest in the title', async () => {
     const { cards, done } = await openCandidates(one);
     const l = cards[0].querySelector('.scc-labels')!;
-    expect(l.textContent).toBe('env=prod region=eu tier=gold +1');
+    expect(l.textContent).toBe('env=prod region=eu tier=gold');
+    // The count of the rest is its own span, so a long label's ellipsis never clips it.
+    expect(cards[0].querySelector('.scc-more')?.textContent).toBe('+1');
     expect(l.getAttribute('title')).toBe('env=prod, region=eu, tier=gold, zone=a');
     expect(cards[0].querySelector('bdi')?.getAttribute('title')).toBe('eu-prod');
     done();
@@ -300,6 +302,35 @@ describe('FleetSourcesView Clusters block', () => {
     det.querySelector<HTMLButtonElement>('[data-testid="cluster-candidate-install"]')!.click();
     await vi.waitFor(() => expect(errText()).toBe('Pacto could not generate the member install.'));
     expect(saveFn).not.toHaveBeenCalled();
+    // The error sits right under the button that failed, inside its group.
+    expect(det.querySelector('[data-testid="cluster-candidate-group"][data-source="argocd"] .scc-head + [data-testid="cluster-candidate-error"]')).not.toBeNull();
+    done();
+  });
+
+  it('download is busy until its answer, so a second tap sends nothing', async () => {
+    installFn.mockReset(); saveFn.mockReset();
+    let answer: (v: string) => void = () => {};
+    installFn.mockReturnValue(new Promise<string>((r) => { answer = r; }));
+    const { det, done } = await openCandidates(one);
+    const btn = det.querySelector<HTMLButtonElement>('[data-testid="cluster-candidate-install"]')!;
+    btn.click();
+    await vi.waitFor(() => expect(btn.getAttribute('aria-busy')).toBe('true'));
+    expect(btn.disabled).toBe(true);
+    btn.click();
+    answer('registry: ghcr.io/acme\n');
+    await vi.waitFor(() => expect(btn.disabled).toBe(false));
+    expect(installFn).toHaveBeenCalledTimes(1);
+    done();
+  });
+
+  it('a matched card names its member in its own truncated span', async () => {
+    const long = `production-sa-east-1-${'x'.repeat(42)}`;
+    const { cards, done } = await openCandidates(one, { candidates: [{ ...candidates[0], member: { uid: UID, name: long } }] });
+    const m = cards[0].querySelector('.scc-word + .scc-member')!;
+    expect(m.tagName).toBe('BDI');
+    expect(m.getAttribute('title')).toBe(long);
+    expect(m.textContent).toBe(long);
+    expect(cards[0].querySelector('.scc-word')?.textContent).toBe('matched to');
     done();
   });
 
