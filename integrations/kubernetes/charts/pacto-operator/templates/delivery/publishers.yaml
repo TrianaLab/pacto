@@ -1,4 +1,4 @@
-{{- if .Values.delivery.enabled }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
 {{- with include "pacto-operator.delivery.publishersData" . }}
 # What the promoter verifies publishers with: the keys that sign the delivery
 # policy, the Sigstore trusted root and this cluster's recorder key for the

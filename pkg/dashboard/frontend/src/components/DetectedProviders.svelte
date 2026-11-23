@@ -47,6 +47,11 @@
   const clustered = $derived(new Set(rows.map((r) => r.cluster).filter(Boolean)).size > 1);
   const list = cap(5);
   const words = (t) => t.replaceAll('-', ' ');
+  // A detected egress row's sentence is followed by the external-egress token, a selection key only.
+  const usedText = (r) => {
+    const u = r.usedFor ?? [];
+    return (u.length > 1 ? u.filter((t) => t !== 'external-egress') : u).map(words).join(', ');
+  };
   const why = (r) => r.status !== 'available' && r.limitations?.length;
 </script>
 
@@ -81,7 +86,7 @@
               {#if isInferred(r)}<ProvenanceMark label={`Inferred: from ${r.source}`} text={markText(r)} />{:else if isDeclared(r)}<ProvenanceMark label="Declared: by the operator's configuration" text={declaredText(r)} />{/if}
             </span>
             <bdi class="dp-trunc dp-evidence" title={r.evidence}>{r.evidence}</bdi>
-            <span class="dp-used">{(r.usedFor ?? []).map(words).join(', ')}</span>
+            <span class="dp-used">{usedText(r)}</span>
             {#each r.offers ?? [] as o (o.id)}
               <p class="dp-offer t-meta" data-testid="provider-offer"><bdi>{o.text}</bdi>{#if o.doc?.startsWith('https://')}{' '}<a href={o.doc} target="_blank" rel="noopener noreferrer" aria-label={`Set up: ${o.text}`}>Set up</a>{/if}</p>
             {/each}
@@ -91,7 +96,7 @@
                   <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>More details</summary>
                   {#if why(r)}<ul class="t-meta">{#each r.limitations as l}<li>{l.message}</li>{/each}</ul>{/if}
                   {#if r.details?.length}<ul class="t-meta">{#each r.details as d}<li><bdi>{d}</bdi></li>{/each}</ul>{/if}
-                  {#if r.hint}<p class="dp-hint t-meta">Proposal to review: <CopyableIdentifier value={r.hint} label="command" /></p>{/if}
+                  {#if r.hint}<p class="dp-hint t-meta">Proposal to review: <CopyableIdentifier value={r.hint} label="proposal" /></p>{/if}
                 </details>
               {/if}
             {:else if why(r)}

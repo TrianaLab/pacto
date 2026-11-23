@@ -259,6 +259,12 @@ func TestStubProvidersForSchemaExport(t *testing.T) {
 	if _, err := s.opts.Delivery(nil); err == nil {
 		t.Error("stub delivery must error")
 	}
+	if _, err := s.opts.AcceptPlan(context.Background(), "", nil, ""); err == nil {
+		t.Error("stub accept plan must error")
+	}
+	if _, err := s.opts.ClusterJoins(context.Background()); err == nil {
+		t.Error("stub cluster joins must error")
+	}
 }
 
 // TestProductImpact_RejectsNegativePaging covers the paging-validation branch of

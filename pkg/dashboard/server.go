@@ -25,6 +25,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/adapters/humago"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -89,11 +90,17 @@ type Options struct {
 	// nil, the endpoint is not registered.
 	Impact func(ctx context.Context, snap *fleet.FleetSnapshot, old, new string, includeObserved bool) (*impact.Result, error)
 	// AcceptPlan plans accepting every range the current revision rev of
-	// service svc proposes, as pacto accept would, and returns the plan and
-	// the command; it never signs and never writes. The route resolves svc
-	// in the viewer's snapshot first. Nil does not register
-	// /api/fleet/accept.
-	AcceptPlan func(ctx context.Context, svc fleet.ServiceKey, rev *fleet.ContractRevision) (AcceptPlanAnswer, error)
+	// service svc proposes, as pacto accept would, or accepting the
+	// acceptance draft fromDraft (a pacto-accept-draft-<n> tag) when it is
+	// set, and returns the plan and the command; it never signs and never
+	// writes. The route resolves svc in the viewer's snapshot first. Nil does
+	// not register /api/fleet/accept.
+	AcceptPlan func(ctx context.Context, svc fleet.ServiceKey, rev *fleet.ContractRevision, fromDraft string) (AcceptPlanAnswer, error)
+	// Declare plans and carries out declaring an inferred service for the
+	// person behind a request. Nil registers neither /api/fleet/declare nor
+	// /api/fleet/declare/accept; a declarer that cannot write registers only
+	// the plan.
+	Declare Declarer
 	// Refresh rebuilds the fleet snapshot for /api/refresh. When nil — as in the
 	// offline WASM demo, whose snapshot is baked in — refresh is a successful no-op.
 	Refresh func(ctx context.Context) error
@@ -104,11 +111,17 @@ type Options struct {
 	// DeliveryInstalled reports whether the cluster serves the delivery API
 	// group; an error means the cluster could not be asked. Nil means it does.
 	DeliveryInstalled func(context.Context) (bool, error)
+	// DeliveryCheckedAt, when set, is when DeliveryInstalled last asked the
+	// cluster: it caches its answer, so the request time would overclaim.
+	DeliveryCheckedAt func() time.Time
 	// DeliveryNamespace, when set, is the only namespace delivery reads and
 	// acts in, as the fleet views are scoped to it.
 	DeliveryNamespace string
 	// Auth is the identity layer: sign-in, sessions and request guards.
 	Auth *Auth
+	// InstallationConfig reads what the operator was configured with, for
+	// capabilities.installation; nil reads none.
+	InstallationConfig func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState)
 	// MiraURL, when set, turns Mira citations into links and lets a service page open the service in Mira.
 	MiraURL string
 	// Stats reads the run records of the stats repository the Metrics page
@@ -120,6 +133,10 @@ type Options struct {
 	Stats func(ctx context.Context, services []string) (stats.RecordSet, error)
 	// StatsRegistry is the stats repository Stats reads, shown on the page.
 	StatsRegistry string
+	// ClusterJoins lists the member clusters of this hub as the request's
+	// reader may see them; it also counts the pending ones in
+	// capabilities.installation. Nil serves no /api/fleet/clusters.
+	ClusterJoins func(ctx context.Context) (delivery.ClusterJoinList, error)
 	// OperationAccess reviews a signed-in viewer's access to list operations
 	// in the Stage namespaces the operation records name and says which they
 	// may see, and the clusters they were reviewed in: a record of another
@@ -129,6 +146,16 @@ type Options struct {
 	// Now is the clock behind the stats window and its buckets; nil is
 	// time.Now.
 	Now func() time.Time
+	// Outside are handlers mounted before sign-in, by path pattern. Each path
+	// either serves public metadata (GET-only, static JSON, no fleet data) or
+	// refuses a request without its credential: the session guard never runs
+	// for them. CORS and the security headers still do.
+	Outside map[string]http.Handler
+	// MCPServed and MCPSource say whether the host serves MCP beside the
+	// dashboard, and where, for capabilities.installation.mcp. An empty
+	// source keeps the default text.
+	MCPServed bool
+	MCPSource string
 }
 
 // Server serves the dashboard web UI and REST API.
@@ -254,6 +281,14 @@ func (s *Server) ServeOnListener(ctx context.Context, ln net.Listener) error {
 
 	// Static UI — served on the raw mux, not through Huma.
 	mux.Handle("/", http.FileServer(http.FS(s.opts.UI)))
+	if len(s.opts.Outside) > 0 {
+		top := http.NewServeMux()
+		for pattern, h := range s.opts.Outside {
+			top.Handle(pattern, h)
+		}
+		top.Handle("/", handler)
+		handler = top
+	}
 
 	// Every request derives from baseCtx, so Ctrl+C can actively cancel slow
 	// in-flight handlers instead of Shutdown blocking on them until the deadline.
@@ -349,6 +384,7 @@ func (s *Server) RegisterOperations(api huma.API) {
 	s.registerAuthOperations(api)
 	s.registerDeliveryOperations(api)
 	s.registerStatsOperations(api)
+	s.registerClusterOperations(api)
 }
 
 // ExportOpenAPI builds the Huma API with every operation registered — the live
@@ -387,7 +423,7 @@ type metricsOutput struct {
 
 type getSourcesOutput struct {
 	Body struct {
-		Sources     []SourceInfo `json:"sources" doc:"Data sources backing the published snapshot"`
+		Sources     []SourceInfo `json:"sources" doc:"Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set)"`
 		Discovering bool         `json:"discovering" doc:"True while the first snapshot is still being built"`
 	}
 }
@@ -456,13 +492,16 @@ func (s *Server) metrics(ctx context.Context, _ *struct{}) (*metricsOutput, erro
 	return out, nil
 }
 
-// getSources reports the per-kind source pills the nav renders. They are derived
-// from the published snapshot's own source states, so the pills describe what the
-// data the user is looking at actually came from.
+// getSources reports the per-kind source pills the nav renders, then one row
+// per provider that reads egress (flagged egress; the nav skips those). The
+// pills are derived from the published snapshot's own source states, so they
+// describe what the data the user is looking at actually came from.
 func (s *Server) getSources(ctx context.Context, _ *struct{}) (*getSourcesOutput, error) {
 	out := &getSourcesOutput{}
 	q := s.publishedQuery(ctx)
-	out.Body.Sources = sourcesFromFleet(q)
+	// Egress rows follow the data sources, read from the same viewed q: the
+	// endpoint is polled while discovering, so it never views twice.
+	out.Body.Sources = append(sourcesFromFleet(q), egressSources(q)...)
 	// A wired provider with nothing published yet is the honest "still discovering"
 	// state; no provider at all is simply a host with no sources.
 	out.Body.Discovering = s.opts.Fleet != nil && q == nil

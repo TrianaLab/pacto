@@ -221,3 +221,18 @@ func TestDiffInferredProposalAddedAndRemoved(t *testing.T) {
 		t.Errorf("removed: %+v", got)
 	}
 }
+
+func TestDiffInferredIgnoresRepository(t *testing.T) {
+	c := bareContract()
+	oldFS := declaredFS(t, "^2.3.0", "^2.3.0", "2026-11-14T10:00:00Z", contract.CoverageComplete)
+	rec, err := contract.ParseInferredRecord(oldFS[contract.InferredRecordFile].Data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Declaration.Repository = &contract.InferredSourceRepository{URL: "https://github.com/acme/invoices", Rung: contract.RepositoryRungGiven,
+		Folder: ".", FolderRung: contract.FolderRungDefault}
+	newFS := fstest.MapFS{contract.InferredRecordFile: {Data: rec.Marshal()}}
+	if got := inferredChanges(Compare(context.Background(), c, c, oldFS, newFS)); len(got) != 0 {
+		t.Fatalf("a repository answer is provenance, not a change: %+v", got)
+	}
+}

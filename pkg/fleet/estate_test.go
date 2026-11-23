@@ -179,7 +179,7 @@ func TestOwnerSummaryHealthAndKnowledge(t *testing.T) {
 	if sum.Health != (OperationalHealthTally{Unavailable: 1}) {
 		t.Errorf("health = %+v", sum.Health)
 	}
-	if sum.NotDeployed != 1 || sum.Knowledge != (KnowledgeTally{Services: 2, Described: 1, WithGaps: 1, Gaps: KnowledgeGaps{NotDeployed: 1}}) {
+	if sum.NotDeployed != 1 || knowledgeCountsOf(sum.Knowledge) != (knowledgeCounts{Services: 2, Described: 1, WithGaps: 1, Gaps: KnowledgeGaps{NotDeployed: 1}}) {
 		t.Errorf("notDeployed %d, knowledge %+v", sum.NotDeployed, sum.Knowledge)
 	}
 }

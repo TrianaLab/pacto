@@ -19,8 +19,9 @@ import (
 )
 
 // LimitationEnvironmentOrderUnknown says environments are listed by name, or
-// some of them are, because no Stage graph the caller can read orders them.
-const LimitationEnvironmentOrderUnknown = "ENVIRONMENT_ORDER_UNKNOWN"
+// some of them are, because no Stage graph the caller can read orders them. It
+// is the fleet map's code too.
+const LimitationEnvironmentOrderUnknown = fleet.LimitationEnvironmentOrderUnknown
 
 // The texts a row carries in place of a link it cannot have.
 const (

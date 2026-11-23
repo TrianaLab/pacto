@@ -191,13 +191,23 @@ describe('sourceTooltip', () => {
   it('names cluster detection', () => {
     expect(sourceTooltip('detection')).toContain('Cluster detection');
   });
+  it('names the service mesh reader', () => {
+    expect(sourceTooltip('mesh')).toBe('Service mesh — calls the mesh or Hubble already records');
+  });
+  it('names the trace backend and the OTLP receiver', () => {
+    expect(sourceTooltip('traces')).toBe('Trace backend — calls Jaeger or a Prometheus service graph saw, read by the dashboard');
+    expect(sourceTooltip('otlp-receiver')).toContain('never corroborate a declared dependency');
+  });
+  it('names the linked-workload reader', () => {
+    expect(sourceTooltip('kubernetes-linked')).toBe('Linked workloads — workloads the operator linked to a published contract with no Pacto');
+  });
   it('returns description for known sources', () => {
     expect(sourceTooltip('kubernetes')).toContain('Kubernetes');
     expect(sourceTooltip('oci')).toContain('OCI');
     expect(sourceTooltip('local')).toContain('Local');
     expect(sourceTooltip('cache')).toContain('Cache');
     expect(sourceTooltip('mira')).toContain('Mira');
-    for (const kind of ['target-state', 'evidence-http', 'evidence-ingest', 'observation', 'catalog', 'mira']) {
+    for (const kind of ['target-state', 'evidence-http', 'evidence-ingest', 'observation', 'catalog', 'mira', 'traces', 'otlp-receiver']) {
       expect(sourceTooltip(kind)).not.toBe(kind);
     }
   });

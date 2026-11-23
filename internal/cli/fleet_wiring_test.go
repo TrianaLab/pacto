@@ -232,6 +232,14 @@ func TestDashboardFleetOptions_EvaluatesFreshness(t *testing.T) {
 	}
 }
 
+// TestDashboardFleetOptionsSetsLiveEdges: only the dashboard turns detected
+// trace backends into live edge sources, through one holder for its life.
+func TestDashboardFleetOptionsSetsLiveEdges(t *testing.T) {
+	if fopts := dashboardFleetOptions("", nil, nil, nil, dashboardSources{}); fopts.LiveEdges == nil {
+		t.Fatal("the dashboard set no LiveEdges")
+	}
+}
+
 // TestDashboardFleetOptions_Traces proves --traces / PACTO_DASHBOARD_TRACES wires
 // an observation source into the normal dashboard and enables the fleet alone.
 // The path-only form keeps its ad-hoc positional ids — that compatibility is the
@@ -935,6 +943,18 @@ func TestMCPStatsRegistryNeedsFleet(t *testing.T) {
 	root.SetErr(io.Discard)
 	if err := root.Execute(); !errors.Is(err, errStatsRegistryNeedsFleet) {
 		t.Errorf("--stats-read-registry without --fleet: %v", err)
+	}
+}
+
+// TestMCPDetectedNeedsFleet: only the fleet mode reads --detected, so it is
+// refused without --fleet instead of answering "no --detected".
+func TestMCPDetectedNeedsFleet(t *testing.T) {
+	root := NewRootCommand(app.NewService(nil, nil), VersionInfo{Version: "test"})
+	root.SetArgs([]string{"mcp", "--delivery", "--detected", "k8s:pacto/pacto-detected"})
+	root.SetOut(io.Discard)
+	root.SetErr(io.Discard)
+	if err := root.Execute(); !errors.Is(err, errDetectedNeedsFleet) {
+		t.Errorf("--detected without --fleet: %v", err)
 	}
 }
 

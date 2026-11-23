@@ -776,7 +776,7 @@ type EvaluatedWorkload struct {
 }
 
 // PactoStatusFormat is the StatusFormat this operator writes.
-const PactoStatusFormat = 3
+const PactoStatusFormat = 4
 
 // PactoStatus defines the observed state of Pacto.
 // All contract data is exposed as structured fields so external consumers
@@ -787,7 +787,9 @@ type PactoStatus struct {
 	// the contract's business domain in contract.domain, so its absence there
 	// means the contract declares none. Format 3 also records the external
 	// systems the target workload names in externals, with externalsCoverage
-	// saying how far that list can be trusted. A status without a format, or with an
+	// saying how far that list can be trusted. Format 4 also records the
+	// external systems the node agent saw the workload call in observedEgress,
+	// with observedEgressCoverage. A status without a format, or with an
 	// older one, was written by an older operator, so readers treat what it
 	// would record as unknown until the operator reconciles the Pacto again.
 	// +optional
@@ -913,7 +915,8 @@ type PactoStatus struct {
 	// workload's pod spec names: env names and values, the ConfigMap keys it
 	// references, Secret and Secret key names (never a Secret value) and the
 	// ExternalName Services, selectorless Services and Istio ServiceEntries
-	// of its own namespace it points at. Each entry carries the normalized
+	// of its own namespace it points at, and the Cilium toFQDNs egress rules
+	// that select its pods (an allow-list, so a possible call). Each entry carries the normalized
 	// host and port at most. Capped at 50, sorted by identity, kind and where.
 	// +kubebuilder:validation:MaxItems=50
 	// +optional
@@ -927,9 +930,34 @@ type PactoStatus struct {
 	// ServiceEntry API), serviceentry-unreadable (the ServiceEntries could
 	// not be listed), object-host-unclassified (a Service or ServiceEntry
 	// names a host that gives no identity, such as one under a private
-	// suffix) or truncated (more than 50 externals).
+	// suffix), cilium-unreadable (the Cilium network policies could not be
+	// listed), fqdn-pattern-unbounded (a Cilium toFQDNs pattern allows hosts
+	// that no registrable domain bounds) or truncated (more than 50
+	// externals).
 	// +optional
 	ExternalsCoverage *CallerCoverage `json:"externalsCoverage,omitempty"`
+
+	// ObservedEgress are the systems outside the cluster the node agent saw
+	// the target workload's pods call inside the caller window, named from the
+	// DNS answers each pod received and one entry per identity. Capped at 32,
+	// sorted by identity.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	ObservedEgress []EgressStatus `json:"observedEgress,omitempty"`
+
+	// ObservedEgressCoverage says whether observedEgress can be trusted as
+	// complete: partial or unavailable means a missing external is unknown,
+	// not absent. The reason names the first gap: a read the operator could
+	// not make (no-agent-data, agent-data-unreadable, pods-unreadable,
+	// pactos-unreadable, services-unreadable), a node it cannot trust
+	// (node-without-agent, stale-node, degraded-node, collection-failed,
+	// shared-netns), no running pod to watch (no-running-pods), calls it
+	// cannot name (dns-unavailable, ambiguous-peers, unnamed-public,
+	// unnamed-private-peers), a name that gives no identity
+	// (egress-host-unclassified), truncated or not-evaluated. Absent when runtime
+	// observation is not configured for this Pacto.
+	// +optional
+	ObservedEgressCoverage *EgressCoverage `json:"observedEgressCoverage,omitempty"`
 
 	// ExternalCatalog is the digest of the external catalog externals were
 	// classified with, followed by " (embedded)" for the copy compiled into
@@ -981,7 +1009,7 @@ type ExternalStatus struct {
 	// +kubebuilder:validation:Enum=likely;possible
 	Confidence string `json:"confidence"`
 	// Kind is where in the pod spec or the namespace the external was named.
-	// +kubebuilder:validation:Enum=env;configMap;secretKeyRef;secretRef;externalNameService;selectorlessService;serviceEntry
+	// +kubebuilder:validation:Enum=env;configMap;secretKeyRef;secretRef;externalNameService;selectorlessService;serviceEntry;ciliumFQDN
 	Kind string `json:"kind"`
 	// Where names the object and key that name the external, never a value.
 	Where string `json:"where"`
@@ -990,6 +1018,44 @@ type ExternalStatus struct {
 	// Entry is the catalog entry that matched, empty for an unclassified host.
 	// +optional
 	Entry string `json:"entry,omitempty"`
+}
+
+// EgressStatus is one external system the target workload's pods were seen
+// calling. Host is one host it was reached by, never a path or a value.
+type EgressStatus struct {
+	// Identity is the external's canonical identity (stripe,
+	// host/<registrable-domain>).
+	Identity string `json:"identity"`
+	// +kubebuilder:validation:Enum=vendor-api;managed-cloud;legacy;unclassified
+	Class string `json:"class"`
+	// +kubebuilder:validation:MaxLength=253
+	Host string `json:"host"`
+	Port int32  `json:"port"`
+	// Source is what saw the calls: the node agent (ebpf) or an egress
+	// gateway's access log.
+	// +kubebuilder:validation:Enum=ebpf;egress-gateway-log
+	Source string `json:"source"`
+	// FirstSeen is set once, when the external first appears, so the status
+	// does not change on every reconcile.
+	FirstSeen metav1.Time `json:"firstSeen"`
+}
+
+// Egress sources.
+const (
+	EgressSourceKernel     = "ebpf"
+	EgressSourceGatewayLog = "egress-gateway-log"
+)
+
+// EgressCoverage is how far observedEgress can be trusted, with the nodes the
+// target's cluster runs pods on and how many of them run the node agent.
+type EgressCoverage struct {
+	CallerCoverage `json:",inline"`
+	// Nodes is how many nodes run pods.
+	// +optional
+	Nodes int32 `json:"nodes,omitempty"`
+	// NodesWithAgent is how many of those nodes publish node agent data.
+	// +optional
+	NodesWithAgent int32 `json:"nodesWithAgent,omitempty"`
 }
 
 // External kinds.
@@ -1001,6 +1067,9 @@ const (
 	ExternalKindExternalNameService = "externalNameService"
 	ExternalKindSelectorlessService = "selectorlessService"
 	ExternalKindServiceEntry        = "serviceEntry"
+	// ExternalKindCiliumFQDN is a Cilium toFQDNs egress rule: intent, so the
+	// use is inferred and never a witnessed call.
+	ExternalKindCiliumFQDN = "ciliumFQDN"
 )
 
 // Caller coverage states.

@@ -1,15 +1,18 @@
 # An upgrade that reuses a 6.x release's values keeps that release's chart
 # defaults: the new observation keys are absent and the deprecated ones hold
 # their old values. Each case pins the whole argument list captured from the
-# 6.x chart (bc2b948cd); never edit these lists to make a change pass. The one
-# deliberate edit: 510-S4 ends each list with --dashboard-token-login instead of
+# 6.x chart (bc2b948cd); never edit these lists to make a change pass. The
+# deliberate edits: 510-S4 ends each list with --dashboard-token-login instead of
 # --dashboard-allow-anonymous, because a reused release now signs people in
-# (tokenSignIn is a new key, so the reused values never turn it off).
+# (tokenSignIn is a new key, so the reused values never turn it off), and
+# 510-S9 adds --dashboard-mcp after it, because dashboard.mcp is a new key too,
+# so a reused release serves MCP at /mcp.
 suite: upgrade with reused 6.x values
 templates:
   - templates/deployment.yaml
   - templates/clusterrole.yaml
   - templates/owner-policy.yaml
+  - templates/nodeagent-namespace.yaml
 set:
   # 6.x values carry no fingerprints key: --reuse-values keeps it absent.
   fingerprints: null
@@ -20,6 +23,7 @@ tests:
       controller.probing: null
       controller.metricsObservation: null
       controller.interfaceNameMatchDiscovery: null
+      controller.egressGatewayLogs: null
       nodeAgent.image: null
       controller.enableProbing: false
       controller.enableMetricsObservation: false
@@ -41,6 +45,7 @@ tests:
           - --dashboard-memory-request=128Mi
           - --dashboard-memory-limit=512Mi
           - --dashboard-token-login
+          - --dashboard-mcp
 
   # 6.x values carry no declare key (513-S4): the arguments stay the 6.x list
   # and no owner policy ConfigMap or volume renders.
@@ -62,6 +67,7 @@ tests:
           - --dashboard-memory-request=128Mi
           - --dashboard-memory-limit=512Mi
           - --dashboard-token-login
+          - --dashboard-mcp
         template: templates/deployment.yaml
       - notExists:
           path: spec.template.spec.volumes
@@ -102,6 +108,46 @@ tests:
           - --dashboard-memory-request=128Mi
           - --dashboard-memory-limit=512Mi
           - --dashboard-token-login
+          - --dashboard-mcp
+
+  - it: should render the 6.x arguments and the agent namespace for 6.x values without profile or nodeAgent.createNamespace
+    set:
+      <<: *reuse6x
+      profile: null
+      nodeAgent.createNamespace: null
+      nodeAgent.enabled: true
+    asserts:
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+          - --leader-elect=true
+          - --health-probe-bind-address=:8081
+          - --metrics-bind-address=:8443
+          - --metrics-secure=true
+          - --enable-kernel-evidence
+          - --caller-coverage-ignore-namespace=kube-flannel
+          - --caller-coverage-ignore-namespace=calico-system
+          - --caller-coverage-ignore-namespace=tigera-operator
+          - --node-agent-namespace=pacto-node-agent
+          - --enable-node-agent
+          - --node-agent-publish-interval=30s
+          - --node-agent-cpu-request=50m
+          - --node-agent-memory-request=64Mi
+          - --node-agent-cpu-limit=200m
+          - --node-agent-memory-limit=256Mi
+          - --enable-dashboard
+          - --dashboard-cpu-request=50m
+          - --dashboard-memory-request=128Mi
+          - --dashboard-memory-limit=512Mi
+          - --dashboard-token-login
+          - --dashboard-mcp
+        template: templates/deployment.yaml
+      - equal: {path: kind, value: Namespace}
+        documentIndex: 0
+        template: templates/nodeagent-namespace.yaml
+      - equal: {path: metadata.name, value: pacto-node-agent}
+        documentIndex: 0
+        template: templates/nodeagent-namespace.yaml
 
   - it: should render the 6.x arguments for 6.x values with enableProbing and enableMetricsObservation true
     template: templates/deployment.yaml
@@ -125,6 +171,7 @@ tests:
           - --dashboard-memory-request=128Mi
           - --dashboard-memory-limit=512Mi
           - --dashboard-token-login
+          - --dashboard-mcp
 
   - it: should keep 6.x RBAC for 6.x default values
     template: templates/clusterrole.yaml

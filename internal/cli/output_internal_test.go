@@ -1752,3 +1752,25 @@ func TestRefLessRenderersNotExternal(t *testing.T) {
 		t.Fatalf("out:\n%s", out)
 	}
 }
+
+func TestValidateReportsContractCompleteness(t *testing.T) {
+	cmd, buf := testCmd()
+	result := &app.ValidateResult{Path: "svc", Valid: true, Next: "pacto publish svc", ContractCompleteness: &contract.ContractCompleteness{
+		Percent: new(62), Declared: 5, Applicable: 8, Sections: []contract.CompletenessSection{
+			{Section: contract.SectionInterfaces, State: contract.CompletenessDeclared},
+			{Section: contract.SectionConfiguration, State: contract.CompletenessMissing},
+			{Section: contract.SectionOwner, State: contract.CompletenessInferred},
+			{Section: contract.SectionReadiness, State: contract.CompletenessMissing},
+			{Section: contract.SectionDomain, State: contract.CompletenessUnknown},
+		}}}
+	if err := printValidateResult(cmd, result, "text"); err != nil {
+		t.Fatal(err)
+	}
+	want := "Completeness: 62% (5 of 8): missing configuration, readiness; inferred only: owner; unknown: domain\nNext: pacto publish svc\n"
+	if !strings.HasSuffix(buf.String(), want) {
+		t.Fatalf("got %q, want suffix %q", buf.String(), want)
+	}
+	if got := completenessLine(&contract.ContractCompleteness{Percent: new(100), Declared: 3, Applicable: 3}); got != "Completeness: 100% (3 of 3)" {
+		t.Fatalf("complete line = %q", got)
+	}
+}

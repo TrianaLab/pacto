@@ -148,6 +148,9 @@ const KIND_NOUN: Record<string, [string, string]> = {
   'target-state': ['target-state file', 'target-state files'], mira: ['Mira source', 'Mira sources'],
   'kubernetes-workloads': ['Kubernetes workload reader', 'Kubernetes workload readers'],
   detection: ['cluster detection', 'cluster detections'],
+  mesh: ['service mesh reader', 'service mesh readers'],
+  traces: ['trace backend', 'trace backends'], 'otlp-receiver': ['OTLP receiver', 'OTLP receivers'],
+  'kubernetes-linked': ['linked-workload reader', 'linked-workload readers'],
 };
 
 /** sourceKindNoun names n sources of one kind ("Kubernetes clusters"); '' is the kinds folded together. */

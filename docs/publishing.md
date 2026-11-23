@@ -141,7 +141,10 @@ manifests build can pin the image it deploys by digest. Pacto then:
    written, so Pacto never publishes a version no Stage would take;
 5. pushes the bundle, attaches to it a signed record of every image the
    deploy pins (`application/vnd.pacto.images.v1+json`: each image's
-   repository, digest and whether Pacto built it), and writes the tags.
+   repository, digest and whether Pacto built it), and writes the tags. The
+   operator reads that record to
+   [link a running workload](integrations/kubernetes/linked-workloads.md) to
+   the published contract with no `Pacto` resource.
 
 The bundled `pacto.yaml` always declares `pactoVersion`. When the contract
 leaves it out, `pacto pack`, `pacto push` and `pacto publish` write the newest
@@ -207,6 +210,39 @@ still succeeds; publishing the current version again writes a missing entry.
   `--index none` writes none.
 - `pacto push` under a tag other than the version writes none.
 
+## Fields declared in the registry
+
+- **Kept.** `pacto ci --publish` keeps what a person
+  [declared](#declare-a-running-service) in each later version.
+- **Baseline.** The declaration counts as the baseline the next version is
+  derived from. The plan lines are in
+  [Publish from CI](publish-from-ci.md#fields-carried-from-the-registry).
+- **What is carried.** The declared `service.owner` and each range the
+  declaration accepted. A whole dependency entry is carried only while
+  discovery still finds that dependency.
+- **The repository wins.** A key the repository's `pacto.yaml` writes is never
+  carried, an explicit `compatibility: unknown` included.
+- **Owner.** The owner is carried only when the
+  [owner rule](owner-setting.md) accepts the declaration, which needs an owner
+  policy CI can read. Otherwise the plan prints
+  `owner: billing, declared in registry (rev sha256:7c1d2e3f4a5b), not carried: no owner policy readable from CI: <why>`.
+  Only a CI publish or a judged declaration sets the owner the rule starts
+  from: a release pushed with registry write alone never does.
+- **Ranges.** A range is carried only when an owner of the service signed the
+  declaration.
+- **Signers.** The installation signer policy says whose declarations count.
+  With none, a person public-good Sigstore vouches for counts, and the plan
+  notes `no installation signer policy was read; declarations judged with public-good issuers`.
+- **Record.** The published record cites the declaration in
+  [`inputs.declaration`](contract-reference/inferred-record.md).
+- **Dropped.** A declaration that is gone or no longer counts is dropped with
+  its reason, and the version publishes with the repository's values.
+- **Unknown stops.** A declaration, or the owner history behind it, that
+  cannot be checked under a configured trusted root stops that service's
+  publish.
+- **Plain publish.** `pacto publish` carries nothing, and says which declared
+  fields the new version leaves out.
+
 ## In CI and from agents
 
 CI calls [`pacto ci --publish`](publish-from-ci.md) as one step after the
@@ -221,6 +257,8 @@ through MCP: `pacto mcp --publish` adds `pacto_publish_plan` and
   declares that field, and cites every carried record in
   [`inputs.acceptances`](contract-reference/inferred-record.md). A record that
   no longer verifies stops carrying. A plain `pacto publish` carries none.
+  Fields a person declared are carried the same way: see
+  [Fields declared in the registry](#fields-declared-in-the-registry).
 
 ## Declare a running service
 
@@ -259,7 +297,8 @@ running workload, without a repository or a build.
 - **Drafts.** `pacto declare <workload> --from-draft draft-<n> --yes` accepts a
   draft an agent or CI wrote: the workload is read again under your
   credentials, every declared change the read and the baseline do not back is
-  flagged and you sign.
+  flagged and you sign. `--draft` writes your own draft, unsigned and with no
+  login, for someone to accept later. Every plan lists the drafts waiting.
 - **Verify.** `pacto pull --verify-identity <email> --verify-issuer <issuer>`
   pulls a bundle only when that person signed it; `--verify-key` checks a key
   instead. The record's `declaration` block is in the
@@ -271,6 +310,83 @@ running workload, without a repository or a build.
   accepted by you or inferred. A Pacto target that runs as the workload wins.
   See
   [When a declaration replaces an inferred service](operational-graph-inferred.md#when-a-declaration-replaces-an-inferred-service).
+
+### Open a pull request
+
+- **What it does.** `pacto declare invoices --pr --yes` opens a pull request
+  with the declaration in the service's own repository. After the bundle is
+  written, declared or draft, its exact `pacto.yaml` and
+  `pacto.inferred.yaml` go into the service's folder in one commit on a new
+  branch `pacto/declare-<service>-<version>`. An unchanged declaration
+  exports the baseline bundle's own files.
+- **Plan first.** Without `--yes` the plan adds the repository and pull
+  request lines, checks the confirmation and the token, and sends nothing to
+  the Git host.
+- **Where it runs.** `--pr` runs where your Git token is: the CLI and a stdio
+  MCP server; the dashboard and the HTTP MCP server show the command.
+  Their plan never reads the running image, and takes the GitOps
+  repositories only from a list your own view shows in full.
+
+```console
+repository: github.com/acme/invoices (signed provenance, workflow ci.yml@refs/heads/main), folder: deploy/ (GitOps source)
+pull request: github https://github.com/acme/invoices, branch pacto/declare-invoices-1.5.0, files deploy/pacto.yaml and deploy/pacto.inferred.yaml, with your GITHUB_TOKEN
+```
+
+- **Where the repository comes from.** Every plan names it and how Pacto
+  found it, kept in
+  [`declaration.repository`](contract-reference/inferred-record.md#declaration).
+  The first source that answers wins:
+
+1. **Signed provenance.** A verified keyless signature or signed SLSA
+   provenance attestation on the baseline bundle, then on the running image,
+   whose Fulcio certificate names the source repository. Pacto reads Sigstore
+   bundle referrers through the Referrers API or its own `pacto-sig` tags.
+   Legacy cosign `.sig` tags and the shared `sha256-` referrers-tag index are
+   not read, so a GitHub attestation on a registry without the Referrers API
+   gives nothing and the plan says why. No allowlist is needed, and the
+   repository it names never makes the signer a publisher or clears a gate.
+2. **GitOps source.** The Argo CD Application or Flux `GitRepository` that
+   deploys the workload, with its path as the folder.
+3. **Image label.** The running image's `org.opencontainers.image.source`.
+4. **Repository map.** A `--repo-map` file, read only with `--pr`: YAML keyed
+   by service name, decoded strictly, at most 1 MiB, such as
+   `invoices: {repository: https://github.com/acme/invoices, folder: deploy}`.
+
+- **Your override.** `--repository` and `--folder` win over every source.
+  The folder defaults to the repository root when no source names one.
+- **Unknown stays unknown.** Several signed or GitOps repositories that
+  disagree give no answer, and neither does a signature left unread. A
+  repository listed with several folders names none. With no answer the record has no `repository`, the
+  plan lists why each source gave nothing and `--pr` is refused.
+- **Confirmation.** An image label is unsigned: `--pr` uses it only when you
+  pass the same `--repository` or the map names it. A repository an agent
+  passes, as `repository` or through `repo_map`, steers a pull request only
+  when signed provenance or a GitOps source names it too. A public repository
+  needs your own `--repository`, since the record names the workload, its
+  namespace, external hosts and config key names.
+- **A failed pull request** keeps what was published: rerun with
+  `--pr --yes`, which reuses the branch the failed run pushed.
+- **Review evidence.** CI recomputes `pacto.inferred.yaml` on its next
+  publish, and the declared values travel through the registry
+  ([Fields declared in the registry](#fields-declared-in-the-registry)).
+
+- **Git host.** Pacto finds it from the URL, or from `--git-host`:
+
+| Host kind | Detected from | Token variables |
+|---|---|---|
+| `github` | `github.com`, `GH_HOST` | `GITHUB_TOKEN` or `GH_TOKEN` for `github.com`; `GH_ENTERPRISE_TOKEN` for `GH_HOST` |
+| `gitlab` | `gitlab.com`, `GITLAB_HOST` | `GITLAB_TOKEN` for `GITLAB_HOST`, default `gitlab.com` |
+| `bitbucket` (Cloud) | `bitbucket.org` | `BITBUCKET_TOKEN` |
+| `gitea` (Gitea 1.20 or later and Forgejo) | `codeberg.org`, `GITEA_HOST` | `GITEA_TOKEN` for `GITEA_HOST` |
+
+- **Token.** A variable's token goes only to the host it names. Otherwise
+  Pacto asks `git credential fill` without a prompt and never stores a
+  credential.
+- **Who opens it.** The token's user, whose login the CLI prints.
+- **Transport.** Plain `http://` is refused except on loopback, and a
+  redirect is refused so the token never follows it.
+- **No fork.** A token that cannot push is refused with `PullRequestFailed`
+  and the host's reason.
 
 ## Hand-off to delivery
 

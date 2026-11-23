@@ -1,6 +1,7 @@
 package orgindex
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -77,5 +78,32 @@ func TestDecodeRejectsUnknownFields(t *testing.T) {
 func TestDecodeRejectsOversizedEntry(t *testing.T) {
 	if _, err := Decode(make([]byte, MaxEntryBytes+1)); err == nil || !strings.Contains(err.Error(), "bound") {
 		t.Fatalf("oversized: %v", err)
+	}
+}
+
+// TestEntryLayer: only an index entry manifest with one entry layer within
+// MaxEntryBytes names a layer to fetch.
+func TestEntryLayer(t *testing.T) {
+	manifest := func(artifactType, layers string) []byte {
+		return []byte(`{"schemaVersion":2,"artifactType":"` + artifactType + `","layers":[` + layers + `]}`)
+	}
+	layer := func(mt string, size int) string {
+		return `{"mediaType":"` + mt + `","digest":"sha256:` + strings.Repeat("a", 64) + `","size":` + strconv.Itoa(size) + `}`
+	}
+	ok := layer(MediaType, 10)
+	got, err := EntryLayer(manifest(ArtifactType, ok))
+	if err != nil || got.Size != 10 || string(got.MediaType) != MediaType {
+		t.Fatalf("EntryLayer = %+v, %v", got, err)
+	}
+	for name, raw := range map[string][]byte{
+		"wrong artifactType": manifest("application/x", ok),
+		"not json":           []byte("{"),
+		"two layers":         manifest(ArtifactType, ok+","+ok),
+		"wrong layer type":   manifest(ArtifactType, layer("application/x", 10)),
+		"over MaxEntryBytes": manifest(ArtifactType, layer(MediaType, MaxEntryBytes+1)),
+	} {
+		if _, err := EntryLayer(raw); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

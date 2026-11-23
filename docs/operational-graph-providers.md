@@ -46,6 +46,20 @@ source (such as `prod`) and its workload source (`prod-workloads`).
   `ResourceProvisioned` or `ResourceUsage`, from the additive `adapters` list
   of its `GET /api/evidence/v1/producers`. Trust config rows show to every
   viewer, since that endpoint lists them to anyone.
+- **Istio**, **Linkerd** and **Cilium Hubble** (ids `istio`, `linkerd` and
+  `hubble`): one row per mesh the cluster's API discovery shows, from its
+  mesh source (`prod-mesh`), such as `serves networking.istio.io; calls read
+  from Prometheus` or `serves cilium.io; no Hubble Relay found`. Pacto uses
+  them for observed edges and, for calls leaving the cluster, external
+  egress. Uncovered namespaces, a Prometheus or Relay it
+  could not read and calls it could not attribute make the row `partial`;
+  see [Calls a service mesh records](operational-graph-mesh.md).
+- **Kernel egress** (`kernel-egress`): when the node agent runs, how many
+  nodes that run target pods have one, such as `node agent on 3/4 nodes`.
+  Pacto uses it for external egress. Its status is the worst egress coverage
+  of the Pactos it read, and the row names those services, so a view that
+  hides all of them shows no row. It is cluster-wide; see
+  [Calls that leave the cluster](operational-graph-egress.md).
 
 ```bash
 $ pacto fleet providers --k8s
@@ -152,7 +166,7 @@ explains what each mode means for records.
 With `--detected`, the rows the operator
 [detected in a cluster](integrations/kubernetes/detection.md)
 join from a source of kind `detection`: Registry, Cloud, Sign-in, Exposure,
-Metrics and Nodes. Each carries five more fields:
+Metrics, Nodes, the [trace backends](#trace-backends) and the egress readers. Each carries five more fields:
 
 | Field | Meaning |
 |---|---|
@@ -171,6 +185,96 @@ reads `stale`. A restricted
 view clears the evidence, hint and details of a row that names a namespace
 you cannot read, or of a cluster-wide row when you cannot read the cluster
 scope.
+
+The three egress readers are cluster-wide and read calls leaving the cluster
+([Calls that leave the cluster](operational-graph-egress.md)):
+
+- **Istio egress** (`istio-egress`): `ServiceEntry CRD present` or
+  `no ServiceEntry CRD`.
+- **Cilium FQDN** (`cilium-fqdn`): `CiliumNetworkPolicy CRD present` or
+  `no CiliumNetworkPolicy CRD`.
+- **Egress gateway** (`egress-gateway`): only when Istio egress gateways run,
+  such as `1 Istio egress gateway found; logs: auto`. With `auto` the row is
+  `partial` and its hint is the command that sets
+  `controller.egressGatewayLogs=on`.
+
+## Trace backends
+
+The operator detects four trace backends from the pods and Services it
+already reads, and writes a row only for a backend it found. A failed read is
+one `Traces` row that is `unavailable`. It reads no pod in `kube-system`,
+`kube-public`, `kube-node-lease` or the namespaces of the operator and its node
+agent, so a backend running there is not detected.
+
+- **OTel Collector** (`otel-collector`): a running
+  `opentelemetry-collector` image.
+- **Tempo** (`tempo`): a running `grafana/tempo` image.
+- **Jaeger** (`jaeger`): a Service with port 16686 in a namespace that runs a
+  `jaegertracing/` image. With several candidates the details name the others
+  and the dashboard never reads them as complete coverage.
+- **Datadog** (`datadog`): the Agent DaemonSet, its `DD_SITE` and the name of
+  the Secret its `DD_API_KEY` comes from. Pacto reads no Secret and holds no
+  Datadog client, so the row stays `partial`: Pacto reads Datadog calls
+  through an OpenTelemetry Collector.
+
+`pacto fleet` and `pacto mcp` show these as detected rows used for `observed
+edges, read by the dashboard`. On `pacto dashboard` each backend the dashboard
+reads becomes the row of its live source instead, dated by the last read and
+saying how many edges it read:
+
+- **Jaeger** (source `detected-jaeger`) is `available` once Jaeger returned a
+  dependency. With none it is `partial`: Cassandra and Elasticsearch storage
+  need the spark-dependencies job.
+- **Service graph in Prometheus** (source `detected-service-graph`) reads the
+  series Tempo's metrics-generator and the Collector's `servicegraph`
+  connector write. With no series it is `partial` and names the processor or
+  connector to turn on. The operator picks the Prometheus Service by its labels
+  and only when it is the one Prometheus of its kind; with several the row is
+  `partial`.
+- **OTel Collector** (source `otlp-receiver`) is `available` once Collectors
+  sent calls in the last 15 minutes, and counts the senders. Otherwise it is
+  `partial`, such as `not exporting to pacto-dashboard.pacto-system:4318`, and
+  its hint is one line of Collector configuration. With no Collector
+  detected, an **OTLP receiver** row appears once something was sent.
+
+A live row that is not available carries an `EDGE_SOURCE_PARTIAL` limitation
+with the reason. When the service graph or Jaeger reported complete coverage
+in the last minute, its row says `won: the OTLP receiver is off` and the
+receiver's row says which source won. If the receiver saw calls the winner
+misses, the receiver turns back on and both rows say how many.
+
+When the Collector has a Prometheus, prefer the service graph: add the
+connector to the Collector's configuration, keep its other exporters and let
+Prometheus scrape the new one.
+
+```yaml
+connectors:
+  servicegraph: {}
+exporters:
+  prometheus:
+    endpoint: 0.0.0.0:8889
+service:
+  pipelines:
+    traces:
+      exporters: [servicegraph]  # add to the exporters already listed
+    metrics/servicegraph:
+      receivers: [servicegraph]
+      exporters: [prometheus]
+```
+
+Otherwise export traces to the receiver as JSON, next to the exporters the
+pipeline already has:
+
+```yaml
+exporters:
+  otlphttp/pacto:
+    endpoint: http://pacto-dashboard.pacto-system:4318
+    encoding: json
+service:
+  pipelines:
+    traces:
+      exporters: [otlphttp/pacto]  # add to the exporters already listed
+```
 
 ## Not read and not installed
 

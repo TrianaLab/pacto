@@ -8,9 +8,11 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 
 	"github.com/spf13/cobra"
@@ -139,4 +141,38 @@ func TestFleetProvidersParity(t *testing.T) {
 func TestFleetProvidersNotReadBeyondBound(t *testing.T) {
 	out, _ := providersText(t, &fleet.ProvidersResult{KubernetesSources: 3, NotReadTotal: 3, NotRead: []fleet.SourceState{{ID: "a", Status: fleet.SourceUnavailable}}})
 	expect(t, strings.Contains(out, "a  not read") && strings.Contains(out, "... 2 more not read") && !strings.Contains(out, "No providers detected"), "not read:\n%s", out)
+}
+
+func TestFleetProvidersEgressDetectedRowCell(t *testing.T) {
+	at := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+	row := detect.ProviderRows(detect.Result{AsOf: at, Entries: []detect.Entry{detect.IstioEgress(true, nil)}}, "detected", at)[0]
+	got := providerUsedFor(row)
+	expect(t, got == "reads calls leaving the cluster; nothing is turned on", "the istio-egress cell prints the sentence alone: %s", got)
+}
+
+func TestFleetProvidersListsEgressRows(t *testing.T) {
+	at := time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)
+	kernel := fleet.Provider{ID: fleet.ProviderKernelEgress, Name: "Kernel egress", Evidence: "node agent on 3/4 nodes",
+		UsedFor: []string{fleet.UseExternalEgress}, Status: fleet.SourcePartial, Scope: fleet.ScopeCluster,
+		Limitations: []fleet.Limitation{{Code: fleet.LimitationExternalsUnreported, Message: "a node runs pods but has no node agent"}}}
+	rows := append([]fleet.Provider{kernel}, detect.ProviderRows(detect.Result{AsOf: at, Entries: []detect.Entry{detect.IstioEgress(true, nil), detect.CiliumFQDN(false, nil)}}, "detected", at)...)
+	res := providersQuery(t, clusterSource("k8s", "prod", rows...)).Providers()
+	out, _ := providersText(t, res)
+	for _, want := range []string{"Kernel egress", "node agent on 3/4 nodes", "external egress (partial: a node runs pods but has no node agent)",
+		"ServiceEntry CRD present", "no CiliumNetworkPolicy CRD", "reads calls leaving the cluster; nothing is turned on"} {
+		expect(t, strings.Contains(out, want), "providers text lacks %q:\n%s", want, out)
+	}
+	cmd := &cobra.Command{}
+	var js bytes.Buffer
+	cmd.SetOut(&js)
+	expect(t, printFleetProviders(cmd, res, "json") == nil, "print json")
+	var body struct {
+		Providers []fleet.Provider `json:"providers"`
+	}
+	expect(t, json.Unmarshal(js.Bytes(), &body) == nil, "json: %s", js.String())
+	ids := map[string]bool{}
+	for _, p := range body.Providers {
+		ids[p.ID] = true
+	}
+	expect(t, ids["kernel-egress"] && ids["istio-egress"] && ids["cilium-fqdn"], "providers json lacks an egress row: %s", js.String())
 }

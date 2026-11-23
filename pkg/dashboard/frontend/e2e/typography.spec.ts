@@ -40,10 +40,14 @@ test.describe('typography hierarchy on desktop', () => {
       ['Target detail', `#/fleet/targets/${e(k.target)}`],
       ['Owners list', '#/fleet/owners'],
       ['Data sources list', '#/fleet/sources'],
-      ['Needs attention', '#/fleet/attention'],
-      ['Graph discovery', '#/fleet/graph'],
-      ['Graph focused', `#/fleet/graph/service/${e(k.service)}`],
+      ['Needs attention (beside the Overview map)', '#/fleet/attention'],
+      ['Fleet map', '#/fleet/graph'],
+      ['Fleet map focus', `#/fleet/graph/service/${e(k.service)}`],
+      ['Graph focused', `#/fleet/graph/revision/${e(k.revision)}?perspective=revision`],
       ['Change analysis', `#/fleet/changes/${e(k.service)}`],
+      // Its empty picker titles a placeholder with a p in the section role, the one
+      // non-h2 section title the sweep's tag-independence check needs.
+      ['Change analysis (unscoped)', '#/fleet/changes'],
       // The plain demo serves its own run records (#493 S5).
       ['Metrics', '#/metrics'],
       // The scale fixture answers from here on: first with no stats repository
@@ -76,8 +80,8 @@ test.describe('typography hierarchy on desktop', () => {
     // broke rather than "one role, two sizes" from the sweep.
     //
     // The two genuinely coexist across the product: a Service page's sections are h2s
-    // directly under the page title, and the graph's empty discovery state titles its
-    // placeholder with a p, which is no heading in the outline but reads as a section
+    // directly under the page title, and unscoped Change analysis titles its empty
+    // picker placeholder with a p, which is no heading in the outline but reads as a section
     // title. Under a tag-driven scale those two facts contradicted each other and the
     // tag won.
     const k = await canonicalKeys(page);
@@ -98,11 +102,12 @@ test.describe('typography hierarchy on desktop', () => {
 
     await boot(page, `#/fleet/services/${e(k.service)}`);
     const onService = await read();
-    await boot(page, '#/fleet/graph');
+    await boot(page, '#/fleet/changes');
+    await expect(page.getByTestId('changes-discovery-placeholder')).toBeAttached({ timeout: 20_000 });
     const onDiscovery = await read();
 
     expect(onService.H2, `the Service page rendered no h2 in the section role: ${JSON.stringify(onService)}`).toBeDefined();
-    expect(onDiscovery.P, `graph discovery rendered no p in the section role: ${JSON.stringify(onDiscovery)}`).toBeDefined();
+    expect(onDiscovery.P, `the Change analysis picker rendered no p in the section role: ${JSON.stringify(onDiscovery)}`).toBeDefined();
 
     expect(onDiscovery.P.size, `p "${onDiscovery.P.text}" vs h2 "${onService.H2.text}"`).toBe(onService.H2.size);
     expect(onDiscovery.P.weight, `p "${onDiscovery.P.text}" vs h2 "${onService.H2.text}"`).toBe(onService.H2.weight);

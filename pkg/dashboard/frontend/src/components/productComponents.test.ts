@@ -203,6 +203,16 @@ describe('SourceHealth', () => {
     expect(links[1].getAttribute('href')).toBe('#/fleet/sources?sourceHealth=available');
   });
 
+  // The trust figure beside these chips leaves an advisory source that is not available
+  // out, so it gets no warning chip; an available one is a healthy source like any other.
+  it('gives an advisory source that is not available no chip', () => {
+    comp = mount(SourceHealth, { target, props: { sources: [
+      { id: 'mesh', status: 'partial', advisory: true }, { id: 'registry', status: 'partial' }, { id: 'hints', status: 'available', advisory: true },
+    ] } });
+    const links = Array.from(target.querySelectorAll('a.sh-chip')).map((a) => a.textContent?.replace(/\s+/g, ' ').trim());
+    expect(links).toEqual(['registry Partial', 'hints Available']);
+  });
+
   it('SourceHealth names a scoped source', () => {
     comp = mount(SourceHealth, { target, props: { sources: [{ id: 'k8s', kind: 'kubernetes', status: 'partial', namespaces: ['payments', 'ledger'] }] } });
     const chip = target.querySelector('a.sh-chip') as HTMLAnchorElement;

@@ -544,3 +544,26 @@ func TestFleetExternalAPIInferredSources(t *testing.T) {
 		t.Errorf("external evidence over the wire = %+v", ev)
 	}
 }
+
+func TestOverviewCarriesMatch(t *testing.T) {
+	q := demoFleetQuery(t)
+	base, cancel := startFleetTestServer(t, func(context.Context) (*fleet.Query, error) { return q, nil }, nil)
+	defer cancel()
+	var ov struct {
+		Summary struct {
+			Match *struct {
+				Services     map[string]int `json:"services"`
+				Dependencies map[string]int `json:"dependencies"`
+				Percent      *int           `json:"percent"`
+				Completeness string         `json:"completeness"`
+			} `json:"match"`
+		} `json:"summary"`
+	}
+	getJSON(t, base+"/api/fleet/overview", http.StatusOK, &ov)
+	m := ov.Summary.Match
+	want := q.Match()
+	if m == nil || m.Services["matched"] != want.Services.Matched || m.Services["matched"] == 0 || m.Dependencies["matched"] != want.Dependencies.Matched ||
+		m.Percent == nil || *m.Percent != *want.Percent || m.Completeness != string(want.Completeness) {
+		t.Fatalf("summary.match %+v, want %+v", m, want)
+	}
+}

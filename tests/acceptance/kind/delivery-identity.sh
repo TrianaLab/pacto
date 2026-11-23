@@ -35,6 +35,10 @@
 #     promoter ignores them; a ServiceAccount and an agent group are agents
 #   - an agent reaches Pacto over HTTP as itself (token exchange) and cannot
 #     approve through the dashboard, the MCP server or the apiserver
+#   - the operator-managed dashboard serves MCP at /mcp with its own sign-in:
+#     an agent's dual-audience ServiceAccount token proposes and cancels as
+#     that ServiceAccount, its audience-only token reads the fleet only and a
+#     person's token reads; nobody gets an approve tool
 #   - the dashboard's ServiceAccount only lists and watches Stages and Operations
 #   - signed in, a person sees only the services of the namespaces Kubernetes
 #     RBAC lets them read; a visitor who has not signed in sees none
@@ -249,22 +253,10 @@ YAML
   echo "$f"
 }
 
-# mcp TOKEN METHOD PARAMS — one JSON-RPC call to the remote MCP server; prints
-# the JSON answer once (the server is stateless: no initialize needed). The `t`
-# ends the cycle after a stripped SSE data line, which now starts with `{` and
-# would otherwise print twice.
-mcp() {
-  local auth=(); [ -n "$1" ] && auth=(-H "Authorization: Bearer $1")
-  curl -s "${auth[@]}" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
-    -H 'Mcp-Protocol-Version: 2025-06-18' \
-    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$2\",\"params\":$3}" "$MCP_URL/mcp" | sed -n -e 's/^data: //p' -e t -e '/^{/p'
-}
-# tool TOKEN NAME ARGS — one tool call's text answer; a refusal prints as
-# "ERROR: <text>".
-tool() {
-  mcp "$1" tools/call "{\"name\":\"$2\",\"arguments\":$3}" |
-    jq -r 'if .error then "ERROR: \(.error.message)" elif .result.isError then "ERROR: \(.result.content[0].text)" else .result.content[0].text end'
-}
+# mcp TOKEN METHOD PARAMS and tool TOKEN NAME ARGS — lib.sh's mcp_rpc and
+# mcp_tool against the remote MCP server.
+mcp() { mcp_rpc "$MCP_URL/mcp" "$@"; }
+tool() { mcp_tool "$MCP_URL/mcp" "$@"; }
 
 # dash SESSION METHOD PATH [BODY] [CSRF] — a dashboard API call as the browser
 # would make it: the session cookie, the dashboard's own Origin and the CSRF
@@ -456,6 +448,60 @@ identity_mcp_composed() {
   [[ "$out" == ERROR:* ]] && grep -q "is not a revision in your fleet view" <<<"$out" \
     || fail "frank's impact over a revision he cannot see was not refused: ${out:0:600}"
   pass "frank's RBAC hides rbac-closed from his fleet answers, his inbox and his impact over MCP"
+}
+
+# identity_managed_mcp FROM: the operator-managed dashboard serves MCP at /mcp
+# with its own sign-in (token sign-in is on by default and delivery.sh sets no
+# exchange audience, so every token takes the token path). An agent's token
+# minted for pacto-dashboard and the cluster proposes and cancels as that
+# ServiceAccount; its audience-only token reads the fleet only and is told
+# which audience to add; a person's Dex token reads and never proposes.
+# Nobody gets an approve tool. Prod runs FROM and holds nothing: F waits
+# there for team-checkout, as idp-f did.
+identity_managed_mcp() {
+  local from="$1" pid url aud dual only tools out args digest
+  local sa="system:serviceaccount:agents:agent-a"
+  pid="$(pf 3310 svc/pacto-dashboard 3000)" || fail "could not port-forward the managed dashboard"
+  url="http://127.0.0.1:3310/mcp"
+  aud="$(kubectl -n agents create token agent-a --duration 10m |
+    jq -rR 'split(".")[1] | gsub("-";"+") | gsub("_";"/") | @base64d | fromjson | .aud[0]')"
+  [ -n "$aud" ] || fail "could not read the cluster's API audience from a ServiceAccount token"
+  dual="$(kubectl -n agents create token agent-a --audience pacto-dashboard --audience "$aud" --duration 10m)"
+  tools="$(mcp_rpc "$url" "$dual" tools/list '{}')"
+  jq -e '[.result.tools[].name] | index("pacto_delivery_operation_propose") != null and index("pacto_delivery_cancel") != null
+    and (map(select(test("approve"))) == [])' <<<"$tools" >/dev/null || fail "the agent's dual-audience tools on the managed /mcp: $tools"
+  args="$(jq -nc --arg to "$F" --arg from "$from" '{namespace: "prod", stage: "payments", to: $to, from: $from,
+    reason: "phase 4, through the managed /mcp", on_behalf_of: "dana@example.com"}')"
+  out="$(mcp_tool "$url" "$dual" pacto_delivery_operation_plan "$args")"
+  digest="$(jq -r '.intentDigest // empty' <<<"$out" 2>/dev/null)"
+  [ -n "$digest" ] || fail "the agent's plan on the managed /mcp has no intent digest: $out"
+  out="$(mcp_tool "$url" "$dual" pacto_delivery_operation_propose "$(jq -c --arg d "$digest" '. + {intent_digest: $d, name: "idp-mcp"}' <<<"$args")")"
+  kubectl -n prod get operation idp-mcp >/dev/null 2>&1 || fail "the agent could not propose through the managed /mcp: $out"
+  [ "$(kubectl -n prod get operation idp-mcp -o jsonpath='{.spec.actor.user}')" = "$sa" ] \
+    || fail "the operation's actor is not $sa: $(kubectl -n prod get operation idp-mcp -o jsonpath='{.spec.actor}')"
+  audited create operations "$sa" || fail "the audit log does not show $sa creating the operation"
+  eventually 30 held prod idp-mcp || fail "idp-mcp was not held in prod: $(field prod idp-mcp phase) $(field prod idp-mcp message)"
+  out="$(mcp_tool "$url" "$dual" pacto_delivery_cancel '{"namespace":"prod","name":"idp-mcp"}')"
+  mcp_cancelled() { ! kubectl -n prod get operation idp-mcp >/dev/null 2>&1 || [ "$(outcome prod idp-mcp)" = Cancelled/ ]; }
+  eventually 30 mcp_cancelled || fail "the agent's cancel through the managed /mcp did not cancel idp-mcp: $out $(outcome prod idp-mcp)"
+  audited delete operations "$sa" || fail "the audit log does not show $sa cancelling the operation"
+  pass "through the managed dashboard's /mcp an agent planned, proposed and cancelled as $sa; nobody is offered approve"
+
+  only="$(kubectl -n agents create token agent-a --audience pacto-dashboard --duration 10m)"
+  tools="$(mcp_rpc "$url" "$only" tools/list '{}')"
+  jq -e '[.result.tools[].name] | index("pacto_fleet_status") != null and (map(select(startswith("pacto_delivery_") or test("approve"))) == [])' \
+    <<<"$tools" >/dev/null || fail "the agent's audience-only token is not fleet-only on the managed /mcp: $tools"
+  out="$(mcp_tool "$url" "$only" pacto_capabilities '{}')"
+  jq -e --arg a "--audience $aud" '.caller.fleetOnly == true and (.caller.hint | contains($a))' <<<"$out" >/dev/null \
+    || fail "the fleet-only hint does not name the cluster's audience $aud: $out"
+  pass "the same agent's audience-only token reads the fleet only, and the hint names --audience $aud"
+
+  tools="$(mcp_rpc "$url" "$(dex_token alice)" tools/list '{}')"
+  jq -e '[.result.tools[].name] | index("pacto_fleet_status") != null and index("pacto_delivery_get") != null
+    and index("pacto_delivery_operation_propose") == null and (map(select(test("approve"))) == [])' <<<"$tools" >/dev/null \
+    || fail "a person's Dex token on the managed /mcp: $tools"
+  kill "$pid" 2>/dev/null || true
+  pass "a person's Dex token reads fleet and delivery on the managed /mcp, with no propose and no approve"
 }
 
 identity_scenario() {
@@ -825,6 +871,7 @@ YAML
     || fail "the rollback is not carol's undoing of F: $(kubectl -n prod get operation idp-undo -o jsonpath='{.spec}')"
   wait_concluded prod idp-undo Succeeded/Verified
   runs prod payments "$from" || fail "prod is not back on the version before F"
+  identity_managed_mcp "$from"
   out="$(mcp "$(kc_agent_token)" tools/call "{\"name\":\"pacto_delivery_operation_propose\",\"arguments\":{\"namespace\":\"prod\",\"stage\":\"payments\",\"to\":\"$F\",\"from\":\"$from\",\"name\":\"idp-f2\",\"reason\":\"phase 4 again\",\"on_behalf_of\":\"dana@example.com\"}}")"
   eventually 30 held prod idp-f2 || fail "F was not held again: $out $(field prod idp-f2 phase) $(field prod idp-f2 message)"
   local again; again="$(login carol -fresh -session "$fresh")" || fail "carol's second fresh login failed"

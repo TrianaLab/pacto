@@ -107,7 +107,8 @@ recognize, as [Matching](#matching) describes.
 ## Matching
 
 `pacto init`, the operator and the fleet all classify through the same
-matcher.
+matcher, and so do the hosts of
+[calls that leave the cluster](operational-graph-egress.md).
 
 | Input | Rule | Confidence |
 |-------|------|------------|

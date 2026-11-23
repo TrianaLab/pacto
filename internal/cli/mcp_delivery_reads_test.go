@@ -507,13 +507,16 @@ func TestFleetRevisionDocumentMatchesRoute(t *testing.T) {
 }
 
 // TestRemoteBundleThatCannotRegisterFailsAtStartup: a remote server checks
-// its bundle once, before any request.
+// its bundle once, before any request, also for the fleet-only server a
+// token-path auth adds.
 func TestRemoteBundleThatCannotRegisterFailsAtStartup(t *testing.T) {
-	d := readDeps(nil)
-	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
-	cmd.SetContext(context.Background())
-	expect(t, cmd.Flags().Set("delivery", "true") == nil, "flag")
-	s := mcpServe{auth: &fakeMCPAuth{exchange: true}, issuer: "https://idp", resource: "https://mcp.example/mcp"}
-	err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", []string{writeCapabilityBundle(t)}, d, &s)
-	wantErr(t, err, "no base URL")
+	for name, a := range map[string]mcpAuth{"exchange": &fakeMCPAuth{exchange: true}, "credentialless": newCredentiallessAuth()} {
+		d := readDeps(nil)
+		cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+		cmd.SetContext(context.Background())
+		expect(t, cmd.Flags().Set("delivery", "true") == nil, "flag")
+		s := mcpServe{auth: a, issuer: "https://idp", resource: "https://mcp.example/mcp"}
+		err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", []string{writeCapabilityBundle(t)}, d, &s)
+		expect(t, err != nil && strings.Contains(err.Error(), "no base URL"), "%s: %v", name, err)
+	}
 }

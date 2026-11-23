@@ -1219,8 +1219,8 @@ svc_json=$(inferred_fleet get card-payments) || fail "pacto fleet get card-payme
 jq -e '[.dependencies[] | select(.to == "stripe-pinned")] | length == 1 and .[0].rangeStatus == "unknown" and .[0].rangeReason == "INFERRED_PROVIDER"' <<<"$svc_json" >/dev/null ||
 	fail "card-payments' stripe-pinned range is not unknown with INFERRED_PROVIDER: $svc_json"
 att_json=$(inferred_fleet attention) || fail "pacto fleet attention failed: $att_json"
-jq -e '[.items[] | select(.code == "INFERRED_PROVIDER")] | length == 1 and .[0].nextAction.verb == "declare"' <<<"$att_json" >/dev/null ||
-	fail "attention does not list exactly one INFERRED_PROVIDER item with the declare next action: $att_json"
+jq -e '[.items[] | select(.code == "INFERRED_PROVIDER")] | length == 1 and .[0].nextAction.verb == "edit-contract"' <<<"$att_json" >/dev/null ||
+	fail "attention does not list exactly one INFERRED_PROVIDER item with the edit-contract next action (stripe is external, which pacto declare cannot read): $att_json"
 pass "the inferred service published stripe's inferred contract and a range on it reads unknown with INFERRED_PROVIDER"
 
 # The Metrics page reads the CI run records the seed published to the demo's

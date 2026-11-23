@@ -98,7 +98,7 @@ func TestDeclareCommandYesPublishes(t *testing.T) {
 	var got app.DeclareRequest
 	run := func(req app.DeclareRequest) (*app.DeclareResult, error) {
 		p := *declarePlanFixture()
-		req.OnPlan(&p)
+		_ = req.OnPlan(&p)
 		p.Signer.Subject, p.Signer.Issuer = "ana@acme.com", "https://accounts.google.com"
 		return &app.DeclareResult{Plan: p, Executed: true, Signed: true, Tag: "0.1.0", Published: "ghcr.io/acme/invoices@sha256:7c1d"}, nil
 	}
@@ -126,7 +126,7 @@ func TestDeclareCommandPrintsUX(t *testing.T) {
 		p.Ranges = nil
 		p.State, p.Signer = contract.DeclarationDraft, app.SignerView{Subject: "ci", Issuer: "https://token.actions.githubusercontent.com", Class: "ci", Source: "ambient", Why: "an ambient token writes a draft"}
 		p.Skipped = []app.SkippedTag{{Tag: "2.0.0", Signer: "eve@evil.com", Why: "no publisher rule covers it"}}
-		req.OnPlan(&p)
+		_ = req.OnPlan(&p)
 		p.AcceptCLI = "pacto declare invoices --from-draft draft-3"
 		return &app.DeclareResult{Plan: p, Executed: true, Draft: true, Tag: "draft-3", Published: "ghcr.io/acme/invoices@sha256:dd"}, nil
 	}
@@ -238,7 +238,7 @@ func TestDeclareCommandPrintsPlanBeforeLogin(t *testing.T) {
 	out := &sharedOut{}
 	var atLogin string
 	run := func(req app.DeclareRequest) (*app.DeclareResult, error) {
-		req.OnPlan(declarePlanFixture())
+		_ = req.OnPlan(declarePlanFixture())
 		atLogin = out.String()
 		req.Signing.Prompt("Opening https://oauth2.sigstore.dev/auth")
 		return &app.DeclareResult{Plan: *declarePlanFixture()}, nil
@@ -269,7 +269,7 @@ func TestDeclareCommandFromDraft(t *testing.T) {
 	run := func(req app.DeclareRequest) (*app.DeclareResult, error) {
 		p := *declarePlanFixture()
 		p.Unbacked = []string{"service.owner"}
-		req.OnPlan(&p)
+		_ = req.OnPlan(&p)
 		return &app.DeclareResult{Plan: p}, nil
 	}
 	out, _, err := runRoot(t, declareDeps(t, &got, nil, nil, run), nil, "declare", "invoices", "--from-draft", "draft-3", "--accept", "audit", "--yes")
@@ -351,5 +351,75 @@ func TestPullVerifyFlags(t *testing.T) {
 	// A refused combination stops the pull before any read.
 	if _, _, err := runRoot(t, defaultDeps(), nil, "pull", "oci://ghcr.io/acme/svc:1.0.0", "--verify-identity", "x"); err == nil || !strings.Contains(err.Error(), "go together") {
 		t.Fatal(err)
+	}
+}
+
+func TestDeclareDraftFlag(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	run := func(req app.DeclareRequest) (*app.DeclareResult, error) {
+		p := *declarePlanFixture()
+		p.State, p.AcceptCLI = contract.DeclarationDraft, "pacto declare invoices --registry ghcr.io/acme --from-draft draft-1"
+		return &app.DeclareResult{Plan: p, Executed: true, Draft: true, Tag: "draft-1", Published: "ghcr.io/acme/invoices@sha256:7c1d"}, nil
+	}
+	out, _, err := runRoot(t, declareDeps(t, &got, nil, nil, run), nil, "declare", "invoices", "--draft", "--yes")
+	if err != nil || !got.Draft || !strings.Contains(out, "wrote draft-1 (ghcr.io/acme/invoices@sha256:7c1d): a person accepts it with pacto declare invoices") {
+		t.Fatalf("%v %+v\n%s", err, got, out)
+	}
+}
+
+func TestDeclareDraftAndFromDraftRefused(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	_, _, err := runRoot(t, declareDeps(t, &got, declarePlanFixture(), nil, nil), nil, "declare", "invoices", "--draft", "--from-draft", "draft-3")
+	if err == nil || !strings.Contains(err.Error(), "pass only one of them") || got.Service != "" {
+		t.Fatalf("%v %+v", err, got)
+	}
+}
+
+func TestDeclarePlanPrintsDrafts(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	p := declarePlanFixture()
+	p.Drafts = []app.DraftView{
+		{Tag: "draft-3", State: contract.DeclarationDraft, OnBehalfOf: "ana", Requested: []string{"audit ^1.4.0"},
+			Asker: contract.InferredSigner{Issuer: contract.SignerUnsigned, Class: contract.SignerClassAgent}},
+		{Tag: "draft-2", State: contract.DeclarationDraft, Signed: true, Asker: contract.InferredSigner{Subject: "ci@acme.com", Class: "ci"}},
+		{Tag: "draft-1", State: contract.DeclarationDraft, Reason: "its signature could not be checked: offline"},
+		{Tag: "draft-0", State: "unreadable", Reason: "it holds no readable declaration"},
+	}
+	p.DraftsTotal = 25
+	out, _, err := runRoot(t, declareDeps(t, &got, p, nil, nil), nil, "declare", "invoices")
+	want := "Drafts (newest 4 of 25):\n" +
+		"  draft-3 by an agent for ana, requests audit ^1.4.0 (unsigned)\n" +
+		"  draft-2 by ci@acme.com\n" +
+		"  draft-1 by an agent (unsigned) (its signature could not be checked: offline)\n" +
+		"  draft-0 unreadable: it holds no readable declaration\n" +
+		"intent: "
+	if err != nil || !strings.Contains(out, want) {
+		t.Fatalf("%v\n%s", err, out)
+	}
+	p.Drafts, p.DraftsTotal = p.Drafts[:1], 1
+	out, _, _ = runRoot(t, declareDeps(t, &got, p, nil, nil), nil, "declare", "invoices")
+	if !strings.Contains(out, "Drafts:\n  draft-3 by an agent") {
+		t.Fatalf("%s", out)
+	}
+}
+
+// TestDraftLineNamesOnlyAVerifiedAsker: an asker a signature does not prove
+// is never printed as the draft's author.
+func TestDraftLineNamesOnlyAVerifiedAsker(t *testing.T) {
+	ana := contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com", Class: contract.SignerClassHuman}
+	for _, c := range []struct {
+		d    app.DraftView
+		want string
+	}{
+		{app.DraftView{Tag: "draft-4", Asker: ana, Signed: true}, "draft-4 by ana@acme.com"},
+		{app.DraftView{Tag: "draft-4", Asker: ana}, "draft-4 by a person (unsigned)"},
+		{app.DraftView{Tag: "draft-4", Asker: contract.InferredSigner{Class: contract.SignerClassAgent}, OnBehalfOf: "ana"}, "draft-4 by an agent for ana (unsigned)"},
+	} {
+		if got := draftLine(c.d); got != c.want {
+			t.Errorf("draftLine = %q, want %q", got, c.want)
+		}
 	}
 }

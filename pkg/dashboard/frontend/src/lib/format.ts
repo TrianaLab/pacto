@@ -237,6 +237,10 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   catalog: 'Catalog — contracts discovered in a registry',
   mira: 'Mira — calls between services seen in its trace store',
   detection: 'Cluster detection — what the operator inferred the cluster provides',
+  mesh: 'Service mesh — calls the mesh or Hubble already records',
+  traces: 'Trace backend — calls Jaeger or a Prometheus service graph saw, read by the dashboard',
+  'otlp-receiver': 'OTLP receiver — calls in traces a Collector exports to the dashboard; no span is kept and they never corroborate a declared dependency',
+  'kubernetes-linked': 'Linked workloads — workloads the operator linked to a published contract with no Pacto',
 };
 
 export function sourceTooltip(src: string): string {

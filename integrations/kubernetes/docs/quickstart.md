@@ -43,21 +43,25 @@ turns on. The `pacto-viewer` link the install notes print reads the fleet
 only. To approve, paste your own token or use `pacto delivery approve`
 ([approve or unblock a change](../../pactify-decide.md)).
 
+## Connect an agent
+
+The install notes also print an MCP client snippet for the dashboard's `/mcp`
+on the same port-forward. See [connect to an installed Pacto](../../mcp-integration.md#connect-to-an-installed-pacto).
+
 ## Health and metrics checks
 
-The profile keeps the chart's runtime defaults: probing and metrics observation
-run only in namespaces labelled `pacto.trianalab.io/observe`. Elsewhere the
-metrics dimension of a contract that declares `metrics` reads `Unsupported`,
-and health is read passively, so Pacto can confirm it but never contradict it.
-To check both actively in one namespace, label it:
+The profile sets `profile: idp`, which turns probing and metrics observation on
+in every namespace and turns Pacto delivery on. Pacto checks health and the
+metrics dimension of each contract actively.
+
+To observe only the namespaces you label `pacto.trianalab.io/observe`, add
+`--set profile=default --set delivery.enabled=true` to `helm install`; then
+label a namespace:
 
 ```bash
 kubectl label ns payments pacto.trianalab.io/observe=probing.metrics
 ```
 
 The label applies at each Pacto's next check, within
-`spec.checkIntervalSeconds` (default 5 minutes).
-
-To check them in every namespace, add to `helm install`
-`--set controller.probing=on --set controller.metricsObservation=on`;
-see [Opt-in features](limitations.md#opt-in-features).
+`spec.checkIntervalSeconds` (default 5 minutes). See
+[Opt-in features](limitations.md#opt-in-features).

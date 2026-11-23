@@ -49,6 +49,28 @@ const SourceKindMira = "mira"
 // on it (an advisory source is [Collection.Advisory]).
 const SourceKindDetection = "detection"
 
+// SourceKindMesh is the Kind of a source reading the calls a service mesh or
+// Hubble records. It labels the source only; pkg/fleet never branches on it.
+const SourceKindMesh = "mesh"
+
+// SourceKindTraces is the Kind of a source reading the calls a trace backend
+// the operator detected already records, such as Jaeger's dependencies.
+const SourceKindTraces = "traces"
+
+// SourceKindOTLPReceiver is the Kind of the dashboard's OTLP/HTTP receiver,
+// which maps the spans Collectors send it to calls.
+const SourceKindOTLPReceiver = "otlp-receiver"
+
+// SourceKindLinked is the Kind of a source reading the workloads the Pacto
+// operator linked to a published contract with no Pacto: targets, like a
+// Kubernetes source.
+const SourceKindLinked = "kubernetes-linked"
+
+// SourceKindMemberLinks is the Kind of the hub's carrier of member link
+// facts ([Collection.ClusterLinks]). Build copies its links onto the cluster
+// records and lists it nowhere: it is no source a reader configured.
+const SourceKindMemberLinks = "member-links"
+
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
 	// "local", or a named environment like "production-eu"). Used as provenance.
@@ -108,6 +130,10 @@ type Collection struct {
 	// [Build] folds its observations and lets them corroborate a declared edge,
 	// but its silence never counts against one.
 	ObservedUndeclaredOnly bool
+	// ObservedCautionOnly says the source's observed edges come from senders
+	// nobody authenticated (the OTLP receiver): [Build] folds them as callers
+	// and undeclared edges but never lets them corroborate a declared edge.
+	ObservedCautionOnly bool
 	// Provisioning is provider-reported state of what a consumer's
 	// configuration reference or dependency asked for. It is never a target.
 	Provisioning []RawProvisioning
@@ -132,6 +158,9 @@ type Collection struct {
 	// Advisory: an advisory source never makes a snapshot partial: its status
 	// is reported and its rows are hints.
 	Advisory bool
+	// ClusterLinks are member link facts by cluster id, read only from a
+	// [SourceKindMemberLinks] source.
+	ClusterLinks map[string]ClusterLink
 }
 
 // RawInferredService is one workload a source read (Kind is Deployment,
@@ -172,8 +201,8 @@ type WorkloadRef struct {
 // configuration of the service (Service, Domain) running in Namespace.
 // Identity is the external identity it was classified as, by the catalog
 // whose digest is Catalog; Kind says where it was found (env, configMap,
-// secretKeyRef, secretRef, externalNameService, selectorlessService or
-// serviceEntry) and Where names the object and key, never a value. Host is
+// secretKeyRef, secretRef, externalNameService, selectorlessService,
+// serviceEntry or ciliumFQDN, a Cilium egress allow-list rule) and Where names the object and key, never a value. Host is
 // the normalized host and port, empty when only a key name matched.
 type RawExternalUse struct {
 	Service, Domain, Namespace string
@@ -322,6 +351,9 @@ type RawTarget struct {
 	// CreatedAt is when the declaration that produced this target was
 	// created (a Pacto's metadata.creationTimestamp), nil when unknown.
 	CreatedAt *time.Time
+	// Link is set when the target is a workload the operator linked to a
+	// published contract with no Pacto.
+	Link *ObservedLink
 }
 
 // MemorySource is an in-memory [Source]. It is the substrate for tests, the

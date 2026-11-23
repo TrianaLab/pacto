@@ -270,6 +270,10 @@ type CheckResult struct {
 	// Inferred lists what the contract implies rather than declares (an
 	// absent pactoVersion, a service.name read from the folder), with sources.
 	Inferred []contract.Inferred `json:"inferred,omitempty"`
+	// ContractCompleteness is how completely the contract describes its
+	// service, section by section, with the YAML that declares each gap the
+	// inferred record knows.
+	ContractCompleteness *contract.ContractCompleteness `json:"contractCompleteness,omitempty"`
 }
 
 // ContractSummary provides a high-level overview of a contract.
@@ -1640,12 +1644,14 @@ func (o fileOps) check(ctx context.Context, validate Validator, path string, env
 		vr.ValidationResult = validation.Merged(vr.Stages)
 	}
 
+	rec, _ := contract.ReadInferredRecord(bundle.FS) // ponytail: an unreadable record is reported by validation; completeness then reads none
 	cr := &CheckResult{
-		Valid:    vr.IsValid(),
-		Summary:  summarizeContract(c),
-		Stages:   vr.Stages,
-		Next:     vr.Next,
-		Inferred: bundle.Inferred,
+		Valid:                vr.IsValid(),
+		Summary:              summarizeContract(c),
+		Stages:               vr.Stages,
+		Next:                 vr.Next,
+		Inferred:             bundle.Inferred,
+		ContractCompleteness: new(contract.Completeness(c, rec)),
 	}
 
 	for _, e := range vr.Errors {

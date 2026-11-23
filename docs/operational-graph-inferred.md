@@ -36,6 +36,7 @@ limitation per source counts those workloads.
 | `DECLARATION_UNVERIFIED` | Pacto could not read the Pacto resources of the inferred service's namespace, so a contract may describe it. The service carries `declarationUnverified`, one limitation per source counts them and the Overview counts them as `inferredUnverified` |
 | `INFERRED_REPLACEMENT_AMBIGUOUS` | More than one declared service targets the workload or names it in its declaration, a target of unknown cluster names it in a snapshot of several clusters, or a declaration names it with no cluster in a fleet of several clusters. The workload stays an inferred service; see [When a contract takes over](#when-a-contract-takes-over) |
 | `INFERRED_LINK_IGNORED` | A declaration names the workload but hands nothing over: no accepted person signed it or the source checks no signatures, a Pacto target runs as the workload, the workload is in a namespace where the service has no target, its cluster contradicts the fleet's, or a newer revision ships an inferred record Pacto cannot read. The workload stays an inferred service; see [When a declaration replaces an inferred service](#when-a-declaration-replaces-an-inferred-service) |
+| `LINK_VERSION_AMBIGUOUS` | Several release versions of a service record the images a linked workload runs, or its pods run the images of different versions. The newest is linked and `pacto impact` reads the workload as an unverified consumer. A `pacto` older than this release reads a target snapshot's linked workload as a consumer at the newest version; see [When a running image links a contract](#when-a-running-image-links-a-contract) |
 | `SUBJECT_REPLACED` | `pacto impact --event` was asked about the key of an inferred service a declared service replaced, and answers for the declared service |
 | `SERVICE_INFERRED` | The answer is about an inferred service. `pacto fleet graph` and `pacto impact --event` answer partial, since no contract can depend on it; `pacto fleet explain` lists it as a reason |
 | `SERVICE_GROUP_AMBIGUOUS` | Two groups of one rule claim the workload, so it stays ungrouped; see [Groups and repositories](#groups-and-repositories) |
@@ -188,6 +189,9 @@ was seen and each source that saw it.
   end once in `hiddenDependents` or `hiddenDependencies`, even when the same
   workload is also an uncontracted caller.
 
+Calls Istio, Linkerd or Cilium Hubble record join inferred services the same
+way; see [Calls a service mesh records](operational-graph-mesh.md).
+
 ## When a contract takes over
 
 When a Pacto resource's target runs as a workload Pacto showed as an inferred
@@ -283,4 +287,30 @@ Fields:
   owner         billing    declared
   ledger range  ^2.3.0     accepted by ana@acme.com
   audit range   unknown    proposed ^1.4.0 (fleet, partial)
+```
+
+## When a running image links a contract
+
+The operator [links a workload](integrations/kubernetes/linked-workloads.md)
+no Pacto targets to the published contract it runs, by its image digest or its
+`pacto.trianalab.io/contract` annotation. With `--detected`, the fleet reads
+each such workload as a target of that contract's revision, with a `link`, and
+hands its inferred twin over to the declared service.
+
+- **Order.** A Pacto target that runs as the workload, or may run as it, wins
+  and the linked target is dropped. A declaration that names the workload
+  wins next. A link to another service then adds
+  `INFERRED_REPLACEMENT_AMBIGUOUS`.
+- **Replacement.** When the workload's `creationTimestamp` is more than 10
+  minutes before the operator first linked it, `replacements` records
+  `link: observed` with `signal` (`image-digest` or `annotation`), `value`,
+  the `target`, the `revision` and `at`, when it was linked. An
+  `INFERRED_REPLACED` item names it for 24 hours.
+- **Restricted viewers.** A viewer who may not list the workload's namespace
+  sees neither the linked target, its link nor its limitations.
+
+```text
+$ pacto fleet get payments --k8s --detected k8s:pacto-system/pacto-operator-detected
+...
+k8s:shop/Deployment/payments is linked to payments by its running image digest sha256:ab12cd34ef56… (observed, 3m ago)
 ```

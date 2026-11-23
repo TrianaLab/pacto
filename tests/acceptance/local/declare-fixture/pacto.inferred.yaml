@@ -1,0 +1,74 @@
+format: pacto.inferred/v1
+inputs:
+    pacto: ""
+    discovery: "5"
+    sources: []
+    catalog:
+        - default sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063
+    cluster:
+        asOf: "2026-11-22T11:21:53Z"
+        object: billing/Deployment/invoices
+        callWindow: 24h
+        maxItems: 10000
+fields:
+    - field: dependencies[audit].compatibility
+      value: compatibility unknown
+      source: cluster:fleet reported versions 1.4.0
+      confidence: likely
+      declare: 'compatibility: "^1.4.0"'
+      asOf: "2026-11-22T11:21:53Z"
+      completeness: complete
+      proposed: ^1.4.0
+    - field: dependencies[ledger].compatibility
+      value: compatibility unknown
+      source: cluster:fleet reported versions 2.3.1
+      confidence: likely
+      declare: 'compatibility: "^2.3.0"'
+      asOf: "2026-11-22T11:21:53Z"
+      completeness: complete
+      proposed: ^2.3.0
+    - field: image
+      value: reg.io/acme/invoices:1.0.0
+      source: cluster:manifest billing/Deployment/invoices manifests.yaml:23
+      confidence: likely
+      asOf: "2026-11-22T11:21:53Z"
+    - field: ports[8080]
+      value: 8080/tcp
+      source: cluster:manifest billing/Deployment/invoices manifests.yaml:26
+      confidence: likely
+      asOf: "2026-11-22T11:21:53Z"
+    - field: publish.deploy
+      value: 'manifests: manifests.yaml'
+      source: cluster:manifest billing/Deployment/invoices manifests.yaml:23
+      confidence: likely
+      declare: |
+        publish:
+          bundle: oci://<registry>/contracts/invoices
+          deploy: manifests
+          artifacts:
+            - name: manifests
+              type: manifests
+              ref: oci://<registry>/deploy/invoices
+      asOf: "2026-11-22T11:21:53Z"
+findings:
+    - code: DISCOVERY_UNRESOLVED
+      source: manifests.yaml:23
+      message: manifests.yaml:23 names an image no Skaffold, ko, Jib, buildpacks or Dockerfile builds; pass --image or declare publish
+coverage:
+    - source: workloads
+      state: complete
+    - source: pods
+      state: complete
+    - source: replicasets
+      state: complete
+    - source: jobs
+      state: complete
+    - source: services
+      state: complete
+    - source: endpointslices
+      state: complete
+    - source: pactos
+      state: complete
+    - source: runtime-calls
+      state: partial
+      reason: no running pods observed

@@ -24,7 +24,6 @@
   import EntitySearch from './EntitySearch.svelte';
   import FleetOverview from './views/FleetOverview.svelte';
   import FleetServicesView from './views/FleetServicesView.svelte';
-  import FleetAttentionView from './views/FleetAttentionView.svelte';
   import LegacyEntityRedirect from './views/LegacyEntityRedirect.svelte';
 
   // The views that carry cytoscape, d3 and the charts load on first use.
@@ -468,7 +467,7 @@
       {@render migrating()}
     {/if}
   {:else if route.view === 'fleet-overview'}
-    <FleetOverview {refreshTick} />
+    <FleetOverview params={route.params} {refreshTick} />
   {:else if route.view === 'fleet-services'}
     <FleetServicesView
       text={route.params.text || ''}
@@ -525,6 +524,7 @@
       offset={route.params.offset || ''}
       limit={route.params.limit || ''}
       sort={route.params.sort || ''}
+      mcp={capabilities?.installation?.mcp}
       {refreshTick}
     />
   {:else if route.view === 'fleet-entity-list'}
@@ -545,23 +545,9 @@
   {:else if route.view === 'fleet-entity'}
     {#key route.params.kind + '@@' + route.params.key}
       <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} correlation={route.params.correlationID || ''}
-        changesQuery={{ kind: route.params.changesKind || '', offset: route.params.changesOffset || '', limit: route.params.changesLimit || '', section: route.params.section || '' }} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)} />
+        changesQuery={{ kind: route.params.changesKind || '', offset: route.params.changesOffset || '', limit: route.params.changesLimit || '', section: route.params.section || '' }} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)}
+        canDeclare={capabilities?.declare === true} declareQuery={{ open: route.params.declare === '1', signed: route.params.signed || '' }} />
     {/key}
-  {:else if route.view === 'fleet-attention'}
-    <FleetAttentionView
-      category={route.params.category || ''}
-      severity={route.params.severity || ''}
-      status={route.params.status || ''}
-      owner={route.params.owner || ''}
-      ownerKey={route.params.ownerKey || ''}
-      source={route.params.source || ''}
-      service={route.params.service || ''}
-      businessDomain={route.params.businessDomain || ''}
-      staleOnly={route.params.staleOnly || ''}
-      offset={route.params.offset || ''}
-      limit={route.params.limit || ''}
-      {refreshTick}
-    />
   {:else if route.view === 'fleet'}
     <LazyView load={loadGraphView} params={route.params} {refreshTick} />
   {:else if route.view === 'changes'}

@@ -1,0 +1,23 @@
+{{- if eq (include "pacto-operator.egressGatewayLogs" .) "on" }}
+{{- $fullname := include "pacto-operator.fullname" . }}
+{{- $labels := include "pacto-operator.labels" . }}
+# controller.egressGatewayLogs=on: read the access log of the Istio egress
+# gateways in istio-system to name the calls that left through them. A Role in
+# that one namespace, in either install mode; never a ClusterRole rule.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ $fullname }}-egress-gateway-logs
+  namespace: istio-system
+  labels:
+    {{- $labels | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [list]
+  - apiGroups: [""]
+    resources: [pods/log]
+    verbs: [get]
+---
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-egress-gateway-logs" $fullname) "namespace" "istio-system" "labels" $labels "serviceAccount" (include "pacto-operator.serviceAccountName" .) "serviceAccountNamespace" .Release.Namespace) }}
+{{- end }}

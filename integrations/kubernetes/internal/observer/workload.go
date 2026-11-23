@@ -233,6 +233,7 @@ func (o *Observer) observeDeployment(ctx context.Context, key types.NamespacedNa
 		snap.Replicas = dep.Spec.Replicas
 	}
 	snap.podSelector = dep.Spec.Selector
+	snap.podLabels = dep.Spec.Template.Labels
 	o.extractPodTemplateInfo(&dep.Spec.Template.Spec, snap)
 	return nil
 }
@@ -257,6 +258,7 @@ func (o *Observer) observeStatefulSet(ctx context.Context, key types.NamespacedN
 		// VolumeClaimTemplates are persistent-binding-declared (spec 7.2).
 		snap.PersistenceClass = persistenceDurable
 	}
+	snap.podLabels = sts.Spec.Template.Labels
 	o.extractPodTemplateInfo(&sts.Spec.Template.Spec, snap)
 	// If VCT declared persistent, don't let pod volumes downgrade it.
 	if hasVCT {
@@ -276,6 +278,7 @@ func (o *Observer) observeReplicaSet(ctx context.Context, key types.NamespacedNa
 	snap.markExists(rs)
 	snap.Replicas = rs.Spec.Replicas
 	snap.podSelector = rs.Spec.Selector
+	snap.podLabels = rs.Spec.Template.Labels
 	o.extractPodTemplateInfo(&rs.Spec.Template.Spec, snap)
 	return nil
 }
@@ -295,6 +298,7 @@ func (o *Observer) observeJob(ctx context.Context, key types.NamespacedName, sna
 		// Never the case once admitted; the label the Job controller stamps on its pods stands in.
 		snap.podSelector = &metav1.LabelSelector{MatchLabels: map[string]string{labelJobName: job.Name}}
 	}
+	snap.podLabels = job.Spec.Template.Labels
 	o.extractPodTemplateInfo(&job.Spec.Template.Spec, snap)
 	return nil
 }
@@ -308,6 +312,7 @@ func (o *Observer) observeCronJob(ctx context.Context, key types.NamespacedName,
 		return nil
 	}
 	snap.markExists(cj)
+	snap.podLabels = cj.Spec.JobTemplate.Spec.Template.Labels
 	o.extractPodTemplateInfo(&cj.Spec.JobTemplate.Spec.Template.Spec, snap)
 	return nil
 }

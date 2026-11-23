@@ -18,6 +18,7 @@ FAIL environments
 SKIP guarantees         no dependency declares requires
 SKIP readiness          not requested (--readiness)
 SKIP closure            not requested (--closure)
+Completeness: 62% (5 of 8): missing summary, runtime, readiness
 Next: fix environments[1].file at examples/demo/bundles/storefront-web/v1.2.1/environments/production.yaml:5:3 [ENVIRONMENT_VALUES_INVALID], then run pacto validate examples/demo/bundles/storefront-web/v1.2.1
 validation failed with 1 error(s)
 ```

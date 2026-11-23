@@ -8,6 +8,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -41,14 +42,20 @@ type Query struct {
 	// folded the identities they fold into OtherEgress.
 	externals map[ExternalKey]*ExternalRecord
 	folded    map[ExternalKey]bool
+	// attention memoizes gatherAttention (see collectAttention).
+	attention func() []AttentionItem
+	// members memoizes mapMembers by grouping for pages of nodes and focuses
+	// (see pageMembers).
+	members *sync.Map
 }
 
 // NewQuery wraps a snapshot in a query view. It projects the external
 // systems once, after any restriction, so the fold ranks on what the viewer
 // may see.
 func NewQuery(s *FleetSnapshot) *Query {
-	q := &Query{base: s}
+	q := &Query{base: s, members: &sync.Map{}}
 	q.snap, q.externals, q.folded = foldExternals(s)
+	q.attention = sync.OnceValue(q.gatherAttention)
 	return q
 }
 
@@ -679,6 +686,9 @@ type ServiceView struct {
 	// unless it carries a declaration or the service replaced an inferred
 	// service through one (fieldsOf).
 	Fields *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the current revision comes from: declared, accepted, attested or inferred"`
+	// ContractCompleteness is the service's contract checklist; nil for a golden
+	// path or an inferred service.
+	ContractCompleteness *ServiceCompleteness `json:"contractCompleteness,omitempty"`
 }
 
 // GetService returns the logical service, its revisions and targets, its declared
@@ -692,6 +702,7 @@ func (q *Query) GetService(name string) (*ServiceView, error) {
 	view := &ServiceView{Meta: q.meta(), Service: cloneService(s), Dependencies: []Relationship{}, ReplacedFrom: replaced}
 	view.Replaces, view.ReplacesTotal, view.ReplacesHidden = q.replacesOf(s.Key)
 	view.Fields = q.fieldsOf(s)
+	view.ContractCompleteness = q.serviceCompleteness(s)
 	for _, rk := range s.Revisions {
 		rev := cloneRevision(q.snap.Revisions[rk])
 		view.Revisions = append(view.Revisions, rev)
@@ -785,8 +796,11 @@ func (q *Query) resolveTargetKey(id string) (*TargetRecord, error) {
 }
 
 // resolveLegacyKey resolves a 3-part key in a snapshot keyed by cluster: one
-// match resolves while every source is available; several matches, or one
-// while a source is incomplete, are a [TargetKeyAmbiguousError].
+// match resolves while every source that reports targets is available;
+// several matches, or one while such a source is incomplete, are a
+// [TargetKeyAmbiguousError]. An incomplete source of another kind (a registry,
+// telemetry) is the same one [targetPlacementKnown] ignores: it never holds a
+// target, so a published 3-part href keeps resolving while it is down.
 func (q *Query) resolveLegacyKey(id, scope, kind, name string) (*TargetRecord, error) {
 	var matches []*TargetRecord
 	for _, t := range q.snap.Targets {
@@ -797,9 +811,9 @@ func (q *Query) resolveLegacyKey(id, scope, kind, name string) (*TargetRecord, e
 	switch {
 	case len(matches) > 1:
 		return nil, targetKeyAmbiguous(id, "", matches)
-	case len(matches) == 1 && q.sourcesIncomplete():
-		// A source that failed or listed only part of its records may hold
-		// this name in another cluster, so one match is not proof of one.
+	case len(matches) == 1 && !targetPlacementKnown(q.snap):
+		// A target source that failed or listed only part of its records may
+		// hold this name in another cluster, so one match is not proof of one.
 		return nil, targetKeyAmbiguous(id, "this target key matches one target, but a source is incomplete and may hold the same target in another cluster; choose one", matches)
 	case len(matches) == 1:
 		return matches[0], nil
@@ -1069,9 +1083,16 @@ func (q *Query) graphNeighbours(key, rootSvc ServiceKey, scopeRev RevisionKey, d
 	}
 	if observed {
 		for _, k := range q.adjacent(key, dir, false, true, false) {
-			if prov[k] == ProvenanceDeclared {
+			pair := [2]ServiceKey{key, k}
+			if dir == DirectionDependents {
+				pair = [2]ServiceKey{k, key}
+			}
+			switch {
+			case prov[k] == ProvenanceDeclared && q.snap.cautionPairs[pair]:
+				// Only caution-only sources saw it: no corroboration.
+			case prov[k] == ProvenanceDeclared:
 				prov[k] = ProvenanceDeclaredObserved
-			} else {
+			default:
 				prov[k] = ProvenanceObserved
 			}
 		}
@@ -1269,6 +1290,9 @@ type StatusResult struct {
 	// least healthy first.
 	Providers          []Provider `json:"providers,omitempty" doc:"What Pacto detected in each source, with evidence, what it uses each for and its status"`
 	ProvidersTruncated bool       `json:"providersTruncated,omitempty"`
+	// ContractCompleteness is the contract completeness of every visible
+	// service that is no golden path and no inferred service.
+	ContractCompleteness FleetCompleteness `json:"contractCompleteness"`
 }
 
 // Status reports the entities needing attention in the selected categories. It is
@@ -1297,6 +1321,9 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		// Nor does any flag select health or knowledge alone, for the same reason.
 		categoryHealth:    false,
 		categoryKnowledge: false,
+		// Nor cross-environment calls.
+		categoryCrossEnvironment: false,
+		categoryCluster:          false,
 	}
 	// No category selected means every category: an empty query from the CLI, an
 	// MCP client or the dashboard asks "what needs attention", never "nothing".
@@ -1352,7 +1379,8 @@ func (q *Query) Status(sq StatusQuery) *StatusResult {
 		items = items[:limit]
 	}
 	providers, providersTruncated := boundProviders(q.snap.Providers)
-	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items, Providers: providers, ProvidersTruncated: providersTruncated}
+	return &StatusResult{Meta: q.meta(), Total: total, Truncated: total > limit, Items: items, Providers: providers, ProvidersTruncated: providersTruncated,
+		ContractCompleteness: q.fleetCompleteness()}
 }
 
 // AssertionRef identifies the declared assertion a reason is about.

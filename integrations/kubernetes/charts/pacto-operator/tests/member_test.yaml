@@ -1,0 +1,165 @@
+# A member (514-S4): hub.url makes a joined cluster's operator dial the hub and
+# answer its per-person reviews with this cluster's SubjectAccessReview. It adds
+# the two flags, the optional CA mount and one RBAC rule, and nothing inbound:
+# no Service, Ingress, HTTPRoute or container port. Profile hardened renders no
+# ClusterRole, so it runs no review channel.
+suite: member
+templates:
+  - templates/deployment.yaml
+  - templates/clusterrole.yaml
+  - templates/dashboard-service.yaml
+  - templates/dashboard-ingress.yaml
+  - templates/dashboard-httproute.yaml
+  - templates/evidence-service.yaml
+  - templates/evidence-ingress.yaml
+  - templates/evidence-httproute.yaml
+  - templates/metrics-service.yaml
+  - templates/NOTES.txt
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+tests:
+  - it: the default renders no hub flag and no CA mount
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--hub-
+      - isNull:
+          path: spec.template.spec.volumes
+
+  - it: hub.url renders --hub-url and hub.caConfigMap the CA mount
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      hub.url: https://pacto.acme.dev
+      hub.caConfigMap: hub-ca
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --hub-url=https://pacto.acme.dev
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --hub-ca-file=/etc/pacto/hub-ca/ca.crt
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: hub-ca, mountPath: /etc/pacto/hub-ca, readOnly: true}
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: hub-ca, configMap: {name: hub-ca}}
+
+  - it: hub.url without hub.caConfigMap mounts no CA
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      hub.url: wss://pacto.acme.dev
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --hub-url=wss://pacto.acme.dev
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--hub-ca-file
+      - isNull:
+          path: spec.template.spec.volumes
+
+  - it: hub.url keeps the container ports of the default render
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      hub.url: https://pacto.acme.dev
+    asserts:
+      - lengthEqual:
+          path: spec.template.spec.containers[0].ports
+          count: 2
+      - notContains:
+          path: spec.template.spec.containers[0].ports
+          content: {name: hub}
+          any: true
+
+  - it: hub.url adds no Service, Ingress or HTTPRoute
+    set:
+      registry: ghcr.io/acme
+      hub.url: https://pacto.acme.dev
+    asserts:
+      - hasDocuments: {count: 1}
+        template: templates/dashboard-service.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-ingress.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-httproute.yaml
+      - hasDocuments: {count: 0}
+        template: templates/evidence-service.yaml
+      - hasDocuments: {count: 0}
+        template: templates/evidence-ingress.yaml
+      - hasDocuments: {count: 0}
+        template: templates/evidence-httproute.yaml
+      - hasDocuments: {count: 1}
+        template: templates/metrics-service.yaml
+
+  - it: the default adds the same Services and no Ingress or HTTPRoute
+    asserts:
+      - hasDocuments: {count: 1}
+        template: templates/dashboard-service.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-ingress.yaml
+      - hasDocuments: {count: 0}
+        template: templates/dashboard-httproute.yaml
+      - hasDocuments: {count: 0}
+        template: templates/evidence-service.yaml
+      - hasDocuments: {count: 1}
+        template: templates/metrics-service.yaml
+
+  - it: an http URL fails the schema
+    template: templates/deployment.yaml
+    set:
+      hub.url: http://pacto.acme.dev
+    asserts:
+      - failedTemplate:
+          errorPattern: "hub.url"
+
+  - it: hub.url without the dashboard holds the SAR rule
+    template: templates/clusterrole.yaml
+    set:
+      registry: ghcr.io/acme
+      hub.url: https://pacto.acme.dev
+      dashboard.enabled: false
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [authorization.k8s.io]
+            resources: [subjectaccessreviews]
+            verbs: [create]
+
+  - it: a namespace-scoped member renders the ClusterRole with only the SAR rule
+    template: templates/clusterrole.yaml
+    set:
+      registry: ghcr.io/acme
+      hub.url: https://pacto.acme.dev
+      dashboard.enabled: false
+      controller.watchNamespaces: [payments]
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [authorization.k8s.io]
+              resources: [subjectaccessreviews]
+              verbs: [create]
+
+  - it: TestHardenedMemberRunsNoChannel
+    set:
+      profile: hardened
+      registry: ghcr.io/acme
+      hub.url: https://pacto.acme.dev
+      controller.watchNamespaces: [payments]
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--hub-
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+      - matchRegexRaw:
+          pattern: "Profile hardened: this member answers no hub reviews \\(a SubjectAccessReview needs a cluster role\\)"
+        template: templates/NOTES.txt

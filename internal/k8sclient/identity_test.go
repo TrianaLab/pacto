@@ -27,8 +27,8 @@ func TestGoClientClusterIdentity(t *testing.T) {
 	b.inCluster = func() (*rest.Config, error) { return &rest.Config{Host: "https://test:6443"}, nil }
 	b.dynamic = func(*rest.Config) (dynamic.Interface, error) { return dyn, nil }
 	client, err := b.goClient("")
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || !client.(interface{ InCluster() bool }).InCluster() {
+		t.Fatalf("client %v, %v; want one built in the cluster", client, err)
 	}
 	got, err := client.ClusterIdentity(context.Background(), "eu-prod")
 	want := kubecluster.Identity{ID: "9f1c4e2a-0b1d-4c2e-8f3a-1b2c3d4e5f60", Name: "eu-prod", NameSource: kubecluster.NameFromContext}

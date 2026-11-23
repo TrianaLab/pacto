@@ -65,7 +65,11 @@ type TreeWatcher struct {
 	peers map[peerKey]*peer
 }
 
-// Run polls and publishes once, then on every tick until ctx ends.
+// Run polls and publishes once, then polls on every poll tick and polls and
+// publishes on every publish tick until ctx ends. A snapshot is always of a
+// poll taken as it is published: the poll ticks only catch connections open
+// between publishes, and a busy host that starves them must not publish a
+// baseline older than the snapshot.
 func (w *TreeWatcher) Run(ctx context.Context, poll, publish <-chan time.Time) {
 	w.Poll(w.Now())
 	w.publish(ctx)
@@ -76,6 +80,7 @@ func (w *TreeWatcher) Run(ctx context.Context, poll, publish <-chan time.Time) {
 		case <-poll:
 			w.Poll(w.Now())
 		case <-publish:
+			w.Poll(w.Now())
 			w.publish(ctx)
 		}
 	}

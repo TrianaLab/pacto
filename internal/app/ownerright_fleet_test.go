@@ -2,6 +2,7 @@ package app
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -232,6 +233,28 @@ func TestOwnerRightsNoOwnerChangeAllowedUnchanged(t *testing.T) {
 	// One tag listing says no version was left unread; no signature is read.
 	if s := stamp(revs[1]); s == nil || !s.Allowed || reg.requests.Load()-before > 2 || reads != 0 {
 		t.Fatalf("unchanged = %+v", s)
+	}
+}
+
+// TestOwnerRightsUnchangedDeclarationUnreadHistory: a declaration that
+// changes no owner is unverified when a version before it was not read, or
+// when the repository's versions cannot be listed at all.
+func TestOwnerRightsUnchangedDeclarationUnreadHistory(t *testing.T) {
+	reg := provenanceTestRegistry(t)
+	ref := ownerSignedRef(t, reg, "eve@acme.com")
+	unread := func() *fleet.OwnerRightCheck {
+		revs := []fleet.ContractRevision{passRev("1.0.0", "billing", "", "", false), passRev("2.0.0", "billing", ref, "eve@acme.com", true)}
+		reads := 0
+		ownerPass(reg, &reads)(t.Context(), revs)
+		return stamp(revs[1])
+	}
+	tagRef(t, reg, ref, "1.5.0")
+	if s := unread(); s == nil || s.Allowed || s.Code != delivery.OwnerSignerUnverified || !strings.Contains(s.Message, "the owner before it was not read") {
+		t.Fatalf("unread 1.5.0 = %+v", s)
+	}
+	reg.failWhen(func(r *http.Request) bool { return strings.HasSuffix(r.URL.Path, "/tags/list") })
+	if s := unread(); s == nil || s.Allowed || s.Code != delivery.OwnerSignerUnverified {
+		t.Fatalf("unlisted versions = %+v", s)
 	}
 }
 

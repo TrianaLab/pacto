@@ -64,6 +64,8 @@ type clusterReviewSet struct {
 	home    homeCluster
 	review  func(*rest.Config) authn.Review
 	now     func() time.Time
+	// members adds a reviewer per live member link; nil adds none.
+	members *memberHub
 
 	mu      sync.Mutex
 	at      time.Time
@@ -74,9 +76,10 @@ type clusterReviewSet struct {
 }
 
 // clusterReviews reviews each cluster of entries in mode with that cluster's
-// own credentials.
-func clusterReviews(entries func(context.Context) []app.K8sEntry, home homeCluster, d deps, mode string) *clusterReviewSet {
-	return &clusterReviewSet{entries: entries, home: home, now: time.Now,
+// own credentials, and each live member of members, which no context
+// reviews, through its link.
+func clusterReviews(entries func(context.Context) []app.K8sEntry, home homeCluster, d deps, mode string, members *memberHub) *clusterReviewSet {
+	return &clusterReviewSet{entries: entries, home: home, now: time.Now, members: members,
 		review: func(cfg *rest.Config) authn.Review { return clusterReview(cfg, d.dynamicFor, mode) }}
 }
 
@@ -85,7 +88,7 @@ func (c *clusterReviewSet) Reviews(ctx context.Context) map[string]authn.Review 
 	c.resolve(ctx)
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.reviews
+	return c.members.add(c.reviews)
 }
 
 // Home is the reviewer key of the sign-in cluster: its id, or "" when the

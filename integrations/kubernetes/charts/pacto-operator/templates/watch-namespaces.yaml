@@ -38,6 +38,11 @@ rules:
     resources: [serviceentries]
     verbs: [get, list, watch]
   {{- end }}
+  {{- if include "pacto-operator.apiServed" (list $ "cilium.io/v2") }}
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies]
+    verbs: [list]
+  {{- end }}
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets]
     verbs: [get, list, watch]
@@ -79,7 +84,7 @@ rules:
 ---
 {{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-watch" $fullname) "namespace" $ns "labels" $labels "serviceAccount" $sa "serviceAccountNamespace" $.Release.Namespace) }}
 ---
-{{- if $.Values.dashboard.enabled }}
+{{- if include "pacto-operator.dashboardEnabled" $ }}
 # The managed dashboard's reads in a watched namespace. The chart creates this
 # Role, so the operator needs no Role verbs here. It reviews people with
 # LocalSubjectAccessReviews in the watched namespaces only.

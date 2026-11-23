@@ -108,7 +108,7 @@ func renderDetail(d *fleet.EntityDetail) string {
 	case d.Revision != nil:
 		renderRevisionDetail(&b, d.Revision)
 	case d.Target != nil:
-		renderTargetDetail(&b, d.Target)
+		renderTargetDetail(&b, d.Target, d.Meta.AsOf)
 	case d.Owner != nil:
 		renderOwnerDetail(&b, d.Owner)
 	case d.Source != nil:
@@ -381,10 +381,13 @@ func renderRevisionIdentity(b *strings.Builder, id fleet.RevisionIdentity) {
 	field(b, "retrievable", fmt.Sprintf("%t", id.Retrievable))
 }
 
-func renderTargetDetail(b *strings.Builder, t *fleet.TargetDetailData) {
+func renderTargetDetail(b *strings.Builder, t *fleet.TargetDetailData, asOf time.Time) {
 	field(b, "service", t.Service.Label)
 	if t.Revision != nil {
 		field(b, "revision", t.Revision.Label)
+	}
+	if t.Link != nil {
+		field(b, "linked", t.Link.Line(asOf))
 	}
 	field(b, "link state", t.LinkState)
 	field(b, "scope", t.Scope)

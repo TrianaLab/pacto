@@ -544,6 +544,12 @@ func TestCIBaseUnreadableInVersionCheck(t *testing.T) {
 	if r := row(t, e.plan(t), "reports"); r.Impact.Text != "unverified (baseline unreadable: gone)" || r.Baseline != "1.6.0-rc.1" {
 		t.Fatalf("row = %+v", r)
 	}
+	// A derived version carries from the final release below the candidate:
+	// unreadable, the row is unverified before anything is carried.
+	e.write(t, map[string]string{"reports/pacto.yaml": "service: {name: reports}\n"})
+	if r := row(t, e.plan(t), "reports"); r.Impact.Text != "unverified (baseline unreadable: gone)" || r.Baseline != "1.6.0-rc.1" || r.Changed != "" {
+		t.Fatalf("derived row = %+v", r)
+	}
 }
 
 func TestCIInferredCount(t *testing.T) {

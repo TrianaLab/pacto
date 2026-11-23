@@ -373,10 +373,7 @@ func (p *ProvenanceChecker) readInstallation(ctx context.Context) *installTrust 
 	}
 	cfg := in.Config
 	t := &installTrust{pins: in.Pins, source: delivery.PublisherSourceRule, unguarded: in.Unguarded, failed: in.Unguarded != "", operator: cfg.InferredSigner,
-		declare: &fleet.DeclarationSignerPolicy{Unread: in.SignersUnread}}
-	for _, s := range in.Signers {
-		t.declare.Signers = append(t.declare.Signers, fleet.PolicySigner{Issuer: s.Issuer, Subjects: s.Subjects})
-	}
+		declare: declarationPolicy(in.Signers, in.SignersUnread)}
 	if cfg.Policy != "" {
 		pol, err := verifiedPolicy(ctx, p.reg, cfg, "")
 		if in.PolicyDigest != "" && (err != nil || rfcTime(in.PolicyAt).After(rfcTime(pol.At))) {

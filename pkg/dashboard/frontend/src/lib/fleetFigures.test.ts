@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { postureColumn, rankModel, trustModel, sourcesModel, sourceKindNoun, POSTURE_FLOOR, SOURCE_ROWS } from './fleetFigures.ts';
-import { knowsModel, edgeModel } from './explainers.ts';
+import { knowsModel } from './explainers.ts';
 import { provenance } from './provenance.ts';
 import { complianceSegments } from './distributions.ts';
 import { timeline } from './narrate.ts';
@@ -162,7 +162,15 @@ describe('sourcesModel kind tallies (S2 r5)', () => {
     expect(sourceKindNoun('detection', 2)).toBe('cluster detections');
     expect(sourceKindNoun('target-state', 2)).toBe('target-state files');
     expect(sourceKindNoun('kubernetes-workloads', 4)).toBe('Kubernetes workload readers');
+    expect(sourceKindNoun('mesh', 1)).toBe('service mesh reader');
+    expect(sourceKindNoun('mesh', 2)).toBe('service mesh readers');
     expect(sourceKindNoun('acme', 2)).toBe('acme sources');
+  });
+  it('names trace backends and OTLP receivers', () => {
+    expect(sourceKindNoun('traces', 1)).toBe('trace backend');
+    expect(sourceKindNoun('traces', 3)).toBe('trace backends');
+    expect(sourceKindNoun('otlp-receiver', 1)).toBe('OTLP receiver');
+    expect(sourceKindNoun('otlp-receiver', 2)).toBe('OTLP receivers');
   });
 });
 
@@ -185,10 +193,5 @@ describe('explainers', () => {
     expect(m.wires.every((w) => w.tone === 'accent' && w.head)).toBe(true);
     expect(m.steps).toHaveLength(m.stations.length);
     expect(timeline(m.steps, { walk: true }).total).toBeLessThanOrEqual(1200);
-  });
-  it('draws one edge per wire style into one service, never in a status tone', () => {
-    const m = edgeModel();
-    expect(m.wires.map((w) => w.style)).toEqual(['obs', 'proj', 'stale']);
-    expect(m.wires.every((w) => w.tone === 'neutral' && w.to === 'gh')).toBe(true);
   });
 });

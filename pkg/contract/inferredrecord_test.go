@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -1040,5 +1041,227 @@ func TestInferredRecordProposed(t *testing.T) {
 	rec := &InferredRecord{Fields: []Inferred{{Field: "image"}, {Field: "dependencies[ledger].compatibility", Proposed: "^2.3.0"}}}
 	if none.Proposed("x") != "" || rec.Proposed("dependencies[billing].compatibility") != "" || rec.Proposed("dependencies[ledger].compatibility") != "^2.3.0" {
 		t.Fatal("Proposed read the wrong field")
+	}
+}
+
+// citedDeclaration is a well-formed inputs.declaration citation.
+func citedDeclaration() *CitedDeclaration {
+	return &CitedDeclaration{Record: "ghcr.io/acme/invoices@sha256:" + strings.Repeat("7", 64), Signer: "ana@acme.com (https://accounts.google.com)",
+		Fields: "dependencies[ledger].compatibility,service.owner"}
+}
+
+func TestCitedDeclarationRoundTrip(t *testing.T) {
+	r := sampleRecord()
+	r.Inputs.Declaration = citedDeclaration()
+	data := r.Marshal()
+	got, err := ParseInferredRecord(data)
+	if err != nil || !reflect.DeepEqual(got.Inputs.Declaration, r.Inputs.Declaration) {
+		t.Fatalf("%v %+v", err, got)
+	}
+	if again := got.Marshal(); !bytes.Equal(again, data) {
+		t.Fatalf("round trip changed the bytes:\n%s\n---\n%s", data, again)
+	}
+}
+
+func TestCitedDeclarationStrictDecoder(t *testing.T) {
+	r := sampleRecord()
+	r.Inputs.Declaration = citedDeclaration()
+	bad := strings.Replace(string(r.Marshal()), "\n        signer: ", "\n        by: bob\n        signer: ", 1)
+	if _, err := ParseInferredRecord([]byte(bad)); err == nil || !strings.Contains(err.Error(), "by") {
+		t.Fatalf("%v\n%s", err, bad)
+	}
+}
+
+func TestCitedDeclarationBadRecordRefused(t *testing.T) {
+	for name, record := range map[string]string{
+		"tag":        "ghcr.io/acme/invoices:0.1.0",
+		"algorithm":  "ghcr.io/acme/invoices@sha512:" + strings.Repeat("7", 64),
+		"short":      "ghcr.io/acme/invoices@sha256:7c1d2e3f4a5b",
+		"repository": "@sha256:" + strings.Repeat("7", 64),
+		"uppercase":  "GHCR.io/acme/invoices@sha256:" + strings.Repeat("7", 64),
+	} {
+		r := sampleRecord()
+		r.Inputs.Declaration = citedDeclaration()
+		r.Inputs.Declaration.Record = record
+		if _, err := ParseInferredRecord(r.Marshal()); err == nil || !strings.Contains(err.Error(), "inputs.declaration.record") {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
+func TestCitedDeclarationBadFieldRefused(t *testing.T) {
+	for name, tc := range map[string]struct{ signer, fields, want string }{
+		"other key":   {"ana@acme.com", "service.name", "inputs.declaration.fields"},
+		"ref key":     {"ana@acme.com", "dependencies[ledger].ref", "inputs.declaration.fields"},
+		"unsorted":    {"ana@acme.com", "service.owner,dependencies[ledger]", "sorted"},
+		"duplicate":   {"ana@acme.com", "service.owner,service.owner", "sorted"},
+		"empty":       {"ana@acme.com", "", "inputs.declaration.fields"},
+		"empty item":  {"ana@acme.com", "dependencies[ledger],", "inputs.declaration.fields"},
+		"no signer":   {"", "service.owner", "inputs.declaration.signer"},
+		"spaced list": {"ana@acme.com", "dependencies[ledger], service.owner", "inputs.declaration.fields"},
+	} {
+		r := sampleRecord()
+		r.Inputs.Declaration = citedDeclaration()
+		r.Inputs.Declaration.Signer, r.Inputs.Declaration.Fields = tc.signer, tc.fields
+		if _, err := ParseInferredRecord(r.Marshal()); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, tc.want)
+		}
+	}
+	// Each key form on its own is accepted.
+	for _, fields := range []string{"service.owner", "dependencies[ledger]", "dependencies[ledger].compatibility",
+		"dependencies[a],dependencies[a].compatibility,dependencies[b],service.owner"} {
+		r := sampleRecord()
+		r.Inputs.Declaration = citedDeclaration()
+		r.Inputs.Declaration.Fields = fields
+		if _, err := ParseInferredRecord(r.Marshal()); err != nil {
+			t.Errorf("%s: %v", fields, err)
+		}
+	}
+}
+
+func TestInferredUnchangedIgnoresDeclarationInput(t *testing.T) {
+	bundle := func(rec *InferredRecord) *Bundle {
+		return &Bundle{Contract: &Contract{}, FS: fstest.MapFS{
+			"pacto.yaml":       {Data: []byte("x")},
+			"openapi/v1.yaml":  {Data: []byte("openapi: 3.0.0\n")},
+			"deploy/app.yaml":  {Data: []byte("kind: Deployment\n")},
+			InferredRecordFile: {Data: rec.Marshal()},
+		}}
+	}
+	digest := func(b *Bundle) (string, error) {
+		data, err := fs.ReadFile(b.FS, "pacto.yaml")
+		return string(data), err
+	}
+	cited := sampleRecord()
+	cited.Inputs.Declaration = citedDeclaration()
+	// "fields" is what InferredUnchanged names when no cited input differs.
+	if unchanged, what := InferredUnchanged(bundle(sampleRecord()), bundle(cited), digest); !unchanged || what != "fields" {
+		t.Fatalf("got %v %q, want unchanged", unchanged, what)
+	}
+}
+
+// repositoryYAML is a signed-provenance repository block, in Marshal's
+// layout, closing a declaration block.
+const repositoryYAML = `    repository:
+        url: https://github.com/acme/invoices
+        rung: signed-provenance
+        signer: https://github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main
+        folder: deploy
+        folderRung: gitops
+`
+
+// repoDoc is a declared record whose declaration ends with block.
+func repoDoc(block string) string {
+	return declaredDoc(declarationYAML + block)
+}
+
+// repoBlock is repositoryYAML with old replaced by new once.
+func repoBlock(t *testing.T, old, new string) string {
+	t.Helper()
+	if !strings.Contains(repositoryYAML, old) {
+		t.Fatalf("fixture lacks %q", old)
+	}
+	return repoDoc(strings.Replace(repositoryYAML, old, new, 1))
+}
+
+// unsignedRepo is repositoryYAML with rung r and no signer.
+func unsignedRepo(t *testing.T, r string) string {
+	t.Helper()
+	b := strings.Replace(repositoryYAML, "        signer: https://github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main\n", "", 1)
+	return repoDoc(strings.Replace(b, "rung: signed-provenance", "rung: "+r, 1))
+}
+
+func TestParseRepositoryRung(t *testing.T) {
+	for _, r := range RepositoryRungs {
+		doc := unsignedRepo(t, r)
+		if r == RepositoryRungSigned {
+			doc = repoDoc(repositoryYAML)
+		}
+		if _, err := ParseInferredRecord([]byte(doc)); err != nil {
+			t.Errorf("rung %s: %v", r, err)
+		}
+	}
+	for _, r := range FolderRungs {
+		if _, err := ParseInferredRecord([]byte(repoBlock(t, "folderRung: gitops", "folderRung: "+r))); err != nil {
+			t.Errorf("folderRung %s: %v", r, err)
+		}
+	}
+	refuses(t, unsignedRepo(t, "label"), `declaration.repository.rung is "label"`)
+	refuses(t, repoBlock(t, "folderRung: gitops", "folderRung: signed-provenance"), `declaration.repository.folderRung is "signed-provenance"`)
+	refuses(t, repoBlock(t, "        folderRung: gitops\n", ""), `declaration.repository.folderRung is ""`)
+}
+
+func TestParseRepositorySignerOnlyForSignedProvenance(t *testing.T) {
+	refuses(t, repoBlock(t, "rung: signed-provenance", "rung: gitops"), "signer is set exactly when rung is signed-provenance")
+	refuses(t, unsignedRepo(t, RepositoryRungSigned), "signer is set exactly when rung is signed-provenance")
+	refuses(t, repoBlock(t, "refs/heads/main", "refs/heads/"+strings.Repeat("m", 512)), "signer is longer than 512 bytes")
+	refuses(t, repoBlock(t, "signer: https://github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main", `signer: "ci\x01"`), "holds a control character")
+}
+
+func TestParseRepositoryURLForm(t *testing.T) {
+	for _, bad := range []string{
+		"https://ana:secret@github.com/acme/invoices", "https://github.com/acme/invoices?x=1", "https://github.com/acme/invoices#main",
+		"https://github.com/acme/invoices.git", "https://github.com/acme/invoices/", "git@github.com:acme/invoices",
+		"ssh://git@github.com/acme/invoices", "https://GitHub.com/acme/invoices", `"https://github.com/acme/inv\x7foices"`,
+		"https://github.com/", "https://github.com/" + strings.Repeat("a", 494),
+	} {
+		refuses(t, repoBlock(t, "url: https://github.com/acme/invoices", "url: "+bad), "declaration.repository.url is not")
+	}
+	for _, good := range []string{"http://127.0.0.1:3000/acme/invoices", "https://gitlab.com/acme/group/sub/invoices", "https://github.com/" + strings.Repeat("a", 493)} {
+		if _, err := ParseInferredRecord([]byte(repoBlock(t, "url: https://github.com/acme/invoices", "url: "+good))); err != nil {
+			t.Errorf("%s: %v", good, err)
+		}
+	}
+}
+
+func TestParseRepositoryFolderForm(t *testing.T) {
+	for _, bad := range []string{"..", "deploy/../..", "/deploy", "deploy/", "./deploy", "a//b", `'a\b'`, `""`, strings.Repeat("a", 257), `"a\tb"`} {
+		refuses(t, repoBlock(t, "folder: deploy", "folder: "+bad), "declaration.repository.folder is not")
+	}
+	for _, good := range []string{".", "deploy/invoices", strings.Repeat("a", 256)} {
+		if _, err := ParseInferredRecord([]byte(repoBlock(t, "folder: deploy", "folder: "+good))); err != nil {
+			t.Errorf("%s: %v", good, err)
+		}
+	}
+}
+
+func TestParseRepositoryRefusesFromText(t *testing.T) {
+	refuses(t, repoBlock(t, "        folderRung: gitops\n", "        folderRung: gitops\n        from: argocd/Application/invoices\n"), "field from not found")
+}
+
+func TestInferredSourceRepositoryFields(t *testing.T) {
+	typ := reflect.TypeFor[InferredSourceRepository]()
+	var got []string
+	for i := range typ.NumField() {
+		got = append(got, typ.Field(i).Name)
+	}
+	if want := []string{"URL", "Rung", "Signer", "Folder", "FolderRung"}; !slices.Equal(got, want) {
+		t.Fatalf("fields = %v, want %v", got, want)
+	}
+}
+
+func TestMarshalRepositoryRoundTrip(t *testing.T) {
+	doc := repoDoc(repositoryYAML)
+	rec, err := ParseInferredRecord([]byte(doc))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := string(rec.Marshal()); got != doc {
+		t.Fatalf("round trip:\n%s\nwant:\n%s", got, doc)
+	}
+	r := rec.Declaration.Repository
+	if r == nil || r.URL != "https://github.com/acme/invoices" || r.Folder != "deploy" || r.FolderRung != RepositoryRungGitOps {
+		t.Fatalf("repository = %+v", r)
+	}
+	data, _ := json.Marshal(r)
+	if want := `{"url":"https://github.com/acme/invoices","rung":"signed-provenance","signer":"https://github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main","folder":"deploy","folderRung":"gitops"}`; string(data) != want {
+		t.Fatalf("JSON = %s", data)
+	}
+	// A draft carries the block too, and with no answer there is no block.
+	if _, err := ParseInferredRecord([]byte(declaredDoc(draftDeclarationYAML + strings.Replace(repositoryYAML, "rung: signed-provenance\n        signer: https://github.com/acme/invoices/.github/workflows/ci.yml@refs/heads/main\n", "rung: gitops\n", 1)))); err != nil {
+		t.Fatal(err)
+	}
+	if rec, _ := ParseInferredRecord([]byte(declaredDoc(declarationYAML))); strings.Contains(string(rec.Marshal()), "repository:") {
+		t.Fatal("a declaration with no repository wrote one")
 	}
 }

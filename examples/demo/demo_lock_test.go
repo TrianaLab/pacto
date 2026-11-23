@@ -698,3 +698,44 @@ func TestDemoOfferingPhaseTallyMatchesDetail(t *testing.T) {
 		t.Errorf("aggregate %+v / %+v, pages %+v / %+v", l.Aggregate.OfferingPhases, l.Aggregate.OfferingPhaseConsumers, phases, consumers)
 	}
 }
+
+// TestDemoLinked: the operator linked recommender by image digest and
+// campaigns by annotation, so the demo lists two linked targets, neither
+// workload stays an inferred service, and only recommender, which ran
+// uncontracted for 20 minutes first, records an observed replacement that
+// attention reports.
+func TestDemoLinked(t *testing.T) {
+	snap := demoFleet(t)
+	signals := map[string]string{}
+	for _, tr := range snap.Targets {
+		if tr.Link != nil {
+			signals[string(tr.ServiceKey)] = tr.Link.Signal
+		}
+	}
+	if want := map[string]string{"recommendations": fleet.LinkSignalImageDigest, "campaign-service": fleet.LinkSignalAnnotation}; !reflect.DeepEqual(signals, want) {
+		t.Errorf("linked targets = %v, want %v", signals, want)
+	}
+	for _, name := range []string{"recommender", "campaigns"} {
+		if _, ok := snap.Services[fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "growth", "Deployment", name))]; ok {
+			t.Errorf("the linked %s workload is still an inferred service", name)
+		}
+	}
+	var observed []fleet.Replacement
+	for _, r := range snap.Replacements {
+		if r.Link == "observed" {
+			observed = append(observed, r)
+		}
+	}
+	to := fleet.NewServiceKey("recommendations")
+	if len(observed) != 1 || observed[0].From != fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "growth", "Deployment", "recommender")) ||
+		observed[0].To != to || observed[0].Value != demoLinkedDigest || observed[0].At == nil {
+		t.Fatalf("observed replacements = %+v", observed)
+	}
+	l, err := fleet.NewQuery(snap).Attention(fleet.AttentionFilter{Category: "knowledge", Service: string(to)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !slices.ContainsFunc(l.Items, func(it fleet.AttentionItem) bool { return it.Code == "INFERRED_REPLACED" }) {
+		t.Errorf("no INFERRED_REPLACED item for %s: %+v", to, l.Items)
+	}
+}

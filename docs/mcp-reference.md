@@ -9,7 +9,8 @@ walkthrough, start with [Drive Pacto from an agent](mcp-integration.md).
 |--------|-------|--------------|-----------------|
 | **Authoring** | `pacto_create`, `pacto_edit`, `pacto_check`, `pacto_schema` | Create, edit and validate Pacto *contracts*. | Operate on contract files only. `pacto_edit` writes only after validation. Over HTTP only `pacto_schema` is served. |
 | **Generated service** | Derived per operation from a bundle's OpenAPI interfaces (`getUser`, `createRefund`, …) | Invoke the *live service* the contract describes. | Read-only (`GET`/`HEAD`) unless you pass `--allow-writes`; every call has a 30-second timeout and follows no redirect, so a 3xx comes back to the agent as the result. |
-| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`, `pacto_fleet_revision_document`, `pacto_fleet_overview`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, [external systems](external-catalog-reference.md), relationships and what needs attention. `pacto_fleet_get`, `pacto_fleet_graph` and `pacto_fleet_explain` take `external:<identity>`, and `pacto_fleet_entities` lists them with `kind: external`. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects, or asks what happens if a service becomes unavailable, is removed or regresses. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`, and the service's `ownerProvenance`: where its owner comes from, `declared`, `declared-via-target`, `attested` or `inferred`, with `ownerSource`, the file, commit and CI signer an `attested` owner was read from. `pacto_fleet_revision_document` reads one document a revision's bundle carries, as the dashboard's revision page does. `pacto_fleet_overview` answers "how healthy is the organization and how much do we know" in one call, as `pacto fleet overview` does: a target is failing when its own health check reports it is not healthy and unknown when Pacto cannot tell, and a failing check leaves compliance `Unknown`; see [Organizational health and knowledge](operational-graph.md#organizational-health-and-knowledge). The fleet tools mark target evidence older than 24 hours as stale unless `--freshness` says otherwise. `pacto_fleet_entities` takes `consumes` to list the services that use an [offering](platform-offerings.md#consumers), and with `phase` and `environment` only those whose provisioning status in that phase is in that environment. For a service, `pacto_fleet_entity` lists the [resources it consumes](provision-infrastructure.md#resources-a-service-consumes) with `providerOwner`, `providerAvailability`, `requested` (declared) and `consumption`, plus `hiddenProviders`, and its `changes` in version order; `reached: true` on a stdio server adds when each change reached a Stage, from delivery records, and any other server answers `times: not-read`; `pacto_fleet_attention` and `pacto_fleet_status` report `PROVISIONING_FAILED` and `PROVISIONING_STALE` in the `provisioning` category. `pacto_fleet_status` also carries `providers`, the [providers Pacto detected](operational-graph-providers.md) with their evidence, what each is used for and their status, and `providersTruncated` when the list was cut. With `--detected`, `pacto mcp --fleet` adds the [rows the operator detected](operational-graph-providers.md#detected-rows), each `provenance: inferred` with its `asOf` and without its `hint`. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
+| **Fleet query** | `pacto_fleet_search`, `pacto_fleet_get`, `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`, `pacto_fleet_entities`, `pacto_fleet_entity`, `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_map`, `pacto_fleet_versions`, `pacto_fleet_revision_document`, `pacto_fleet_overview`, [`pacto_impact`](impact.md#the-mcp-tool-and-the-dashboard) | Read-only queries over the *operational system*: services, revisions, targets, owners, business domains, offerings, [external systems](external-catalog-reference.md), relationships and what needs attention. `pacto_fleet_get`, `pacto_fleet_graph` and `pacto_fleet_explain` take `external:<identity>`, and `pacto_fleet_entities` lists them with `kind: external`. `pacto_impact` projects a contract diff onto that system to report which consumers a change affects, or asks what happens if a service becomes unavailable, is removed or regresses. `pacto_fleet_get` returns each revision's bundle signature check and OCI referrers as `provenance`, and the service's `ownerProvenance`: where its owner comes from, `declared`, `declared-via-target`, `attested` or `inferred`, with `ownerSource`, the file, commit and CI signer an `attested` owner was read from. `pacto_fleet_revision_document` reads one document a revision's bundle carries, as the dashboard's revision page does. `pacto_fleet_map` answers the whole fleet as groups by `group_by` (`domain`, `team` or `environment`), with the declared ↔ observed `match` and contract completeness per group and for the fleet; `group` pages one group's services and `focus` lists one service's callers and callees, as `pacto fleet map` and the dashboard's [fleet map](fleet-map.md) do. `pacto_fleet_get` and `pacto_fleet_entity` carry a service's `contractCompleteness`, and `pacto_fleet_status` the fleet's ([contract completeness](operational-graph-tallies.md#contract-completeness)). `pacto_fleet_overview` answers "how healthy is the organization and how much do we know" in one call, as `pacto fleet overview` does: a target is failing when its own health check reports it is not healthy and unknown when Pacto cannot tell, and a failing check leaves compliance `Unknown`; see [Organizational health and knowledge](operational-graph.md#organizational-health-and-knowledge). The fleet tools mark target evidence older than 24 hours as stale unless `--freshness` says otherwise. `pacto_fleet_entities` takes `consumes` to list the services that use an [offering](platform-offerings.md#consumers), and with `phase` and `environment` only those whose provisioning status in that phase is in that environment. For a service, `pacto_fleet_entity` lists the [resources it consumes](provision-infrastructure.md#resources-a-service-consumes) with `providerOwner`, `providerAvailability`, `requested` (declared) and `consumption`, plus `hiddenProviders`, and its `changes` in version order; `reached: true` on a stdio server adds when each change reached a Stage, from delivery records, and any other server answers `times: not-read`; `pacto_fleet_attention` and `pacto_fleet_status` report `PROVISIONING_FAILED` and `PROVISIONING_STALE` in the `provisioning` category. `pacto_fleet_status` also carries `providers`, the [providers Pacto detected](operational-graph-providers.md) with their evidence, what each is used for and their status, and `providersTruncated` when the list was cut. With `--detected`, `pacto mcp --fleet` adds the [rows the operator detected](operational-graph-providers.md#detected-rows), each `provenance: inferred` with its `asOf` and without its `hint`. Each [trace backend](operational-graph-providers.md#trace-backends) is its own row with its own status, and a source marked `cautionOnly`, such as the OTLP receiver, never corroborates a declared dependency. | Always read-only: they write nothing. They still make network calls, and the server that hosts them may also register write tools; see [Fleet query safety](#fleet-query-safety). Catalog mode is the only server with no write tool. |
+| **Fleet query**: member clusters | `pacto_cluster_list` | Lists the member clusters that joined this hub through the registry: approved, pending with why and removed, and per approved member its `mappings`: the group mapping in force per issuer, with who approved it and when. See [Member clusters](member-clusters.md). | Always read-only; no tool approves or removes a member. It appears with `--fleet --k8s --detected k8s:<namespace>/<name>` when the operator advertises a registry. A signed-in caller who may not approve `clusterjoins` sees the approved members only, the rest counted in `hidden`. Only a person writes a group mapping, with `pacto cluster map-groups`. |
 | **Fleet query**: statistics | `pacto_stats` | Totals the unsigned run records of a stats repository for a window. See [the stats answer](run-record-reference.md#the-stats-answer). | Always read-only. Over HTTP it appears only when the server was started with `--stats-read-registry` and reads only that repository; a signed-in caller sees only records of services in their view. |
 
 Outside these families: `pacto_capabilities` (what this server serves, see [Combine modes](#combine-modes)), `pacto_skill` (a bundle's skill files) and `pacto_catalog_revision` (one revision from the catalog, see [Catalog mode](#catalog-mode)). The publish and delivery tools, including the seven delivery read tools (`pacto_delivery_trust` among them: which publishers each service accepts), are listed in [MCP publish and delivery tools](mcp-delivery-tools.md).
@@ -25,7 +26,7 @@ invocation registers.
 !!! warning "Annotations are hints"
     Every tool carries MCP
     [`annotations`](https://modelcontextprotocol.io/specification/2025-06-18/server/tools#tool-annotations).
-    `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`, `pacto_impact`, `pacto_stats`,
+    `pacto_check`, `pacto_schema`, `pacto_skill`, `pacto_fleet_*`, `pacto_impact`, `pacto_stats`, `pacto_cluster_list`,
     `pacto_catalog_revision`, `pacto_publish_plan` and the delivery reads set
     `readOnlyHint`. `pacto_edit` sets `destructiveHint`: it removes entries in
     place. A generated tool takes its hints from its
@@ -42,10 +43,10 @@ invocation registers.
 - **Target snapshots are read over stdio only.** On a stdio server `pacto_impact` reads the change's signed [target snapshot](ci.md#where-consumers-come-from), as `pacto impact` does, unless the server names a target source of its own (`--k8s`, `--target-state`, `--evidence-url`, `--target-snapshot`) or was started with `--target-snapshot off`, and returns `registry` (the `pacto-targets` repositories it tried and the one it read) and `targetSnapshots` (each snapshot's pinned `ref`, `signer`, `cluster` and status). `pacto mcp --fleet --target-snapshot <oci://ref>` adds snapshots to every fleet tool. A server over HTTP refuses `--target-snapshot` at startup and its `pacto_impact` reads none, because restriction reviews a viewer in the local cluster only.
 - **`running` needs the whole fleet.** `pacto_impact` with `running` and `new_ref` alone judges `new_ref` against the revisions of its service that run on known targets, as [`pacto impact --running`](impact.md#against-what-runs) does, and returns `running` naming each ref, the one judged and the unread ones. A server whose answers are restricted to your view refuses it, because a hidden target could hide a running revision. Over HTTP it takes only an `oci://` `new_ref` in your view.
 - **They expose knowledge only.** They never grant, scope or revoke a permission.
-- **A `nextAction` is a suggestion.** An attention item whose fix is a contract edit names `edit-contract` and `pacto_edit` in `nextAction`, and `INFERRED_PROVIDER` names `declare` and `pacto_declare` ([attention categories](operational-graph-tallies.md#attention-categories)); Pacto infers it from the item's code, and the edit itself decides.
+- **A `nextAction` is a suggestion.** It is `{verb, tool, cli}`: the verb, such as `edit-contract` or `declare`, the command a person runs in `cli`, always set, and the MCP tool in `tool`, named only when this server registers it, so an HTTP server never names `pacto_edit` ([attention categories](operational-graph-tallies.md#attention-categories)); Pacto infers it from the item's code, and the edit itself decides.
 - **`rangeReason: INFERRED_PROVIDER` is never a pass.** A `rangeStatus: unknown` with that reason means the provider is an [inferred contract](inferred-contracts.md); treat the range as unverified.
 - **Partial or stale results are incomplete knowledge.** Every answer carries an `asOf` time, a `completeness` value and structured `limitations`. Branch on those before trusting an answer.
-- **Each cluster has its own status.** When the snapshot knows a cluster, every fleet answer's meta lists `clusters`: each cluster's `id`, `name`, `status`, `access` (why a restricted view shows nothing of it) and `targets`. `pacto_fleet_entities` takes `cluster`, a cluster id, to keep that cluster's targets and the services and revisions that run there. See [Multi-cluster](multi-cluster.md).
+- **Each cluster has its own status.** When the snapshot knows a cluster, every fleet answer's meta lists `clusters`: each cluster's `id`, `name`, `status`, `access` (why a restricted view shows nothing of it), `targets` and, on a hub, `link`: a member's channel (`live` or `down`) and its identity model per token issuer (`shared-issuer`, `group-mapping` or `issuer-not-accepted`). `pacto_fleet_entities` takes `cluster`, a cluster id, to keep that cluster's targets and the services and revisions that run there. See [Multi-cluster](multi-cluster.md).
 - **Under partial coverage, a missing result means unknown.** If a source was unavailable, "not found" means "not known here".
 - **The snapshot refreshes on demand.** A call 30 seconds or more after the last rebuild attempt rebuilds it first, reaching your sources again. Calls inside that interval share one `snapshotId`; a failed rebuild keeps the last good snapshot.
 - **The server keeps no state.** Durable evidence lives in an [Evidence Server](evidence.md); the MCP server's state ends with its process.
@@ -74,16 +75,26 @@ pacto mcp --fleet --k8s --delivery
 
 `--root` and `--publish` each start a server of their own. Pacto registers
 its own tools before a bundle's, so a bundle never replaces one, and the
-instructions describe only the modes the server serves.
+instructions describe only the served modes.
 
 `pacto_capabilities` reports `modes`, the contract tools in `authoring`,
-`writes`, `transport`, `asOf` and the keys `fleet`, `impact`, `observed` and
-`delivery` of the dashboard's `GET /api/capabilities`. `caller.callerSource`
-says how Pacto knows `caller.user`: `reviewed` by the API server, a verified
-`token` (`user` is then `unknown`) or `local` (stdio or the loopback launch
-bearer). With delivery, `caller.class` is the actor class as read at
+`writes`, `transport`, `asOf` and the keys `fleet`, `impact`, `observed`,
+`delivery` and `installation` of the dashboard's `GET /api/capabilities`.
+`caller.callerSource` says how Pacto knows `caller.user`: `reviewed` by the
+API server, a verified `token` (`user` is then `unknown`) or `local` (stdio or
+the loopback launch bearer). With delivery, `caller.class` is the actor class as read at
 `caller.classAsOf` (startup over stdio); `caller.policyError` marks policy
 defaults.
+
+| `installation` part | Provenance | Value |
+|---|---|---|
+| Every part | - | Carries `source`, `asOf`, `provenance` and `completeness` |
+| `profile` | declared | The [chart's profile](integrations/kubernetes/profiles.md) names from the operator's detection; `null` with the reason in `source` without `--detected`, from an older operator, for a cluster your view hides or before a snapshot holds the cluster's Installation row |
+| `registry` | declared | The operator's `registry` value, empty when set to nothing |
+| `delivery` | observed | `enabled` says the cluster serves the delivery API, from this server's delivery probe (its `asOf` is when the probe last asked), `null` when it cannot tell; `partial` beside profile hardened, whose kept CRDs still serve it. `appliers` inferred from available Argo CD and Flux rows that count an Application, Kustomization or HelmRelease in the installation's cluster; `partial` when no snapshot or workload source read them |
+| `provisioning` | inferred | `engine` stays `unknown` until a source detects one |
+| `clusters` | observed | `joined` counts the clusters in your view of the snapshot; `pending` is `null` |
+| `mcp` | host | `served` is `true` on the MCP server and `false` on the dashboard |
 
 ## Tool-call log
 
@@ -106,7 +117,7 @@ Every mode except `--root` carries these four,
 |------|-------------|
 | `pacto_create` | Create a new contract from intent-level inputs. Supports dry run. |
 | `pacto_edit` | Edit an existing contract, including its configuration references, environments and their values and the service lifecycle. Supports dry run. |
-| `pacto_check` | Validate a contract and return errors, warnings and suggestions. A contract with an older `pactoVersion` gets the info warning `CONTRACT_BEHIND` and a suggestion that says whether raising it keeps the contract's meaning. |
+| `pacto_check` | Validate a contract and return errors, warnings and suggestions. A contract with an older `pactoVersion` gets the info warning `CONTRACT_BEHIND` and a suggestion that says whether raising it keeps the contract's meaning. Like `pacto validate`, it returns `contractCompleteness`: each of the eight [sections](operational-graph-tallies.md#contract-completeness) as declared, inferred, missing, unknown or not applicable, with `percentComplete`. |
 | `pacto_schema` | Return the full JSON Schema reference. |
 
 **Structured inputs are JSON-encoded strings.** Every input that carries structure has the MCP wire type `string`, and the value is JSON serialised into a string:
@@ -175,14 +186,18 @@ running workload.
   writes to a registry for an agent follows. `pacto_publish_plan` and
   `pacto_publish` stay outside it.
 - It takes `service`, `namespace`, `dir` (stdio only), `registry`, `accept`,
-  `on_behalf_of`, `dry_run`, `intent_digest`, `max_items` and `call_window`.
+  `on_behalf_of`, `dry_run`, `intent_digest`, `max_items`, `call_window`,
+  `draft` (stdio only), `pr`, `repository`, `folder` and `repo_map` (stdio
+  only).
 - `dry_run` defaults to true: the call returns the plan and its `intentDigest`.
+  The plan lists the service's `drafts` waiting, newest first, with
+  `draftsTotal`.
 - A write needs `dry_run: false` and the `intent_digest` of the plan the agent
   reviewed. The digest binds what would be declared, never the cluster facts
   read at the time, so a re-read with the same content keeps it.
 - Every MCP caller is an agent, so a write is a write-once `draft-<n>` tag
-  that names the person in `on_behalf_of` (required, asserted and never
-  verified). `acceptCLI` is the `pacto declare --from-draft` command that
+  that names the person in `on_behalf_of` (over stdio required, asserted and
+  never verified; over HTTP the caller the server reviewed). `acceptCLI` is the `pacto declare --from-draft` command that
   person runs to read the workload again and sign. A draft is never a version
   and the fleet never lists it.
 - Over stdio the draft is signed only by an ambient CI or agent token. A
@@ -190,7 +205,21 @@ running workload.
   no token are unsigned.
 - Over HTTP the plan reads the cluster with the caller's own exchanged token
   and only the registries `--oci` names. It returns the baseline only when the
-  caller may see the service. A write is refused with `ExecuteNeedsStdio`.
+  caller may see the service. A write is refused with `ExecuteNeedsStdio`
+  unless the server runs with `--registry` and `--declare-registry-config`:
+  then it writes an unsigned draft into that registry on behalf of the caller
+  it reviewed, when a SelfSubjectAccessReview with the caller's own token
+  allows `update` on the workload.
+- `pr` asks for the pull request of
+  [`pacto declare --pr`](publishing.md#open-a-pull-request), and with it the
+  intent digest binds the repository and folder. A stdio server opens it
+  after the write with the stdio process's own Git token and returns
+  `pullRequest`, or `pullRequestError` beside what was published. An HTTP
+  server refuses it with `PullRequestNeedsLocalToken`, because `--pr` runs
+  only where your Git token is. There is no `git_host` argument: a host the
+  URL does not name is refused with `GitHostUnknown`. An agent's `repository`
+  or `repo_map` steers a pull request only when signed provenance or a GitOps
+  source names the same repository.
 - A plan that changes `service.owner` lists who may set it in `mayAccept`;
   see [Who may set a service owner](owner-setting.md). An HTTP server leaves
   it out, with a generic refusal, for a caller who may not see the service.
@@ -212,9 +241,17 @@ the command a person runs:
 | `SignerNotAllowed` | The signer is outside the installation signer policy |
 | `SignerUnverified` | The pushed signature does not name the planned signer; nothing was tagged |
 | `DraftNotFound` | The draft tag does not exist or holds no draft of the service |
-| `ExecuteNeedsStdio` | An HTTP server only plans: run the `cli` command |
+| `ExecuteNeedsStdio` | An HTTP server with no registry of its own only plans: run the `cli` command |
 | `BaselineNeedsMigration` | The baseline is below `pactoVersion: "2.5"`: run `pacto migrate` |
 | `BundleRepoMismatch` | The baseline publishes to another repository than `registry` |
+| `RepositoryUnknown` | A pull request was asked for and no source names the service's repository |
+| `RepositoryUnconfirmed` | A pull request was asked for and a person has to confirm the repository: an unsigned image label, or an agent's repository no signed provenance or GitOps source names |
+| `GitHostUnknown` | Pacto cannot tell which Git host serves the repository: the `cli` command adds `--git-host` |
+| `GitTokenMissing` | No Git token for that host in its environment variables or a git credential helper |
+| `PullRequestFailed` | The Git host refused the pull request, the repository is public and needs a person's `--repository`, or the URL is plain HTTP or redirects; what was published stays |
+| `PullRequestNeedsLocalToken` | Over HTTP: a pull request runs only where your Git token is, so run the `cli` command |
+| `NotAllowed` | Over HTTP: the caller may not update the workload, names someone else in `on_behalf_of`, or the repository belongs to another workload |
+| `ReviewFailed` | Over HTTP: the review of the caller failed or could not be evaluated |
 | `OWNER_SIGNER_NOT_PERSON` | Only a person sets `service.owner`: an agent, CI or workload signer never does, whoever it acts for |
 | `OWNER_SIGNER_NOT_ALLOWED` | The person is no member of the current owner and no default approver |
 | `OWNER_POLICY_UNVERIFIED` | No verified owner policy was read, so who may set `service.owner` is unknown |
@@ -356,7 +393,11 @@ or schema file already there as it is, listed in `kept`.
   `replacesHidden`, the replacements whose workload the caller may not see.
   `replaces` on `pacto_fleet_get` and `pacto_fleet_entity` lists the inferred
   services the service replaced, with `link: inferred-from`, `revision`, `by`
-  and `workload` when a person's declaration names one.
+  and `workload` when a person's declaration names one, or `link: observed`
+  with `signal` and `value` when the operator
+  [linked the running workload](integrations/kubernetes/linked-workloads.md).
+  A linked target carries `link`: `signal` (`image-digest` or `annotation`),
+  `value`, `since` and `otherVersions`.
   `pacto_fleet_explain` adds one `REPLACES_INFERRED` reason per replacement;
   see
   [When a declaration replaces an inferred service](operational-graph-inferred.md#when-a-declaration-replaces-an-inferred-service).

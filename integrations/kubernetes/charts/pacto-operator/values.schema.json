@@ -330,6 +330,42 @@
       "description": "The installation registry (host[/path], no scheme); the operator publishes the target snapshot to <registry>/pacto-targets.",
       "pattern": "^([a-z0-9.-]+(:[0-9]+)?(/[a-z0-9._-]+)*)?$"
     },
+    "hub": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "description": "The hub's https:// or wss:// URL; setting it makes this joined cluster a member that dials out to the hub.",
+          "pattern": "^((https|wss)://.+)?$"
+        },
+        "caConfigMap": {
+          "type": "string",
+          "description": "ConfigMap holding ca.crt, the CAs the hub's certificate may chain to."
+        }
+      }
+    },
+    "profile": {
+      "description": "Installation profile: default, hardened or idp, or a list of them (hardened wins where they disagree).",
+      "oneOf": [
+        {
+          "type": "string",
+          "pattern": "^$|^(default|hardened|idp)(,(default|hardened|idp))*$"
+        },
+        {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "string",
+            "enum": [
+              "default",
+              "hardened",
+              "idp"
+            ]
+          }
+        }
+      ]
+    },
     "registryPullSecret": {
       "type": "string",
       "description": "namespace/name of an existing Secret that authenticates to registry; the chart grants get on that Secret only.",
@@ -433,6 +469,10 @@
           "type": "boolean",
           "deprecated": true,
           "description": "Deprecated: use controller.metricsObservation. Applies only while controller.metricsObservation is empty."
+        },
+        "egressGatewayLogs": {
+          "enum": ["auto", "on", "off", true, false],
+          "description": "Istio egress gateway access logs: auto (find gateways and propose on), on (read their access log tail; adds pods/log get in istio-system) or \"off\" (quoted: a bare off is YAML false); true means on and false keeps meaning auto."
         },
         "kernelEvidence": {
           "type": "object",
@@ -564,7 +604,17 @@
                 "usernameClaim": { "type": "string" },
                 "usernamePrefix": { "type": "string" },
                 "groupsClaim": { "type": "string" },
-                "groupsPrefix": { "type": "string" }
+                "groupsPrefix": { "type": "string" },
+                "signClientID": { "type": ["string", "null"] },
+                "signClientSecretRef": {
+                  "type": ["object", "null"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "name": { "type": ["string", "null"] },
+                    "key": { "type": ["string", "null"] }
+                  }
+                },
+                "signRedirectURL": { "type": ["string", "null"] }
               }
             },
             "session": {
@@ -593,6 +643,16 @@
             "allowAnonymous": { "type": "boolean" }
           }
         },
+        "mcp": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "MCP for AI agents at /mcp on the dashboard, with the dashboard's sign-in.",
+          "properties": {
+            "enabled": { "type": "boolean" },
+            "url": { "type": "string", "pattern": "^$|^https?://[^/?#]+/mcp$" },
+            "exchangeAudience": { "type": "string" }
+          }
+        },
         "delivery": {
           "type": "object",
           "additionalProperties": false,
@@ -611,6 +671,20 @@
             "miraURL": { "type": "string" }
           }
         },
+        "declare": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "Declare in the dashboard: the push Secret its writer alone uses.",
+          "properties": {
+            "registryCredentials": {
+              "type": ["object", "null"],
+              "additionalProperties": false,
+              "properties": {
+                "secretName": { "type": ["string", "null"] }
+              }
+            }
+          }
+        },
         "stats": {
           "type": "object",
           "additionalProperties": false,
@@ -624,7 +698,7 @@
         "observation": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Offline OTLP/JSON trace exports mounted read-only into the dashboard. Not an OTLP receiver and not a trace collector.",
+          "description": "Offline OTLP/JSON trace exports mounted read-only into the dashboard. The dashboard also receives OTLP/HTTP JSON in the cluster; Pacto deploys no trace collector.",
           "properties": {
             "sources": {
               "type": "array",
@@ -805,6 +879,10 @@
           "description": "Dedicated agent namespace (a DNS-1123 label); not the release namespace",
           "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$",
           "maxLength": 63
+        },
+        "createNamespace": {
+          "type": "boolean",
+          "description": "Create nodeAgent.namespace; false means it exists first with the privileged Pod Security labels"
         },
         "publishInterval": {
           "type": "string",
@@ -1535,7 +1613,17 @@
           "additionalProperties": { "type": ["array", "null"], "items": { "$ref": "#/$defs/ownerSignerRule" } }
         },
         "emailIssuers": { "type": ["array", "null"], "items": { "type": "string", "minLength": 1 } },
-        "trustedRoot": { "type": ["string", "null"], "description": "A Sigstore trusted_root.json owner changes are verified against; empty falls back to delivery.publishers.trustedRoot, else public-good Sigstore." }
+        "trustedRoot": { "type": ["string", "null"], "description": "A Sigstore trusted_root.json owner changes are verified against; empty falls back to delivery.publishers.trustedRoot, else public-good Sigstore." },
+        "signing": {
+          "type": ["object", "null"],
+          "additionalProperties": false,
+          "description": "The Sigstore a person's declaration is signed with in the dashboard; empty uses public-good Sigstore.",
+          "properties": {
+            "fulcioURL": { "type": ["string", "null"] },
+            "rekorURL": { "type": ["string", "null"] },
+            "timestampURL": { "type": ["string", "null"] }
+          }
+        }
       }
     },
     "zot": {

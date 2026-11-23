@@ -10,6 +10,8 @@
 
   var q = window.__pactoTour.q;
   var hashPath = window.__pactoTour.hashPath;
+  // legacy-billing's page: the inferred service key, encoded as the services list links it.
+  var BILLING = "#/fleet/services/k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%252Fshop%252FDeployment%252Flegacy-billing";
 
   var style = document.createElement("style");
   style.textContent =
@@ -83,7 +85,7 @@
   // for, because a tour that sits there wanting something it has not named is a wall.
   var FLEET_TOUR = [{
     title: "The guided tour",
-    text: NOTICE + " The tour asks fifteen questions about this fleet and opens the screen that answers each one, so press Continue to start.",
+    text: NOTICE + " The tour asks twenty questions about this fleet and opens the screen that answers each one, so press Continue to start.",
     hash: "#/fleet",
     target: "#ov-answer"
   }, {
@@ -207,29 +209,22 @@
     target: "#sec-delivery-evidence"
   }, {
     title: "Who does a change reach?",
-    text: "The operational graph shows who calls whom, from what contracts declare and from what Pacto observed, so start by typing orders in the search box.",
+    text: "The operational graph is the whole fleet on one map, from what contracts declare and from what Pacto observed, so start by typing orders in the search box and press Enter on orders-service.",
     hash: "#/fleet/graph",
-    target: '[data-testid="graph-discovery"] input[type=search]',
-    wait: "Waiting for a search that finds orders.",
-    gate: function () { return !!q('[data-testid="graph-focus-link"]'); },
-    skip: function () {
-      var i = q('[data-testid="graph-discovery"] input[type=search]');
-      if (i) { setValue(i, "orders"); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
-    }
+    target: '[data-testid="fleet-map-search"] input[type=search]',
+    wait: "Waiting for the map to focus orders-service.",
+    gate: function () { return !!q('[data-testid="fleet-map-focus"]'); },
+    skip: function () { window.location.hash = "#/fleet/graph/service/orders-service"; }
   }, {
     title: "Who does a change reach?",
-    text: "Open orders-service from the results to see its neighborhood: what it calls, what calls it and what was only observed.",
-    hash: "#/fleet/graph",
-    target: ['[data-testid="graph-focus-link"]', '[data-testid="neighborhood-canvas"]'],
-    wait: "Waiting for a focused neighborhood to render.",
+    text: "Open orders-service on the map to see what calls it on the left, what it calls on the right and what was only observed.",
+    // The search already focused it; a reader who skipped arrives on the same route.
+    hash: "#/fleet/graph/service/orders-service",
+    target: ['[data-testid="fleet-map"] canvas[role="img"]', '[data-testid="fleet-map-focus"]'],
+    wait: "Waiting for the map to focus orders-service.",
     hold: true,
-    gate: function () { return !!q('[data-testid="neighborhood-canvas"]'); },
-    skip: function () {
-      var a = q('[data-testid="graph-focus-link"]');
-      // The results come back from a request, so on a step the reader skipped
-      // immediately there is nothing to click yet: go where the link would have gone.
-      if (a) { a.click(); } else { window.location.hash = "#/fleet/graph/service/orders-service"; }
-    }
+    gate: function () { return !!q('[data-testid="fleet-map-focus"]'); },
+    skip: function () { window.location.hash = "#/fleet/graph/service/orders-service"; }
   }, {
     // Only something to read: the Changes section filtered to owner changes, where
     // the 2.1.0 handover reads as a change rather than a dispute.
@@ -251,6 +246,13 @@
     text: "Each service that uses inventory-service shows whether it gets the guarantees it requires (met, refused or not verified), and its stock-feed interface is marked past its sunset.",
     hash: "#/fleet/services/inventory-service",
     target: "#sec-observed-traffic-and-differences"
+  }, {
+    // Only something to read: the demo cluster is a hub, and its Clusters block lists
+    // the members that joined through the registry and the one waiting for a person.
+    title: "Which clusters report here?",
+    text: "This cluster is a hub: eu-prod and us-west joined it through the registry once a person approved their keys, and ap-dev waits under Clusters until someone who may approve it runs the command its Approve button shows.",
+    hash: "#/fleet/sources",
+    target: '[data-testid="source-clusters"]'
   }, {
     // Also only something to read: the row says what the path gives and how many
     // services were created from it.
@@ -287,8 +289,47 @@
       if (a) { a.click(); } else { window.location.hash = "#/fleet/changes?offering=postgresql&event=unavailable"; }
     }
   }, {
+    // legacy-billing is a Deployment no contract describes: the inferred services list
+    // links it, and its page is where a person declares it.
+    title: "Which workloads have no contract?",
+    text: "Pacto lists the workloads it found running with no contract as inferred services, so open legacy-billing from the list.",
+    hash: "#/fleet/services?declaration=inferred",
+    target: ['main a[href*="legacy-billing"]', '[data-testid="inferred-workload"]'],
+    wait: "Waiting for the legacy-billing page to open.",
+    gate: function () { return hashPath() === BILLING; },
+    skip: function () {
+      var a = q('main a[href*="legacy-billing"]');
+      if (a) { a.click(); } else { window.location.hash = BILLING; }
+    }
+  }, {
+    // The panel asks for the plan only once it opens, read as the person signed in.
+    title: "What would declaring it publish?",
+    text: "Open Declare this service to read the pacto.yaml that pacto declare would publish, with the payments-service range the cluster read proposes.",
+    hash: BILLING,
+    target: ['[data-testid="declare-panel"] > summary', '[data-testid="declare-ranges"]'],
+    wait: "Waiting for the declaration plan to load.",
+    gate: function () { return hashPath() === BILLING && !!q('[data-testid="declare-ranges"]'); },
+    skip: function () {
+      var s = q('[data-testid="declare-panel"] > summary');
+      if (s) { s.click(); }
+    }
+  }, {
+    // Nobody signs in the demo, so the plan is saved as a draft; the result names the
+    // command a person accepts it with, and the draft joins the list below.
+    title: "What would declaring it publish?",
+    text: "Nobody signs in the demo, so press Save draft and read the command a person who may update legacy-billing accepts draft-1 with.",
+    hash: BILLING,
+    target: ['[data-testid="declare-save-draft"]', '[data-testid="declare-result"]'],
+    wait: "Waiting for the draft to be saved.",
+    hold: true,
+    gate: function () { return !!q('[data-testid="declare-result"]'); },
+    skip: function () {
+      var b = q('[data-testid="declare-save-draft"]');
+      if (b) { b.click(); }
+    }
+  }, {
     title: "Recap",
-    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, where new services start and whether a platform offering is available and who can move off it, all from contracts and observations.",
+    text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, which clusters report here, where new services start, whether a platform offering is available and who can move off it and how a workload with no contract is declared, all from contracts and observations.",
     href: "../examples/demo-tour/",
     linkText: "The same questions from a terminal"
   }];
@@ -614,7 +655,7 @@
   }, {
     title: "Act from what you found",
     text: "On this page of payments in prod, from ticket CHG-2077, 3.0.0 runs with its check still Unknown, so press Plan undo right here, where you found it.",
-    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
+    hash: "#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
     target: PLAN_UNDO,
     wait: "Waiting for the undo plan to open.",
     gate: function () { return !!q('[data-testid="undo-panel"]'); },
@@ -622,7 +663,7 @@
   }, {
     title: "Act from what you found",
     text: "Press Plan this roll back: the plan carries ticket CHG-2077 from the page address and would put back 2.3.0, and nothing is proposed until a person proposes it.",
-    hash: "#/fleet/targets/prod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
+    hash: "#/fleet/targets/5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fpayments?correlationID=" + INVESTIGATION,
     target: [PLAN_THIS, TICKET],
     wait: "Waiting for the plan to carry the ticket.",
     hold: true,

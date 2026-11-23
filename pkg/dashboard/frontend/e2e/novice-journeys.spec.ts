@@ -49,10 +49,10 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     // The question in the title is answered in one line straight under it.
     await expect(page.getByTestId('overview-answer')).toBeVisible({ timeout: T });
     const nav = page.getByRole('navigation', { name: 'Primary' }).first();
-    // The sidebar's groups (SPEC 20): Overview and Needs attention, then Organization,
+    // The sidebar's groups (SPEC 20): Overview (Needs attention is the list beside its map), then Organization,
     // Change and delivery, and System.
     // Names, not text: the count and the source health are descriptions.
-    const names = ['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Delivery', 'Metrics', 'Operational graph', 'Data sources'];
+    const names = ['Overview', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Delivery', 'Metrics', 'Operational graph', 'Data sources'];
     await expect(nav.getByRole('link')).toHaveCount(names.length);
     for (const [i, name] of names.entries()) await expect(nav.getByRole('link').nth(i)).toHaveAccessibleName(name);
     await expectNoLegacyScreen(page);
@@ -65,12 +65,14 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     await page.goto('/#/fleet');
     await page.getByRole('link', { name: /need attention/ }).click();
     await expect(page).toHaveURL(/#\/fleet\/attention/, { timeout: T });
-    await expect(page.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: T });
-    // The category control offers readable names; the raw wire values stay in the URL.
-    const options = await page.getByLabel('Filter by category').locator('option').allTextContents();
-    expect(options).toContain('Not compliant');
-    expect(options).toContain('Stale evidence');
-    expect(options.join(' ')).not.toContain('non-compliant');
+    // The list beside the Overview's map names each item's category in words; the raw
+    // wire values stay in the URL.
+    await expect(page.getByTestId('fleet-map-rail')).toBeVisible({ timeout: T });
+    // allTextContents does not retry: wait for the rail's items before reading them.
+    const items = page.getByTestId('fleet-map-rail-item').locator('.ritem-c');
+    await expect(items.first()).toBeVisible({ timeout: T });
+    const cats = await items.allTextContents();
+    for (const c of cats) expect(c, 'a category in words, never its slug').not.toMatch(/^[a-z]+(-[a-z]+)+$/);
     await expectNoLegacyScreen(page);
   });
 
@@ -79,11 +81,9 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
   test('J3: readiness is a triage dimension, reachable from the overview, never a legacy screen', async ({ page }) => {
     await boot(page);
     await page.goto('/#/fleet');
-    // The overview shows the worst few items and one link to the rest; the category is picked there.
-    await page.locator('#sec-attention').getByRole('link', { name: /^View all/ }).click();
-    await page.getByLabel('Filter by category').selectOption({ label: 'Readiness gate' });
-    await expect(page).toHaveURL(/#\/fleet\/attention\?category=readiness/, { timeout: T });
-    await expect(page.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: T });
+    // An attention link opens the list beside the map, filtered and said in words.
+    await page.goto('/#/fleet/attention?category=readiness');
+    await expect(page.getByTestId('fleet-map-rail-filtered')).toContainText('Readiness gate', { timeout: T });
     // The old bookmark lands on the revision inventory rather than mounting a second
     // definition. Readiness is declared BY a contract revision and assessed against the
     // threshold that revision set for itself, so the population it describes is the
@@ -171,22 +171,25 @@ test.describe('novice journey — a first-time user reads ONE product', () => {
     await openPaymentsService(page);
     await page.getByRole('link', { name: 'Open in graph' }).click();
     await expect(page).toHaveURL(/#\/fleet\/graph\/service\//, { timeout: T });
-    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: T });
+    // A service opens the fleet map in focus on it.
+    await expect(page.getByTestId('fleet-map-focus')).toContainText('payments-service', { timeout: T });
     const url = page.url();
     await page.reload();
     await expect(page).toHaveURL(url);
-    await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: T });
+    await expect(page.getByTestId('fleet-map-focus')).toContainText('payments-service', { timeout: T });
     await expectNoLegacyScreen(page);
   });
 
-  // J9. "Will this dump the whole estate on me?" The graph tab opens search-first and
-  // says so, so an empty canvas is never mistaken for a broken page.
-  test('J9: the graph opens search-first, never a whole-fleet hairball', async ({ page }) => {
+  // J9. "Will this dump the whole estate on me?" The graph tab opens on the whole fleet
+  // drawn by group, from the server's aggregates, so it is calm and never a hairball.
+  test('J9: the graph opens on the whole fleet by group, never a hairball', async ({ page }) => {
     await boot(page);
     await page.getByRole('navigation', { name: 'Primary' }).first().getByRole('link', { name: 'Operational Graph' }).click();
     await expect(page).toHaveURL(/#\/fleet(\/graph)?$/, { timeout: T });
-    await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: T });
-    await expect(page.getByTestId('graph-discovery-placeholder')).toBeVisible({ timeout: T });
+    await expect(page.getByTestId('fleet-map-summary')).toBeVisible({ timeout: T });
+    // The level follows density: the demo's few dozen services fit at Services, a
+    // thousands-strong fleet at Groups; neither opens on Names or Details.
+    await expect(page.getByTestId('fleet-map-live')).toHaveText(/^Level [01], (Groups|Services)/, { timeout: T });
     await expect(page.getByTestId('neighborhood-canvas')).toHaveCount(0);
     await expectNoLegacyScreen(page);
   });

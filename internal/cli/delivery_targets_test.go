@@ -133,6 +133,17 @@ func TestDeliveryTargetsPublishRefusesStalePublicKey(t *testing.T) {
 			t.Fatalf("%q: %v", want, err)
 		}
 	}
+	// A .pub.pem that cannot be read at all is refused too.
+	if err := os.Remove(key + ".pub.pem"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(key+".pub.pem", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runDelivery(t, defaultDeps(), "", "targets", "publish", snapshotDoc(t, nil), "--registry", host+"/acme", "--key", key); err == nil ||
+		!strings.Contains(err.Error(), "is a directory") {
+		t.Fatalf("an unreadable .pub.pem: %v", err)
+	}
 	repo, _ := ocireferrer.Open(host+"/acme/pacto-targets", ocireferrer.Options{Insecure: []string{host}})
 	if _, err := repo.Resolve(t.Context(), "cluster-c-6f1e"); err == nil {
 		t.Fatal("a refused publish pushed")

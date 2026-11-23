@@ -108,11 +108,14 @@ func NamesService(k, other ServiceKey) bool {
 type Replacement struct {
 	From ServiceKey `json:"from" doc:"The key of the inferred service that was replaced."`
 	To   ServiceKey `json:"to" doc:"The key of the declared service that replaced it."`
-	Link string     `json:"link" enum:"pacto-target,inferred-from" doc:"How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service."`
+	Link string     `json:"link" enum:"pacto-target,inferred-from,observed" doc:"How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service, observed when the running workload was linked to a published contract with no Pacto (image digest or annotation)."`
+	// Signal and Value say how an observed link was made.
+	Signal string `json:"signal,omitempty" enum:"image-digest,annotation" doc:"How an observed link was made: the running image digest or the pacto.trianalab.io/contract annotation."`
+	Value  string `json:"value,omitempty" doc:"The running image digest or the pacto.trianalab.io/contract value of an observed link."`
 	// Target is the target that links them.
-	Target TargetKey `json:"target,omitempty" doc:"The Pacto target that runs as the workload."`
+	Target TargetKey `json:"target,omitempty" doc:"The Pacto target that runs as the workload, or the linked target of an observed link."`
 	// At is nil on an inferred-from link, whose signed record carries no time.
-	At *time.Time `json:"at,omitempty" doc:"When the Pacto that links them was created; absent on an inferred-from link, whose signed record carries no time."`
+	At *time.Time `json:"at,omitempty" doc:"When the Pacto that links them was created, or when the operator first linked the workload; absent on an inferred-from link, whose signed record carries no time."`
 	// Revision and By name the declaration of an inferred-from link.
 	Revision RevisionKey `json:"revision,omitempty" doc:"The revision whose signed inferred record names the replaced service."`
 	By       string      `json:"by,omitempty" doc:"Who signed that revision, read from its verified signature."`
@@ -123,6 +126,24 @@ type Replacement struct {
 	// inferred service.
 	workload workloadKey
 }
+
+// ObservedLink is how the operator linked a running workload to a published
+// contract with no Pacto: by the image digest the workload runs, which the
+// contract's signed images record holds, or by the pacto.trianalab.io/contract
+// annotation the workload carries. It is observed evidence: the revision it
+// names stays declared.
+type ObservedLink struct {
+	Signal        string     `json:"signal" enum:"image-digest,annotation" doc:"How the workload was linked: the running image digest or the pacto.trianalab.io/contract annotation."`
+	Value         string     `json:"value" doc:"The running image digest, or the pacto.trianalab.io/contract value"`
+	Since         *time.Time `json:"since,omitempty" doc:"When the operator first linked this workload to this service"`
+	OtherVersions []string   `json:"otherVersions,omitempty" doc:"Other release versions of the service whose images record holds the same digest; the linked version is the newest and may be wrong"`
+}
+
+// The signals an [ObservedLink] is made by.
+const (
+	LinkSignalImageDigest = "image-digest"
+	LinkSignalAnnotation  = "annotation"
+)
 
 // ObservedResolution classifies how a raw observed (e.g. OpenTelemetry
 // service.name) name mapped onto the fleet's domain-qualified identities.
@@ -153,8 +174,38 @@ const (
 // corroborate or affect a same-named service in another domain.
 func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, ObservedResolution) {
 	byName := map[string][]ServiceKey{}
+	byWorkload := map[workloadName][]ServiceKey{}
 	for k, svc := range s.Services {
 		byName[svc.Name] = append(byName[svc.Name], k)
+		if w := svc.Workload; w != nil {
+			wn := workloadName{namespace: w.Namespace, name: w.Name}
+			if s.clusterKeyed {
+				wn.cluster = w.Cluster
+			}
+			byWorkload[wn] = append(byWorkload[wn], k)
+		}
+	}
+	for _, r := range s.replacedNames {
+		wn := workloadName{cluster: r.workload.cluster, namespace: r.workload.namespace, name: r.workload.name}
+		byWorkload[wn] = append(byWorkload[wn], r.to)
+	}
+	// A cluster whose workload source did not read every workload may hold a
+	// second workload of the name the index never saw. ponytail: the whole
+	// cluster, not the namespace or kind it missed; per-scope when one
+	// unreadable kind blocks too much.
+	incomplete := map[string]bool{}
+	for _, st := range s.Sources {
+		switch {
+		case st.Kind != SourceKindKubernetesWorkloads || st.Status == SourceAvailable:
+		case !s.clusterKeyed:
+			incomplete[""] = true
+		default:
+			for _, c := range s.Clusters {
+				if slices.Contains(c.Sources, st.ID) {
+					incomplete[c.ID] = true
+				}
+			}
+		}
 	}
 	return func(name string) (ServiceKey, ObservedResolution) {
 		if r, ok := s.replacedNames[name]; ok {
@@ -162,15 +213,45 @@ func (s *FleetSnapshot) ObservedNameResolver() func(string) (ServiceKey, Observe
 		}
 		switch ks := byName[name]; len(ks) {
 		case 1:
-			if s.Services[ks[0]].Inferred() {
-				return ks[0], ObservedInferred
-			}
-			return ks[0], ObservedResolved
+			return ks[0], s.resolution(ks[0])
 		case 0:
-			return "", ObservedUnknown
+			return s.kindless(name, byWorkload, incomplete)
 		default:
 			return "", ObservedAmbiguous
 		}
+	}
+}
+
+// workloadName is a workload without its kind: what an observer that labels
+// workloads by name only (Istio) reports.
+type workloadName struct{ cluster, namespace, name string }
+
+// resolution is how a name that matched exactly k resolved.
+func (s *FleetSnapshot) resolution(k ServiceKey) ObservedResolution {
+	if s.Services[k].Inferred() {
+		return ObservedInferred
+	}
+	return ObservedResolved
+}
+
+// kindless resolves a Kubernetes name with an empty kind ("k8s:ns//name") to
+// the one service whose workload has that name in that namespace and
+// cluster. Two or more are ambiguous; none, a name that is not kindless, or
+// one of a cluster whose workload list is incomplete, is unknown.
+func (s *FleetSnapshot) kindless(name string, byWorkload map[workloadName][]ServiceKey, incomplete map[string]bool) (ServiceKey, ObservedResolution) {
+	cluster, ns, kind, n, ok := ParseK8sCaller(name)
+	if !ok || kind != "" || incomplete[cluster] {
+		return "", ObservedUnknown
+	}
+	ks := slices.Clone(byWorkload[workloadName{cluster, ns, n}])
+	slices.Sort(ks)
+	switch ks = slices.Compact(ks); len(ks) {
+	case 0:
+		return "", ObservedUnknown
+	case 1:
+		return ks[0], s.resolution(ks[0])
+	default:
+		return "", ObservedAmbiguous
 	}
 }
 
@@ -396,6 +477,9 @@ const (
 	LimitationSourceUnavailable   = "SOURCE_UNAVAILABLE"
 	LimitationSourceStale         = "SOURCE_STALE"
 	LimitationSourcePartial       = "SOURCE_PARTIAL"
+	// LimitationEdgeSourcePartial: a live edge source read part of the calls
+	// its backend records, or none; its row says why.
+	LimitationEdgeSourcePartial = "EDGE_SOURCE_PARTIAL"
 	// LimitationK8sNamespaceScoped: a Kubernetes source reads a list of
 	// namespaces, so a service in any other namespace is unknown.
 	LimitationK8sNamespaceScoped = "K8S_NAMESPACE_SCOPED"
@@ -446,9 +530,13 @@ const (
 	// carries it, a Pacto target runs as that workload, or the claim
 	// contradicts where the service runs, so the inferred service stays.
 	LimitationInferredLinkIgnored = "INFERRED_LINK_IGNORED"
-	LimitationDuplicateSourceID   = "DUPLICATE_SOURCE_ID"
-	LimitationRevisionUnresolved  = "REVISION_IDENTITY_UNRESOLVED"
-	LimitationRevisionAmbiguous   = "REVISION_LINK_AMBIGUOUS"
+	// LimitationLinkVersionAmbiguous: the image digest a linked workload
+	// runs is recorded by several release versions of its service; the
+	// newest is linked and may be wrong, so the target is never verified.
+	LimitationLinkVersionAmbiguous = "LINK_VERSION_AMBIGUOUS"
+	LimitationDuplicateSourceID    = "DUPLICATE_SOURCE_ID"
+	LimitationRevisionUnresolved   = "REVISION_IDENTITY_UNRESOLVED"
+	LimitationRevisionAmbiguous    = "REVISION_LINK_AMBIGUOUS"
 	// LimitationRevisionDocConflict: two sources contributed the same immutable
 	// revision but disagree about its documents (a different set of paths, or the
 	// same path with different content). There is no honest way to pick a winner —
@@ -621,8 +709,10 @@ const RangeReasonInferredProvider = "INFERRED_PROVIDER"
 
 // Cluster name sources: how a [Cluster] name was found. They mirror the values
 // of pkg/kubecluster, which pkg/fleet cannot import. The live Kubernetes source
-// sets node-label, context or uid; a target state file sets file.
+// sets node-label, context or uid; a target state file sets file; a person's
+// approval of a member cluster sets approval.
 const (
+	ClusterNameFromApproval  = "approval"
 	ClusterNameFromNodeLabel = "node-label"
 	ClusterNameFromContext   = "context"
 	ClusterNameFromFile      = "file"
@@ -645,7 +735,7 @@ type Cluster struct {
 	// Name is a display name only, never an identity.
 	Name string `json:"name,omitempty" doc:"A display name for the cluster; never an identity."`
 	// NameSource says how Name was found.
-	NameSource string `json:"nameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID."`
+	NameSource string `json:"nameSource,omitempty" enum:"approval,node-label,context,file,uid" doc:"How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID."`
 	// ReportedBy is the id of the source that reported Name, empty when this
 	// process read the name itself.
 	ReportedBy string `json:"reportedBy,omitempty" doc:"The source that reported the name; empty when this process read it itself."`
@@ -659,7 +749,35 @@ type ClusterRecord struct {
 	// Access says why a restricted view shows nothing of this cluster; empty
 	// when it shows what the reader may read.
 	Access string `json:"access,omitempty" enum:"no-access,review-failed,not-reviewable" doc:"Why a restricted view shows nothing of this cluster: you may read no namespace there, the review failed or took too long, or nobody can be reviewed there. Empty when the view shows what you may read."`
+	// Link is the member's live channel to this hub, nil when it has none.
+	Link *ClusterLink `json:"link,omitempty" doc:"The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel."`
 }
+
+// ClusterLink is what a hub knows of a member's outbound review channel. It
+// is a fact for readers only: no gate reads it.
+type ClusterLink struct {
+	Channel string        `json:"channel,omitempty" enum:"live,down" doc:"live while the member's channel is connected; down when it dropped in the last 15 minutes."`
+	Since   *time.Time    `json:"since,omitempty" doc:"When the channel last came up or dropped."`
+	Issuers []IssuerModel `json:"issuers,omitempty" doc:"The identity model each token issuer uses in this member, in issuer order."`
+}
+
+// IssuerModel is how a member reviews people signed in with one issuer.
+type IssuerModel struct {
+	Issuer   string     `json:"issuer,omitempty" doc:"The issuer of the signed-in people's tokens."`
+	Model    string     `json:"model,omitempty" enum:"shared-issuer,group-mapping,issuer-not-accepted" doc:"shared-issuer: the member's apiserver accepts an exchanged token; group-mapping: reads use the approved group mapping; issuer-not-accepted: the member refuses the issuer and no mapping is approved."`
+	MappedBy string     `json:"mappedBy,omitempty" doc:"Who approved the group mapping in force."`
+	MappedAt *time.Time `json:"mappedAt,omitempty" doc:"When the group mapping was signed."`
+	Mapping  string     `json:"mapping,omitempty" doc:"The mapping's rules, hub group=cluster group, comma separated."`
+}
+
+// Link channel states and identity models (see [ClusterLink]).
+const (
+	LinkLive           = "live"
+	LinkDown           = "down"
+	IssuerShared       = "shared-issuer"
+	IssuerGroupMapping = "group-mapping"
+	IssuerNotAccepted  = "issuer-not-accepted"
+)
 
 // Cluster access marks of a restricted view (see [ClusterRecord.Access]).
 const (
@@ -698,11 +816,22 @@ type SourceState struct {
 	NamespacesTotal    int          `json:"namespacesTotal,omitempty" doc:"How many namespaces the source read, when Namespaces is capped or restricted. Above 0, the source reads a list of namespaces, never every namespace."`
 	InferredCount      int          `json:"inferredCount,omitempty" doc:"The inferred services this source reported, after the bound; a restricted view counts only the inferred services you may see"`
 	Advisory           bool         `json:"advisory,omitempty" doc:"An advisory source never makes the answer partial; its rows are hints."`
+	CautionOnly        bool         `json:"cautionOnly,omitempty" doc:"Observed edges from this source come from unauthenticated senders: they add callers and undeclared edges and never corroborate a declared one"`
 	Ref                string       `json:"ref,omitempty" doc:"The pinned reference the source read, such as a target snapshot's repository@digest"`
 	Signer             string       `json:"signer,omitempty" doc:"The trust entry that verified what the source read (its name, or key:<fingerprint>), never a name the signed payload claims; empty means unverified"`
 	Publisher          string       `json:"publisher,omitempty" doc:"The publisher the signed payload names, such as the ServiceAccount that pushed a target snapshot: a claim of the signer, never verified on its own"`
 	SignerUnscoped     bool         `json:"signerUnscoped,omitempty" doc:"The trust entry in signer is not scoped to the cluster the source describes, so the cluster it names is the signer's claim alone"`
 	Cluster            *Cluster     `json:"cluster,omitempty" doc:"The cluster the source describes"`
+}
+
+// CautionOnly reports whether every source that observed r is caution-only
+// ([SourceState.CautionOnly]): such an edge adds a caller and never
+// corroborates a declared edge. A source missing from s counts as one that
+// corroborates, so r must come from s.
+func (s *FleetSnapshot) CautionOnly(r Relationship) bool {
+	return len(r.ObservedSources) > 0 && !slices.ContainsFunc(r.ObservedSources, func(o ObservedSourceStat) bool {
+		return !slices.ContainsFunc(s.Sources, func(st SourceState) bool { return st.ID == o.Source && st.CautionOnly })
+	})
 }
 
 // degraded reports whether st is a source that is not available and counts
@@ -855,6 +984,20 @@ type InferredWorkload struct {
 	RepositoryUnknown string               `json:"repositoryUnknown,omitempty" doc:"Why Pacto could not read the repository of a group that names one, for example Applications unreadable (forbidden)"`
 	// repositoryUnknownFrom is RawInferredService.RepositoryUnknownFrom.
 	repositoryUnknownFrom []WorkloadScope
+}
+
+// RepositoriesIncomplete is why w's repositories may not be every one its
+// GitOps objects name: its repository reason (hidden by the viewer's
+// permissions or unreadable), or repositories past the bound; "" when the
+// list is complete.
+func (w *InferredWorkload) RepositoriesIncomplete() string {
+	if w.RepositoryUnknown != "" {
+		return w.RepositoryUnknown
+	}
+	if slices.ContainsFunc(w.Dropped, func(f string) bool { return strings.HasPrefix(f, "repositories[") }) {
+		return "more GitOps repositories than Pacto keeps"
+	}
+	return ""
 }
 
 // InferredGroup is how the cluster already groups an inferred service's workload.
@@ -1150,10 +1293,13 @@ type TargetRecord struct {
 	// whether the target runs in the cluster or was only reported through it.
 	Cluster               string       `json:"cluster,omitempty" doc:"The kube-system UID of the cluster that reported this target."`
 	ClusterName           string       `json:"clusterName,omitempty" doc:"A display name for the cluster; never an identity."`
-	ClusterNameSource     string       `json:"clusterNameSource,omitempty" enum:"node-label,context,file,uid" doc:"How the cluster name was found."`
+	ClusterNameSource     string       `json:"clusterNameSource,omitempty" enum:"approval,node-label,context,file,uid" doc:"How the cluster name was found."`
 	ClusterNameReportedBy string       `json:"clusterNameReportedBy,omitempty" doc:"The source that reported the cluster name; empty when this process read it itself."`
 	ClusterRelation       string       `json:"clusterRelation,omitempty" enum:"runs-in,reported-through" doc:"runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it."`
 	Limitations           []Limitation `json:"limitations,omitempty"`
+	// Link is set when the target is a workload the operator linked to a
+	// published contract with no Pacto.
+	Link *ObservedLink `json:"link,omitempty" doc:"Set when the target is a workload the operator linked to a published contract with no Pacto."`
 	// labels is the bounded projection of Labels, computed once by boundTargetLabels
 	// after ingestion. Labels itself has to stay a raw map because TargetQuery filters
 	// on it, so this is the only way the detail path can honor the same
@@ -1188,6 +1334,10 @@ type TargetRecord struct {
 	// createdAt is when the declaration behind the target was created.
 	createdAt *time.Time
 }
+
+// RunsAs is the workload the target runs as, nil when its source does not
+// know it.
+func (t *TargetRecord) RunsAs() *WorkloadRef { return t.workload }
 
 // DisplayName returns a human-readable "scope/kind/name" for a target, with
 // components unescaped. A target whose key carries a cluster and whose cluster
@@ -1294,6 +1444,11 @@ type Relationship struct {
 	// hiddenTo is the hidden provider's key, kept off the wire so the declared
 	// count collapses a hidden provider exactly like a visible one.
 	hiddenTo ServiceKey
+	// envPairs are the (caller target, callee target) pairs of the raw
+	// observed calls this relationship folds, each end a workload that maps to
+	// exactly one target with an environment; never serialized. A restricted
+	// view skips a pair with a target it may not see.
+	envPairs []envPair
 	// ObservedCount is the TOTAL runtime calls witnessed across all sources for an
 	// observed (Provenance == observed) edge. Zero for declared edges.
 	ObservedCount int `json:"observedCount,omitempty"`
@@ -1325,7 +1480,7 @@ type InferredSource struct {
 	// Target is the target the evidence was read on, when the source names
 	// one this snapshot holds; a restricted view drops evidence of a hidden one.
 	Target     TargetKey  `json:"target,omitempty" doc:"The target the evidence was read on"`
-	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane"`
+	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane"`
 	Where      string     `json:"where,omitempty" doc:"The object and key it was found in, never a value"`
 	Host       string     `json:"host,omitempty" doc:"The normalized host and port; empty when only a key name matched"`
 	Confidence string     `json:"confidence" enum:"likely,possible"`
@@ -1629,6 +1784,9 @@ type FleetSnapshot struct {
 	// callers can layer observed evidence on top rather than conflating the two.
 	observedReverse map[ServiceKey][]ServiceKey
 	observedForward map[ServiceKey][]ServiceKey
+	// cautionPairs are the observed service pairs only caution-only sources
+	// saw: a graph never labels them declared+observed (see reconcileDeclared).
+	cautionPairs map[[2]ServiceKey]bool
 	// inferredReverse/inferredForward are the adjacency of InferredRelationships
 	// between services, apart from the declared and observed indexes.
 	inferredReverse map[ServiceKey][]ServiceKey
@@ -1718,6 +1876,9 @@ type UncontractedCaller struct {
 // "k8s:" then the escaped cluster id and "/" when cluster is set, then
 // namespace/kind/name. Namespace and object names are RFC 1123 and a kind is
 // alphanumeric, so the part count tells the two forms apart.
+// Kind is empty when the observer does not know it ("k8s:shop//cart"):
+// [Build] resolves such a name to the one workload of that name in the
+// namespace and cluster.
 func K8sCaller(cluster, namespace, kind, name string) string {
 	c := namespace + "/" + kind + "/" + name
 	if cluster != "" {

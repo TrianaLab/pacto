@@ -18,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -84,13 +85,14 @@ const (
 	whyStatsWindow  = "the Metrics page takes a closed window that ends now (GET /api/stats?window), with the same totals"
 	whyStatsPage    = "the Metrics page answers every service and environment at once and reads the stats repository pacto dashboard --stats-registry names"
 	whyStatsRecords = "the records behind one number of the Metrics page; pacto stats and pacto_stats answer totals"
+	whyMapPage      = "the dashboard asks a group's page on its own route; the CLI and MCP take the same --group-by with --group"
 	whyMigrateLocal = "a repository-wide rewrite of pacto.yaml files is a local CLI step; pacto_edit raises the version of the contract it edits and the dashboard writes no contract files"
 )
 
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), acceptRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), acceptRows(), clusterRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -109,6 +111,16 @@ func fleetRows() []surfaceRow {
 			{"", "", "GET /api/fleet/neighborhood?perspective", "the dashboard's graph switches perspective; the CLI and MCP walk the service perspective"},
 		},
 		alike("fleet neighborhood", "pacto_fleet_neighborhood", "GET /api/fleet/neighborhood", "", "depth", "direction", "max-edges", "max-nodes", "views"),
+		alike("fleet map", "pacto_fleet_map", "GET /api/fleet/map", "", "group-by"),
+		[]surfaceRow{
+			{"fleet map --group", "pacto_fleet_map.group", "GET /api/fleet/map/nodes?group", ""},
+			{"fleet map --offset", "pacto_fleet_map.offset", "GET /api/fleet/map/nodes?offset", ""},
+			{"fleet map --limit", "pacto_fleet_map.limit", "GET /api/fleet/map/nodes?limit", ""},
+			{"", "", "GET /api/fleet/map/nodes?groupBy", whyMapPage},
+			{"fleet map --environment", "pacto_fleet_map.environment", "GET /api/fleet/map/nodes?environment", ""},
+			{"fleet map --focus", "pacto_fleet_map.focus", "GET /api/fleet/map/focus?service", ""},
+			{"fleet map --hops", "pacto_fleet_map.hops", "GET /api/fleet/map/focus?hops", ""},
+		},
 		alike("fleet search", "pacto_fleet_search", "GET /api/fleet/services", "", "declaration", "limit", "offset", "owner", "scope", "source", "status", "template"),
 		[]surfaceRow{{"fleet search [text]", "pacto_fleet_search.text", "GET /api/fleet/services?text",
 			"the CLI and MCP also list the external systems the text names; the dashboard finds them through GET /api/fleet/entities?kinds=external&text"}},
@@ -361,19 +373,36 @@ func ciRows() []surfaceRow {
 // contract's first tool: the agent's dry_run and intent_digest are the
 // person's --yes and --intent.
 func declareRows() []surfaceRow {
-	const why = "the dashboard Declare panel is 513-S6"
+	const why = "the dashboard Declare panel names the inferred service by its fleet key and reads its workload from the snapshot"
 	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
+	const plan, accept = "POST /api/fleet/declare", "POST /api/fleet/declare/accept"
+	const prWhy = "D7: --pr runs only where your Git token is"
 	return slices.Concat(
 		[]surfaceRow{
-			{"declare <service>", "pacto_declare.service", "", why},
-			{"declare --intent", "pacto_declare.intent_digest", "", why},
-			{"declare --yes", "pacto_declare.dry_run", "", why + "; dry_run false writes a draft, --yes publishes after a person's login"},
-			{"declare --dir", "pacto_declare.dir", "", why + "; over MCP dir is stdio only"},
-			{"", "pacto_declare.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI runs as that person; " + why},
-			{"declare --delivery-trust", "", "", "stdio pacto_declare reads the server's own --delivery-trust; " + why},
+			{"declare <service>", "pacto_declare.service", plan + " body.serviceKey", why},
+			{"", "", accept + " body.serviceKey", why},
+			{"declare --accept", "pacto_declare.accept", plan + " body.accept", ""},
+			{"", "", accept + " body.accept", "the accept route carries out the plan with the ranges it accepted"},
+			{"declare --intent", "pacto_declare.intent_digest", accept + " body.intentDigest", ""},
+			{"", "", plan + " body.intentDigest", "back from the dashboard's signing login, the plan the login was started for"},
+			{"declare --from-draft", "", plan + " body.fromDraft", "MCP callers are agents and never accept a draft; the dashboard names the draft by tag and the digest it showed"},
+			{"", "", accept + " body.fromDraft", "MCP callers are agents and never accept a draft"},
+			{"declare --yes", "pacto_declare.dry_run", accept + " body.mode", "dry_run false writes a draft, --yes publishes after a person's login; the dashboard signs (mode sign) or saves a draft (mode draft)"},
+			{"declare --dir", "pacto_declare.dir", "", "the dashboard declares a workload the fleet sees, never a folder; over MCP dir is stdio only"},
+			{"", "pacto_declare.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for (over HTTP the caller the server reviewed); the CLI and the dashboard run as that person"},
+			{"declare --delivery-trust", "", "", "stdio pacto_declare and the dashboard read the server's own --delivery-trust"},
+			{"declare --draft", "pacto_declare.draft", "", "the dashboard Declare panel writes drafts through POST /api/fleet/declare/accept mode draft; over HTTP MCP every write is a draft, written only when the server has --registry"},
 		},
-		alike("declare", "pacto_declare", "", why, "namespace", "registry", "accept", "max-items", "call-window"),
-		alike("declare", "", "", whyLocal, "from-draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+		alike("declare", "pacto_declare", "", "the dashboard reads the workload's namespace from the snapshot, declares into its own --registry and reads the cluster as the person",
+			"namespace", "registry", "max-items", "call-window"),
+		[]surfaceRow{
+			{"declare --pr", "pacto_declare.pr", "", prWhy},
+			{"declare --repository", "pacto_declare.repository", "", prWhy},
+			{"declare --folder", "pacto_declare.folder", "", prWhy},
+			{"declare --repo-map", "pacto_declare.repo_map", "", prWhy + "; over MCP repo_map is stdio only"},
+			{"declare --git-host", "", "", prWhy + "; a stdio agent gets GitHostUnknown with the CLI line"},
+		},
+		alike("declare", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)
 }
@@ -383,21 +412,34 @@ func declareRows() []surfaceRow {
 // --dry-run and --intent, and an agent's write is a draft a person accepts
 // with --draft.
 func acceptRows() []surfaceRow {
-	const why = "the dashboard plans only Accept all proposed ranges, by the service's fleet key, and never signs or writes (POST /api/fleet/accept)"
+	const why = "the dashboard accepts only all proposed ranges, by the service's fleet key: POST /api/fleet/accept plans and POST /api/fleet/accept/execute signs or saves a draft"
 	const whyLocal = "a person's local signing: MCP callers are agents and never sign an acceptance"
+	const plan, exec = "POST /api/fleet/accept", "POST /api/fleet/accept/execute"
+	const svcWhy = "the dashboard names the service by its fleet key and reads its bundle repository from the revision; over MCP a folder is stdio only"
 	return slices.Concat(
 		[]surfaceRow{
-			{"accept <service-ref-or-dir>", "pacto_accept.service", "POST /api/fleet/accept body.serviceKey",
-				"the dashboard names the service by its fleet key and reads its bundle repository from the revision; over MCP a folder is stdio only"},
+			{"accept <service-ref-or-dir>", "pacto_accept.service", plan + " body.serviceKey", svcWhy},
+			{"", "", exec + " body.serviceKey", svcWhy},
 			{"accept [field", "", "", "the positional fields are --field without the flag"},
 			{"accept --field", "pacto_accept.fields", "", why},
-			{"accept --intent", "pacto_accept.intent_digest", "", why + "; its answer carries the intent digest in the command"},
-			{"accept --dry-run", "pacto_accept.dry_run", "", why + "; dry_run defaults to true and false writes a draft, the CLI signs unless --dry-run"},
-			{"", "pacto_accept.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI runs as that person; " + why},
+			{"accept --intent", "pacto_accept.intent_digest", exec + " body.intentDigest", "the plan's answer carries the intent digest in the command"},
+			{"accept --dry-run", "pacto_accept.dry_run", exec + " body.mode", "dry_run defaults to true and false writes a draft, the CLI signs unless --dry-run; the dashboard signs (mode sign) or saves a draft (mode draft)"},
+			{"", "pacto_accept.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for; the CLI and the dashboard run as that person"},
+			{"accept --draft", "", plan + " body.fromDraft", "MCP callers are agents and never accept a draft; the dashboard names the draft by tag and plans it before it is signed"},
+			{"", "", exec + " body.fromDraft", "MCP callers are agents and never accept a draft"},
 		},
 		alike("accept", "pacto_accept", "", why, "proposed", "break", "from"),
-		alike("accept", "", "", whyLocal, "draft", "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+		alike("accept", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
+	)
+}
+
+// clusterRows map pacto cluster list.
+func clusterRows() []surfaceRow {
+	return slices.Concat(
+		[]surfaceRow{{CLI: "cluster list", MCP: "pacto_cluster_list", HTTP: "GET /api/fleet/clusters"}},
+		alike("cluster list", "", "", "pacto_cluster_list and the dashboard read the hub they run in, from the registry its operator advertises; "+
+			"the CLI names the hub, its registry and where its approver signers are published", "context", "registry", "detected", "delivery-namespace"),
 	)
 }
 
@@ -407,6 +449,9 @@ func acceptRows() []surfaceRow {
 var excludedFromSurfaces = map[string]string{
 	"agent":                    "a long-running host daemon that reports what runs on its node; the other surfaces read what it reports",
 	"delivery targets publish": "signs with a local key and pushes a target snapshot, a pipeline step the other surfaces never take",
+	"cluster approve":          "a person's signed decision; agents never approve (#452)",
+	"cluster remove":           "a person's signed decision; agents never approve (#452)",
+	"cluster map-groups":       "a person's signed decision; agents never approve (#452)",
 	"ci init":                  "writes a CI file into the local repository; an agent runs pacto ci init --dry-run and commits the result itself",
 	"dashboard":                "starts the dashboard server, which is itself the surface the routes belong to",
 	"diff":                     "compares two contracts in a pipeline without the fleet; MCP and the dashboard compare revisions with their consumers (pacto_impact, GET /api/fleet/impact)",
@@ -547,7 +592,8 @@ func mcpNames(t *testing.T) map[string]bool {
 	svc := app.NewService(nil, nil)
 	server, err := pactomcp.New("v", mcpAuthoring(newMCPCommand(svc, "v", defaultDeps()), svc), pactomcp.Modes{
 		Fleet: &pactomcp.FleetMode{Src: func(context.Context) (*fleet.Query, error) { return q, nil }, Opts: pactomcp.FleetOptions{Impact: signedInImpact(t, defaultDeps()),
-			Stats: mcpStatsProvider(newMCPCommand(svc, "v", defaultDeps()), svc, true, nil)}},
+			Stats:    mcpStatsProvider(newMCPCommand(svc, "v", defaultDeps()), svc, true, nil),
+			Clusters: func(context.Context) (delivery.ClusterJoinList, error) { return delivery.ClusterJoinList{}, nil }}},
 		Delivery: &pactomcp.DeliveryMode{Writes: true, Reads: func(context.Context, string, url.Values) (json.RawMessage, error) { return nil, nil }, Refs: &app.Delivery{}},
 	})
 	expect(t, err == nil, "server: %v", err)
@@ -793,6 +839,17 @@ var filterSurfaces = []struct {
 	{fleet.EntityFilter{}, []string{"fleet entities", "pacto_fleet_entities.", "/api/fleet/entities?"}},
 	{fleet.AttentionFilter{}, []string{"fleet attention", "pacto_fleet_attention.", "/api/fleet/attention?"}},
 	{fleet.NeighborhoodQuery{}, []string{"fleet neighborhood", "pacto_fleet_neighborhood.", "/api/fleet/neighborhood?"}},
+	{fleet.MapQuery{}, []string{"fleet map", "pacto_fleet_map.", "/api/fleet/map?"}},
+	{fleet.MapNodesQuery{}, []string{"fleet map", "pacto_fleet_map.", "/api/fleet/map/nodes?"}},
+	{fleet.MapFocusQuery{}, []string{"fleet map", "pacto_fleet_map.", "/api/fleet/map/focus?"}},
+}
+
+// unexposedFields are the filter fields no surface takes as a parameter,
+// each with why.
+var unexposedFields = map[string]string{
+	"MapQuery.EnvironmentOrder": "the dashboard orders environments by the Stages the signed-in person may read; the CLI and MCP list them by name and say so",
+	"MapQuery.OrderWhy":         "why the environments read by name, which the dashboard reads from the Stages and the CLI and MCP leave to the default",
+	"MapFocusQuery.PerColumn":   "a focus column shows 9 services at most on every surface (decision D6); only the Go API asks fewer",
 }
 
 // unreachableFields lists every filter field no row of its surfaces names.
@@ -810,7 +867,8 @@ func unreachableFields(rows []surfaceRow) []string {
 		typ := reflect.TypeOf(f.filter)
 		for i := range typ.NumField() {
 			name := strings.ToLower(typ.Field(i).Name)
-			if !reached[name] && !reached[strings.TrimSuffix(name, "s")] {
+			_, why := unexposedFields[typ.Name()+"."+typ.Field(i).Name]
+			if !why && !reached[name] && !reached[strings.TrimSuffix(name, "s")] {
 				out = append(out, typ.Name()+"."+typ.Field(i).Name)
 			}
 		}
@@ -900,6 +958,7 @@ func TestUsageErrorsEmitOneJSONDocument(t *testing.T) {
 var jsonRuns = map[string][]string{
 	"accept":                 {"--dry-run", "does-not-exist"},
 	"ci":                     {"."},
+	"cluster list":           {"--registry", "127.0.0.1:1/acme/pacto-targets"},
 	"declare":                {"invoices", "--dir", "/nonexistent"},
 	"delivery approve":       {"-n", "prod", "held"},
 	"delivery autonomy":      {},
@@ -932,6 +991,7 @@ var jsonRuns = map[string][]string{
 	"fleet explain":          {"payments"},
 	"fleet get":              {"payments"},
 	"fleet graph":            {"payments"},
+	"fleet map":              {},
 	"fleet neighborhood":     {"payments"},
 	"fleet overview":         {},
 	"fleet providers":        {},

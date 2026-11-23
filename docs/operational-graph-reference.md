@@ -47,6 +47,12 @@ compliance evidence that a source carries.
   edge in `inferredRelationships`, and a Pacto target that takes over one
   records a replacement in `replacements`.
   Both report [detected providers](operational-graph-providers.md).
+- **Service mesh** (`--k8s`): the calls Istio, Linkerd or Cilium Hubble
+  already record in the last hour, read from the cluster's Prometheus or
+  Hubble Relay as `observed` edges of source kind `mesh` (`<cluster>-mesh`).
+  Like operator detection the source is advisory: a partial mesh never makes
+  the answer partial. See
+  [Calls a service mesh records](operational-graph-mesh.md).
 - **Operator detection** (`--detected k8s:<namespace>/<name>` or a file,
   `PACTO_DASHBOARD_DETECTED` for `pacto dashboard`): what the operator
   [detected in a cluster](integrations/kubernetes/detection.md),
@@ -55,7 +61,15 @@ compliance evidence that a source carries.
   each with `provenance: inferred`. The source is advisory: a missing,
   unreadable, foreign or future-dated ConfigMap leaves it `unavailable` with
   the reason and one older than 15 minutes leaves it `stale`. Neither makes
-  the answer partial.
+  the answer partial. The same reference also reads the
+  [workloads the operator linked](integrations/kubernetes/linked-workloads.md)
+  to a published contract with no Pacto, from the ConfigMap's `linked.json`
+  key (or a `linked.json` file beside the detection file), as source kind
+  `kubernetes-linked`: each is a target of its contract revision with a
+  `link` (`signal`, `value`, `since` and `otherVersions`), stale after three
+  minutes. This source counts toward completeness: an operator that has
+  written no `linked.json` key yet, such as one older than the linker, leaves
+  it `unavailable` with `NOT_FOUND` and the answer partial.
 - **Ingested external evidence** (`--evidence-url <url>`): a running [Evidence
   Server](evidence.md)'s read-only contribution over HTTP, exposing a
   remote environment's signed `EvidenceSet` reports as operational targets.
@@ -74,9 +88,30 @@ compliance evidence that a source carries.
 - **Offline target-state fixtures** (`--target-state`): an unsigned demo and
   test adapter for supplying targets without a cluster.
 - **Offline trace exports** (`--traces`, or `--trace-source NAME=PATH` on `pacto
-  dashboard` only): observed dependency edges. Pacto reads trace files only and
-  ships **no live OTLP receiver** on ports 4317 or 4318. Run a Collector you own
-  and point a source at the file it exports.
+  dashboard` only): observed dependency edges read from an OTLP/JSON file a
+  Collector you own exports.
+- **Trace backends** (`pacto dashboard --detected`): when the operator
+  [detected](operational-graph-providers.md#trace-backends) Jaeger, or Tempo
+  or an OpenTelemetry Collector with a Prometheus next to it, the dashboard
+  reads their calls of the last 15 minutes every 30 seconds as `observed`
+  edges of source kind `traces`: `detected-jaeger` from Jaeger's
+  `/api/dependencies` and `detected-service-graph` from the
+  `traces_service_graph_request_total` series in Prometheus. Both are advisory
+  and read-only, and like Mira they see only instrumented traffic, so a
+  declared edge they did not see stays `insufficient`. A backend that does not
+  answer leaves the source partial with its row `unavailable`. `pacto fleet`
+  and `pacto mcp` show the detected rows and read no backend.
+- **OTLP receiver** (`pacto dashboard --otlp-receiver http://HOST:PORT`, set by
+  the operator to port 4318): a fallback for a Collector with no Prometheus.
+  Collectors in the cluster export OTLP/HTTP JSON to `POST /v1/traces`; the
+  dashboard maps spans to calls, keeps no span and serves nothing else on that
+  port. Source `otlp-receiver`, of kind `otlp-receiver`, reports the calls of
+  the last 15 minutes. Anything in the cluster can send to it, so its source is
+  `cautionOnly`: its edges add uncontracted callers and undeclared calls, and
+  never mark a declared dependency matched or raise impact confidence to
+  `corroborated`. It turns off while the service graph or Jaeger proved
+  complete coverage in the last minute. Nothing listens on 4317 and protobuf
+  requests are refused.
 - **Mira** (`--mira-source <url>`, or `PACTO_DASHBOARD_MIRA_SOURCES` for `pacto
   dashboard`): the calls between services that a
   [Mira](investigate-a-problem.md) node saw in its last 15 minutes of traces,
@@ -132,8 +167,16 @@ limitation per source.
 
 | Limitation | Raised when |
 |------------|-------------|
-| `CLUSTER_HIDDEN` | The view hides one cluster: you may read no namespace there, its review failed or Pacto cannot review you there ([Multi-cluster](multi-cluster.md)). Its `source` is the cluster id; the answer is partial |
+| `CLUSTER_HIDDEN` | The view hides one cluster: you may read no namespace there, its review failed or Pacto cannot review you there ([Multi-cluster](multi-cluster.md)). A [member](member-clusters.md) reads "cluster eu-prod joined through the registry and has no live channel yet, so its services are hidden from signed-in readers". Its `source` is the cluster id; the answer is partial |
 | `CLUSTER_FILTER_UNKNOWN` | A list filtered by a cluster id that no cluster of the answer has, such as a display name or a retired cluster, so its empty list says nothing about it. Completeness is unchanged |
+
+| `meta.clusters[]` field | Meaning |
+|------------|-------------|
+| `id`, `name`, `nameSource` | The `kube-system` UID and a display name with how it was found |
+| `status`, `access`, `targets` | The worst source status, why a restricted view shows nothing of the cluster and how many targets it shows |
+| `link.channel` | A [member](member-clusters.md)'s outbound channel: `live`, or `down` when it dropped in the last 15 minutes; absent when it has none |
+| `link.since` | When the channel last came up or dropped |
+| `link.issuers[]` | Per token issuer, `model`: `shared-issuer`, `group-mapping` (with `mappedBy`, `mappedAt` and `mapping`) or `issuer-not-accepted`. Such issuers raise `CLUSTER_ISSUER_DIFFERS` on Needs attention ([tallies](operational-graph-tallies.md)) |
 
 ### What a target-state fixture looks like
 

@@ -14,6 +14,9 @@ package targetsnapshot
 import (
 	"cmp"
 	"context"
+	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -32,6 +35,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
 // snapshotPage is how many objects one list request of the target snapshot
@@ -59,6 +63,12 @@ type TargetPublisher struct {
 	Repo      *remote.Repository
 	Signer    core.Signer
 	ClusterID string
+	// Key is the installation key Signer signs with; the join block names
+	// its public half, so a hub can approve this cluster as a member.
+	Key ed25519.PrivateKey
+	// ClusterName and ClusterNameSource are the join block's display name,
+	// a DNS label, and where it came from.
+	ClusterName, ClusterNameSource string
 	// Publisher is the operator ServiceAccount, written as a claim.
 	Publisher string
 	// Namespaces, when set, are the only namespaces read (a scoped
@@ -77,14 +87,29 @@ type TargetPublisher struct {
 	// OwnerPolicy, when set, is published as the snapshot's ownerPolicy: who
 	// may set a service owner, signed with the installation key.
 	OwnerPolicy *core.OwnerPolicy
-	Now         func() time.Time
-	Interval    time.Duration
+	// Linked, when set, is the linker's last result: its targets ride in
+	// Pactos (a released reader reads them as Pacto targets) and its
+	// completeness marks the Pacto section.
+	Linked   func() core.LinkedTargets
+	Now      func() time.Time
+	Interval time.Duration
 	// Tick, when set, replaces the ticker (tests).
 	Tick func(time.Duration) <-chan time.Time
 	Log  logr.Logger
 	// maxBytes overrides core.MaxTargetSnapshotBytes (tests).
 	maxBytes int
+	// linkPoll overrides linkPoll (tests).
+	linkPoll time.Duration
 }
+
+// The operator starts the linker and the publisher together: a first snapshot
+// published before the linker finished a cycle would go out partial and stay
+// up for a whole Interval. Start waits for that cycle, polling every
+// linkPoll, at most linkWaits times.
+const (
+	linkPoll  = time.Second
+	linkWaits = 120
+)
 
 // Start publishes at once, then on every tick until ctx ends. A failed publish
 // is logged and retried on the next tick; CI sees the previous snapshot turn
@@ -98,6 +123,13 @@ func (p *TargetPublisher) Start(ctx context.Context) error {
 		tick = func(time.Duration) <-chan time.Time { return t.C }
 	}
 	c := tick(p.Interval)
+	for i := 0; p.Linked != nil && p.Linked().AsOf == "" && i < linkWaits; i++ {
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(cmp.Or(p.linkPoll, linkPoll)):
+		}
+	}
 	for {
 		p.attempt(ctx)
 		select {
@@ -140,6 +172,12 @@ func (p *TargetPublisher) publish(ctx context.Context) error {
 	if err != nil {
 		p.limit(&pactos, "pactos", err)
 	}
+	for i := range s.Pactos {
+		// Only the linker writes link labels; on a Pacto they are free text.
+		core.StripLinkLabels(s.Pactos[i].Metadata.Labels)
+	}
+	s.Join = p.join(s.Pactos)
+	p.addLinked(&s, &pactos, now)
 	workloads := core.SnapshotSource{Kind: fleet.SourceKindKubernetesWorkloads, AsOf: asOf, Completeness: fleet.CompletenessComplete}
 	p.collectWorkloads(ctx, &s, &workloads, now)
 	if len(p.Namespaces) > 0 {
@@ -175,6 +213,36 @@ func (p *TargetPublisher) publish(ctx context.Context) error {
 	p.Log.V(1).Info("target snapshot published", "digest", desc.Digest.String(), "pactos", len(s.Pactos),
 		"workloads", len(s.Workloads), "evidence", len(s.Evidence) > 0, "completeness", s.Completeness)
 	return nil
+}
+
+// addLinked appends the linker's targets to s.Pactos and merges its
+// limitations, except the informational LINK_DIGEST_OFF, into sec, which
+// turns partial when the linker's result is partial or older than
+// core.LinkedStaleAfter.
+func (p *TargetPublisher) addLinked(s *core.TargetSnapshot, sec *core.SnapshotSource, now time.Time) {
+	if p.Linked == nil {
+		return
+	}
+	l := p.Linked()
+	s.Pactos = append(s.Pactos, l.Targets...)
+	for _, lim := range l.Limitations {
+		if lim.Code != core.LimitationLinkDigestOff {
+			sec.Limitations = append(sec.Limitations, lim)
+		}
+	}
+	asOf, err := time.Parse(time.RFC3339, l.AsOf)
+	if l.Completeness != fleet.CompletenessComplete || err != nil || now.Sub(asOf) > core.LinkedStaleAfter {
+		sec.Completeness = fleet.CompletenessPartial
+	}
+}
+
+// join is the snapshot's join block: the display name, the installation
+// public key and its fingerprint, and the environments pactos suggest.
+func (p *TargetPublisher) join(pactos []core.PactoView) *core.SnapshotJoin {
+	pub := p.Key.Public()
+	der, _ := x509.MarshalPKIXPublicKey(pub) // an Ed25519 key always marshals
+	return &core.SnapshotJoin{Name: p.ClusterName, NameSource: p.ClusterNameSource, KeyID: signing.Hint(pub),
+		PublicKey: base64.StdEncoding.EncodeToString(der), Environments: core.AdvertisedEnvironments(pactos, p.ClusterName, p.ClusterNameSource)}
 }
 
 // collectWorkloads adds every workload of the four kinds as an inferred

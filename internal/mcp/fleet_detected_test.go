@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -104,7 +105,7 @@ func TestFleetStatusDescriptionNamesDetected(t *testing.T) {
 // replaced the sentence that said every detected row is inferred.
 func TestFleetStatusToolDescribesInstallation(t *testing.T) {
 	d := fleetStatusTool().Description
-	for _, want := range []string{"an Installation row with provenance declared", "push prefixes", "a Pull Secret proposal",
+	for _, want := range []string{"an Installation row with provenance declared naming the profile", "push prefixes", "a Pull Secret proposal",
 		"a Pull Secret is never used until a person sets registryPullSecret"} {
 		if !strings.Contains(d, want) {
 			t.Errorf("description lacks %q:\n%s", want, d)
@@ -137,5 +138,23 @@ func TestServerInstructionsNameDetectedInferred(t *testing.T) {
 	if !strings.Contains(fleetInstructions, "Pacto uses 'inferred' in five") ||
 		!strings.Contains(fleetInstructions, "a detected provider row in pacto_fleet_status providers") {
 		t.Errorf("instructions do not name detected rows as inferred:\n%s", fleetInstructions)
+	}
+}
+
+func TestFleetStatusProvidersIncludeEgressRows(t *testing.T) {
+	kernel := fleet.Provider{ID: fleet.ProviderKernelEgress, Name: "Kernel egress", Evidence: "node agent on 3/4 nodes",
+		UsedFor: []string{fleet.UseExternalEgress}, Status: fleet.SourcePartial, Scope: fleet.ScopeCluster}
+	k8s := fleet.NewMemorySource("k8s", fleet.SourceKindKubernetes, &fleet.Collection{Providers: []fleet.Provider{kernel}})
+	det := fleet.NewMemorySource("detection", fleet.SourceKindDetection, &fleet.Collection{Advisory: true, Providers: detect.ProviderRows(
+		detect.Result{AsOf: fixedNow, Entries: []detect.Entry{detect.IstioEgress(true, nil), detect.CiliumFQDN(false, nil)}}, "detection", fixedNow)})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }}, k8s, det)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := detectedStatus(t, fleet.NewQuery(snap))
+	for id, status := range map[string]fleet.SourceStatus{"kernel-egress": fleet.SourcePartial, "istio-egress": fleet.SourceAvailable, "cilium-fqdn": fleet.SourceUnavailable} {
+		if p, ok := rows[id]; !ok || p.Status != status || !slices.Contains(p.UsedFor, fleet.UseExternalEgress) {
+			t.Errorf("%s row = %+v, want %s and used for %s", id, p, status, fleet.UseExternalEgress)
+		}
 	}
 }

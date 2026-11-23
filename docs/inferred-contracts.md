@@ -139,8 +139,9 @@ contract never clears a gate.
 
 Each external system with such a range raises one attention item,
 `INFERRED_PROVIDER`, in the knowledge category: "2 services check a range
-against stripe's inferred contract". Its next action is `declare`. `pacto
-declare` reads only workloads, so for an external system write a contract with
+against stripe's inferred contract". For a service its next action is
+`declare`. `pacto declare` reads only workloads, so for an external system the
+next action is `edit-contract`: write a contract with
 `service.external: <identity>`, publish it outside `pacto-inferred` and point
 the ranges at its repository: the reason then disappears.
 

@@ -81,6 +81,8 @@ helm install pacto-operator \
   --set dashboard.enabled=false
 ```
 
+- `profile` selects `default`, `hardened` or `idp`
+  ([Choose an installation profile](profiles.md)).
 - `controller.watchNamespaces` watches only the listed namespaces (empty means
   the whole cluster).
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
@@ -90,6 +92,10 @@ helm install pacto-operator \
   [golden path](../../golden-paths.md) is never deployed, so list it here to
   show it on the Golden paths tab. A private registry needs
   `dashboard.ociSecrets`.
+- `hub.url` makes an approved member dial its hub and answer the hub's
+  per-person reviews with this cluster's RBAC, with no inbound port;
+  `hub.caConfigMap` trusts a private CA
+  ([Member clusters](../../member-clusters.md#review-people-through-a-live-channel)).
 
 The CRDs are cluster-wide and belong to one release. For a second release, for
 example one per watched namespace, set `crds.install=false`, or its install
@@ -180,8 +186,18 @@ identity and must be unique across *every* source the dashboard assembles, so
 `local`, `catalog`, `target-state`, `evidence-http`, `oci` and `cache` are
 already taken, as is the Kubernetes source's identity: your current kube
 context name, or `k8s` when no context is set. A collision is refused, naming
-both claimants. Pacto ships **no OTLP receiver**: the storage owner produces
-and rotates the exports.
+both claimants. The storage owner produces and rotates the exports.
+
+The dashboard also receives OTLP traces:
+
+- It is the fallback for a Collector with no Prometheus: OTLP/HTTP JSON on
+  port 4318 of the operator-applied `pacto-dashboard` Service. The Ingress and HTTPRoute Service keep port 3000 alone, and nothing
+  listens on 4317.
+- The chart renders the `<release>-dashboard` NetworkPolicy, which admits 4318
+  from pods in the cluster only.
+- Point a Collector at `http://pacto-dashboard.<release namespace>:4318` with
+  `encoding: json`. [Trace backends](../../operational-graph-providers.md#trace-backends)
+  has the snippet and the service graph Pacto prefers.
 
 [Sources](../../operational-graph-reference.md#sources) lists every source the graph reads,
 and [Knowledge](../../operational-graph.md#knowledge) tells an unreadable source
@@ -219,6 +235,9 @@ Delivery stays off until `delivery.enabled=true`.
   trust entry from the new `snapshotKey`.
 - **Proposals:** Pacto proposes a registry and a pull Secret it saw running
   pods use, in the upgrade notes and on Data sources, and sets neither.
+- **Member:** a hub that reads the same registry lists this cluster as a
+  pending member, and a person approves it there; see
+  [Member clusters](../../member-clusters.md).
 
 The operator reaches the registry with the pod's workload identity:
 
@@ -399,7 +418,7 @@ helm uninstall pacto-operator --namespace pacto-operator-system
 ```
 
 That removes the controller and everything owner-referenced to it, dashboard and
-Evidence Server included. Five things survive, in any order:
+Evidence Server included. Six things survive, in any order:
 
 - **The CRDs and your `Pacto` resources.** The chart marks every CRD
   `helm.sh/resource-policy: keep`, because deleting one takes every `Pacto`,
@@ -414,6 +433,12 @@ Evidence Server included. Five things survive, in any order:
 - **The leader-election Lease** `a4917283.pacto.io`, inert once the controller
   is gone and reused on reinstall.
 - **The namespace**, if `--create-namespace` created it.
+- **The delivery namespace** (`delivery.namespace`, `pacto-delivery` by
+  default), if delivery was on, as with `profile: idp` and the quickstart. The
+  chart marks it `helm.sh/resource-policy: keep`, so it keeps what Helm did not
+  create in it: the trust config, the promoter's pins, the approvers policy and
+  the recorder's signing key Secret. It still names the old release, so a
+  release under another name cannot create it until you delete it.
 
 ```bash
 # Look first: everything that answers is on the list above, plus Kubernetes'
@@ -433,4 +458,5 @@ kubectl delete clusterrole,clusterrolebinding pacto-dashboard
 kubectl delete clusterrole metrics-observation-role               # if granted
 kubectl delete clusterrolebinding metrics-observation-rolebinding # if granted
 kubectl delete namespace pacto-operator-system   # takes the Lease and Secrets
+kubectl delete namespace pacto-delivery          # if delivery was on: takes its trust config and key
 ```

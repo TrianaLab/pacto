@@ -2,10 +2,12 @@ package fleetsrc
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
-	"strings"
+	"slices"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +29,8 @@ type DetectionSource struct {
 	id   string
 	read func(context.Context) ([]byte, error)
 	now  func() time.Time
+	// fixed is a Result already read, reported as is.
+	fixed *detect.Result
 }
 
 // errDetectionInvalid and errDetectionForeign are the classes of a Result
@@ -34,6 +38,9 @@ type DetectionSource struct {
 var (
 	errDetectionInvalid = errors.New("invalid")
 	errDetectionForeign = errors.New("not written by the Pacto operator")
+	// errNoWriter is an absent key on a ConfigMap its writer's field manager
+	// has never touched: an operator that does not run that writer.
+	errNoWriter = fmt.Errorf("no writer: %w", fs.ErrNotExist)
 	// ErrDetectionNoCluster marks a detection read that has no usable
 	// Kubernetes configuration to read the ConfigMap with.
 	ErrDetectionNoCluster = errors.New("no usable Kubernetes configuration")
@@ -48,18 +55,40 @@ func NewDetectionFileSource(id, path string, now func() time.Time) *DetectionSou
 // dyn, the caller's own credentials. It trusts only a ConfigMap labelled as
 // the operator's whose data the operator's field manager owns.
 func NewDetectionK8sSource(id string, dyn dynamic.Interface, namespace, name string, now func() time.Time) *DetectionSource {
+	return &DetectionSource{id: id, now: now, read: configMapKey(dyn, namespace, name, detect.ConfigMapKey, detect.FieldManager)}
+}
+
+// configMapKey reads key of the ConfigMap namespace/name with dyn. It trusts
+// the key only on a ConfigMap labelled as the operator's whose manager owns
+// that key: each operator component writes its own key under its own field
+// manager, so a key another writer patched in is refused. An absent key reads
+// as not found, and as errNoWriter when manager manages nothing on it.
+func configMapKey(dyn dynamic.Interface, namespace, name, key, manager string) func(context.Context) ([]byte, error) {
 	gvr := schema.GroupVersionResource{Version: "v1", Resource: "configmaps"}
-	return &DetectionSource{id: id, now: now, read: func(ctx context.Context) ([]byte, error) {
+	return func(ctx context.Context) ([]byte, error) {
 		obj, err := dyn.Resource(gvr).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 		if err != nil {
 			return nil, err
 		}
-		if !writtenByOperator(obj) {
+		data, ok, _ := unstructured.NestedString(obj.Object, "data", key)
+		switch {
+		case !ok && !slices.ContainsFunc(obj.GetManagedFields(), func(mf metav1.ManagedFieldsEntry) bool { return mf.Manager == manager }):
+			return nil, errNoWriter
+		case !ok:
+			return nil, fs.ErrNotExist
+		case !writtenByOperator(obj, key, manager):
 			return nil, errDetectionForeign
 		}
-		data, _, _ := unstructured.NestedString(obj.Object, "data", detect.ConfigMapKey)
 		return []byte(data), nil
-	}}
+	}
+}
+
+// NewDetectionResultSource reports res, already read, through the same
+// mapping as [DetectionSource.Collect]: the dashboard reads the Result once,
+// hands the entries a live edge source takes to that source and the rest to
+// this one, so every backend is one row.
+func NewDetectionResultSource(id string, res detect.Result, now func() time.Time) *DetectionSource {
+	return &DetectionSource{id: id, now: now, fixed: &res}
 }
 
 // NewDetectionFailedSource is the source of a ConfigMap no client could be
@@ -104,6 +133,9 @@ func (s *DetectionSource) Read(ctx context.Context) (detect.Result, fleet.Source
 // result reads and decodes the Result, refusing one dated beyond
 // detect.MaxFutureSkew.
 func (s *DetectionSource) result(ctx context.Context) (detect.Result, error) {
+	if s.fixed != nil {
+		return *s.fixed, nil
+	}
 	data, err := s.read(ctx)
 	if err != nil {
 		return detect.Result{}, err
@@ -118,14 +150,17 @@ func (s *DetectionSource) result(ctx context.Context) (detect.Result, error) {
 	return res, nil
 }
 
-// writtenByOperator reports whether obj carries the operator's label and its
-// data is owned by the operator's field manager.
-func writtenByOperator(obj *unstructured.Unstructured) bool {
+// writtenByOperator reports whether obj carries the operator's label and
+// manager owns its data key.
+func writtenByOperator(obj *unstructured.Unstructured, key, manager string) bool {
 	if obj.GetLabels()[detect.ManagedByLabel] != detect.ManagedBy {
 		return false
 	}
 	for _, mf := range obj.GetManagedFields() {
-		if mf.Manager == detect.FieldManager && mf.FieldsV1 != nil && strings.Contains(mf.FieldsV1.GetRawString(), `"f:data"`) {
+		var fields struct {
+			Data map[string]json.RawMessage `json:"f:data"`
+		}
+		if mf.Manager == manager && mf.FieldsV1 != nil && json.Unmarshal(mf.FieldsV1.GetRawBytes(), &fields) == nil && fields.Data["f:"+key] != nil {
 			return true
 		}
 	}

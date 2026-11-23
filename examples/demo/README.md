@@ -85,6 +85,18 @@ make serve                 # preview at http://localhost:8088/
 scratch dir and copies it into `dist/`; it never modifies the committed
 `pkg/dashboard/ui` (which the real `pacto dashboard` server uses).
 
+## Large fleets
+
+`?fleet=N` in the page address, with N one of 40, 400, 3000 or 10000, swaps
+the demo contracts for a generated fleet of that size, read as one Kubernetes
+source. The fleet map and the browser scale suite are proved at these sizes.
+The generated contracts live in memory, so no demo bundle changes, and the
+delivery story and change analysis stay with the default demo:
+
+```bash
+make serve                 # then open http://localhost:8088/?fleet=3000
+```
+
 ## Explore the contracts on the CLI
 
 The demo contracts are published at `ghcr.io/trianalab/pacto/<service>`, so these

@@ -37,14 +37,14 @@ func testDemoArgoGroup(t *testing.T, snap *fleet.FleetSnapshot, byName map[strin
 	t.Helper()
 	for _, name := range []string{"legacy-billing", "billing-worker"} {
 		w := byName[name]
-		if w == nil || w.Group == nil || w.Group.Key != "argocd/shop/shop" || w.Group.Label != "Argo CD Application shop/shop" {
+		if w == nil || w.Group == nil || w.Group.Key != prodClusterID+"/argocd/shop/shop" || w.Group.Label != "Argo CD Application shop/shop" {
 			t.Fatalf("%s: %+v", name, w)
 		}
 		if len(w.Repositories) != 1 || w.Repositories[0].URL != "https://github.com/example/shop" || w.Repositories[0].Path != "deploy/legacy" {
 			t.Errorf("%s repositories = %+v", name, w.Repositories)
 		}
 	}
-	l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindService}, Group: "argocd/shop/shop"})
+	l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindService}, Group: prodClusterID + "/argocd/shop/shop"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -52,7 +52,7 @@ func testDemoArgoGroup(t *testing.T, snap *fleet.FleetSnapshot, byName map[strin
 	for _, e := range l.Entities {
 		got[e.Label] = true
 	}
-	if l.Total != 2 || !got["k8s:shop/Deployment/legacy-billing"] || !got["k8s:shop/Deployment/billing-worker"] {
+	if l.Total != 2 || !got["k8s:"+prodClusterID+"/shop/Deployment/legacy-billing"] || !got["k8s:"+prodClusterID+"/shop/Deployment/billing-worker"] {
 		t.Errorf("group filter = %+v", l.Entities)
 	}
 }

@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -63,8 +64,8 @@ const fleetInstructions = "Pacto also exposes READ-ONLY fleet tools over the ope
 	"workload.group says how the cluster groups it and from what. Use " +
 	"pacto_fleet_entities to list owners, business domains and offerings, pacto_fleet_entity " +
 	"for one of them and pacto_fleet_attention for what needs attention, most severe first. " +
-	"An attention item's nextAction names the operation that fixes it and the tool that makes it (edit-contract: " +
-	"edit the contract, from pacto mcp --transport stdio; declare: write a declared contract with pacto_declare); Pacto infers it from the item's code, and it grants nothing. " +
+	"An attention item's nextAction names the operation, the CLI command and, when this server registers it, the tool that fixes it; " +
+	"Pacto infers it from the item's code, and it grants nothing. " +
 	"pacto_fleet_neighborhood lists the services around one service with their owners, for the " +
 	"blast radius of a problem. Observed edges from a source of kind mira come from Mira's sampled " +
 	"service map: an edge Mira did not see may still exist. For when a problem started and which " +
@@ -107,6 +108,12 @@ type FleetOptions struct {
 	Reached ReachedReader
 	// Stats registers pacto_stats; nil omits it.
 	Stats StatsProvider
+	// Clusters registers pacto_cluster_list and counts the pending member
+	// clusters in pacto_capabilities; nil omits both.
+	Clusters ClustersProvider
+	// InstallationConfig reads what the operator was configured with, for
+	// pacto_capabilities' installation; nil reads none.
+	InstallationConfig func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState)
 }
 
 // ReachedReader attaches to h when each change of service svc reached its
@@ -166,7 +173,9 @@ func hrefPrefix(opts FleetOptions) string {
 
 // registerFleetTools adds the read-only fleet query tools, plus the
 // read-only pacto_impact tool when an impact provider is supplied.
-func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetOptions) {
+// served reports whether this server registers a tool: a next action names
+// only a tool it does.
+func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetOptions, served func(string) bool) {
 	link := opts.DashboardURL != ""
 	addFleetTool(server, fleetSearchTool(), src, opts, fleetSearchHandler)
 	addFleetTool(server, fleetGetTool(), src, opts, fleetGetHandler)
@@ -177,17 +186,20 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 		return fleetEntitiesHandler(q, link)
 	})
 	addFleetTool(server, fleetEntityTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
-		return fleetEntityHandler(q, link, opts.Reached)
+		return fleetEntityHandler(q, link, opts.Reached, served)
 	})
 	addFleetTool(server, fleetAttentionTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
-		return fleetAttentionHandler(q, link)
+		return fleetAttentionHandler(q, link, served)
 	})
 	addFleetTool(server, fleetNeighborhoodTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetNeighborhoodArgs, any] {
 		return fleetNeighborhoodHandler(q, link)
 	})
+	addFleetTool(server, fleetMapTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetMapArgs, any] {
+		return fleetMapHandler(q, link)
+	})
 	addFleetTool(server, fleetVersionsTool(), src, opts, fleetVersionsHandler)
 	addFleetTool(server, fleetOverviewTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[struct{}, any] {
-		return fleetOverviewHandler(q, link)
+		return fleetOverviewHandler(q, link, served)
 	})
 	addFleetTool(server, fleetRevisionDocumentTool(), src, opts, func(q *fleet.Query) mcpsdk.ToolHandlerFor[fleetRevisionDocumentArgs, any] {
 		return fleetRevisionDocumentHandler(q, link)
@@ -201,6 +213,9 @@ func registerFleetTools(server *mcpsdk.Server, src FleetQuerySource, opts FleetO
 	}
 	if opts.Stats != nil {
 		addTool(server, statsTool(), statsHandler(src, opts.View, opts.Stats))
+	}
+	if opts.Clusters != nil {
+		addTool(server, clusterListTool(), clusterListHandler(opts.Clusters))
 	}
 }
 
@@ -430,11 +445,13 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"selected, including empty input, it reports every category. The answer's 'providers' lists what Pacto detected in each " +
 			"source (evidence, usedFor, status, limitations). providers includes what the operator detected (registry, cloud, " +
 			"sign-in, exposure, metrics, nodes and a Pull Secret proposal) with provenance inferred and asOf, and an Installation " +
-			"row with provenance declared naming the registry, the target snapshot, index and inferred repositories and the push " +
+			"row with provenance declared naming the profile, the registry, the target snapshot, index and inferred repositories and the push " +
 			"prefixes; nothing detected is turned on, a Pull Secret is never used until a person sets registryPullSecret, and no " +
 			"provider row clears a gate. The OCI source adds one observed 'registry:<host>' row per registry it read " +
 			"contracts from, with no provenance: Pacto probed it itself, usedFor and details give the mode it uses there and asOf " +
-			"when it probed; it is separate from the operator's inferred registry row. Read-only.",
+			"when it probed; it is separate from the operator's inferred registry row. 'contractCompleteness' is how completely " +
+			"the contracts describe their services: the mean percentComplete over the judged services, how many were judged, how " +
+			"many could not be judged (unknown, never complete), how many declare every section and the most missing sections. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"needs_attention":      {Type: "boolean", Description: "Report every attention category"},
 			"non_compliant":        {Type: "boolean", Description: "Non-compliant targets"},
@@ -697,9 +714,12 @@ type fleetEntityArgs struct {
 	Reached bool   `json:"reached,omitempty"`
 }
 
-func fleetEntityHandler(q *fleet.Query, link bool, reached ReachedReader) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
+func fleetEntityHandler(q *fleet.Query, link bool, reached ReachedReader, served func(string) bool) mcpsdk.ToolHandlerFor[fleetEntityArgs, any] {
 	return func(ctx context.Context, _ *mcpsdk.CallToolRequest, a fleetEntityArgs) (*mcpsdk.CallToolResult, any, error) {
 		res, err := q.EntityDetail(fleet.EntityKind(a.Kind), a.Key)
+		if err == nil {
+			res.KeepServedTools(served)
+		}
 		switch {
 		case err != nil || !a.Reached || res.Service == nil:
 		case reached == nil:
@@ -812,13 +832,17 @@ type fleetAttentionArgs struct {
 	Offset         int    `json:"offset"`
 }
 
-func fleetAttentionHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
+func fleetAttentionHandler(q *fleet.Query, link bool, served func(string) bool) mcpsdk.ToolHandlerFor[fleetAttentionArgs, any] {
 	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetAttentionArgs) (*mcpsdk.CallToolResult, any, error) {
-		return productResult(link, productview.ToAttentionList)(q.Attention(fleet.AttentionFilter{
+		res, err := q.Attention(fleet.AttentionFilter{
 			Category: a.Category, Severity: a.Severity, Owner: a.Owner, OwnerKey: a.OwnerKey,
 			BusinessDomain: a.BusinessDomain, Service: a.Service, Limit: a.Limit, Offset: a.Offset,
 			Kind: a.Kind, Key: a.Key, Source: a.Source, Status: a.Status, StaleOnly: a.StaleOnly,
-		}))
+		})
+		if err == nil {
+			fleet.KeepServedTools(res.Items, served)
+		}
+		return productResult(link, productview.ToAttentionList)(res, err)
 	}
 }
 
@@ -863,6 +887,73 @@ func fleetNeighborhoodHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[f
 	}
 }
 
+func fleetMapTool() *mcpsdk.Tool {
+	return &mcpsdk.Tool{
+		Name: "pacto_fleet_map",
+		Description: "Show the whole fleet as groups by business domain, owner team or environment: each group's services, " +
+			"its declared and observed match (match.percent over what Pacto can observe, match.coverage apart; absent when " +
+			"Pacto observes nothing, never 100), its mean contract completeness and its attention, plus the fleet's match and " +
+			"knowledge.contractCompleteness. With group, one page of that group's services; with focus, one service's callers " +
+			"and callees, one or two hops out, at most 9 a column, worst first, each call with its interface, range, " +
+			"provenance and problem. Environments read by name here (limitation ENVIRONMENT_ORDER_UNKNOWN); the dashboard " +
+			"orders them by Stages. Read-only.",
+		InputSchema: inputSchema(map[string]property{
+			"group_by":    {Type: "string", Description: "Grouping (default domain)", Enum: []string{fleet.MapGroupByDomain, fleet.MapGroupByTeam, fleet.MapGroupByEnvironment}},
+			"environment": {Type: "string", Description: "Environment the services are read in: with group, each says whether it runs there and its version"},
+			"group":       {Type: "string", Description: "List this group's services, by the key the map names"},
+			"offset":      {Type: "integer", Description: "With group, the first service of the page"},
+			"limit":       {Type: "integer", Description: fmt.Sprintf("With group, services a page (0 = %d, at most %d)", fleet.DefaultMapNodes, fleet.MaxMapNodes)},
+			"focus":       {Type: "string", Description: "List this service's callers and callees: a name, or its key when the name is used in more than one domain"},
+			"hops":        {Type: "integer", Description: "With focus, hops out on each side (0 = 1, at most 2)"},
+		}, nil),
+	}
+}
+
+type fleetMapArgs struct {
+	GroupBy     string `json:"group_by"`
+	Environment string `json:"environment"`
+	Group       string `json:"group"`
+	Offset      int    `json:"offset"`
+	Limit       int    `json:"limit"`
+	Focus       string `json:"focus"`
+	Hops        int    `json:"hops"`
+}
+
+// check refuses an argument the question it asks does not read.
+func (a fleetMapArgs) check() error {
+	switch {
+	case a.Focus != "" && (a.Group != "" || a.GroupBy != "" || a.Environment != ""):
+		return errors.New("focus reads every environment and no grouping: drop group, group_by and environment")
+	case a.Focus == "" && a.Hops != 0:
+		return errors.New("hops needs focus")
+	case a.Group == "" && (a.Offset != 0 || a.Limit != 0):
+		return errors.New("offset and limit need group")
+	case a.Group == "" && a.Environment != "":
+		return errors.New("environment needs group: the groups read every environment")
+	case a.Environment != "" && a.GroupBy == fleet.MapGroupByEnvironment:
+		return errors.New("environment reads nothing with group_by environment: each target is already in its environment")
+	}
+	return nil
+}
+
+func fleetMapHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleetMapArgs, any] {
+	return func(_ context.Context, _ *mcpsdk.CallToolRequest, a fleetMapArgs) (*mcpsdk.CallToolResult, any, error) {
+		if err := a.check(); err != nil {
+			return errorResult(err), nil, nil
+		}
+		switch {
+		case a.Focus != "":
+			return productResult(link, productview.ToMapFocus)(q.MapFocus(fleet.MapFocusQuery{Service: a.Focus, Hops: a.Hops}))
+		case a.Group != "":
+			return productResult(link, same[fleet.MapNodes])(q.MapNodes(fleet.MapNodesQuery{GroupBy: a.GroupBy, Group: a.Group, Environment: a.Environment, Offset: a.Offset, Limit: a.Limit}))
+		}
+		return productResult(link, same[fleet.FleetMap])(q.Map(fleet.MapQuery{GroupBy: a.GroupBy}))
+	}
+}
+
+// same is the transport of an answer that carries no entity reference.
+func same[T any](v *T) *T { return v }
+
 func fleetOverviewTool() *mcpsdk.Tool {
 	return &mcpsdk.Tool{
 		Name: "pacto_fleet_overview",
@@ -876,9 +967,11 @@ func fleetOverviewTool() *mcpsdk.Tool {
 	}
 }
 
-func fleetOverviewHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[struct{}, any] {
+func fleetOverviewHandler(q *fleet.Query, link bool, served func(string) bool) mcpsdk.ToolHandlerFor[struct{}, any] {
 	return func(context.Context, *mcpsdk.CallToolRequest, struct{}) (*mcpsdk.CallToolResult, any, error) {
-		return productResult(link, productview.ToOverview)(q.Overview(), nil)
+		ov := q.Overview()
+		fleet.KeepServedTools(ov.Attention.Items, served)
+		return productResult(link, productview.ToOverview)(ov, nil)
 	}
 }
 

@@ -147,7 +147,8 @@ type remoteWorld struct {
 	h           http.Handler
 }
 
-func newRemoteWorld(t *testing.T) *remoteWorld {
+// newRemoteWorld takes the server's auth from a, else w.fa.
+func newRemoteWorld(t *testing.T, a ...mcpAuth) *remoteWorld {
 	t.Helper()
 	w := &remoteWorld{fa: &fakeMCPAuth{exchange: true}, user: "system:serviceaccount:agents:bot"}
 	d := deliveryDeps(w.user, nil)
@@ -168,7 +169,7 @@ func newRemoteWorld(t *testing.T) *remoteWorld {
 		}
 		return dyn, nil
 	}
-	s := mcpServe{auth: w.fa, issuer: "https://idp", resource: "https://mcp.example/mcp"}
+	s := mcpServe{auth: authOr(w.fa, a), issuer: "https://idp", resource: "https://mcp.example/mcp"}
 	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 	_ = cmd.Flags().Set("oidc-username-claim", "email")
 	_ = cmd.Flags().Set("delivery", "true")
@@ -284,9 +285,12 @@ type remoteFleet struct {
 	asked      []authn.Person
 	h          http.Handler
 	perRequest bool
+	// tokens is the bearer of every client built, in order.
+	tokens []string
 }
 
-func newRemoteFleet(t *testing.T) *remoteFleet {
+// newRemoteFleet takes the server's auth from a, else w.fa.
+func newRemoteFleet(t *testing.T, a ...mcpAuth) *remoteFleet {
 	t.Helper()
 	w := &remoteFleet{fa: &fakeMCPAuth{exchange: true}, reviewed: authn.Person{User: "alice", Groups: []string{"team-a"}}, readers: map[string]bool{"alice": true}}
 	d := defaultDeps()
@@ -295,6 +299,7 @@ func newRemoteFleet(t *testing.T) *remoteFleet {
 	}
 	d.resolveK8s = ambientEntries(&d)
 	d.dynamicFor = func(c *rest.Config) (dynamic.Interface, error) {
+		w.tokens = append(w.tokens, c.BearerToken)
 		dyn := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
 		dyn.PrependReactor("create", "selfsubjectreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 			if c.BearerToken != "for-the-cluster" {
@@ -326,7 +331,7 @@ func newRemoteFleet(t *testing.T) *remoteFleet {
 	for k, v := range map[string]string{"fleet": "true", "local": root, "transport": "http", "auth-issuer": "https://idp", "oidc-username-claim": "email"} {
 		expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
 	}
-	s := mcpServe{auth: w.fa, issuer: "https://idp", resource: "https://mcp.example/mcp"}
+	s := mcpServe{auth: authOr(w.fa, a), issuer: "https://idp", resource: "https://mcp.example/mcp"}
 	expect(t, remoteCallerFor(cmd, app.NewService(nil, nil), "v", nil, d, &s) == nil, "remote fleet")
 	w.perRequest = s.perRequest != nil
 	w.h = mcpHandler(s)
@@ -649,6 +654,12 @@ func TestNoMCPServerListsApproveTool(t *testing.T) {
 		expect(t, json.Unmarshal([]byte(strings.TrimSpace(body)), &res) == nil, "%s: %s", name, body)
 		servers[name] = res.Result.Tools
 	}
+	_, dash := newDashMCP(t)
+	for name, bearer := range map[string]string{"dashboard agent": "agent", "dashboard person": "person"} {
+		var res struct{ Tools []*mcpsdk.Tool }
+		rpcResult(t, dash, bearer, listTools, &res)
+		servers[name] = res.Tools
+	}
 	for name, tools := range servers {
 		var delivery int
 		for _, tool := range tools {
@@ -674,4 +685,203 @@ func listedTools(t *testing.T, server *mcpsdk.Server) []*mcpsdk.Tool {
 	res, err := session.ListTools(context.Background(), nil)
 	expect(t, err == nil, "list: %v", err)
 	return res.Tools
+}
+
+// authOr is a[0], else def.
+func authOr(def mcpAuth, a []mcpAuth) mcpAuth {
+	if len(a) > 0 {
+		return a[0]
+	}
+	return def
+}
+
+const viewerSA = "system:serviceaccount:pacto:pacto-viewer"
+
+// fakeCredentiallessAuth is fakeMCPAuth plus the token path: the bearer
+// "viewer" is a ServiceAccount the token review named whose token reads the
+// fleet only (Exchange answers authn.ErrNoCredential); "good" is exchanged as
+// fakeMCPAuth exchanges it.
+type fakeCredentiallessAuth struct {
+	fakeMCPAuth
+	viewer authn.Person
+}
+
+func newCredentiallessAuth() *fakeCredentiallessAuth {
+	return &fakeCredentiallessAuth{fakeMCPAuth: fakeMCPAuth{exchange: true}, viewer: authn.Person{User: viewerSA}}
+}
+
+func (f *fakeCredentiallessAuth) Verify(ctx context.Context, token string, r *http.Request) (*auth.TokenInfo, error) {
+	if token == "viewer" {
+		return &auth.TokenInfo{UserID: f.viewer.User, Expiration: time.Now().Add(time.Minute), Extra: map[string]any{"fleetOnly": true}}, nil
+	}
+	return f.fakeMCPAuth.Verify(ctx, token, r)
+}
+
+func (f *fakeCredentiallessAuth) Exchange(ctx context.Context, info *auth.TokenInfo) (string, error) {
+	if info.Extra["fleetOnly"] == true {
+		return "", authn.ErrNoCredential
+	}
+	return f.fakeMCPAuth.Exchange(ctx, info)
+}
+
+func (f *fakeCredentiallessAuth) PersonOf(*auth.TokenInfo) authn.Person { return f.viewer }
+
+// rpcResult posts one JSON-RPC request as bearer and decodes its result.
+func rpcResult(t *testing.T, h http.Handler, bearer, body string, result any) {
+	t.Helper()
+	rec := post(t, h, bearer, body)
+	text := rec.Body.String()
+	if i := strings.Index(text, "{"); i >= 0 {
+		text = text[i:]
+	}
+	var res struct {
+		Result json.RawMessage `json:"result"`
+	}
+	expect(t, rec.Code == http.StatusOK && json.Unmarshal([]byte(strings.TrimSpace(text)), &res) == nil && json.Unmarshal(res.Result, result) == nil,
+		"%d %s", rec.Code, rec.Body)
+}
+
+// remoteToolNames lists the tools the server serves the caller of bearer.
+func remoteToolNames(t *testing.T, h http.Handler, bearer string) []string {
+	t.Helper()
+	var res struct{ Tools []struct{ Name string } }
+	rpcResult(t, h, bearer, listTools, &res)
+	names := []string{}
+	for _, tool := range res.Tools {
+		names = append(names, tool.Name)
+	}
+	return names
+}
+
+// remoteCall calls one tool as the caller of bearer and returns its text.
+func remoteCall(t *testing.T, h http.Handler, bearer, tool, args string) (string, bool) {
+	t.Helper()
+	var res struct {
+		Content []struct{ Text string }
+		IsError bool
+	}
+	rpcResult(t, h, bearer, `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"`+tool+`","arguments":`+args+`}}`, &res)
+	expect(t, len(res.Content) == 1, "%s: %+v", tool, res)
+	return res.Content[0].Text, res.IsError
+}
+
+// remoteCapabilitiesCaller is pacto_capabilities' caller as bearer reads it.
+func remoteCapabilitiesCaller(t *testing.T, h http.Handler, bearer string) map[string]any {
+	t.Helper()
+	text, isErr := remoteCall(t, h, bearer, "pacto_capabilities", "{}")
+	var got map[string]any
+	expect(t, !isErr && json.Unmarshal([]byte(text), &got) == nil, "pacto_capabilities: %s", text)
+	return got["caller"].(map[string]any)
+}
+
+func hasPrefixed(names []string, prefix string) bool {
+	return slices.ContainsFunc(names, func(n string) bool { return strings.HasPrefix(n, prefix) })
+}
+
+// TestRemoteMCPFleetOnlyCaller: a caller whose token is no credential reads
+// the fleet narrowed to them, gets no client, no delivery tool and no write,
+// and pacto_capabilities says so with a hint. A caller with a credential on
+// the same server is unchanged.
+func TestRemoteMCPFleetOnlyCaller(t *testing.T) {
+	t.Run("fleet", func(t *testing.T) {
+		ca := newCredentiallessAuth()
+		w := newRemoteFleet(t, ca)
+		w.readers[viewerSA] = true
+		logs := &strings.Builder{}
+		postLogged(t, w.h, "viewer", listTools, logs)
+		expect(t, strings.Contains(logs.String(), "user="+viewerSA) && strings.Contains(logs.String(), "fleetOnly=true") &&
+			strings.Contains(logs.String(), "writeTools=false"), "request line:\n%s", logs)
+		names := remoteToolNames(t, w.h, "viewer")
+		expect(t, slices.Contains(names, "pacto_fleet_status") && !hasPrefixed(names, "pacto_delivery_"), "fleet-only tools: %v", names)
+		text, isErr := remoteCall(t, w.h, "viewer", "pacto_fleet_entities", "{}")
+		expect(t, !isErr && strings.Contains(text, "orders"), "the viewer reads the fleet: %s", text)
+		expect(t, slices.ContainsFunc(w.asked, func(p authn.Person) bool { return p.User == viewerSA }), "RBAC was asked about the viewer: %+v", w.asked)
+		ca.viewer = authn.Person{User: "system:serviceaccount:other:nobody"}
+		text, _ = remoteCall(t, w.h, "viewer", "pacto_fleet_entities", "{}")
+		expect(t, !strings.Contains(text, `"orders"`), "the view narrows to the caller: %s", text)
+		ca.viewer = authn.Person{User: viewerSA}
+		caller := remoteCapabilitiesCaller(t, w.h, "viewer")
+		hint, _ := caller["hint"].(string)
+		expect(t, caller["fleetOnly"] == true && caller["writes"] == false &&
+			strings.Contains(hint, "--audience pacto-dashboard --audience <your cluster's API audience>"), "fleet-only caller: %v", caller)
+		expect(t, !slices.Contains(w.tokens, "for-the-cluster") && !slices.Contains(w.tokens, "viewer"), "a client was built for the viewer: %v", w.tokens)
+		// alice holds a credential: exchanged, reviewed, no fleetOnly.
+		caller = remoteCapabilitiesCaller(t, w.h, "good")
+		expect(t, caller["user"] == "alice" && caller["fleetOnly"] == nil && caller["hint"] == nil, "credentialed caller: %v", caller)
+	})
+	t.Run("delivery", func(t *testing.T) {
+		w := newRemoteWorld(t, newCredentiallessAuth())
+		names := remoteToolNames(t, w.h, "viewer")
+		expect(t, !hasPrefixed(names, "pacto_delivery_") && slices.Contains(names, "pacto_capabilities"), "fleet-only tools: %v", names)
+		expect(t, len(w.cfgs) == 0, "a client was built for the viewer: %v", w.cfgs)
+		caller := remoteCapabilitiesCaller(t, w.h, "viewer")
+		expect(t, caller["fleetOnly"] == true && caller["class"] == nil && caller["writes"] == false, "fleet-only caller: %v", caller)
+		names = remoteToolNames(t, w.h, "good")
+		expect(t, slices.Contains(names, "pacto_delivery_operation_propose") && slices.Contains(names, "pacto_delivery_cancel"), "agent tools: %v", names)
+	})
+	t.Run("unnamed", func(t *testing.T) {
+		a := newCredentiallessAuth()
+		a.viewer = authn.Person{}
+		w := newRemoteFleet(t, a)
+		rec := post(t, w.h, "viewer", listTools)
+		expect(t, rec.Code == http.StatusForbidden && strings.Contains(rec.Body.String(), errNobodyReviewed.Error()), "nobody named: %d %s", rec.Code, rec.Body)
+	})
+}
+
+// TestRemoteMCPFleetOnlyCallerCannotDeclare: pacto_declare and pacto_accept
+// read the caller's own client, so the fleet-only server registers neither;
+// a caller with a credential still lists pacto_declare.
+func TestRemoteMCPFleetOnlyCallerCannotDeclare(t *testing.T) {
+	w := newRemoteFleet(t, newCredentiallessAuth())
+	names := remoteToolNames(t, w.h, "viewer")
+	expect(t, !slices.Contains(names, "pacto_declare") && !slices.Contains(names, "pacto_accept"), "fleet-only tools: %v", names)
+	for _, tool := range []string{"pacto_declare", "pacto_accept"} {
+		rec := post(t, w.h, "viewer", `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"`+tool+`","arguments":{}}}`)
+		text := rec.Body.String()
+		expect(t, rec.Code == http.StatusOK && strings.Contains(text, "unknown tool"), "%s for a fleet-only caller: %d %s", tool, rec.Code, text)
+	}
+	expect(t, slices.Contains(remoteToolNames(t, w.h, "good"), "pacto_declare"), "a credentialed caller lists pacto_declare")
+}
+
+// tokenPathServe is the dashboard's token path: no issuer, no fixed resource.
+func tokenPathServe(t *testing.T) http.Handler {
+	t.Helper()
+	w := newRemoteFleet(t)
+	s := mcpServe{auth: w.fa, server: mcpsdk.NewServer(&mcpsdk.Implementation{Name: "pacto", Version: "v"}, nil)}
+	return mcpHandler(s)
+}
+
+func TestRemoteMCPMetadataWithoutIssuer(t *testing.T) {
+	h := tokenPathServe(t)
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "http://127.0.0.1:3000/.well-known/oauth-protected-resource", nil))
+	expect(t, rec.Code == http.StatusOK && !strings.Contains(rec.Body.String(), "authorization_servers"), "metadata: %d %s", rec.Code, rec.Body)
+}
+
+func TestRemoteMCPMetadataFromRequestOrigin(t *testing.T) {
+	h := tokenPathServe(t)
+	for _, c := range []struct{ target, origin string }{
+		{"http://127.0.0.1:3000", "http://127.0.0.1:3000"},
+		{"https://pacto.example", "https://pacto.example"},
+	} {
+		r := httptest.NewRequest(http.MethodPost, c.target+"/mcp", strings.NewReader(listTools))
+		rec := httptest.NewRecorder()
+		h.ServeHTTP(rec, r)
+		expect(t, rec.Code == http.StatusUnauthorized && strings.Contains(rec.Header().Get("WWW-Authenticate"),
+			`resource_metadata="`+c.origin+`/.well-known/oauth-protected-resource/mcp"`), "%s: %d %v", c.target, rec.Code, rec.Header())
+		for _, path := range []string{"/.well-known/oauth-protected-resource", "/.well-known/oauth-protected-resource/mcp"} {
+			rec = httptest.NewRecorder()
+			h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, c.target+path, nil))
+			expect(t, rec.Code == http.StatusOK && strings.Contains(rec.Body.String(), `"resource":"`+c.origin+`/mcp"`), "%s%s: %s", c.target, path, rec.Body)
+		}
+	}
+}
+
+// TestFleetOnlyModesHint: the fleet-only server serves no delivery, and its
+// hint names the API server's audience when the dashboard could read it.
+func TestFleetOnlyModesHint(t *testing.T) {
+	m := fleetOnlyModes(pactomcp.Modes{Delivery: &pactomcp.DeliveryMode{Writes: true}}, "https://kubernetes.default.svc")
+	expect(t, m.Delivery == nil && m.Bundle == nil && m.DeliveryHidden, "fleet-only modes serve delivery: %+v", m)
+	expect(t, !fleetOnlyModes(pactomcp.Modes{}, "").DeliveryHidden, "a host with no delivery hides none")
+	expect(t, strings.HasSuffix(m.FleetOnlyHint, "--audience pacto-dashboard --audience https://kubernetes.default.svc"), "hint: %s", m.FleetOnlyHint)
 }

@@ -1357,6 +1357,21 @@ func TestGetTargetLegacyKeyUnderIncompleteSourcesDoesNotResolve(t *testing.T) {
 	}
 }
 
+// A registry or telemetry source that is down holds no target, so a published
+// 3-part href that matches one target still resolves while it is.
+func TestGetTargetLegacyKeyIgnoresIncompleteNonTargetSources(t *testing.T) {
+	q := twoClusterPayments(t,
+		NewFailingSource("edge", "observation", errors.New("edge down")),
+		NewMemorySource("mirror", "oci", &Collection{State: &SourceState{Status: SourcePartial}}))
+	v, err := q.GetTarget(string(NewTargetKey("orders", "kubernetes", "orders")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := NewClusterTargetKey(clusterA, "orders", "kubernetes", "orders"); v.Target.Key != want {
+		t.Errorf("key = %q, want %q", v.Target.Key, want)
+	}
+}
+
 // A stored 4-part key whose target is still there with no known cluster is not
 // reported as absent: the target is offered, with why it may not be the one.
 func TestGetTargetFourPartKeyClusterUnknownOffersTarget(t *testing.T) {
@@ -1437,5 +1452,14 @@ func TestGetTargetOtherFormKeyWithNoMatchNotFound(t *testing.T) {
 		if _, err := c.q.GetTarget(string(c.key)); !errors.As(err, &nf) {
 			t.Errorf("%s: want NotFoundError, got %v", name, err)
 		}
+	}
+}
+
+func TestStatusIncludesCrossEnvironment(t *testing.T) {
+	q := envFleet(t, []RawTarget{envTarget("shop", "orders", "prod"), envTarget("shop", "payments", "staging")},
+		seen(wid("", "shop", "orders", "prod"), wid("", "shop", "payments", "staging"), time.Minute))
+	st := q.Status(StatusQuery{Limit: 1000})
+	if !slices.ContainsFunc(st.Items, func(it StatusItem) bool { return it.Code == codeCrossEnvironmentCall }) {
+		t.Fatalf("status misses the cross-environment item: %+v", st.Items)
 	}
 }

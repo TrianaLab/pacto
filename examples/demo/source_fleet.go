@@ -4,9 +4,12 @@ import (
 	"context"
 	_ "embed"
 	"maps"
+	"slices"
+	"strconv"
 	"time"
 
 	"github.com/trianalab/pacto/v4/examples/story"
+	"github.com/trianalab/pacto/v4/internal/fleetgen"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
@@ -54,6 +57,45 @@ var demoDetected []byte
 // demoNow is the clock the fleet snapshot is built against.
 func demoNow() time.Time { return demoClock }
 
+// demoFleetSizes are the generated fleets the demo's large mode offers, opened
+// with ?fleet=N: the sizes the map and the browser scale suite are proved at.
+var demoFleetSizes = []int{40, 400, 3000, 10000}
+
+// demoFleetSize reads the boot parameter (?fleet=N): one of demoFleetSizes, or
+// 0 for the narrative demo, which stays the default.
+func demoFleetSize(param string) int {
+	n, err := strconv.Atoi(param)
+	if err != nil || !slices.Contains(demoFleetSizes, n) {
+		return 0
+	}
+	return n
+}
+
+// buildGeneratedFleet builds a fleet of n generated services, read as one
+// Kubernetes source. Its contracts live in memory and are never published, so
+// it changes no demo bundle; the narrative's sources, delivery and impact
+// revisions are not in it.
+func buildGeneratedFleet(n int) (*fleet.FleetSnapshot, error) {
+	return fleet.Build(context.Background(), fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour},
+		fleet.NewMemorySource("fleetgen", fleet.SourceKindKubernetes, fleetgen.Collection(n, 1, demoNow())))
+}
+
+// prodClusterID is the kube-system UID of the demo's production cluster.
+const prodClusterID = "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11"
+
+// demoInstallationConfig is the dashboard's InstallationConfig: the demo
+// operator's Installation block from an available detection.
+func demoInstallationConfig() (func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState), error) {
+	detected, err := demoDetection(prodClusterID)
+	if err != nil {
+		return nil, err
+	}
+	at := detected.AsOf
+	return func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState) {
+		return detected.Declared("cluster-detection"), fleet.SourceState{ID: "cluster-detection", Kind: fleet.SourceKindDetection, Status: fleet.SourceAvailable, ObservedAt: &at}
+	}, nil
+}
+
 // buildDemoFleet builds a fleet query over every embedded revision plus the
 // demo's operational targets, and returns a ref→bundle index so the impact
 // provider can resolve the two revisions to compare from memory.
@@ -90,7 +132,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	attestDemoRevision(col)
 	// invoices is a person's declaration of a running workload: it replaces
 	// the inferred invoices Deployment the cluster below reports.
-	prodCluster := &fleet.Cluster{ID: "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11", Name: "production", NameSource: fleet.ClusterNameFromContext}
+	prodCluster := &fleet.Cluster{ID: prodClusterID, Name: "production", NameSource: fleet.ClusterNameFromContext}
 	handover, handoverBundle, handedOver := demoHandover(demoNow(), prodCluster.ID)
 	col.Revisions = append(col.Revisions, handover)
 	byRef[handover.ResolvedRef] = handoverBundle
@@ -133,10 +175,14 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 
 	// The cluster collector reports what is running; the registry above reports what
 	// was declared. Keeping them apart is what lets a target say which source saw it.
-	// One cluster, named from its kubeconfig context: every key keeps its 3-part
-	// form and the target page shows where the target runs.
+	// The hub cluster, named from its kubeconfig context; with its members every
+	// key is cluster-qualified, and a published 3-part href still names one target.
 	takeover, takenOver := demoTakeover(demoNow())
 	targets, inferred := append(demoTargets(src), takeover), append(demoInferredServices(), handedOver)
+	// The operator's linker linked two growth workloads to published
+	// contracts with no Pacto: they count as workloads the cluster runs.
+	linkedTargets, linkedWorkloads := demoLinked(src, demoNow())
+	inferred = append(inferred, linkedWorkloads...)
 	// Each cluster source says what it detected: the Data sources page lists
 	// the Pacto CRD and the workloads the cluster runs. The taken-over
 	// workload is the takeover target, so it counts once.
@@ -147,15 +193,17 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	}
 	cluster := fleet.NewMemorySource("k8s-production", fleet.SourceKindKubernetes, &fleet.Collection{
 		Cluster:      prodCluster,
-		Providers:    []fleet.Provider{crdRow},
+		Providers:    []fleet.Provider{crdRow, demoKernelEgressRow()},
 		Targets:      targets,
 		Provisioning: demoProvisioning(src),
 		Usage:        demoUsage(src),
 		ExternalUses: demoExternalUses(demoNow()),
 		// The kernel observer names a caller with no contract by its workload,
 		// so this edge joins the inferred legacy-billing below: attention shows
-		// an uncontracted caller of payments-service that links to it.
-		Observed: append([]fleet.ObservedEdge{{From: "k8s:shop/Deployment/legacy-billing", To: "payments-service", Count: 9}}, demoInferredEdges(demoNow())...),
+		// an uncontracted caller of payments-service that links to it. Its
+		// kernel egress names fulfillment-service's SFTP partner.
+		Observed: append(append([]fleet.ObservedEdge{{From: "k8s:shop/Deployment/legacy-billing", To: "payments-service", Count: 9}},
+			demoInferredEdges(demoNow())...), demoKernelEgressEdges()...),
 	})
 	// The cluster's workload reader: workloads no contract describes show as
 	// inferred services, each value with the object path Pacto read it from.
@@ -197,30 +245,49 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		},
 	})
 	// What the cluster's operator detected: an advisory source whose rows are
-	// hints, dated now so they read current.
-	detected, err := detect.Decode(demoDetected)
+	// hints, dated now so they read current. The trace backends it found are
+	// read by their own edge sources, one row each.
+	detected, err := demoDetection(prodCluster.ID)
 	if err != nil {
 		return nil, nil, err
 	}
-	if inst := detected.Installation; inst != nil && inst.LastPush != nil {
-		// The last push keeps its age against the detection.
-		inst.LastPush.At = demoNow().Add(inst.LastPush.At.Sub(detected.AsOf))
-	}
-	detected.AsOf, detected.Cluster = demoNow(), prodCluster.ID
+	rest, traceSources := demoTraceSources(detected, demoNow())
 	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
-		Advisory: true, Providers: detect.ProviderRows(detected, "cluster-detection", demoNow()),
+		Advisory: true, Providers: detect.ProviderRows(rest, "cluster-detection", demoNow()),
+	})
+	linked := fleet.NewMemorySource("k8s-production-linked", fleet.SourceKindLinked, &fleet.Collection{
+		Cluster: prodCluster, Targets: linkedTargets,
 	})
 	cat, err := demoCatalog()
 	if err != nil {
 		return nil, nil, err
 	}
+	// The hub's approved members (source_clusters.go), each one cluster of its own,
+	// and their link facts.
+	sources := append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow())},
+		append(traceSources, append(demoMemberSources(), demoMemberLinks())...)...)
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
-		fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection)
+		sources...)
 	if err != nil {
 		return nil, nil, err
 	}
 	return snap, byRef, nil
+}
+
+// demoDetection is what the demo cluster's operator detected, dated now on
+// cluster so its rows read current.
+func demoDetection(cluster string) (detect.Result, error) {
+	detected, err := detect.Decode(demoDetected)
+	if err != nil {
+		return detect.Result{}, err
+	}
+	if inst := detected.Installation; inst != nil && inst.LastPush != nil {
+		// The last push keeps its age against the detection.
+		inst.LastPush.At = demoNow().Add(inst.LastPush.At.Sub(detected.AsOf))
+	}
+	detected.AsOf, detected.Cluster = demoNow(), cluster
+	return detected, nil
 }
 
 // demoTargets are deterministic operational targets covering the range of states
@@ -355,7 +422,9 @@ func demoTargets(src *EmbedSource) []fleet.RawTarget {
 			ObservedRuntime: map[string]any{"replicas": 3, "image": demoRegistry + "inventory-service:2.1.0"}},
 		{Scope: "prod", Kind: "Deployment", Name: "fulfillment-service", Service: "fulfillment-service", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "fulfillment-service:1.1.0", Coverage: cov(4, 4), EvidenceAt: at(older), ReconciledAt: at(older),
-			Labels: prod(map[string]string{"app.kubernetes.io/name": "fulfillment-service"})},
+			Labels: prod(map[string]string{"app.kubernetes.io/name": "fulfillment-service"}),
+			// One of its nodes has no node agent, so its external calls cannot be ruled out.
+			Limitations: []fleet.Limitation{demoKernelEgressLimitation()}},
 		{Scope: "prod", Kind: "Deployment", Name: "catalog-service", Service: "catalog-service", Compliance: fleet.StatusCompliant,
 			ResolvedRef: demoRegistry + "catalog-service:1.1.0", Coverage: cov(3, 3), EvidenceAt: at(fresh), ReconciledAt: at(fresh),
 			Labels: prod(map[string]string{"app.kubernetes.io/name": "catalog-service"})},

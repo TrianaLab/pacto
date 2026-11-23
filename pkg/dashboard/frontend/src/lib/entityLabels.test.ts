@@ -5,11 +5,12 @@ import { fileURLToPath } from 'node:url';
 import {
   kindLabel, kindLabelPlural, linkStateLabel, linkStateTone, retrievabilityLabel, retrievabilityTone,
   knowledgeLabel, knowledgeTone, sourceHealthLabel, sourceHealthTone,
-  attentionCategoryLabel, ATTENTION_CATEGORIES, GAP_WORDS,
+  attentionCategoryLabel, GAP_WORDS,
   provenanceLabel, provenanceIsImplied,
-  sourceHealthTallyParts, sourceHealthSentence,
-  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, ownerProvenanceText,
+  sourceHealthTallyParts, sourceHealthSentence, sourceMessageIsNote,
+  collectorLabel, seenBy, splitEntryPoints, acceptsLabel, RANGE_NOT_DECLARED, serviceKeyName, replacesTip, linkTip, ownerProvenanceText,
   attentionCause, nextActionWords,
+  completenessText,
 } from './entityLabels.ts';
 
 describe('acceptsLabel', () => {
@@ -49,14 +50,11 @@ describe('kindLabel', () => {
 describe('attentionCategoryLabel', () => {
   // The TS union in schema.ts is type-only, so the drift check reads the enum the
   // backend publishes: a new backend category fails here until it gets a chip.
-  it('lists exactly the backend attention categories, in their order', () => {
-    const spec = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'generated/openapi.json'), 'utf8'));
-    const backend: string[] = spec.components.schemas.ProductAttentionItem.properties.category.enum;
-    expect([...ATTENTION_CATEGORIES]).toEqual(backend);
-  });
+  const spec = JSON.parse(readFileSync(join(dirname(fileURLToPath(import.meta.url)), 'generated/openapi.json'), 'utf8'));
+  const backend: string[] = spec.components.schemas.ProductAttentionItem.properties.category.enum;
 
   it('gives every backend category a plain-language name', () => {
-    for (const c of ATTENTION_CATEGORIES) {
+    for (const c of backend) {
       expect(attentionCategoryLabel(c)).not.toBe(c);
       expect(attentionCategoryLabel(c)).toMatch(/^[A-Z]/);
     }
@@ -66,13 +64,9 @@ describe('attentionCategoryLabel', () => {
     expect(attentionCategoryLabel('undeclared')).toBe('Undeclared dependency');
     expect(attentionCategoryLabel('lifecycle')).toBe('Deprecated provider');
     expect(attentionCategoryLabel('provisioning')).toBe('Resource provisioning');
-    expect(ATTENTION_CATEGORIES).toContain('undeclared');
-  });
-
-  // Readiness is triaged as a DIMENSION of attention, not a separate workspace, so it
-  // must stay in the shared category list the overview and the triage view both read.
-  it('keeps readiness in the shared category list', () => {
-    expect(ATTENTION_CATEGORIES).toContain('readiness');
+    expect(attentionCategoryLabel('cluster')).toBe('Member cluster');
+    expect(backend).toContain('undeclared');
+    expect(backend).toContain('readiness');
   });
 
   it('passes an unknown category through rather than inventing one', () => {
@@ -311,7 +305,80 @@ describe('ownerProvenanceText', () => {
 
 describe('inferred provider attention words', () => {
   it('words the declare next action and the INFERRED_PROVIDER cause', () => {
-    expect(nextActionWords({ verb: 'declare', tool: 'pacto_declare' })).toBe('Fix: declare a contract with pacto_declare');
+    expect(nextActionWords({ verb: 'declare', cli: 'pacto declare cart --namespace shop' })).toBe('Fix: declare the workload with pacto declare cart --namespace shop');
     expect(attentionCause('INFERRED_PROVIDER')).not.toBe('INFERRED_PROVIDER');
+  });
+});
+
+describe('completenessText', () => {
+  it('says a section\'s state, why and what else the fleet knows', () => {
+    expect(completenessText({ state: 'declared', reason: 'pacto.yaml declares it' })).toBe('Declared: pacto.yaml declares it');
+    expect(completenessText({ state: 'inferred', reason: 'read from runtime calls', note: 'it runs nowhere' })).toBe('Inferred only: read from runtime calls; it runs nowhere');
+    expect(completenessText({ state: 'unknown' })).toBe('Unknown');
+  });
+});
+
+describe('nextActionWords', () => {
+  it('words each verb with its CLI command and never a tool', () => {
+    expect(nextActionWords({ verb: 'edit-contract', cli: 'pacto ci' })).toBe('Fix: edit the contract, then run pacto ci');
+    expect(nextActionWords({ verb: 'accept', cli: 'pacto accept reports' })).toBe('Fix: accept the proposed ranges with pacto accept reports');
+    expect(nextActionWords({ verb: 'claim', cli: 'pacto claim stripe' })).toBe('Fix: claim this external system with pacto claim stripe');
+    expect(nextActionWords({ verb: 'approve-cluster', cli: 'kubectl apply -f c.yaml' })).toBe('Fix: approve the cluster with kubectl apply -f c.yaml');
+    expect(nextActionWords({ verb: 'declare' })).toBe('Fix: declare the workload');
+    expect(nextActionWords({ verb: 'future-verb', cli: 'pacto x' })).toBe('Fix: future-verb with pacto x');
+    expect(nextActionWords({ verb: 'edit-contract', cli: 'pacto ci', tool: 'pacto_edit' } as never)).not.toContain('pacto_edit');
+    expect(nextActionWords(null)).toBe('');
+    expect(nextActionWords({})).toBe('');
+  });
+});
+
+describe('linkTip', () => {
+  const DIGEST = `sha256:ab12${'0'.repeat(60)}`;
+  it('names the full digest, since when and that the images record is unverified', () => {
+    const tip = linkTip({ signal: 'image-digest', value: DIGEST, since: '2026-11-20T11:57:00Z' }, '2026-11-20T12:00:00Z');
+    expect(tip).toBe(`Linked with no Pacto by the running image digest ${DIGEST} · observed · since 3 minutes ago. The images record carries a signature the operator does not verify.`);
+  });
+  it('never shortens a long annotation value', () => {
+    const ref = `oci://ghcr.io/acme/${'a'.repeat(170)}/payments:2.3.0`;
+    expect(ref.length).toBeGreaterThanOrEqual(200);
+    expect(linkTip({ signal: 'annotation', value: ref })).toBe(`Linked with no Pacto by the pacto.trianalab.io/contract annotation ${ref} · observed.`);
+  });
+  it('says the version may be wrong when other release versions record the digest', () => {
+    expect(linkTip({ signal: 'image-digest', value: DIGEST, otherVersions: ['2.2.0', '2.1.0'] }))
+      .toContain('Other release versions also record its running images (2.2.0, 2.1.0), so the linked version is the newest and may be wrong.');
+  });
+  it('names at most five other versions and counts the rest', () => {
+    const many = Array.from({ length: 149 }, (_, i) => `1.${148 - i}.0`);
+    const tip = linkTip({ signal: 'image-digest', value: DIGEST, otherVersions: many });
+    expect(tip).toContain('(1.148.0, 1.147.0, 1.146.0, 1.145.0, 1.144.0 and 144 more, listed by pacto fleet get)');
+    expect(tip).not.toContain('1.143.0');
+    expect(tip).toContain('the operator does not verify');
+  });
+});
+
+describe('replacesTip for an observed link', () => {
+  it('says how the operator linked the workload with no Pacto', () => {
+    const at = '2026-11-17T11:56:00Z';
+    const digest = { from: 'k8s:shop%2FDeployment%2Fpayments', link: 'observed', signal: 'image-digest', value: 'sha256:ab12', at };
+    expect(replacesTip([digest], 1)).toMatch(/^Linked with no Pacto: the workload runs image sha256:ab12, which this service published\. The operator first linked it .+\.$/);
+    const ann = { from: 'k8s:shop%2FDeployment%2Fcart', link: 'observed', signal: 'annotation', value: 'oci://ghcr.io/acme/cart:1.0.0', at };
+    expect(replacesTip([ann], 1)).toContain('carries pacto.trianalab.io/contract naming oci://ghcr.io/acme/cart:1.0.0');
+    expect(replacesTip([digest, ann], 2)).toContain('Also replaces k8s:shop/Deployment/cart (observed: annotation, ');
+  });
+});
+
+describe('sourceMessageIsNote', () => {
+  it('keeps an informational code a note on a stale or partial source', () => {
+    expect(sourceMessageIsNote('stale', 'LINK_DIGEST_OFF')).toBe(true);
+    expect(sourceMessageIsNote('partial', 'LINK_DIGEST_OFF')).toBe(true);
+    expect(sourceMessageIsNote('available', undefined)).toBe(true);
+    expect(sourceMessageIsNote('unavailable', 'NOT_FOUND')).toBe(false);
+    expect(sourceMessageIsNote('stale', undefined)).toBe(false);
+  });
+});
+
+describe('member cluster attention words', () => {
+  it('words the CLUSTER_ISSUER_DIFFERS cause', () => {
+    expect(attentionCause('CLUSTER_ISSUER_DIFFERS')).toMatch(/group mapping/);
   });
 });

@@ -169,7 +169,7 @@ describe('Navbar — primary destinations (SPEC 20, B2)', () => {
       items: Array.from(g.querySelectorAll('a')).map((a) => a.getAttribute('data-nav')),
     }));
     expect(groups).toEqual([
-      { label: '', items: ['overview', 'attention'] },
+      { label: '', items: ['overview'] },
       { label: 'Organization', items: ['services', 'owners', 'domains', 'offerings', 'golden-paths'] },
       { label: 'Change and delivery', items: ['changes', 'metrics'] },
       { label: 'System', items: ['graph', 'sources'] },
@@ -179,7 +179,7 @@ describe('Navbar — primary destinations (SPEC 20, B2)', () => {
 
   it('names every destination by its label, in sidebar order', () => {
     expect(navLabels({ fleet: true, impact: true }))
-      .toEqual(['Overview', 'Needs attention', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Metrics', 'Operational graph', 'Data sources']);
+      .toEqual(['Overview', 'Services', 'Owners', 'Domains', 'Offerings', 'Golden paths', 'Change analysis', 'Metrics', 'Operational graph', 'Data sources']);
   });
 
   it('offers the same list while capabilities are unknown, so a Fleet host never flashes the legacy bar', () => {
@@ -269,6 +269,17 @@ describe('Navbar — data sources', () => {
     window.dispatchEvent(new HashChangeEvent('hashchange'));
     expect(hidden).toBe(1);
     done();
+  });
+
+  it('egress rows are no data source pill', () => {
+    let m = mountWith({ sourcesInfo: [{ type: 'kubernetes', enabled: true }, { type: 'kernel-egress', enabled: true, egress: true, coverage: 'partial' }] });
+    const panel = m.target.querySelector('#navbar-sources') as HTMLElement;
+    expect(Array.from(panel.querySelectorAll('li strong')).map((n) => n.textContent)).toEqual(['Kubernetes']);
+    expect(m.target.querySelectorAll('.source-dot-kernel-egress')).toHaveLength(0);
+    m.done();
+    m = mountWith({ sourcesInfo: [{ type: 'istio-egress', enabled: true, egress: true, coverage: 'complete' }] });
+    expect(m.target.querySelector('[data-testid="navbar-sources"]')).toBeNull();
+    m.done();
   });
 
   it('says it is still discovering, and offers no control when there is nothing to list', () => {

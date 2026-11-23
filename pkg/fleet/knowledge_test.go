@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -58,7 +59,7 @@ func knowledgeOf(t *testing.T, q *Query, name string) ([]string, string) {
 
 func TestKnowledgeDescribed(t *testing.T) {
 	q := knowledgeFleet(t, []RawRevision{knowRev("pay", nil)}, []RawTarget{runs("pay")})
-	if k := q.Overview().Summary.Knowledge; k != (KnowledgeTally{Services: 1, Described: 1}) {
+	if k := q.Overview().Summary.Knowledge; knowledgeCountsOf(k) != (knowledgeCounts{Services: 1, Described: 1}) {
 		t.Fatalf("knowledge = %+v", k)
 	}
 }
@@ -441,7 +442,7 @@ func TestEntitiesAggregateMatchesOverviewOwnership(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ov := q.Overview().Summary; l.Aggregate.Ownership != ov.Ownership || l.Aggregate.Ownership.Unknown != 1 || l.Aggregate.Knowledge != ov.Knowledge {
+	if ov := q.Overview().Summary; l.Aggregate.Ownership != ov.Ownership || l.Aggregate.Ownership.Unknown != 1 || !reflect.DeepEqual(l.Aggregate.Knowledge, ov.Knowledge) {
 		t.Fatalf("aggregate %+v / %+v, overview %+v / %+v", l.Aggregate.Ownership, l.Aggregate.Knowledge, ov.Ownership, ov.Knowledge)
 	}
 }
@@ -510,5 +511,21 @@ func TestKnowledgeToolCapKeepsSpecsRead(t *testing.T) {
 	r := q.snap.Revisions[q.snap.Services[q.snap.Targets[NewTargetKey("prod", "k8s", "pay-app")].ServiceKey].Revisions[0]]
 	if !slices.Equal(r.SpecsRead, []string{"big", "small"}) || len(r.Tools) != maxToolsPerRevision {
 		t.Fatalf("specsRead %v, %d tools", r.SpecsRead, len(r.Tools))
+	}
+}
+
+func TestMostMissingCountsOnlyMissingSections(t *testing.T) {
+	sec := func(name string, state string) CompletenessSection {
+		return CompletenessSection{CompletenessSection: contract.CompletenessSection{Section: name, State: state}}
+	}
+	var k KnowledgeTally
+	k.addCompleteness(&ServiceCompleteness{Percent: new(50), Sections: []CompletenessSection{
+		sec(contract.SectionConfiguration, contract.CompletenessMissing), sec(contract.SectionInterfaces, contract.CompletenessInferred)}})
+	k.addCompleteness(&ServiceCompleteness{Percent: new(50), Sections: []CompletenessSection{
+		sec(contract.SectionConfiguration, contract.CompletenessInferred)}})
+	k.finish()
+	want := []SectionCount{{contract.SectionConfiguration, 1}}
+	if !reflect.DeepEqual(k.ContractCompleteness.MostMissing, want) {
+		t.Errorf("mostMissing %+v, want %+v", k.ContractCompleteness.MostMissing, want)
 	}
 }

@@ -439,6 +439,10 @@ type AcceptOptions struct {
 	// Draft is an acceptance draft (<repo>:pacto-accept-draft-<n>) a
 	// person accepts: its record is planned again and signed by them.
 	Draft string
+	// Write opens the repository the record or draft is written to; nil
+	// opens it with the CLI's credentials. A server writes through a push
+	// scope that holds the accepting service's repository alone.
+	Write func(path string) (*remote.Repository, error)
 	// Getenv reads SOURCE_DATE_EPOCH for the default expiry of an undated
 	// break read from a checkout, as pacto ci does; nil reads git alone.
 	Getenv func(string) string
@@ -466,6 +470,10 @@ type AcceptPlan struct {
 	// the person it asserts it was written for.
 	Draft      string `json:"draft,omitempty"`
 	OnBehalfOf string `json:"onBehalfOf,omitempty"`
+	// Drafts are the accepting service's acceptance drafts, newest first and
+	// at most MaxListedDrafts; DraftsTotal counts them all.
+	Drafts      []AcceptDraftView `json:"drafts,omitempty"`
+	DraftsTotal int               `json:"draftsTotal,omitempty"`
 	// owner, repo and record are who may accept, the accepting service's
 	// bundle repository and the record the plan would sign.
 	owner  delivery.AcceptanceOwner
@@ -516,6 +524,9 @@ func (s *Service) AcceptPlan(ctx context.Context, opts AcceptOptions) (*AcceptPl
 		p.Existing = append(p.Existing, j.ForImpact())
 	}
 	p.Notes = notes
+	if opts.draftOf == "" {
+		p.Drafts, p.DraftsTotal, p.Notes = s.acceptDrafts(ctx, repo, p.Notes)
+	}
 	p.IntentDigest = delivery.AcceptanceIntent(r, p.Subject)
 	if opts.Intent != "" && opts.Intent != p.IntentDigest {
 		return p, &DeclareError{Code: codePlanStale, Message: "the plan changed since you reviewed it (intent " + opts.Intent + ", now " + p.IntentDigest + ")",
@@ -898,6 +909,14 @@ func wantsSame(b *delivery.AcceptedBreak) func(impact.Acceptance) bool {
 	}
 }
 
+// writeRepo opens repo with open, else with the CLI's credentials.
+func (s *Service) writeRepo(open func(string) (*remote.Repository, error), repo string) (*remote.Repository, error) {
+	if open == nil {
+		open = s.env().refusalRepo
+	}
+	return open(repo)
+}
+
 // acceptanceDraftPrefix starts every acceptance draft tag.
 const acceptanceDraftPrefix = delivery.AcceptanceDraftTagPrefix
 
@@ -905,8 +924,9 @@ const acceptanceDraftPrefix = delivery.AcceptanceDraftTagPrefix
 // a native referrer the Referrers API lists, else a write-once tag. It
 // returns where the record is (<repo>@sha256:<hex>). dgst is the subject's
 // manifest digest.
-func (s *Service) writeAcceptance(ctx context.Context, repo, dgst string, bundle []byte) (string, error) {
-	r, err := s.env().refusalRepo(repo)
+// open is how the repository is opened, nil for the CLI's credentials.
+func (s *Service) writeAcceptance(ctx context.Context, open func(string) (*remote.Repository, error), repo, dgst string, bundle []byte) (string, error) {
+	r, err := s.writeRepo(open, repo)
 	if err != nil {
 		return "", err
 	}
@@ -938,8 +958,8 @@ func (s *Service) writeAcceptance(ctx context.Context, repo, dgst string, bundle
 // agent run repeated), its tag is returned and nothing is signed or
 // written. A number another run took meanwhile is retried once at the next
 // one; a second loss is VersionConflict.
-func (s *Service) writeAcceptanceDraft(ctx context.Context, repo string, d delivery.AcceptanceDraft, signer *signing.Signer) (string, error) {
-	r, err := s.env().refusalRepo(repo)
+func (s *Service) writeAcceptanceDraft(ctx context.Context, open func(string) (*remote.Repository, error), repo string, d delivery.AcceptanceDraft, signer *signing.Signer) (string, error) {
+	r, err := s.writeRepo(open, repo)
 	if err != nil {
 		return "", err
 	}
@@ -1075,7 +1095,7 @@ func (s *Service) Accept(ctx context.Context, opts AcceptOptions) (*AcceptResult
 	case !c.MayDeclare:
 		return res, s.draftAcceptance(ctx, res, r, c, opts)
 	}
-	return res, s.signAcceptance(ctx, res, r, c, sign.Rules)
+	return res, s.signAcceptance(ctx, res, r, c, sign.Rules, opts.Write)
 }
 
 // personSigningUnavailable refuses accepting draft with c, a signer that
@@ -1102,7 +1122,7 @@ func installationSigners(ctx context.Context, trust func(context.Context) (Insta
 // signAcceptance signs r as the person c logged in as, checks the bundle is
 // signed by exactly that person, attaches it to the plan's subject and
 // judges it as readers will.
-func (s *Service) signAcceptance(ctx context.Context, res *AcceptResult, r delivery.AcceptanceRecord, c signerChoice, rules []delivery.SignerClassRule) error {
+func (s *Service) signAcceptance(ctx context.Context, res *AcceptResult, r delivery.AcceptanceRecord, c signerChoice, rules []delivery.SignerClassRule, open func(string) (*remote.Repository, error)) error {
 	p := res.Plan
 	st := delivery.NewAcceptanceStatement(p.Subject, r)
 	bundle, _, err := delivery.SignAcceptance(ctx, c.Signer, st)
@@ -1117,7 +1137,7 @@ func (s *Service) signAcceptance(ctx context.Context, res *AcceptResult, r deliv
 		return &DeclareError{Code: codeSignerUnverified, Message: "nothing was written: " + err.Error()}
 	}
 	_, dgst, _ := strings.Cut(p.Subject, "@")
-	if res.Record, err = s.writeAcceptance(ctx, p.repo, dgst, bundle); err != nil {
+	if res.Record, err = s.writeAcceptance(ctx, open, p.repo, dgst, bundle); err != nil {
 		return err
 	}
 	res.Executed = true
@@ -1133,7 +1153,7 @@ func (s *Service) draftAcceptance(ctx context.Context, res *AcceptResult, r deli
 	if c.Source != signerNone {
 		signer = &c.Signer
 	}
-	tag, err := s.writeAcceptanceDraft(ctx, p.repo, delivery.AcceptanceDraft{Record: r, Subject: p.Subject, OnBehalfOf: opts.OnBehalfOf, Asker: askerOf(c)}, signer)
+	tag, err := s.writeAcceptanceDraft(ctx, opts.Write, p.repo, delivery.AcceptanceDraft{Record: r, Subject: p.Subject, OnBehalfOf: opts.OnBehalfOf, Asker: askerOf(c)}, signer)
 	if err != nil {
 		return err
 	}
@@ -1141,4 +1161,56 @@ func (s *Service) draftAcceptance(ctx context.Context, res *AcceptResult, r deli
 	// The person reads an unpublished break from the same --from.
 	res.AcceptCLI = acceptCommand(AcceptOptions{Dir: opts.Dir, Ref: opts.Ref, From: opts.From, draftOf: res.Draft}, "")
 	return nil
+}
+
+// AcceptDraftView is one pacto-accept-draft-<n> of the accepting service:
+// the record it asks a person to sign, for whom and by whom, or why it
+// cannot be read.
+type AcceptDraftView struct {
+	Ref        string                   `json:"ref"`
+	State      string                   `json:"state"`
+	Reason     string                   `json:"reason,omitempty"`
+	Kind       string                   `json:"kind,omitempty"`
+	Ranges     []delivery.AcceptedRange `json:"ranges,omitempty"`
+	Break      *delivery.AcceptedBreak  `json:"break,omitempty"`
+	OnBehalfOf string                   `json:"onBehalfOf,omitempty"`
+	Asker      contract.InferredSigner  `json:"asker"`
+	// Signed says the draft carries a signature; it is verified when a
+	// person accepts the draft.
+	Signed bool `json:"signed"`
+	// Intent is the intent digest the draft's record was planned with.
+	Intent string `json:"intent,omitempty"`
+}
+
+// acceptDrafts lists repo's acceptance drafts, newest first and at most
+// MaxListedDrafts, each read; a draft that cannot be read is listed with
+// why, and a listing that fails is a note, never "no drafts".
+func (s *Service) acceptDrafts(ctx context.Context, repo string, notes []string) ([]AcceptDraftView, int, []string) {
+	r, err := s.env().refusalRepo(repo)
+	var tags []string
+	if err == nil {
+		tags, err = ocireferrer.Tags(ctx, r, acceptanceDraftPrefix)
+	}
+	if err != nil {
+		return nil, 0, append(notes, "the acceptance drafts of "+repo+" could not be listed: "+err.Error())
+	}
+	var ns []int
+	for _, t := range tags {
+		if n, ok := publish.DraftNumber(t, acceptanceDraftPrefix); ok {
+			ns = append(ns, n)
+		}
+	}
+	slices.SortFunc(ns, func(a, b int) int { return cmp.Compare(b, a) })
+	var out []AcceptDraftView
+	for _, n := range ns[:min(len(ns), MaxListedDrafts)] {
+		ref := repo + ":" + acceptanceDraftPrefix + strconv.Itoa(n)
+		d, bundle, err := s.readAcceptanceDraft(ctx, ref)
+		if err != nil {
+			out = append(out, AcceptDraftView{Ref: ref, State: draftUnreadable, Reason: err.Error()})
+			continue
+		}
+		out = append(out, AcceptDraftView{Ref: ref, State: "draft", Kind: d.Record.Kind, Ranges: d.Record.Ranges, Break: d.Record.Break,
+			OnBehalfOf: d.OnBehalfOf, Asker: d.Asker, Signed: bundle != nil, Intent: d.Record.Intent})
+	}
+	return out, len(ns), notes
 }

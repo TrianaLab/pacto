@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync/atomic"
 
@@ -18,6 +19,7 @@ import (
 	orasremote "oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
@@ -68,6 +70,11 @@ type Registry interface {
 	// Layer reads the one layer of the small manifest repo@digest, such as
 	// a signature referrer, and the manifest's annotations.
 	Layer(ctx context.Context, repo, digest string) ([]byte, map[string]string, error)
+	// ImageSource is the source repository the image at ref names: an
+	// index's org.opencontainers.image.source annotation, else its
+	// linux/amd64 image's (or its first image's) config label of that name;
+	// empty when none names one.
+	ImageSource(ctx context.Context, ref string) (string, error)
 }
 
 // Client is the go-containerregistry Registry, with Pacto's credentials and
@@ -358,6 +365,47 @@ func (c *Client) ReferrerDescriptors(ctx context.Context, repo, digest string) (
 	return out, nil
 }
 
+// ImagesRecord is one images record attached to a bundle. Signed says a
+// Sigstore signature referrer is attached to the record: present, not
+// verified.
+type ImagesRecord struct {
+	Records []ImageRecord
+	Signed  bool
+}
+
+// ReadImages reads the images records attached to the bundle repo@digest
+// through the mode-aware referrer listing. A record that does not decode is
+// skipped (it names no image). A paginated listing returns what was read
+// with partial set, never "no record"; a bundle with none is nil, false, nil.
+func (c *Client) ReadImages(ctx context.Context, repo, digest string) (recs []ImagesRecord, partial bool, err error) {
+	descs, err := c.ReferrerDescriptors(ctx, repo, digest)
+	if partial = errors.Is(err, ErrReferrersPartial); err != nil && !partial {
+		return nil, false, err
+	}
+	for _, d := range descs {
+		if d.ArtifactType != ImagesType {
+			continue
+		}
+		body, _, err := c.Layer(ctx, repo, d.Digest.String())
+		if err != nil {
+			return recs, partial, err
+		}
+		images, err := DecodeImages(body)
+		if err != nil {
+			continue // ponytail: a malformed record links nothing; reported by nobody
+		}
+		sigs, err := c.ReferrerDescriptors(ctx, repo, d.Digest.String())
+		sigPartial := errors.Is(err, ErrReferrersPartial)
+		if err != nil && !sigPartial {
+			return recs, partial, err
+		}
+		signed := slices.ContainsFunc(sigs, func(s v1.Descriptor) bool { return s.ArtifactType == delivery.BundleMediaType })
+		partial = partial || (sigPartial && !signed)
+		recs = append(recs, ImagesRecord{Records: images, Signed: signed})
+	}
+	return recs, partial, nil
+}
+
 // maxLayer bounds what Layer reads: a signature bundle is a few kilobytes.
 const maxLayer = 4 << 20
 
@@ -382,4 +430,48 @@ func (c *Client) Layer(ctx context.Context, repo, digest string) ([]byte, map[st
 	defer func() { _ = rc.Close() }()
 	b, err := io.ReadAll(io.LimitReader(rc, maxLayer))
 	return b, m.Annotations, err
+}
+
+// ImageSource implements Registry: one manifest (two for an index) and one
+// config are read, never a layer.
+func (c *Client) ImageSource(ctx context.Context, ref string) (string, error) {
+	var src string
+	err := c.oci.Do(ctx, ref, func(r name.Reference, opts []remote.Option) error {
+		d, err := remote.Get(r, opts...)
+		if err != nil {
+			return err
+		}
+		var img v1.Image
+		if d.MediaType.IsIndex() {
+			// ponytail: remote.Get parsed the index already.
+			idx, _ := d.ImageIndex()
+			m, _ := idx.IndexManifest()
+			if src = m.Annotations[AnnotationSource]; src != "" || len(m.Manifests) == 0 {
+				return nil
+			}
+			img, err = idx.Image(platformImage(m.Manifests).Digest)
+		} else {
+			img, err = d.Image()
+		}
+		if err != nil {
+			return err
+		}
+		cfg, err := img.ConfigFile()
+		if err != nil {
+			return err
+		}
+		src = cfg.Config.Labels[AnnotationSource]
+		return nil
+	})
+	return src, err
+}
+
+// platformImage is an index's linux/amd64 manifest, else its first.
+func platformImage(ms []v1.Descriptor) v1.Descriptor {
+	for _, m := range ms {
+		if p := m.Platform; p != nil && p.OS == "linux" && p.Architecture == "amd64" {
+			return m
+		}
+	}
+	return ms[0]
 }

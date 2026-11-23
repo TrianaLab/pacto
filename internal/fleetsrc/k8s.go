@@ -128,6 +128,7 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 		namespaces = []string{""}
 	}
 	var read []string
+	var views []delivery.PactoView
 	var listErr error
 	for _, ns := range namespaces {
 		data, err := s.client.ListJSON(ctx, *disc, ns)
@@ -136,15 +137,21 @@ func (s *K8sSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 			col.Limitations = append(col.Limitations, fleet.NamespaceUnreadableLimitation(s.id, ns, reasonClass(err)))
 			continue
 		}
-		if err := s.collectList(data, disc.ResourceName, col); err != nil {
+		vs, err := s.collectList(data, disc.ResourceName, col)
+		if err != nil {
 			return nil, err
 		}
+		views = append(views, vs...)
 		read = append(read, ns)
 	}
 	if len(read) == 0 {
 		return nil, listErr
 	}
 	col.Providers = append(col.Providers, crdServedRow(disc, col.Limitations))
+	// One row from every namespace's Pactos, never one per namespace.
+	if row, ok := KernelEgressRow(s.id, views, time.Now()); ok {
+		col.Providers = append(col.Providers, row)
+	}
 	return scoped(s.id, s.namespaces, col, read), nil
 }
 
@@ -187,12 +194,14 @@ func reasonClass(err error) string {
 	}
 }
 
-// collectList decodes one list of Pacto CRs into col.
-func (s *K8sSource) collectList(data []byte, resource string, col *fleet.Collection) error {
+// collectList decodes one list of Pacto CRs into col and returns the runtime
+// views it read.
+func (s *K8sSource) collectList(data []byte, resource string, col *fleet.Collection) ([]delivery.PactoView, error) {
 	var list k8sList
 	if err := json.Unmarshal(data, &list); err != nil {
-		return fmt.Errorf("decoding %s list: %w", resource, err)
+		return nil, fmt.Errorf("decoding %s list: %w", resource, err)
 	}
+	var views []delivery.PactoView
 	// The same bytes decoded into list above, so they decode here too.
 	var raw struct {
 		Items []json.RawMessage `json:"items"`
@@ -210,6 +219,7 @@ func (s *K8sSource) collectList(data []byte, resource string, col *fleet.Collect
 		}
 		t := s.targetFrom(item)
 		if v, ok := s.runtimeView(raw.Items[i], item, col); ok {
+			views = append(views, v)
 			col.Observed = append(col.Observed, delivery.ObservedEdges(v)...)
 			col.ExternalUses = append(col.ExternalUses, delivery.ExternalUses(v, t.ReconciledAt)...)
 			t.Limitations = s.runtimeLimitations(v, t.ReconciledAt)
@@ -224,7 +234,7 @@ func (s *K8sSource) collectList(data []byte, resource string, col *fleet.Collect
 			Message: fmt.Sprintf("%d Pacto(s) report a contract with no service name", nameless),
 		})
 	}
-	return nil
+	return views, nil
 }
 
 // LimitationPactoStatusUnreadable marks a Pacto whose runtime observation (its
@@ -261,11 +271,10 @@ func unreadableLimitations(source, service string) []fleet.Limitation {
 	}
 }
 
-// runtimeLimitations are [delivery.CallerLimitations] and
-// [delivery.ExternalLimitations], attributed to this source.
+// runtimeLimitations are [delivery.RuntimeLimitations], attributed to this
+// source.
 func (s *K8sSource) runtimeLimitations(v delivery.PactoView, reconciled *time.Time) []fleet.Limitation {
-	now := time.Now()
-	lims := append(delivery.CallerLimitations(v, reconciled, now), delivery.ExternalLimitations(v, reconciled, now)...)
+	lims := delivery.RuntimeLimitations(v, reconciled, time.Now())
 	for i := range lims {
 		lims[i].Source = s.id
 	}

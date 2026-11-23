@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -114,7 +116,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// and as the sign-in cluster.
 			contexts := splitList(v.GetStringSlice("dashboard.context"))
 			includeCurrent, clusterCfg, signInErr := signInCluster(v, contexts, d)
-			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), signInErr); err != nil {
+			receiver, receiverErr := startReceiver(cmd.Context(), v.GetString("dashboard.otlp-receiver"))
+			if err := errors.Join(app.CheckExternalCatalogRef(externalCatalog), app.CheckDetectedRef(v.GetString("dashboard.detected")), signInErr, receiverErr); err != nil {
 				return err
 			}
 
@@ -146,10 +149,16 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 
 			fopts := dashboardFleetOptions(dir, repos, namespaces, observation, det)
 			fopts.Provenance.Trust = publisherTrust(cmd, d, det.detected)
+			fopts.LiveEdges.Receiver = receiver
+			fopts.ClusterJoins = dashboardJoins(d, clusterCfg, det.detected, v.GetString("dashboard.delivery-namespace"))
 			configured := configuredSources(fopts)
 			if answersNothing(configured) {
 				return fmt.Errorf("no data sources detected: no pacto.yaml in %s, no oci:// argument, no cached bundles and no Kubernetes configuration", dir)
 			}
+
+			joins := joinLister(svc, fopts.ClusterJoins, time.Now)
+			members := dashboardMembers(cmd.Context(), v, joins, logging.LoggerFromContext(cmd.Context()))
+			fopts.MemberLinks = members.linksFunc()
 
 			// One snapshot Manager serves many requests from one coherent,
 			// atomically-refreshed view of the whole fleet, rather than rebuilding
@@ -169,13 +178,12 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			// clusterCfg is the sign-in cluster the callers' own clients are
 			// built from: its address and CA, never its credentials. No
 			// cluster, no delivery.
-			identity, err := newDashboardIdentity(v, host, clusterCfg, fleetEntries(svc, d, fopts), d)
+			identity, declarer, err := newDashboardHost(v, host, clusterCfg, svc, fleetEntries(svc, d, fopts), fopts.Provenance.Trust, d, members)
 			if err != nil {
 				return err
 			}
-			if !identity.auth.Local() && !identity.auth.SignsIn() {
-				logging.LoggerFromContext(cmd.Context()).Warn("serving beyond loopback without sign-in: everyone who reaches this address reads the whole fleet")
-			}
+			go identity.signing.report(cmd.Context())
+			warnOpen(cmd.Context(), identity)
 			opts := dashboard.Options{
 				UI:   dashboard.EmbeddedUI(),
 				Host: host,
@@ -193,10 +201,19 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				Refresh:    mgr.Refresh,
 				MiraURL:    v.GetString("dashboard.mira-url"),
 
+				InstallationConfig: svc.InstallationConfig(det.detected),
+
 				DeliveryNamespace: deliveryNarrowing(namespaces),
 			}
 			opts.Stats, opts.StatsRegistry = dashboardStats(cmd, svc)
 			identity.options(&opts)
+			opts.Declare = declarer
+			opts.Outside = members.outside()
+			opts.ClusterJoins = identity.clusterJoins(joins)
+			mcpLine, err := mountDashboardMCP(v, svc, version, repos, identity, managerFleetProvider(mgr), fopts.Provenance, d, &opts)
+			if err != nil {
+				return err
+			}
 			server := dashboard.NewServer(opts)
 
 			ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
@@ -207,7 +224,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				// The per-launch token: delivery actions in this browser need it.
 				addr = identity.auth.LaunchURL(addr)
 			}
-			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\n%sPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "), signInLine(includeCurrent, contexts, clusterCfg != nil))
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "\nPacto Dashboard running at %s\nSources: %s\n%s%sPress Ctrl+C to stop\n", addr, strings.Join(configured, ", "), signInLine(includeCurrent, contexts, clusterCfg != nil), mcpLine)
 
 			return server.Serve(ctx)
 		},
@@ -217,7 +234,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().Int("port", 3000, "port for the dashboard server")
 	cmd.Flags().String("namespace", "", "Kubernetes namespaces to read, comma-separated (empty = all namespaces); delivery reads narrow to it only when it names one")
 	cmd.Flags().StringArray("context", nil, "kubeconfig context to read live Pacto CRs from (repeatable, each cluster read once); outside a pod the named contexts replace the current one and people sign in against the first (also PACTO_DASHBOARD_CONTEXT)")
-	cmd.Flags().String("detected", "", "what the operator detected, shown as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (also PACTO_DASHBOARD_DETECTED)")
+	cmd.Flags().String("detected", "", "what the operator detected, shown as inferred rows, and the workloads it linked to a published contract, shown as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON with linked.json beside it (also PACTO_DASHBOARD_DETECTED)")
+	cmd.Flags().String("otlp-receiver", "", "address Collectors in the cluster export OTLP/HTTP JSON traces to, as http://HOST:PORT; Pacto maps spans to observed calls, keeps no span and serves nothing else there; empty turns it off (also PACTO_DASHBOARD_OTLP_RECEIVER)")
 	cmd.Flags().String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers (also PACTO_DASHBOARD_FINGERPRINTS)")
 	cmd.Flags().String("cors-origin", "", "explicit cross-origin allowed to call the API (default: same-origin only)")
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
@@ -233,15 +251,26 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().String("oidc-ca-file", "", "PEM bundle of the CAs that sign the issuer's certificate, trusted on top of the system roots (also PACTO_DASHBOARD_OIDC_CA_FILE)")
 	cmd.Flags().String("oidc-internal-issuer-url", "", "address the dashboard reaches the issuer at when it differs from the public issuer URL browsers use, such as an in-cluster Service; ID tokens must still name the public issuer (also PACTO_DASHBOARD_OIDC_INTERNAL_ISSUER_URL)")
 	addClaimFlags(cmd)
+	addSignFlags(cmd, v)
+	cmd.Flags().String("registry", "", "the registry declarations made in the dashboard are published to (<host>/<path>); without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)")
+	cmd.Flags().String("declare-registry-config", "", "a Docker config.json with push access to --registry: a shared dashboard writes declarations and drafts only with this credential of its own, "+
+		"never with the credentials it reads registries with (also PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG)")
 	cmd.Flags().Duration("session-idle-timeout", 0, "a session without a request for this long ends (default 1h)")
 	cmd.Flags().Duration("session-max-age", 0, "a session ends this long after sign-in, renewed or not (default 12h)")
 	cmd.Flags().Bool("token-login", false, "let people sign in with a Kubernetes token: a ServiceAccount token minted with --audience pacto-dashboard reads the fleet only, and a person's own token acts as them (also PACTO_DASHBOARD_TOKEN_LOGIN)")
+	cmd.Flags().Bool("mcp", false, "serve MCP to agents at /mcp with the dashboard's sign-in: a Kubernetes token (token sign-in) or, with "+
+		"--oidc-issuer-url and --mcp-exchange-audience, an issuer token exchanged for the cluster (also PACTO_DASHBOARD_MCP)")
+	cmd.Flags().String("mcp-url", "", "the /mcp URL as agents reach it, the RFC 9728 resource: absolute http(s), path exactly /mcp (no path prefix); empty: the request's own address, token sign-in only (also PACTO_DASHBOARD_MCP_URL)")
+	cmd.Flags().String("mcp-exchange-audience", "", "the audience asked for when exchanging an issuer token, one the API server accepts; "+
+		"with it, every token from the dashboard's issuer must name the MCP URL as its audience; without it every token is checked as a Kubernetes token (also PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE)")
 	cmd.Flags().Bool("allow-anonymous", false, "serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)")
 	cmd.Flags().String("review", reviewCluster, reviewUsage+" (also PACTO_DASHBOARD_REVIEW)")
 	cmd.Flags().String("mira-url", "", "Mira's address, to link health-check citations and open a service in Mira")
 	// Not bound to viper, which also reads ./pacto.yaml, the contract.
 	cmd.Flags().String("stats-registry", "", "stats repository the Metrics page reads run records from (unsigned statistics; also PACTO_STATS_REGISTRY); "+
 		"a public repository is read anonymously, otherwise with the dashboard's registry credentials")
+	cmd.Flags().String("members-host", "", "the dashboard's external host as member clusters dial it (their hub.url host), used only when --oidc-redirect-url is not set, whose host wins (also PACTO_DASHBOARD_MEMBERS_HOST)")
+	cmd.Flags().String("members-token-audience", authn.DefaultMemberAudience, "audience a signed-in person's token is exchanged for before a member cluster reviews them, {uid} replaced by the member's UID; each member's apiserver accepts it and the hub's does not (also PACTO_DASHBOARD_MEMBERS_TOKEN_AUDIENCE)")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records are verified with, so History reads signed records "+
 		"(the recorder's PEM public key or a YAML trust config; default $"+app.TrustEnv+")")
@@ -257,11 +286,14 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindPFlag("dashboard.mira-sources", cmd.Flags().Lookup("mira-source"))
 	_ = v.BindPFlag("dashboard.external-catalog", cmd.Flags().Lookup("external-catalog"))
 	_ = v.BindPFlag("dashboard.owner-policy", cmd.Flags().Lookup("owner-policy"))
+	_ = v.BindPFlag("dashboard.registry", cmd.Flags().Lookup("registry"))
+	_ = v.BindPFlag("dashboard.declare-registry-config", cmd.Flags().Lookup("declare-registry-config"))
 	_ = v.BindPFlag("dashboard.detected", cmd.Flags().Lookup("detected"))
+	_ = v.BindPFlag("dashboard.otlp-receiver", cmd.Flags().Lookup("otlp-receiver"))
 	_ = v.BindPFlag("dashboard.fingerprints", cmd.Flags().Lookup("fingerprints"))
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-redirect-url", "oidc-display-name", "oidc-extra-scopes", "oidc-ca-file", "oidc-internal-issuer-url",
 		"oidc-username-claim", "oidc-username-prefix", "oidc-groups-claim", "oidc-groups-prefix",
-		"session-idle-timeout", "session-max-age", "token-login", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust"} {
+		"session-idle-timeout", "session-max-age", "token-login", "mcp", "mcp-url", "mcp-exchange-audience", "allow-anonymous", "review", "mira-url", "delivery-namespace", "delivery-trust", "members-host", "members-token-audience"} {
 		_ = v.BindPFlag("dashboard."+f, cmd.Flags().Lookup(f))
 	}
 	// A secret never goes on a command line, where any process can read it.
@@ -271,6 +303,36 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	_ = v.BindEnv("evidence-source-url", "PACTO_EVIDENCE_SOURCE_URL")
 
 	return cmd
+}
+
+// startReceiver starts the OTLP receiver at advertised (--otlp-receiver)
+// until ctx ends; empty starts nothing and returns nil.
+func startReceiver(ctx context.Context, advertised string) (*fleetsrc.Receiver, error) {
+	if advertised == "" {
+		return nil, nil
+	}
+	r, err := fleetsrc.NewReceiver(advertised, time.Now)
+	if err == nil {
+		_, err = serveReceiver(ctx, r)
+	}
+	if err != nil {
+		return nil, err
+	}
+	return r, nil
+}
+
+// serveReceiver serves r on its own listener at r.Addr(), never on the
+// dashboard's, until ctx ends, and returns the address it listens on. A
+// listen error fails the command.
+func serveReceiver(ctx context.Context, r *fleetsrc.Receiver) (string, error) {
+	ln, err := net.Listen("tcp", r.Addr())
+	if err != nil {
+		return "", fmt.Errorf("--otlp-receiver: %w", err)
+	}
+	srv := &http.Server{Handler: r, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, MaxHeaderBytes: 64 << 10}
+	go func() { _ = srv.Serve(ln) }()
+	context.AfterFunc(ctx, func() { _ = srv.Close() })
+	return ln.Addr().String(), nil
 }
 
 // addClaimFlags registers the claim mapping the API server applies to an ID
@@ -322,6 +384,14 @@ func parseDashboardArgs(args []string, envRepos string) (dir string, repos []str
 		dir = "."
 	}
 	return dir, repos, nil
+}
+
+// warnOpen warns that a dashboard serving beyond loopback without sign-in
+// shows the whole fleet to everyone who reaches it.
+func warnOpen(ctx context.Context, id *dashboardIdentity) {
+	if !id.auth.Local() && !id.auth.SignsIn() {
+		logging.LoggerFromContext(ctx).Warn("serving beyond loopback without sign-in: everyone who reaches this address reads the whole fleet")
+	}
 }
 
 // displayHost returns a user-friendly address for display (maps 0.0.0.0 to 127.0.0.1).
@@ -745,7 +815,10 @@ func dashboardFleetOptions(dir string, repos []string, namespaces []string, obse
 	// safe thing to render as fresh.
 	// One provenance checker for the dashboard's life: every refresh copies
 	// these options and keeps the pointer, so its memo outlives each refresh.
-	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker(), RegistryProbe: app.NewRegistryProbe(), LongRunning: true}
+	// One live-edges holder likewise: which trace source reported complete
+	// coverage must outlive each refresh.
+	fopts := app.FleetOptions{FreshnessWindow: fleet.RecentEvidenceWindow, Provenance: app.NewProvenanceChecker(), RegistryProbe: app.NewRegistryProbe(),
+		LiveEdges: fleetsrc.NewLiveEdges(time.Now), LongRunning: true}
 	if det.local && dir != "" {
 		fopts.LocalRoots = []string{dir}
 	}

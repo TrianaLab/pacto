@@ -170,6 +170,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	linkTargets(snap)
 	inferred = replaceInferred(snap, inferred)
 	inferred = replaceByInferredFrom(snap, inferred)
+	inferred = replaceByObservedLink(snap, inferred)
 	revalidateConfigRefs(snap)
 	aggregateServices(snap)
 	addInferredServices(snap, inferred)
@@ -320,10 +321,8 @@ func bundleIdentity(rev RawRevision) string {
 	if dir == "" {
 		return ""
 	}
-	if abs, err := filepath.Abs(dir); err == nil {
-		return abs
-	}
-	return dir
+	abs, _ := filepath.Abs(dir) // "" only when the working directory is unreadable
+	return cmp.Or(abs, dir)
 }
 
 // nameClaims is one claim per revision of col, plus one declared claim per
@@ -441,6 +440,11 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	if col == nil {
 		col = &Collection{}
 	}
+	if src.Kind() == SourceKindMemberLinks {
+		// A carrier of link facts: no records, no source state, never listed.
+		applyClusterLinks(snap, col.ClusterLinks)
+		return nil
+	}
 	revCount, targetCount := 0, 0
 	// recordProblems collects the limitations that say THIS source failed to deliver
 	// a record: one it dropped outright, or one it delivered invalid. That is what
@@ -522,7 +526,7 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	snap.Limitations = append(snap.Limitations, col.Limitations...)
 	snap.Limitations = append(snap.Limitations, recordProblems...)
 	st, stateLims := sourceStateFor(src, col, now, revCount, targetCount, len(recordProblems) > 0)
-	st.Advisory = col.Advisory
+	st.Advisory, st.CautionOnly = col.Advisory, col.ObservedCautionOnly
 	snap.Limitations = append(snap.Limitations, stateLims...)
 	snap.Sources = append(snap.Sources, st)
 	ingestProviders(snap, src.ID(), col)
@@ -535,6 +539,17 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 		out[j] = inferredInput{source: src.ID(), cluster: cluster, raw: raw}
 	}
 	return out
+}
+
+// applyClusterLinks puts each link on the cluster record with its id. A link
+// for a cluster the snapshot does not know is dropped: nothing shows beside
+// it.
+func applyClusterLinks(snap *FleetSnapshot, links map[string]ClusterLink) {
+	for i := range snap.Clusters {
+		if l, ok := links[snap.Clusters[i].ID]; ok {
+			snap.Clusters[i].Link = &l
+		}
+	}
 }
 
 // clusterIndex is what Build knows about the clusters of one snapshot, computed
@@ -621,7 +636,7 @@ func ValidClusterID(id string) bool { return len(id) <= 253 && validClusterIDPat
 
 // clusterNameRank orders the declared name sources of reported names.
 var clusterNameRank = map[string]int{
-	ClusterNameFromNodeLabel: 4, ClusterNameFromContext: 3, ClusterNameFromFile: 2, ClusterNameFromUID: 1,
+	ClusterNameFromApproval: 5, ClusterNameFromNodeLabel: 4, ClusterNameFromContext: 3, ClusterNameFromFile: 2, ClusterNameFromUID: 1,
 }
 
 // ValidClusterName reports whether [Build] keeps a reported cluster name: at
@@ -1796,6 +1811,9 @@ func targetFrom(raw RawTarget, source string, now time.Time, window time.Duratio
 		t.workload = &WorkloadRef{Kind: raw.Workload.Kind, Name: raw.Workload.Name}
 	}
 	t.createdAt = copyTime(raw.CreatedAt)
+	if l := raw.Link; l != nil {
+		t.Link = &ObservedLink{Signal: l.Signal, Value: l.Value, Since: copyTime(l.Since), OtherVersions: slices.Clone(l.OtherVersions)}
+	}
 	t.reportedDomains, t.domainKnown = reportedDomainsFrom(raw)
 	t.reportedOfferings, t.reportedSummaries = reportedValue(raw.Offering, validBusinessDomain), reportedValue(raw.Summary, validSummary)
 	var recordInvalid []Limitation
@@ -2819,6 +2837,9 @@ func buildRelationships(snap *FleetSnapshot, cat *externalcatalog.Catalog) {
 type observedInput struct {
 	edge   ObservedEdge
 	source string
+	// pair is the targets both workload ends map to, nil when either end
+	// maps to none or to more than one (see envPairJudge).
+	pair *envPair
 }
 
 // callerKey is one caller with no contract of a service with one.
@@ -2861,6 +2882,7 @@ type observedEdgeAgg struct {
 	bySource map[string]*ObservedSourceStat
 	sources  []string
 	match    string
+	pairs    []envPair
 }
 
 // add counts one raw observed edge from source into the aggregate.
@@ -2874,6 +2896,9 @@ func (a *observedEdgeAgg) add(oi observedInput) {
 	}
 	st.Count += oi.edge.Count
 	mergeWindow(&st.FirstSeen, &st.LastSeen, oi.edge.FirstSeen, oi.edge.LastSeen)
+	if oi.pair != nil {
+		a.pairs = addEnvPair(a.pairs, *oi.pair)
+	}
 }
 
 // edgeFold aggregates observed edges by key, in first-seen order.
@@ -2929,7 +2954,9 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 	seenLim := map[string]bool{}
 	var edges, inferred edgeFold
 	uncontracted := map[callerKey]map[string]bool{}
+	judge := envPairJudge(snap)
 	for _, oi := range observed {
+		oi.pair = judge(oi.edge)
 		fromKey, fromRes := resolve(oi.edge.From)
 		toKey, toRes := resolve(oi.edge.To)
 		if m, ok := snap.observedExternalMatch(oi.edge.To, toRes); ok {
@@ -2959,7 +2986,8 @@ func foldObservedRelationships(snap *FleetSnapshot, observed []observedInput) {
 			// inferred caller stays one, linked to its inferred service.
 			k := callerKey{caller: oi.edge.From, to: toKey, ambiguous: fromRes == ObservedAmbiguous}
 			if fromRes == ObservedInferred {
-				k.entity = fromKey
+				// Recorded under its workload's full name, also when observed without its kind.
+				k.caller, k.entity = snap.Services[fromKey].Name, fromKey
 			}
 			if uncontracted[k] == nil {
 				uncontracted[k] = map[string]bool{}
@@ -3014,6 +3042,7 @@ func aggregatedRelationship(k observedEdgeKey, a *observedEdgeAgg, provenance st
 		Provenance: provenance, Resolved: k.ext == "",
 		ObservedCount: a.total, Source: source,
 		ObservedSources: stats, FirstSeen: winFirst, LastSeen: winLast,
+		envPairs: sortedEnvPairs(a.pairs),
 	}
 }
 
@@ -3027,6 +3056,8 @@ func aggregatedRelationship(k observedEdgeKey, a *observedEdgeAgg, provenance st
 // edges are present. Sources in undeclaredOnly corroborate a declared edge they
 // witnessed but are no observation data otherwise: they never report, or see
 // only part of, the declared calls, so their silence says nothing about one.
+// An edge only caution-only sources saw is neither: it is no observation, and
+// its pair is recorded in snap.cautionPairs for the graph.
 func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 	// The target is the service, or the external system the edge names.
 	type edge struct {
@@ -3037,7 +3068,13 @@ func reconcileDeclared(snap *FleetSnapshot, undeclaredOnly map[string]bool) {
 	haveObservation := false
 	for _, rel := range snap.Relationships {
 		// Runtime calls are observed dependencies; a reference never makes one.
-		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceObserved {
+		// An edge only caution-only sources saw never corroborates.
+		if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceObserved && snap.CautionOnly(rel) {
+			if snap.cautionPairs == nil {
+				snap.cautionPairs = map[[2]ServiceKey]bool{}
+			}
+			snap.cautionPairs[[2]ServiceKey{rel.FromService, rel.ToService}] = true
+		} else if rel.Type == RelationshipDependency && rel.Provenance == ProvenanceObserved {
 			observed[edge{rel.FromService, rel.ToService, rel.ToExternal}] = true
 			haveObservation = haveObservation || slices.ContainsFunc(rel.ObservedSources, func(s ObservedSourceStat) bool { return !undeclaredOnly[s.Source] })
 		}
@@ -3095,6 +3132,9 @@ func addObservedLimitation(snap *FleetSnapshot, seen map[string]bool, name strin
 		reason = "unknown"
 	case ObservedAmbiguous:
 		reason = "ambiguous across domains"
+		if _, _, kind, _, ok := ParseK8sCaller(name); ok && kind == "" {
+			reason = "ambiguous: more than one workload of this name"
+		}
 	default:
 		return
 	}

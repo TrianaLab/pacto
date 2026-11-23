@@ -1,4 +1,4 @@
-{{- if .Values.delivery.enabled }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
 # The promoter's identity policy, published for clients. The promoter mounts
 # this ConfigMap and runs with it; `pacto delivery`, `pacto mcp --delivery` and
 # the dashboard read it, so what they offer matches what the promoter and

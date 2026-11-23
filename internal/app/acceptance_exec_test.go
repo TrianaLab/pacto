@@ -54,7 +54,7 @@ func (e *acceptEnv) proposedOpts() AcceptOptions {
 func TestWriteAcceptanceNativeReferrer(t *testing.T) {
 	e := newAcceptEnv(t, true)
 	bundle := []byte(`{"not":"verified here"}`)
-	ref, err := e.svc.writeAcceptance(t.Context(), e.repo, e.digest, bundle)
+	ref, err := e.svc.writeAcceptance(t.Context(), nil, e.repo, e.digest, bundle)
 	if err != nil || !strings.HasPrefix(ref, e.repo+"@sha256:") || len(e.acceptTags(t)) != 0 {
 		t.Fatalf("%q %v %v", ref, err, e.acceptTags(t))
 	}
@@ -68,7 +68,7 @@ func TestWriteAcceptanceNativeReferrer(t *testing.T) {
 
 func TestWriteAcceptanceWriteOnceTag(t *testing.T) {
 	e := newAcceptEnv(t, false)
-	ref, err := e.svc.writeAcceptance(t.Context(), e.repo, e.digest, []byte(`{}`))
+	ref, err := e.svc.writeAcceptance(t.Context(), nil, e.repo, e.digest, []byte(`{}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -83,8 +83,8 @@ func TestWriteAcceptanceWriteOnceTag(t *testing.T) {
 func TestWriteAcceptanceIdempotent(t *testing.T) {
 	for _, referrers := range []bool{true, false} {
 		e := newAcceptEnv(t, referrers)
-		first, err1 := e.svc.writeAcceptance(t.Context(), e.repo, e.digest, []byte(`{}`))
-		second, err2 := e.svc.writeAcceptance(t.Context(), e.repo, e.digest, []byte(`{}`))
+		first, err1 := e.svc.writeAcceptance(t.Context(), nil, e.repo, e.digest, []byte(`{}`))
+		second, err2 := e.svc.writeAcceptance(t.Context(), nil, e.repo, e.digest, []byte(`{}`))
 		if err1 != nil || err2 != nil || first != second {
 			t.Fatalf("referrers %v: %q %q %v %v", referrers, first, second, err1, err2)
 		}
@@ -93,19 +93,19 @@ func TestWriteAcceptanceIdempotent(t *testing.T) {
 
 func TestWriteAcceptanceFailures(t *testing.T) {
 	e := newAcceptEnv(t, false)
-	if _, err := e.svc.writeAcceptance(t.Context(), e.repo, "sha256:"+strings.Repeat("0", 64), nil); err == nil {
+	if _, err := e.svc.writeAcceptance(t.Context(), nil, e.repo, "sha256:"+strings.Repeat("0", 64), nil); err == nil {
 		t.Fatal("a missing subject was written to")
 	}
 	e.failWhen(func(r *http.Request) bool { return r.Method == http.MethodPut })
-	if _, err := e.svc.writeAcceptance(t.Context(), e.repo, e.digest, []byte(`{}`)); err == nil || !strings.Contains(err.Error(), "writing the acceptance") {
+	if _, err := e.svc.writeAcceptance(t.Context(), nil, e.repo, e.digest, []byte(`{}`)); err == nil || !strings.Contains(err.Error(), "writing the acceptance") {
 		t.Fatal(err)
 	}
 	e.failWhen(nil)
 	e.svc.sys.refusalRepo = func(string) (*remote.Repository, error) { return nil, errors.New("no credentials") }
-	if _, err := e.svc.writeAcceptance(t.Context(), e.repo, e.digest, nil); err == nil {
+	if _, err := e.svc.writeAcceptance(t.Context(), nil, e.repo, e.digest, nil); err == nil {
 		t.Fatal("an unopened repository was written to")
 	}
-	if _, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, delivery.AcceptanceDraft{}, nil); err == nil {
+	if _, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, delivery.AcceptanceDraft{}, nil); err == nil {
 		t.Fatal("an unopened repository was written to")
 	}
 }
@@ -115,7 +115,7 @@ func TestWriteAcceptanceProbeFails(t *testing.T) {
 	ocireferrer.Probes = &ocireferrer.Prober{}
 	t.Cleanup(func() { ocireferrer.Probes = &ocireferrer.Prober{} })
 	e.failWhen(func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/referrers/") })
-	if _, err := e.svc.writeAcceptance(t.Context(), e.repo, e.digest, nil); err == nil || !strings.Contains(err.Error(), "probing") {
+	if _, err := e.svc.writeAcceptance(t.Context(), nil, e.repo, e.digest, nil); err == nil || !strings.Contains(err.Error(), "probing") {
 		t.Fatal(err)
 	}
 }
@@ -123,7 +123,7 @@ func TestWriteAcceptanceProbeFails(t *testing.T) {
 func TestWriteAcceptanceDraftNumbering(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
-	first, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, d, nil)
+	first, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, d, nil)
 	if err != nil || first != "pacto-accept-draft-1" {
 		t.Fatalf("%q %v", first, err)
 	}
@@ -134,7 +134,7 @@ func TestWriteAcceptanceDraftNumbering(t *testing.T) {
 	e.failWhen(func(r *http.Request) bool {
 		if strings.HasSuffix(r.URL.Path, "/manifests/pacto-accept-draft-2") {
 			if seen++; seen == 1 {
-				if _, err := e.svc.writeAcceptanceDraft(context.Background(), e.repo, other, nil); err != nil {
+				if _, err := e.svc.writeAcceptanceDraft(context.Background(), nil, e.repo, other, nil); err != nil {
 					t.Error(err)
 				}
 			}
@@ -143,7 +143,7 @@ func TestWriteAcceptanceDraftNumbering(t *testing.T) {
 	})
 	third := d
 	third.OnBehalfOf = "carol"
-	if tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, third, nil); err != nil || tag != "pacto-accept-draft-3" {
+	if tag, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, third, nil); err != nil || tag != "pacto-accept-draft-3" {
 		t.Fatalf("%q %v", tag, err)
 	}
 	e.failWhen(nil)
@@ -157,7 +157,7 @@ func TestWriteAcceptanceDraftRepeatedReusesNewest(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
 	for range 2 {
-		if tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, d, nil); err != nil || tag != "pacto-accept-draft-1" {
+		if tag, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, d, nil); err != nil || tag != "pacto-accept-draft-1" {
 			t.Fatalf("%q %v", tag, err)
 		}
 	}
@@ -168,7 +168,7 @@ func TestWriteAcceptanceDraftRepeatedReusesNewest(t *testing.T) {
 		d    delivery.AcceptanceDraft
 		want string
 	}{{other, "pacto-accept-draft-2"}, {d, "pacto-accept-draft-3"}} {
-		if tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, w.d, nil); err != nil || tag != w.want {
+		if tag, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, w.d, nil); err != nil || tag != w.want {
 			t.Fatalf("%q %v, want %s", tag, err, w.want)
 		}
 	}
@@ -180,7 +180,7 @@ func TestWriteAcceptanceDraftRepeatedReusesNewest(t *testing.T) {
 func TestReadAcceptanceDraft(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
-	tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, d, nil)
+	tag, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, d, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,7 +212,7 @@ func TestReadAcceptanceDraft(t *testing.T) {
 func TestReadAcceptanceDraftTransportFailures(t *testing.T) {
 	e := newAcceptEnv(t, false)
 	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
-	tag, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, d, nil)
+	tag, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, d, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -239,7 +239,7 @@ func TestWriteAcceptanceDraftLosesTwice(t *testing.T) {
 				for _, who := range []string{"bob", "carol"} {
 					o := d
 					o.OnBehalfOf = who
-					if _, err := e.svc.writeAcceptanceDraft(context.Background(), e.repo, o, nil); err != nil {
+					if _, err := e.svc.writeAcceptanceDraft(context.Background(), nil, e.repo, o, nil); err != nil {
 						t.Error(err)
 					}
 				}
@@ -247,13 +247,13 @@ func TestWriteAcceptanceDraftLosesTwice(t *testing.T) {
 		}
 		return false
 	})
-	_, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, d, nil)
+	_, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, d, nil)
 	var de *DeclareError
 	if !errors.As(err, &de) || de.Code != codeVersionConflict {
 		t.Fatal(err)
 	}
 	e.failWhen(func(r *http.Request) bool { return strings.HasSuffix(r.URL.Path, "/tags/list") })
-	if _, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, d, nil); err == nil || !strings.Contains(err.Error(), "listing the acceptance drafts") {
+	if _, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, d, nil); err == nil || !strings.Contains(err.Error(), "listing the acceptance drafts") {
 		t.Fatal(err)
 	}
 }
@@ -455,7 +455,7 @@ func TestAcceptSigningFailures(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.svc.writeAcceptanceDraft(t.Context(), e.repo, delivery.AcceptanceDraft{Subject: e.subject}, &s); err == nil || !strings.Contains(err.Error(), "signing the acceptance draft") {
+	if _, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, delivery.AcceptanceDraft{Subject: e.subject}, &s); err == nil || !strings.Contains(err.Error(), "signing the acceptance draft") {
 		t.Fatal(err)
 	}
 }

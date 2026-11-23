@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -31,6 +32,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -164,6 +166,12 @@ func normalise(t *testing.T, what, body string) any {
 		switch v := v.(type) {
 		case map[string]any:
 			delete(v, "href")
+			// A nextAction's tool is per server (#562): MCP names the tools
+			// it registers, the CLI and the dashboard none.
+			// TestSurfaceParityAnswers checks the MCP tool is listed.
+			if a, ok := v["nextAction"].(map[string]any); ok {
+				delete(a, "tool")
+			}
 			for _, k := range buildVolatile {
 				if x, ok := v[k]; ok && x != "" {
 					v[k] = "<build>"
@@ -314,6 +322,14 @@ func TestSurfaceParityAnswers(t *testing.T) {
 	// the fixture must hold one for the comparison to mean anything.
 	attention := cliJSON(t, flags, "fleet", "attention")
 	expect(t, strings.Contains(attention, `"verb": "edit-contract"`), "the fixture has no attention item with a nextAction: %s", attention)
+	// normalise drops the tool; the MCP answer's tool is one its server lists.
+	listed, err := plain.ListTools(context.Background(), nil)
+	expect(t, err == nil, "tools/list: %v", err)
+	mcpAttention, _ := callText(t, plain, "pacto_fleet_attention", map[string]any{})
+	expect(t, strings.Contains(mcpAttention, `"tool": "pacto_edit"`), "the stdio answer names no tool: %s", mcpAttention)
+	for _, m := range regexp.MustCompile(`"tool": "([a-z_]+)"`).FindAllStringSubmatch(mcpAttention, -1) {
+		expect(t, slices.ContainsFunc(listed.Tools, func(x *mcpsdk.Tool) bool { return x.Name == m[1] }), "nextAction names %s, which the server does not list", m[1])
+	}
 	// The inferred edge and the replacement are compared above: the fixture
 	// must hold worker's inferred call to ledger and checkout's replacement.
 	worker := cliJSON(t, flags, "fleet", "neighborhood", parityWorker, "--views", "expected,observed")
@@ -459,46 +475,111 @@ func TestSurfaceParityImpactRefs(t *testing.T) {
 
 // TestCapabilitiesKeysMatchDashboard: every key pacto_capabilities shares with
 // GET /api/capabilities has the same JSON type and value on both, for a fleet
-// server and for a fleet and delivery server.
+// server and for a fleet and delivery server, under profile default, hardened
+// and idp. installation is equal once the host-own mcp part is dropped and
+// every asOf (clusters.asOf is each host's own snapshot) is normalised; the
+// request-time ones are checked separately.
 func TestCapabilitiesKeysMatchDashboard(t *testing.T) {
-	flags := parityFixture(t)
-	// installed is whether the cluster serves delivery; "" is no --delivery.
-	for _, installed := range []string{"", "yes", "no"} {
-		withDelivery := installed == "yes"
-		d, args := defaultDeps(), append([]string{"--fleet"}, flags...)
-		opts := dashboard.Options{Fleet: fixtureSource(t, flags), Impact: impactProviderForFleet(app.NewService(nil, nil), true, nil)}
-		if installed != "" {
-			d, args = readDeps(nil), append(args, "--delivery")
-			d.served = func(*rest.Config, string) (bool, error) { return withDelivery, nil }
-			opts.Auth = &dashboard.Auth{Local: true, State: func(*http.Request) dashboard.AuthState { return dashboard.AuthState{} }}
-			opts.Delivery = func(*http.Request) (dashboard.DeliveryAPI, error) { return nil, nil }
-			opts.DeliveryInstalled = func(context.Context) (bool, error) { return withDelivery, nil }
-		}
-		svc := app.NewService(nil, nil)
-		cmd := newMCPCommand(svc, "v", d)
-		cmd.SetContext(context.Background())
-		cmd.SetErr(io.Discard)
-		expect(t, cmd.ParseFlags(args) == nil, "flags")
-		server, err := buildMCPServer(cmd, svc, "v", nil, d)
-		expect(t, err == nil, "server: %v", err)
-		m, _ := callText(t, sessionOn(t, server), "pacto_capabilities", map[string]any{})
-		var mcp, dash map[string]any
-		expect(t, json.Unmarshal([]byte(m), &mcp) == nil, "capabilities: %s", m)
-		body := routeBody(t, dashboard.NewServer(opts).APIHandler(), context.Background(), "/api/capabilities")
-		expect(t, json.Unmarshal([]byte(body), &dash) == nil, "route: %s", body)
-		var shared []string
-		for k, v := range mcp {
-			if dv, ok := dash[k]; ok {
-				shared = append(shared, k)
-				expect(t, reflect.TypeOf(v) == reflect.TypeOf(dv) && reflect.DeepEqual(v, dv), "delivery=%v: %s is %#v on MCP and %#v on the dashboard", withDelivery, k, v, dv)
+	base := parityFixture(t)
+	for _, profile := range []string{"default", "hardened", "idp"} {
+		detected, asOf := profileDetection(t, profile)
+		flags := append(slices.Clone(base), "--detected", detected)
+		// installed is whether the cluster serves delivery; "" is no --delivery.
+		for _, installed := range []string{"", "yes", "no"} {
+			mcp, dash, before, after := capabilitiesOnBoth(t, flags, detected, installed)
+			sameCapabilities(t, profile+"/"+installed, mcp, dash)
+			for host, caps := range map[string]map[string]any{"mcp": mcp, "dashboard": dash} {
+				inst := caps["installation"].(map[string]any)
+				at, err := time.Parse(time.RFC3339Nano, inst["delivery"].(map[string]any)["asOf"].(string))
+				expect(t, err == nil && !at.Before(before) && !at.After(after), "%s %s: delivery.asOf %v outside the call", profile, host, at)
+				p := inst["profile"].(map[string]any)
+				pAt, _ := time.Parse(time.RFC3339Nano, p["asOf"].(string))
+				expect(t, pAt.Equal(asOf) && reflect.DeepEqual(p["value"], []any{profile}), "%s %s: profile %v", profile, host, p)
 			}
+			expect(t, mcp["delivery"] == (installed == "yes") && mcp["observed"] == true, "delivery=%q: %v", installed, mcp)
+			caller, _ := mcp["caller"].(map[string]any)
+			expect(t, (installed != "") == (caller["classAsOf"] != nil), "installed=%q: classAsOf says when the class was read: %v", installed, mcp)
 		}
-		slices.Sort(shared)
-		expect(t, slices.Equal(shared, []string{"delivery", "fleet", "impact", "observed"}), "shared keys: %v", shared)
-		expect(t, mcp["delivery"] == withDelivery && mcp["observed"] == true, "delivery=%v: %s", withDelivery, m)
-		caller, _ := mcp["caller"].(map[string]any)
-		expect(t, (installed != "") == (caller["classAsOf"] != nil), "installed=%q: classAsOf says when the class was read: %s", installed, m)
 	}
+}
+
+// profileDetection writes a current detection whose installation names
+// profile, and returns its path and asOf.
+func profileDetection(t *testing.T, profile string) (string, time.Time) {
+	t.Helper()
+	asOf := time.Now().UTC().Truncate(time.Second)
+	b, err := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: asOf, Cluster: "uid-parity",
+		Installation: &detect.Installation{Profile: []string{profile}}})
+	expect(t, err == nil, "marshal: %v", err)
+	path := filepath.Join(t.TempDir(), "detected.json")
+	mustWriteFile(t, path, string(b))
+	return path, asOf
+}
+
+// capabilitiesOnBoth reads pacto_capabilities and GET /api/capabilities over
+// the same fixture and detection, and the time span around both calls.
+func capabilitiesOnBoth(t *testing.T, flags []string, detected, installed string) (mcp, dash map[string]any, before, after time.Time) {
+	t.Helper()
+	withDelivery := installed == "yes"
+	d, args := defaultDeps(), append([]string{"--fleet"}, flags...)
+	svc := app.NewService(nil, nil)
+	opts := dashboard.Options{Fleet: fixtureSource(t, flags), Impact: impactProviderForFleet(svc, true, nil), InstallationConfig: svc.InstallationConfig(detected)}
+	if installed != "" {
+		d, args = readDeps(nil), append(args, "--delivery")
+		d.served = func(*rest.Config, string) (bool, error) { return withDelivery, nil }
+		opts.Auth = &dashboard.Auth{Local: true, State: func(*http.Request) dashboard.AuthState { return dashboard.AuthState{} }}
+		opts.Delivery = func(*http.Request) (dashboard.DeliveryAPI, error) { return nil, nil }
+		opts.DeliveryInstalled = func(context.Context) (bool, error) { return withDelivery, nil }
+	}
+	cmd := newMCPCommand(svc, "v", d)
+	cmd.SetContext(context.Background())
+	cmd.SetErr(io.Discard)
+	expect(t, cmd.ParseFlags(args) == nil, "flags")
+	server, err := buildMCPServer(cmd, svc, "v", nil, d)
+	expect(t, err == nil, "server: %v", err)
+	before = time.Now()
+	m, _ := callText(t, sessionOn(t, server), "pacto_capabilities", map[string]any{})
+	body := routeBody(t, dashboard.NewServer(opts).APIHandler(), context.Background(), "/api/capabilities")
+	after = time.Now()
+	expect(t, json.Unmarshal([]byte(m), &mcp) == nil, "capabilities: %s", m)
+	expect(t, json.Unmarshal([]byte(body), &dash) == nil, "route: %s", body)
+	return mcp, dash, before, after
+}
+
+// sameCapabilities: the shared keys are exactly delivery, fleet, impact,
+// installation and observed, each the same on both once installation is
+// normalised.
+func sameCapabilities(t *testing.T, name string, mcp, dash map[string]any) {
+	t.Helper()
+	var shared []string
+	for k, v := range mcp {
+		dv, ok := dash[k]
+		if !ok {
+			continue
+		}
+		shared = append(shared, k)
+		if k == "installation" {
+			v, dv = normalisedInstallation(v), normalisedInstallation(dv)
+		}
+		expect(t, reflect.TypeOf(v) == reflect.TypeOf(dv) && reflect.DeepEqual(v, dv), "%s: %s is %#v on MCP and %#v on the dashboard", name, k, v, dv)
+	}
+	slices.Sort(shared)
+	expect(t, slices.Equal(shared, []string{"delivery", "fleet", "impact", "installation", "observed"}), "%s: shared keys: %v", name, shared)
+}
+
+// normalisedInstallation drops the host-own mcp part and every asOf, the
+// request-time ones and clusters.asOf (each host's own snapshot) included.
+func normalisedInstallation(v any) map[string]any {
+	out := map[string]any{}
+	for part, p := range v.(map[string]any) {
+		if part == "mcp" {
+			continue
+		}
+		fields := maps.Clone(p.(map[string]any))
+		delete(fields, "asOf")
+		out[part] = fields
+	}
+	return out
 }
 
 // TestSurfaceParityImpactInferredConsumer: CLI pacto impact and MCP

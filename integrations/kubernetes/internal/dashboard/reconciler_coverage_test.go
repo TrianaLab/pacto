@@ -10,6 +10,7 @@ package dashboard
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
+	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
@@ -227,11 +229,16 @@ func TestCleanup_APIReaderForbidden_Tolerated(t *testing.T) {
 		APIReader: apiReader,
 		Scheme:    scheme,
 		Config:    cfg,
+		Recorder:  record.NewFakeRecorder(1),
 	}
 
 	err := r.Sync(context.Background())
 	if err != nil {
 		t.Fatalf("forbidden cleanup read should be tolerated, got: %v", err)
+	}
+	// A hardened operator cannot remove what an idp install left: it says so.
+	if e := <-r.Recorder.(*record.FakeRecorder).Events; !strings.HasPrefix(e, "Warning StaleClusterRBAC ") {
+		t.Fatalf("event = %q, want the StaleClusterRBAC Warning", e)
 	}
 }
 

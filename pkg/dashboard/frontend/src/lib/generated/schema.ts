@@ -408,6 +408,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/fleet/accept/execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign the accepted ranges or save them as an acceptance draft
+         * @description Carries out an accept plan the person reviewed, by its intent digest: attaches the acceptance signed by the person's fresh login, saves a pacto-accept-draft-<n> a person accepts later, or accepts a draft. It needs update on a workload (else the Pacto resource) of the service and writes only into its bundle repository.
+         */
+        post: operations["fleet-accept-execute"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/fleet/attention": {
         parameters: {
             query?: never;
@@ -422,6 +442,66 @@ export interface paths {
         get: operations["fleet-attention"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the member clusters of this hub
+         * @description The clusters that publish to this hub's registry and where each stands: approved members, pending clusters with why they are pending and removed members, as pacto cluster list and pacto_cluster_list answer. A signed-in reader who may not approve clusterjoins sees the approved members only; the rest are counted in hidden. Approving is a person's signed decision with pacto cluster approve.
+         */
+        get: operations["get-fleet-clusters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/declare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Plan declaring an inferred service
+         * @description Plans what pacto declare would publish for an inferred service, read with the person's own cluster credentials: pacto.yaml, pacto.inferred.yaml, the version, the proposed ranges, the drafts waiting and whether the person can sign here. It writes nothing. Signed-in and local viewers only.
+         */
+        post: operations["fleet-declare"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/declare/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign a declaration or save it as a draft
+         * @description Carries out a declaration plan the person reviewed, by its intent digest: publishes the declared version signed by the person's fresh login, saves a draft-<n> a person accepts later, or accepts a draft. It needs update on the workload and writes only into the service's bundle repository.
+         */
+        post: operations["fleet-declare-accept"];
         delete?: never;
         options?: never;
         head?: never;
@@ -486,6 +566,66 @@ export interface paths {
          * @description Analyzes a change between two contract revisions identified by canonical revision keys. It rejects a stale snapshot id AND any revision whose exact snapshot content is not retrievable (a mutable tag or a local path), so a success always analyzed the exact content the snapshot represents. With event set it instead answers what happens if serviceKey becomes unavailable, is removed or regressed, or offeringKey, every provider of a platform offering, becomes unavailable or is removed, over the same snapshot; a regressed artifact digest cites what delivery recorded, read with the caller's own identity.
          */
         post: operations["fleet-impact-post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/map": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fleet map
+         * @description The whole fleet as groups laid out once, by business domain, owner team or environment, with the ribbons between groups, each group's declared and observed match, contract completeness and attention, and the fleet's match and completeness. Environments follow the Stages the caller may read, else their names, and the answer says so.
+         */
+        get: operations["fleet-map"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/map/focus": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fleet map focus
+         * @description One service's callers and callees in columns, one or two hops out, worst first, at most 9 a column, with each edge's interface, range, running version, provenance, evidence and problem.
+         */
+        get: operations["fleet-map-focus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/map/nodes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Fleet map group nodes
+         * @description One page of one map group's nodes, with coordinates relative to the group's centre, and the edges between them and the nodes of earlier pages. With an environment outside the environment grouping, each node says whether it runs there and with which version; no node moves.
+         */
+        get: operations["fleet-map-nodes"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1016,21 +1156,81 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
+        AcceptDraftView: {
+            /** @description Who wrote it, when its signature names someone */
+            asker?: string;
+            /** @description The break it asks a person to accept */
+            break?: components["schemas"]["Delivery.AcceptedBreak"];
+            /** @description Whom it was written for, as its writer asserts */
+            onBehalfOf?: string;
+            /** @description The ranges it asks a person to accept */
+            ranges?: components["schemas"]["Delivery.AcceptedRange"][] | null;
+            reason?: string;
+            /** @description It carries a signature, checked when a person accepts it */
+            signed: boolean;
+            /** @enum {string} */
+            state: "draft" | "unreadable";
+            /** @description The pacto-accept-draft-<n> tag */
+            tag: string;
+        };
+        AcceptExecuteAnswer: {
+            /** @description The command a person accepts the draft with */
+            command?: string;
+            /** @description The acceptance draft written, as <repository>:pacto-accept-draft-<n> */
+            draft?: string;
+            reason?: string;
+            /** @description The acceptance attached, as <repository>@sha256:<hex> */
+            record?: string;
+            refusal?: components["schemas"]["DeclareRefusal"];
+            /** @description How readers judge the acceptance attached */
+            state?: string;
+        };
+        AcceptExecuteInput: {
+            /** @description Accept this acceptance draft, signed by the person */
+            fromDraft?: string;
+            /** @description The intent digest of the plan the person reviewed: a plan that moved since is refused with PlanStale */
+            intentDigest: string;
+            /**
+             * @description sign: attach the acceptance signed by the person's fresh login; draft: save a pacto-accept-draft-<n> a person accepts later
+             * @enum {string}
+             */
+            mode: "sign" | "draft";
+            /** @description The service whose proposed ranges to accept */
+            serviceKey: string;
+        };
+        AcceptExecuteOffer: {
+            /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login */
+            signTicket?: string;
+            /** @description A fresh signing login for this plan's intent is live: the person signs without logging in again */
+            signedIn?: boolean;
+            signing: components["schemas"]["DeclareSigning"];
+            write: components["schemas"]["DeclareWrite"];
+        };
         AcceptPlanAnswer: {
             /** @description The exact pacto accept command, with the plan's intent digest, a person runs to sign the plan */
             command?: string;
+            /** @description What the person can do with the plan here; absent on a dashboard that only plans */
+            execute?: components["schemas"]["AcceptExecuteOffer"];
             /** @description What pacto accept would sign; absent with a refusal */
             plan?: components["schemas"]["AcceptPlanView"];
             /** @description Why there is nothing to accept, and the command a person runs about it */
             refusal?: components["schemas"]["AcceptRefusal"];
         };
         AcceptPlanView: {
+            /** @description The acceptance draft this plan accepts */
+            draft?: string;
+            /** @description The service's acceptance drafts, newest first, at most 20 */
+            drafts?: components["schemas"]["AcceptDraftView"][] | null;
+            /** Format: int64 */
+            draftsTotal?: number;
             /** @description The acceptances already attached to the version, each with its state; only counted accepts */
             existing?: components["schemas"]["Impact.Acceptance"][] | null;
             /** @description The digest that names exactly this plan: pacto accept refuses a plan that moved since */
             intentDigest: string;
             /** @description What the plan could not read or how records were verified */
             notes?: string[] | null;
+            /** @description Whom the draft was written for, as its writer asserts */
+            onBehalfOf?: string;
             /** @description Each proposed range the record accepts, with its source */
             ranges: components["schemas"]["Delivery.AcceptedRange"][] | null;
             /** @description The accepting service's fleet key */
@@ -1044,10 +1244,10 @@ export interface components {
         };
         AcceptRefusal: {
             /**
-             * @description AcceptNothingProposed: the newest published version proposes no range; NotPublished: the service has no published version to attach an acceptance to
+             * @description AcceptNothingProposed: the newest published version proposes no range; NotPublished: the service has no published version to attach an acceptance to; DraftNotFound, PlanStale and SignerUnverified: the acceptance draft is missing, moved or not signed by whom it names
              * @enum {string}
              */
-            code: "AcceptNothingProposed" | "NotPublished";
+            code: "AcceptNothingProposed" | "NotPublished" | "DraftNotFound" | "PlanStale" | "SignerUnverified";
             /** @description The command a person runs about it */
             command: string;
             message: string;
@@ -1171,12 +1371,16 @@ export interface components {
         CapabilitiesOutputBody: {
             /** @description What this caller's Kubernetes permissions leave out of the fleet views */
             auth: components["schemas"]["CapabilityAuth"];
+            /** @description This caller can plan declaring an inferred service: the host declares and knows who the caller is */
+            declare: boolean;
             /** @description The delivery views and actions are served */
             delivery: boolean;
             /** @description The operational-graph (fleet) endpoints are served */
             fleet: boolean;
             /** @description The impact endpoint is served */
             impact: boolean;
+            /** @description How this installation runs: its profile, registry, delivery, provisioning engine, clusters and MCP endpoint, each with where Pacto learned it and when */
+            installation: components["schemas"]["Fleet.Installation"];
             /** @description Mira's address, to link health-check citations and open a service in Mira */
             miraURL?: string;
             /** @description An observation source backs impact analysis */
@@ -1322,6 +1526,11 @@ export interface components {
             major?: number;
             sdk: string;
         };
+        "Contract.InferredCoverage": {
+            reason?: string;
+            source: string;
+            state: string;
+        };
         "Contract.InferredExternal": {
             catalog?: string;
             client?: components["schemas"]["Contract.InferredClient"];
@@ -1342,10 +1551,28 @@ export interface components {
             message: string;
             source: string;
         };
+        "Contract.InferredHidden": {
+            /** Format: int64 */
+            callers?: number;
+            /** Format: int64 */
+            services?: number;
+        };
         "Contract.InferredResource": {
             missing?: string[] | null;
             name?: string;
             type: string;
+        };
+        "Contract.InferredSigner": {
+            class: string;
+            issuer: string;
+            subject: string;
+        };
+        "Contract.InferredSourceRepository": {
+            folder: string;
+            folderRung: string;
+            rung: string;
+            signer?: string;
+            url: string;
         };
         "Contract.InferredSurface": {
             asOf: string;
@@ -1540,6 +1767,186 @@ export interface components {
              */
             signing?: "recorder";
         };
+        DeclareAcceptAnswer: {
+            /** @description The command a person accepts a draft with */
+            command?: string;
+            draft?: boolean;
+            /** @description The fresh plan of a PlanStale refusal */
+            plan?: components["schemas"]["DeclareAnswer"];
+            /** @description The bundle written, as <repository>@sha256:<hex> */
+            published?: string;
+            refusal?: components["schemas"]["DeclareRefusal"];
+            signed?: boolean;
+            /** @description The version or draft-<n> tag written */
+            tag?: string;
+        };
+        DeclareAcceptInput: {
+            /** @description The dependencies whose proposed range the declaration accepts */
+            accept?: string[] | null;
+            /** @description Accept this draft: its tag must still name the digest the plan showed */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent digest of the plan the person reviewed: a plan that moved since is refused with PlanStale */
+            intentDigest: string;
+            /**
+             * @description sign: publish the declared version signed by the person's fresh login; draft: save a draft-<n> a person accepts later
+             * @enum {string}
+             */
+            mode: "sign" | "draft";
+            /** @description The inferred service to declare */
+            serviceKey: string;
+        };
+        DeclareAnswer: {
+            /** @description The exact pacto declare command a person runs in a terminal */
+            command?: string;
+            /** @description The service's drafts, newest first, at most 20 */
+            drafts?: components["schemas"]["DeclareDraft"][] | null;
+            /** Format: int64 */
+            draftsTotal?: number;
+            /** @description Absent when the plan was refused before it was built */
+            plan?: components["schemas"]["DeclarePlan"];
+            /** @description The pacto declare command that opens the repository pull request with the person's own Git token; the dashboard never opens it */
+            prCli?: string;
+            refusal?: components["schemas"]["DeclareRefusal"];
+            /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>; present only with signing mode fresh-login */
+            signTicket?: string;
+            /** @description Back from a signing login: the login for the intentDigest asked about is still live, unused and unexpired */
+            signedIn?: boolean;
+            signing: components["schemas"]["DeclareSigning"];
+            write: components["schemas"]["DeclareWrite"];
+        };
+        DeclareBaseline: {
+            bundle: string;
+            signer?: string;
+            version: string;
+        };
+        DeclareDraft: {
+            /** @description Who wrote it; an unsigned draft names nobody and its on-behalf-of person is asserted */
+            asker: components["schemas"]["Contract.InferredSigner"];
+            digest?: string;
+            onBehalfOf?: string;
+            reason?: string;
+            /** @description The ranges it requests, as <dependency> <range> */
+            requested?: string[] | null;
+            signed: boolean;
+            /** @description draft, or unreadable with the reason */
+            state: string;
+            tag: string;
+        };
+        DeclareInput: {
+            /** @description The dependencies whose proposed range the declaration accepts */
+            accept?: string[] | null;
+            /** @description Plan accepting this draft instead: its own texts, what nothing backs and an intent digest that covers the draft digest */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent a signing login was started for: back from that login, the accepted ranges are the ones it was started with, whatever accept says */
+            intentDigest?: string;
+            /** @description The inferred service to declare */
+            serviceKey: string;
+        };
+        DeclarePlan: {
+            baseline?: components["schemas"]["DeclareBaseline"];
+            bundleRepo: string;
+            cluster?: string;
+            /** @description When the cluster read the plan comes from was taken */
+            clusterAsOf?: string;
+            /** @description pacto.yaml as it would be published */
+            contract: components["schemas"]["DeclareText"];
+            coverage?: components["schemas"]["Contract.InferredCoverage"][] | null;
+            /** @description The baseline deploy artifact the version reuses, or none */
+            deploy: string;
+            /** @description The called Services and callers the person's own credentials could not read: left out of the ranges */
+            hidden?: components["schemas"]["Contract.InferredHidden"];
+            inferredFrom: string;
+            intentDigest: string;
+            /** @description Who may set the owner this plan changes */
+            mayAccept?: string[] | null;
+            notes?: string[] | null;
+            owner?: string;
+            policyNote?: string;
+            ranges: components["schemas"]["DeclareRange"][] | null;
+            /** @description pacto.inferred.yaml as it would be published */
+            record: components["schemas"]["DeclareText"];
+            /** @description Where the service's source lives and how Pacto found it; absent when no source named it */
+            repository?: components["schemas"]["Contract.InferredSourceRepository"];
+            /** @description Why each source Pacto tried for the repository gave nothing */
+            repositoryTried?: components["schemas"]["DeclareRungNote"][] | null;
+            service: string;
+            signer: components["schemas"]["DeclareSigner"];
+            /** @description The published versions never taken as the baseline, and why */
+            skipped?: components["schemas"]["DeclareSkipped"][] | null;
+            /** @description declared for a person's login, else draft */
+            state: string;
+            /** @description Declared changes of an accepted draft that neither the baseline, the cluster read nor an accepted range backs */
+            unbacked?: string[] | null;
+            /** @description Why what backs the draft's changes could not be checked */
+            unbackedUnchecked?: string;
+            /** @description The baseline version when nothing changed since it: nothing is written */
+            unchanged?: string;
+            version: string;
+        };
+        DeclareRange: {
+            accepted?: boolean;
+            /** @description The declared range; unknown unless a person accepts the proposal */
+            compatibility: string;
+            dependency: string;
+            /** @description The versions observed */
+            observed?: string;
+            /** @description The range the cluster read proposes */
+            proposed?: string;
+        };
+        DeclareRefusal: {
+            /**
+             * @description The pacto declare refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable and NotAllowed
+             * @enum {string}
+             */
+            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed";
+            /** @description The command a person runs about it */
+            command?: string;
+            message: string;
+        };
+        DeclareRungNote: {
+            reason: string;
+            /** @description signed-provenance, gitops, image-label, repository-map or given */
+            rung: string;
+        };
+        DeclareSigner: {
+            class: string;
+            issuer?: string;
+            /** @description key, ambient, login or none */
+            source: string;
+            subject?: string;
+            why?: string;
+        };
+        DeclareSigning: {
+            /** @description Who the fresh login signs as */
+            identity?: string;
+            /**
+             * @description fresh-login: the person signs with a fresh login at the identity provider; none: the person saves a draft or runs the command
+             * @enum {string}
+             */
+            mode: "fresh-login" | "none";
+            /** @description Why the person cannot sign here */
+            reason?: string;
+        };
+        DeclareSkipped: {
+            signer?: string;
+            tag: string;
+            why: string;
+        };
+        DeclareText: {
+            text: string;
+            /** @description The file is longer than 64 KiB and only its start is shown */
+            truncated?: boolean;
+        };
+        DeclareWrite: {
+            available: boolean;
+            reason?: string;
+        };
+        "Delivery.AcceptedBreak": {
+            announcement: string;
+            bundle?: string;
+            provider: string;
+            version: string;
+        };
         "Delivery.AcceptedRange": {
             field: string;
             proposed?: string;
@@ -1549,6 +1956,10 @@ export interface components {
         "Delivery.Actor": {
             groups?: string[] | null;
             user: string;
+        };
+        "Delivery.AdvertisedEnvironment": {
+            name: string;
+            source: string;
         };
         "Delivery.ApplierStatus": {
             /** @description The last observation (RFC 3339) */
@@ -1665,6 +2076,44 @@ export interface components {
             result: "Pass" | "Fail" | "Unknown";
             verdicts: components["schemas"]["Delivery.Verdict"][] | null;
         };
+        "Delivery.ClusterJoinList": {
+            asOf: string;
+            canApprove: boolean;
+            clusters: components["schemas"]["Delivery.ClusterJoinState"][] | null;
+            completeness: string;
+            /** Format: int64 */
+            hidden: number;
+            hub: components["schemas"]["Delivery.ClusterRef"];
+            limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            /** Format: int64 */
+            otherHubs: number;
+            repository: string;
+        };
+        "Delivery.ClusterJoinState": {
+            approvedAt?: string;
+            approvedKeyID?: string;
+            approvedPublicKey?: string;
+            approver?: string;
+            environments?: components["schemas"]["Delivery.AdvertisedEnvironment"][] | null;
+            keyID?: string;
+            mappings?: components["schemas"]["Delivery.GroupMappingState"][] | null;
+            mayReplace?: components["schemas"]["Delivery.ClusterRef"];
+            name?: string;
+            /** @enum {string} */
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
+            publicKey?: string;
+            reason?: string;
+            record?: string;
+            snapshotAsOf?: string;
+            /** @enum {string} */
+            state: "pending" | "approved" | "removed";
+            status?: string;
+            uid: string;
+        };
+        "Delivery.ClusterRef": {
+            name?: string;
+            uid: string;
+        };
         "Delivery.Deadlines": {
             approval?: string;
             execution?: string;
@@ -1707,6 +2156,17 @@ export interface components {
         "Delivery.Gates": {
             impact?: components["schemas"]["Delivery.ImpactGate"];
             verify?: components["schemas"]["Delivery.VerifyGates"];
+        };
+        "Delivery.GroupMappingState": {
+            approvedAt: string;
+            approvedBy: string;
+            issuer: string;
+            record: string;
+            rules: components["schemas"]["Delivery.GroupRule"][] | null;
+        };
+        "Delivery.GroupRule": {
+            from: string;
+            to: string;
         };
         "Delivery.HistoryEntry": {
             actor: string;
@@ -2440,6 +2900,12 @@ export interface components {
             title: string;
             truncated?: boolean;
         };
+        DraftRef: {
+            /** @description The digest of the draft the plan showed */
+            digest: string;
+            /** @description The draft tag, draft-<n> */
+            tag: string;
+        };
         EnvironmentCount: {
             /**
              * Format: int64
@@ -2722,12 +3188,26 @@ export interface components {
             /** @description A display name for the cluster; never an identity. */
             name?: string;
             /**
-             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /** @description The source that reported the name; empty when this process read it itself. */
             reportedBy?: string;
+        };
+        "Fleet.ClusterLink": {
+            /**
+             * @description live while the member's channel is connected; down when it dropped in the last 15 minutes.
+             * @enum {string}
+             */
+            channel?: "live" | "down";
+            /** @description The identity model each token issuer uses in this member, in issuer order. */
+            issuers?: components["schemas"]["Fleet.IssuerModel"][] | null;
+            /**
+             * Format: date-time
+             * @description When the channel last came up or dropped.
+             */
+            since?: string;
         };
         "Fleet.ClusterRecord": {
             /**
@@ -2737,13 +3217,15 @@ export interface components {
             access?: "no-access" | "review-failed" | "not-reviewable";
             /** @description The kube-system namespace UID: the identity of the cluster. */
             id: string;
+            /** @description The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel. */
+            link?: components["schemas"]["Fleet.ClusterLink"];
             /** @description A display name for the cluster; never an identity. */
             name?: string;
             /**
-             * @description How the name was found: a node label, the kubeconfig context name, a target state file or the first characters of the UID.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /** @description The source that reported the name; empty when this process read it itself. */
             reportedBy?: string;
             /** @description Every source that reported this cluster id. */
@@ -2757,13 +3239,15 @@ export interface components {
             access?: "no-access" | "review-failed" | "not-reviewable";
             /** @description The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified. */
             id: string;
+            /** @description The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel. */
+            link?: components["schemas"]["Fleet.ClusterLink"];
             /** @description A display name for the cluster, or the source id when the cluster could not be identified; never an identity. */
             name: string;
             /**
-             * @description How the name was found.
+             * @description How the name was found: a person's approval of the cluster, a node label, the kubeconfig context name, a target state file or the first characters of the UID.
              * @enum {string}
              */
-            nameSource?: "node-label" | "context" | "file" | "uid";
+            nameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /**
              * @description The worst status of the sources that reported the cluster.
              * @enum {string}
@@ -2774,6 +3258,17 @@ export interface components {
              * @description The targets of this cluster the answer shows.
              */
             targets: number;
+        };
+        "Fleet.CompletenessSection": {
+            /** @description The YAML the inferred record proposes to declare this section */
+            declare?: string;
+            /** @description What else the fleet knows about this section, such as a service that runs nowhere */
+            note?: string;
+            reason: string;
+            /** @enum {string} */
+            section: "interfaces" | "configuration" | "dependencies" | "owner" | "summary" | "domain" | "runtime" | "readiness";
+            /** @enum {string} */
+            state: "declared" | "inferred" | "missing" | "unknown" | "not-applicable";
         };
         "Fleet.ComplianceTally": {
             /** Format: int64 */
@@ -2893,6 +3388,8 @@ export interface components {
             inferredFromHidden?: boolean;
             /** @description Why this reader does not accept the declarer, so its cluster facts are not shown; empty when it is accepted */
             notAccepted?: string;
+            /** @description Where the service's source lives and how it was found; left out when no source named it or you may not read the workload the declaration came from */
+            repository?: components["schemas"]["Contract.InferredSourceRepository"];
             /** @description A signature this reader verified names the declarer as a person */
             signatureChecked: boolean;
             signer?: components["schemas"]["Fleet.VerifiedSigner"];
@@ -3320,7 +3817,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -3493,6 +3990,51 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.FleetCompleteness": {
+            /**
+             * Format: int64
+             * @description Judged services whose contract declares every section that applies to them
+             */
+            fullyDescribed: number;
+            /**
+             * Format: int64
+             * @description Services whose contract completeness Pacto can judge
+             */
+            judged: number;
+            /** @description The three sections most often missing, most first; an inferred or unknown section never counts */
+            mostMissing: components["schemas"]["Fleet.SectionCount"][] | null;
+            /**
+             * Format: int64
+             * @description Mean contract completeness over the judged services, rounded down; absent when no service is judged
+             */
+            percentComplete?: number;
+            /**
+             * Format: int64
+             * @description Services whose contract Pacto cannot read, so no section can be judged; never counted as complete
+             */
+            unknown: number;
+        };
+        "Fleet.FleetMap": {
+            bounds: components["schemas"]["Fleet.MapBounds"];
+            /**
+             * @description How the environment columns are ordered: by the Stages the caller may read, or by name
+             * @enum {string}
+             */
+            environmentOrder?: "stages" | "name";
+            /** @enum {string} */
+            groupBy: "domain" | "team" | "environment";
+            groups: components["schemas"]["Fleet.MapGroup"][] | null;
+            knowledge: components["schemas"]["Fleet.KnowledgeTally"];
+            limitations: components["schemas"]["Fleet.LimitationsPreview"];
+            match: components["schemas"]["Fleet.MatchTally"];
+            meta: components["schemas"]["Fleet.ProductMeta"];
+            /** @description Teams are sub-clusters of their domain: there are more than 40 */
+            nested?: boolean;
+            ribbons: components["schemas"]["Fleet.MapRibbon"][] | null;
+            /** @description The smallest ribbons were dropped to keep at most 2000 */
+            ribbonsTruncated?: boolean;
+            totals: components["schemas"]["Fleet.MapTotals"];
         };
         "Fleet.FleetSnapshot": {
             clusters?: components["schemas"]["Fleet.ClusterRecord"][] | null;
@@ -3670,7 +4212,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService or serviceEntry on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -3714,6 +4256,130 @@ export interface components {
             /** @description The source that read the workload */
             source: string;
         };
+        "Fleet.Installation": {
+            /** @description The clusters this caller's view reads */
+            clusters: components["schemas"]["Fleet.InstallationClusters"];
+            /** @description Whether the cluster serves the Pacto delivery API, observed by this host, and the appliers inferred from detected rows */
+            delivery: components["schemas"]["Fleet.InstallationDelivery"];
+            /** @description Whether this host serves an MCP endpoint */
+            mcp: components["schemas"]["Fleet.InstallationMCP"];
+            /** @description The profile names the chart rendered, declared by a person */
+            profile: components["schemas"]["Fleet.InstallationProfile"];
+            /** @description The provisioning engine, unknown until a source detects one */
+            provisioning: components["schemas"]["Fleet.InstallationProvisioning"];
+            /** @description The registry value the operator was configured with, declared by a person */
+            registry: components["schemas"]["Fleet.InstallationRegistry"];
+        };
+        "Fleet.InstallationApplier": {
+            /** @description The detected row's id: argocd or flux */
+            manager: string;
+            /** @enum {string} */
+            mode: "adopted" | "idp-flux";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description The row Pacto inferred it from */
+            source: string;
+        };
+        "Fleet.InstallationClusters": {
+            /**
+             * Format: date-time
+             * @description When the snapshot was generated
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /**
+             * Format: int64
+             * @description Clusters this caller's view reads; null with no snapshot
+             */
+            joined: number | null;
+            /**
+             * Format: int64
+             * @description Clusters waiting for a person to approve them as members, as this caller may see them; null when not read, when some are hidden from this caller or when the join list was read partly
+             */
+            pending: number | null;
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto counted them, or why they are null */
+            source: string;
+        };
+        "Fleet.InstallationDelivery": {
+            /** @description What applies the workloads Pacto delivery promotes, inferred from available detected rows; listed only when enabled is true */
+            appliers: components["schemas"]["Fleet.InstallationApplier"][];
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @description The cluster serves the Pacto delivery API; null when this host cannot tell. The CRDs outlive a chart that dropped delivery, so this is partial beside a declared hardened profile */
+            enabled: boolean | null;
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto learned it, or why it is null */
+            source: string;
+        };
+        "Fleet.InstallationMCP": {
+            /**
+             * Format: date-time
+             * @description When it was answered
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description This host serves an MCP endpoint */
+            served: boolean;
+            /** @description Which host says so */
+            source: string;
+        };
+        "Fleet.InstallationProfile": {
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto read it, or why it is null */
+            source: string;
+            /** @description Sorted profile names; null when unknown */
+            value: string[] | null;
+        };
+        "Fleet.InstallationProvisioning": {
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            engine: "crossplane" | "adapter" | "none" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto learned it, or why it is unknown */
+            source: string;
+        };
+        "Fleet.InstallationRegistry": {
+            /**
+             * Format: date-time
+             * @description When it was read
+             */
+            asOf: string | null;
+            /** @enum {string} */
+            completeness: "complete" | "partial" | "unknown";
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "inferred" | "host";
+            /** @description Where Pacto read it, or why it is null */
+            source: string;
+            /** @description The registry value; empty when set to nothing, null when unknown */
+            value: string | null;
+        };
         "Fleet.InterfaceDeprecation": {
             deprecated: string;
             interface: string;
@@ -3745,6 +4411,24 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.IssuerModel": {
+            /** @description The issuer of the signed-in people's tokens. */
+            issuer?: string;
+            /**
+             * Format: date-time
+             * @description When the group mapping was signed.
+             */
+            mappedAt?: string;
+            /** @description Who approved the group mapping in force. */
+            mappedBy?: string;
+            /** @description The mapping's rules, hub group=cluster group, comma separated. */
+            mapping?: string;
+            /**
+             * @description shared-issuer: the member's apiserver accepts an exchanged token; group-mapping: reads use the approved group mapping; issuer-not-accepted: the member refuses the issuer and no mapping is approved.
+             * @enum {string}
+             */
+            model?: "shared-issuer" | "group-mapping" | "issuer-not-accepted";
         };
         "Fleet.KnowledgeGaps": {
             /**
@@ -3779,6 +4463,7 @@ export interface components {
             unverifiedCapability: number;
         };
         "Fleet.KnowledgeTally": {
+            contractCompleteness: components["schemas"]["Fleet.FleetCompleteness"];
             /**
              * Format: int64
              * @description Services whose contract and OpenAPI interface documents were read and leave nothing out; gRPC and AsyncAPI documents are never read
@@ -3848,6 +4533,264 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.MapAttention": {
+            /** Format: int64 */
+            errors: number;
+            /** Format: int64 */
+            info: number;
+            /** Format: int64 */
+            warnings: number;
+            worst: components["schemas"]["Fleet.AttentionCategoryCount"][] | null;
+        };
+        "Fleet.MapBounds": {
+            /** Format: double */
+            maxX: number;
+            /** Format: double */
+            maxY: number;
+            /** Format: double */
+            minX: number;
+            /** Format: double */
+            minY: number;
+        };
+        "Fleet.MapEdge": {
+            /** @enum {string} */
+            difference?: "matched" | "expected-not-observed" | "observed-not-expected" | "insufficient";
+            /**
+             * Format: int64
+             * @description The calling node's position in the group, over every page
+             */
+            from: number;
+            inferred?: boolean;
+            /**
+             * @description The match state the ribbons and tallies count it in; absent for a configuration reference
+             * @enum {string}
+             */
+            match?: "matched" | "expected-only" | "observed-only" | "insufficient";
+            problem?: components["schemas"]["Fleet.MapProblem"];
+            /**
+             * Format: int64
+             * @description The called node's position in the group, over every page
+             */
+            to: number;
+        };
+        "Fleet.MapGroup": {
+            attention: components["schemas"]["Fleet.MapAttention"];
+            /**
+             * Format: int64
+             * @description The environment's column, lowest first; absent for groups outside the order
+             */
+            depth?: number;
+            /**
+             * Format: int64
+             * @description External systems, in the external group
+             */
+            externals?: number;
+            /**
+             * Format: int64
+             * @description Of those, the inferred ones
+             */
+            inferred: number;
+            key: string;
+            /** @enum {string} */
+            kind: "domain" | "team" | "environment" | "previews" | "external" | "unowned" | "none" | "unknown" | "other";
+            label: string;
+            match: components["schemas"]["Fleet.MatchTally"];
+            /** @description How many of the group's judged services miss each section, in the checklist's order; a section none misses is left out */
+            missing?: components["schemas"]["Fleet.SectionCount"][] | null;
+            /**
+             * Format: int64
+             * @description Mean contract completeness of the group's judged services; absent when none is judged
+             */
+            percentComplete?: number;
+            preview?: boolean;
+            /** Format: double */
+            r: number;
+            /**
+             * Format: int64
+             * @description Nodes in the group: services, or targets in the environment grouping, inferred ones included
+             */
+            services: number;
+            subs?: components["schemas"]["Fleet.MapSub"][] | null;
+            /** Format: double */
+            x: number;
+            /** Format: double */
+            y: number;
+        };
+        "Fleet.MapNode": {
+            external?: boolean;
+            /**
+             * Format: int64
+             * @description Visible services that depend on it
+             */
+            in?: number;
+            /** @description Whether it runs in the requested environment; absent without one and when Pacto cannot tell */
+            inEnvironment?: boolean;
+            inferred?: boolean;
+            /** Format: int64 */
+            interfaces?: number;
+            key: string;
+            /** @description Absent when it reads like the name */
+            label?: string;
+            /** @enum {string} */
+            match?: "matched" | "expected-only" | "observed-only" | "insufficient";
+            /** @description Contract sections it leaves out */
+            missing?: string[] | null;
+            name: string;
+            /**
+             * Format: int64
+             * @description Visible services it depends on
+             */
+            out?: number;
+            owner?: string;
+            /** Format: int64 */
+            percentComplete?: number;
+            /**
+             * @description The worst attention item about the node
+             * @enum {string}
+             */
+            severity?: "error" | "warning" | "info";
+            status?: string;
+            /**
+             * Format: int64
+             * @description Index of the node's sub-cluster in the group's subs; absent for the first one and when the group has none
+             */
+            sub?: number;
+            /** @description The current version, or with an environment the version running there (mixed when targets differ) */
+            version?: string;
+            /** @description The category of that item */
+            worst?: string;
+            /** Format: double */
+            x: number;
+            /** Format: double */
+            y: number;
+        };
+        "Fleet.MapNodes": {
+            edges: components["schemas"]["Fleet.MapEdge"][] | null;
+            group: string;
+            /** @enum {string} */
+            groupBy: "domain" | "team" | "environment";
+            /** Format: int64 */
+            limit: number;
+            meta: components["schemas"]["Fleet.ProductMeta"];
+            nodes: components["schemas"]["Fleet.MapNode"][] | null;
+            /** Format: int64 */
+            offset: number;
+            /**
+             * Format: int64
+             * @description Nodes in the group
+             */
+            total: number;
+            /** @description More nodes follow this page */
+            truncated?: boolean;
+        };
+        "Fleet.MapProblem": {
+            code: string;
+            reason?: string;
+            /** @enum {string} */
+            severity: "error" | "warning";
+        };
+        "Fleet.MapRibbon": {
+            /** Format: int64 */
+            crossEnvironment?: number;
+            /** Format: int64 */
+            expectedOnly?: number;
+            from: string;
+            /** Format: int64 */
+            insufficient?: number;
+            /** Format: int64 */
+            matched?: number;
+            /** Format: int64 */
+            observedOnly?: number;
+            /** Format: int64 */
+            problems?: number;
+            to: string;
+            /** Format: int64 */
+            total: number;
+        };
+        "Fleet.MapSub": {
+            key: string;
+            /** @description Absent when it reads like the key */
+            label?: string;
+            /** Format: double */
+            r: number;
+            /** Format: int64 */
+            services: number;
+            /** Format: double */
+            x: number;
+            /** Format: double */
+            y: number;
+        };
+        "Fleet.MapTotals": {
+            /** Format: int64 */
+            externals: number;
+            /**
+             * Format: int64
+             * @description Groups folded into Other
+             */
+            folded?: number;
+            /**
+             * Format: int64
+             * @description Groups before folding
+             */
+            groups: number;
+            /** Format: int64 */
+            inferred: number;
+            /**
+             * Format: int64
+             * @description Ribbons before the bound
+             */
+            ribbons: number;
+            /**
+             * Format: int64
+             * @description Visible services that are no golden path, inferred ones included
+             */
+            services: number;
+            /** Format: int64 */
+            targets: number;
+        };
+        "Fleet.MatchCounts": {
+            /**
+             * Format: int64
+             * @description Declared, and Pacto can see that it does not run or is not called
+             */
+            expectedOnly: number;
+            /**
+             * Format: int64
+             * @description Declared, and Pacto cannot tell whether it runs or is called
+             */
+            insufficient: number;
+            /**
+             * Format: int64
+             * @description Declared and observed
+             */
+            matched: number;
+            /**
+             * Format: int64
+             * @description Observed, and no contract declares it
+             */
+            observedOnly: number;
+        };
+        "Fleet.MatchTally": {
+            /**
+             * @description partial when a source the tally reads is partial or stale
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /**
+             * Format: int64
+             * @description Services and dependencies Pacto can observe over all counted, rounded down; absent when none is counted
+             */
+            coverage?: number;
+            /** @description Service-to-service dependencies, by match state; a configuration reference and an edge inferred from configuration alone have none */
+            dependencies: components["schemas"]["Fleet.MatchCounts"];
+            /**
+             * Format: int64
+             * @description Matched services and dependencies over those Pacto can observe, rounded down; absent when Pacto observes none
+             */
+            percent?: number;
+            /** @description Services that are no golden path, by match state; an inferred service is observed-only */
+            services: components["schemas"]["Fleet.MatchCounts"];
+        };
         "Fleet.Meta": {
             /** Format: date-time */
             asOf: string;
@@ -3865,16 +4808,18 @@ export interface components {
             sourcesTruncated?: boolean;
         };
         "Fleet.NextAction": {
+            /** @description The CLI command a person runs for this step */
+            cli: string;
             /**
-             * @description The MCP tool that performs the operation
+             * @description The MCP tool that performs the operation, set only when the server answering registers it
              * @enum {string}
              */
-            tool: "pacto_edit" | "pacto_declare";
+            tool?: "pacto_edit" | "pacto_declare" | "pacto_accept";
             /**
-             * @description The operation: edit-contract changes the contract of the item's service; declare writes a declared contract for what only an inferred one describes
+             * @description The operation. edit-contract changes the contract of the item's service. declare writes a declared contract for a workload only an inferred one describes. accept accepts the proposed ranges of a service. claim declares a contract for an external system. approve-cluster approves a pending cluster
              * @enum {string}
              */
-            verb: "edit-contract" | "declare";
+            verb: "edit-contract" | "declare" | "accept" | "claim" | "approve-cluster";
         };
         "Fleet.OCIReferrer": {
             artifactType: string;
@@ -3889,6 +4834,22 @@ export interface components {
             /** Format: int64 */
             total: number;
             truncated: boolean;
+        };
+        "Fleet.ObservedLink": {
+            /** @description Other release versions of the service whose images record holds the same digest; the linked version is the newest and may be wrong */
+            otherVersions?: string[] | null;
+            /**
+             * @description How the workload was linked: the running image digest or the pacto.trianalab.io/contract annotation.
+             * @enum {string}
+             */
+            signal: "image-digest" | "annotation";
+            /**
+             * Format: date-time
+             * @description When the operator first linked this workload to this service
+             */
+            since?: string;
+            /** @description The running image digest, or the pacto.trianalab.io/contract value */
+            value: string;
         };
         "Fleet.ObservedSourceStat": {
             /** Format: int64 */
@@ -4004,6 +4965,8 @@ export interface components {
             compliantTargets: number;
             coverage: components["schemas"]["Fleet.EvaluationCoverage"];
             /** Format: int64 */
+            crossEnvironmentCalls: number;
+            /** Format: int64 */
             degradedSources: number;
             /** Format: int64 */
             domains: number;
@@ -4045,6 +5008,7 @@ export interface components {
             knowledgeItems: number;
             /** Format: int64 */
             lifecycleConsumers: number;
+            match: components["schemas"]["Fleet.MatchTally"];
             /** Format: int64 */
             nonCompliantTargets: number;
             /** Format: int64 */
@@ -4515,7 +5479,7 @@ export interface components {
         "Fleet.Replacement": {
             /**
              * Format: date-time
-             * @description When the Pacto that links them was created; absent on an inferred-from link, whose signed record carries no time.
+             * @description When the Pacto that links them was created, or when the operator first linked the workload; absent on an inferred-from link, whose signed record carries no time.
              */
             at?: string;
             /** @description Who signed that revision, read from its verified signature. */
@@ -4523,16 +5487,23 @@ export interface components {
             /** @description The key of the inferred service that was replaced. */
             from: string;
             /**
-             * @description How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service.
+             * @description How the two are linked: pacto-target when a Pacto target runs as the workload, inferred-from when a person's accepted declaration names the inferred service, observed when the running workload was linked to a published contract with no Pacto (image digest or annotation).
              * @enum {string}
              */
-            link: "pacto-target" | "inferred-from";
+            link: "pacto-target" | "inferred-from" | "observed";
             /** @description The revision whose signed inferred record names the replaced service. */
             revision?: string;
-            /** @description The Pacto target that runs as the workload. */
+            /**
+             * @description How an observed link was made: the running image digest or the pacto.trianalab.io/contract annotation.
+             * @enum {string}
+             */
+            signal?: "image-digest" | "annotation";
+            /** @description The Pacto target that runs as the workload, or the linked target of an observed link. */
             target?: string;
             /** @description The key of the declared service that replaced it. */
             to: string;
+            /** @description The running image digest or the pacto.trianalab.io/contract value of an observed link. */
+            value?: string;
             /** @description What the replaced inferred service showed, when Pacto read its workload. */
             workload?: components["schemas"]["Fleet.InferredWorkload"];
         };
@@ -4635,6 +5606,25 @@ export interface components {
             services: components["schemas"]["Fleet.ServiceHit"][] | null;
             /** Format: int64 */
             total: number;
+        };
+        "Fleet.SectionCount": {
+            /** Format: int64 */
+            count: number;
+            /** @enum {string} */
+            section: "interfaces" | "configuration" | "dependencies" | "owner" | "summary" | "domain" | "runtime" | "readiness";
+        };
+        "Fleet.ServiceCompleteness": {
+            /** Format: date-time */
+            asOf: string;
+            /** @description Whether every source the answer reads was complete */
+            completeness: string;
+            /**
+             * Format: int64
+             * @description Declared sections over applicable sections, rounded down; absent when no section can be judged
+             */
+            percentComplete?: number;
+            /** @description Every section in its fixed order */
+            sections: components["schemas"]["Fleet.CompletenessSection"][] | null;
         };
         "Fleet.ServiceHit": {
             businessDomain?: string;
@@ -4739,6 +5729,7 @@ export interface components {
         };
         "Fleet.ServiceView": {
             capabilities?: components["schemas"]["Fleet.RevisionCapabilities"][] | null;
+            contractCompleteness?: components["schemas"]["Fleet.ServiceCompleteness"];
             dependencies: components["schemas"]["Fleet.Relationship"][] | null;
             dependents: string[] | null;
             /** @description Where each field of the current revision comes from: declared, accepted, attested or inferred */
@@ -4817,6 +5808,8 @@ export interface components {
         "Fleet.SourceState": {
             /** @description An advisory source never makes the answer partial; its rows are hints. */
             advisory?: boolean;
+            /** @description Observed edges from this source come from unauthenticated senders: they add callers and undeclared edges and never corroborate a declared one */
+            cautionOnly?: boolean;
             /** @description The cluster the source describes */
             cluster?: components["schemas"]["Fleet.Cluster"];
             error?: components["schemas"]["Fleet.SourceError"];
@@ -4866,6 +5859,7 @@ export interface components {
             reason: string;
         };
         "Fleet.StatusResult": {
+            contractCompleteness: components["schemas"]["Fleet.FleetCompleteness"];
             items: components["schemas"]["Fleet.StatusItem"][] | null;
             meta: components["schemas"]["Fleet.Meta"];
             /** @description What Pacto detected in each source, with evidence, what it uses each for and its status */
@@ -4903,7 +5897,7 @@ export interface components {
              * @description How the cluster name was found.
              * @enum {string}
              */
-            clusterNameSource?: "node-label" | "context" | "file" | "uid";
+            clusterNameSource?: "approval" | "node-label" | "context" | "file" | "uid";
             /**
              * @description runs-in when a Kubernetes source read the target in the cluster; reported-through when the cluster only reported it.
              * @enum {string}
@@ -4924,6 +5918,8 @@ export interface components {
                 [key: string]: string;
             };
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            /** @description Set when the target is a workload the operator linked to a published contract with no Pacto. */
+            link?: components["schemas"]["Fleet.ObservedLink"];
             name: string;
             observedRuntime: components["schemas"]["Fleet.RuntimePreview"];
             owner?: components["schemas"]["Contract.Owner"];
@@ -5037,13 +6033,15 @@ export interface components {
             subject: string;
         };
         FleetAcceptInputBody: {
+            /** @description Plan accepting this acceptance draft instead */
+            fromDraft?: string;
             /** @description The service whose proposed ranges to accept */
             serviceKey: string;
         };
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
-            /** @description Data sources backing the published snapshot */
+            /** @description Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set) */
             sources: components["schemas"]["SourceInfo"][] | null;
         };
         GlobalGraph: {
@@ -5831,7 +6829,7 @@ export interface components {
             /** @description The inferred service of an uncontracted caller, when Pacto sees its workload */
             caller?: components["schemas"]["ProductRef"];
             /** @enum {string} */
-            category: "non-compliant" | "invalid" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned";
+            category: "non-compliant" | "invalid" | "cross-environment" | "health" | "provisioning" | "unknown" | "stale" | "unresolved" | "out-of-range" | "lifecycle" | "undeclared" | "golden-path" | "readiness" | "knowledge" | "unowned" | "cluster";
             code: string;
             entity: components["schemas"]["ProductRef"];
             label: string;
@@ -6333,6 +7331,117 @@ export interface components {
             reason: "offering-name" | "provider-name";
             ref: string;
         };
+        ProductMapColumn: {
+            /**
+             * Format: int64
+             * @enum {integer}
+             */
+            hop: -2 | -1 | 1 | 2;
+            nodes: components["schemas"]["ProductMapNode"][] | null;
+            /** Format: int64 */
+            total: number;
+        };
+        ProductMapFocus: {
+            columns: components["schemas"]["ProductMapColumn"][] | null;
+            edges: components["schemas"]["ProductMapFocusEdge"][] | null;
+            focus: components["schemas"]["ProductMapNode"];
+            /** @description The focus service's group in the domain grouping */
+            group: string;
+            /** Format: int64 */
+            hops: number;
+            meta: components["schemas"]["Fleet.ProductMeta"];
+        };
+        ProductMapFocusEdge: {
+            /** Format: int64 */
+            count?: number;
+            declaredClaims: components["schemas"]["Fleet.DeclaredClaimsPreview"];
+            declaredIn?: components["schemas"]["ProductRef"];
+            deprecatedInterfaces?: components["schemas"]["Fleet.InterfaceDeprecation"][] | null;
+            /** @enum {string} */
+            difference?: "matched" | "expected-not-observed" | "observed-not-expected" | "insufficient";
+            /** @description Observed calls whose environments Pacto cannot tell, so no cross-environment call is judged */
+            environmentUnknown?: boolean;
+            expected: boolean;
+            /** Format: date-time */
+            firstSeen?: string;
+            from: components["schemas"]["ProductRef"];
+            /** @enum {string} */
+            guaranteeStatus?: "met" | "unmet" | "unknown";
+            href: string;
+            id: string;
+            inferred?: boolean;
+            /** @description The interface the dependency requires, else the provider's only interface */
+            interface?: string;
+            /** Format: date-time */
+            lastSeen?: string;
+            /** @enum {string} */
+            observationScope?: "service" | "target";
+            observationSources: components["schemas"]["Fleet.ObservationSourcesPreview"];
+            observed: boolean;
+            problem?: components["schemas"]["Fleet.MapProblem"];
+            /** @enum {string} */
+            provenance: "declared" | "observed" | "declared+observed" | "inferred";
+            providerLifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
+            /** @description The compatibility range the consumer declares */
+            range?: string;
+            /** @enum {string} */
+            relation: "dependency" | "runs" | "configuration_reference";
+            /** @description The version the provider's visible targets run, mixed when they differ */
+            runningVersion?: string;
+            /** @enum {string} */
+            serviceCorroboration?: "matched" | "expected-not-observed" | "insufficient";
+            stale?: boolean;
+            to: components["schemas"]["ProductRef"];
+        };
+        ProductMapNode: {
+            external?: boolean;
+            href: string;
+            /**
+             * Format: int64
+             * @description Visible services that depend on it
+             */
+            in?: number;
+            /** @description Whether it runs in the requested environment; absent without one and when Pacto cannot tell */
+            inEnvironment?: boolean;
+            inferred?: boolean;
+            /** Format: int64 */
+            interfaces?: number;
+            key: string;
+            /** @description Absent when it reads like the name */
+            label?: string;
+            /** @enum {string} */
+            match?: "matched" | "expected-only" | "observed-only" | "insufficient";
+            /** @description Contract sections it leaves out */
+            missing?: string[] | null;
+            name: string;
+            /**
+             * Format: int64
+             * @description Visible services it depends on
+             */
+            out?: number;
+            owner?: string;
+            /** Format: int64 */
+            percentComplete?: number;
+            /**
+             * @description The worst attention item about the node
+             * @enum {string}
+             */
+            severity?: "error" | "warning" | "info";
+            status?: string;
+            /**
+             * Format: int64
+             * @description Index of the node's sub-cluster in the group's subs; absent for the first one and when the group has none
+             */
+            sub?: number;
+            /** @description The current version, or with an environment the version running there (mixed when targets differ) */
+            version?: string;
+            /** @description The category of that item */
+            worst?: string;
+            /** Format: double */
+            x: number;
+            /** Format: double */
+            y: number;
+        };
         ProductNeighborhood: {
             /** Format: int64 */
             depth: number;
@@ -6380,6 +7489,8 @@ export interface components {
             consumer?: components["schemas"]["ProductRef"];
             /** Format: date-time */
             lastSeen?: string;
+            /** @description The next step for an uncontracted row: declare a contract for the caller */
+            nextAction?: components["schemas"]["Fleet.NextAction"];
             /** @enum {string} */
             provenance: "observed";
             provider: components["schemas"]["ProductRef"];
@@ -6810,6 +7921,7 @@ export interface components {
             changes: components["schemas"]["ProductChangeHistoryPreview"];
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consumedOfferings: components["schemas"]["ProductOfferingUsesPreview"];
+            contractCompleteness?: components["schemas"]["Fleet.ServiceCompleteness"];
             creation?: components["schemas"]["Fleet.CreationStep"][] | null;
             currentRevision?: components["schemas"]["ProductRef"];
             dependencies: components["schemas"]["ProductRefPreview"];
@@ -6834,6 +7946,8 @@ export interface components {
             inferredOfferings: components["schemas"]["ProductInferredOffering"][] | null;
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
             limitations: components["schemas"]["ProductAttributedLimitationsPreview"];
+            /** @description The next step for an inferred service: declare a contract for its workload */
+            nextAction?: components["schemas"]["Fleet.NextAction"];
             origin?: components["schemas"]["ProductOriginDetail"];
             ownerRevision?: components["schemas"]["ProductRef"];
             ownership?: components["schemas"]["ProductOwnership"];
@@ -6904,6 +8018,8 @@ export interface components {
             kind?: string;
             labels: components["schemas"]["Fleet.RuntimePreview"];
             limitations: components["schemas"]["Fleet.LimitationsPreview"];
+            /** @description Set when the target is a workload the operator linked to a published contract with no Pacto. */
+            link?: components["schemas"]["Fleet.ObservedLink"];
             /** @enum {string} */
             linkState: "exact" | "inferred" | "ambiguous" | "unresolved";
             observedRuntime: components["schemas"]["Fleet.RuntimePreview"];
@@ -7292,14 +8408,28 @@ export interface components {
         };
         "Runrecord.Coverage": {
             completeness: string;
+            contracts?: components["schemas"]["Runrecord.CoverageContracts"];
             knowledge?: components["schemas"]["Runrecord.CoverageKnowledge"];
             links: components["schemas"]["Runrecord.CoverageLinks"];
+            match?: components["schemas"]["Runrecord.CoverageMatch"];
             /** Format: int64 */
             services: number;
             /** Format: date-time */
             snapshotAsOf: string;
             /** Format: int64 */
             uncontracted: number;
+        };
+        "Runrecord.CoverageContracts": {
+            /** Format: int64 */
+            fullyDescribed: number;
+            /** Format: int64 */
+            judged: number;
+            /** Format: int64 */
+            percentComplete?: number;
+            /** Format: int64 */
+            services: number;
+            /** Format: int64 */
+            unknown: number;
         };
         "Runrecord.CoverageKnowledge": {
             /** Format: int64 */
@@ -7322,6 +8452,24 @@ export interface components {
             inferred: number;
             /** Format: int64 */
             unresolved: number;
+        };
+        "Runrecord.CoverageMatch": {
+            /** Format: int64 */
+            dependenciesExpectedOnly: number;
+            /** Format: int64 */
+            dependenciesInsufficient: number;
+            /** Format: int64 */
+            dependenciesMatched: number;
+            /** Format: int64 */
+            dependenciesObservedOnly: number;
+            /** Format: int64 */
+            servicesExpectedOnly: number;
+            /** Format: int64 */
+            servicesInsufficient: number;
+            /** Format: int64 */
+            servicesMatched: number;
+            /** Format: int64 */
+            servicesObservedOnly: number;
         };
         "Runrecord.Gate": {
             reason?: string;
@@ -7533,8 +8681,19 @@ export interface components {
             name: string;
         };
         SourceInfo: {
+            /** @description The cluster an egress row describes, when its source names one; set on egress rows only */
+            cluster?: string;
+            /**
+             * @description How much of the calls leaving the cluster an egress row read; set on egress rows only
+             * @enum {string}
+             */
+            coverage?: "complete" | "partial" | "unavailable";
+            /** @description Set on a row projected from a detected provider that reads calls leaving the cluster; such a row is not a data source */
+            egress?: boolean;
             enabled: boolean;
             reason?: string;
+            /** @description The fleet source that reported an egress row; set on egress rows only */
+            source?: string;
             type: string;
         };
         StageCounts: {
@@ -9724,6 +10883,39 @@ export interface operations {
             };
         };
     };
+    "fleet-accept-execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AcceptExecuteInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AcceptExecuteAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
     "fleet-attention": {
         parameters: {
             query?: {
@@ -9760,6 +10952,110 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductAttentionList"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-fleet-clusters": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Delivery.ClusterJoinList"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-declare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclareInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclareAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-declare-accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DeclareAcceptInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeclareAcceptAnswer"];
                 };
             };
             /** @description Error */
@@ -9956,6 +11252,111 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ProductImpact"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-map": {
+        parameters: {
+            query?: {
+                /** @description Grouping: domain (default), team or environment */
+                groupBy?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Fleet.FleetMap"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-map-focus": {
+        parameters: {
+            query: {
+                /** @description Service name, or its key when the name is used in more than one domain */
+                service: string;
+                /** @description Hops out on each side (0 = 1, at most 2) */
+                hops?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProductMapFocus"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-map-nodes": {
+        parameters: {
+            query: {
+                /** @description Grouping the group belongs to: domain (default), team or environment */
+                groupBy?: string;
+                /** @description Group key, as the map answer names it */
+                group: string;
+                /** @description Outside the environment grouping, marks the nodes that run in this environment and the version they run */
+                environment?: string;
+                offset?: number;
+                /** @description Nodes a page (0 = 1000, at most 5000) */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Fleet.MapNodes"];
                 };
             };
             /** @description Error */

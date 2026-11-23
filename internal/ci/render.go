@@ -1,6 +1,7 @@
 package ci
 
 import (
+	"cmp"
 	"fmt"
 	"html"
 	"io"
@@ -236,8 +237,56 @@ func footer(p *Plan) []string {
 		for _, n := range r.Notes {
 			out = append(out, cell(r.Service)+": "+n)
 		}
+		for _, l := range carriedLines(r) {
+			out = append(out, cell(r.Service)+": "+l)
+		}
 	}
 	return out
+}
+
+// carriedLines are one line per field a registry decision names for r, then
+// where its version comes from; none when it names no field.
+func carriedLines(r Row) []string {
+	if len(r.Carried) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(r.Carried)+1)
+	for _, c := range r.Carried {
+		label := strings.TrimPrefix(strings.NewReplacer("[", ".", "]", "").Replace(c.Field), "service.")
+		verb := "accepted"
+		if c.Field == "service.owner" {
+			verb = "declared"
+		}
+		at := rev(c.Record)
+		switch c.State {
+		case CarriedOverridden:
+			out = append(out, label+": "+c.Value+", from pacto.yaml ("+c.Reason+", rev "+at+")")
+		case CarriedDropped:
+			out = append(out, label+": "+c.Value+", "+verb+" in registry (rev "+at+"), not carried: "+c.Reason)
+		default:
+			out = append(out, label+": "+c.Value+", "+verb+" in registry (rev "+at+")")
+		}
+	}
+	switch v := cmp.Or(r.To, r.Next); {
+	case v == "":
+	case r.Derived && r.BaselineDigest == "":
+		out = append(out, "service.version: "+v+", derived from "+cell(r.Baseline))
+	case r.Derived:
+		out = append(out, "service.version: "+v+", derived from "+r.Baseline+" (rev "+rev(r.BaselineDigest)+")")
+	default:
+		out = append(out, "service.version: "+v+", from pacto.yaml")
+	}
+	return out
+}
+
+// rev is a digest, or a reference ending in one, as sha256:<12 hex>; anything
+// else as it is.
+func rev(ref string) string {
+	_, d, ok := strings.Cut(ref, "sha256:")
+	if !ok {
+		return ref
+	}
+	return "sha256:" + d[:min(12, len(d))]
 }
 
 // cell is s, or "-" for an empty cell.

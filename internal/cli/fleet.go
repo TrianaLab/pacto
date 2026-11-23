@@ -46,6 +46,7 @@ func newFleetCommand(svc *app.Service, v *viper.Viper, d deps, rec *runRecorder)
 	cmd.AddCommand(newFleetEntityCommand(svc, v, d))
 	cmd.AddCommand(newFleetAttentionCommand(svc, v))
 	cmd.AddCommand(newFleetNeighborhoodCommand(svc, v))
+	cmd.AddCommand(newFleetMapCommand(svc, v))
 	cmd.AddCommand(newFleetVersionsCommand(svc, v))
 	cmd.AddCommand(newFleetOverviewCommand(svc, v))
 	cmd.AddCommand(newFleetPublishInferredCommand(svc, v))
@@ -71,12 +72,12 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
 	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
-	shared.Bool("k8s", false, "include live Pacto CRs from the current Kubernetes cluster as targets")
+	shared.Bool("k8s", false, "include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster")
 	shared.StringArray("context", nil, "kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once")
 	shared.String("namespace", "", "namespaces to read Pacto CRs from with --k8s, comma-separated (empty = all namespaces)")
 	shared.Duration("freshness", fleet.RecentEvidenceWindow, "mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so)")
 	shared.String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused")
-	shared.String("detected", "", "add what the operator detected as inferred rows: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON")
+	shared.String("detected", "", "add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)")
 	shared.String("fingerprints", "", "a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers")
 	shared.StringArray("target-snapshot", nil, "signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests "+
 		"to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off")
@@ -236,7 +237,25 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		RegistryProbe:           app.NewRegistryProbe(),
 		Now:                     fleetNow,
 		Index:                   index,
+		ClusterJoins:            fleetJoins(cmd, fleetDeps(), includeK8s, detected),
 	}
+}
+
+// fleetJoins reads the members this cluster approved as a hub when the
+// command reads the current cluster (--k8s) and what its operator detected
+// (--detected k8s:), from the registry the operator advertises, with the
+// approver signers in --delivery-namespace where the command has it; nil
+// otherwise.
+func fleetJoins(cmd *cobra.Command, d deps, includeK8s bool, detected string) *app.JoinOptions {
+	if !includeK8s || !strings.HasPrefix(detected, "k8s:") || !hasClusterConfig(d) {
+		return nil
+	}
+	ns, _ := cmd.Flags().GetString("delivery-namespace")
+	// Resolved at each read, so a long-running reader follows the detection.
+	return &app.JoinOptions{Resolve: func(ctx context.Context) (app.JoinOptions, error) {
+		_, opts, err := hubJoins(ctx, d, "", "", detected, ns)
+		return opts, err
+	}}
 }
 
 // targetSnapshotRefs drops auto and off from the --target-snapshot values:

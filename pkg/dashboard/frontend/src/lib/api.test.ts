@@ -155,6 +155,24 @@ describe('product endpoint serialization + schema validation', () => {
     expect(q.get('maxEdges')).toBe('80');
   });
 
+  it('fleetMap, fleetMapNodes and fleetMapFocus serialize their queries', async () => {
+    mockFetch.mockResolvedValue(productResponse({ groups: [] }));
+    await api.fleetMap({ groupBy: 'team' });
+    expect(urlFor().pathname).toBe('/api/fleet/map');
+    expect(urlFor().searchParams.get('groupBy')).toBe('team');
+    mockFetch.mockResolvedValue(productResponse({ nodes: [] }));
+    await api.fleetMapNodes({ groupBy: 'domain', group: 'payments', environment: 'prod', offset: 1000, limit: 1000 });
+    expect(urlFor(1).searchParams.get('environment')).toBe('prod');
+    expect(urlFor(1).pathname).toBe('/api/fleet/map/nodes');
+    expect(urlFor(1).searchParams.get('group')).toBe('payments');
+    expect(urlFor(1).searchParams.get('offset')).toBe('1000');
+    mockFetch.mockResolvedValue(productResponse({ columns: [] }));
+    await api.fleetMapFocus({ service: 'pay', hops: 2 });
+    expect(urlFor(2).pathname).toBe('/api/fleet/map/focus');
+    expect(urlFor(2).searchParams.get('service')).toBe('pay');
+    expect(urlFor(2).searchParams.get('hops')).toBe('2');
+  });
+
   it('fleetAttention serializes filters and staleOnly', async () => {
     mockFetch.mockResolvedValue(productResponse({ items: [] }));
     await api.fleetAttention({ category: 'stale', severity: 'warning', staleOnly: true, limit: 3, offset: 6 });
@@ -254,6 +272,25 @@ describe('entity-detail runtime narrowing', () => {
     // violates the product contract must surface as an ApiContractError.
     mockFetch.mockResolvedValue(jsonResponse({ meta, entity: { kind: 'service' }, revision: {} }));
     await expect(api.fleetEntityDetail('service', 'svc')).rejects.toBeInstanceOf(ApiContractError);
+  });
+});
+
+describe('fleetClusters', () => {
+  it('GET /api/fleet/clusters resolves the join list', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ hub: { uid: 'h' }, repository: 'r', asOf: '', completeness: 'complete', clusters: [], hidden: 0, otherHubs: 0, canApprove: true }));
+    const res = await api.fleetClusters();
+    expect(urlFor().pathname).toBe('/api/fleet/clusters');
+    expect(res?.canApprove).toBe(true);
+  });
+
+  it('resolves null on a 404: this host reads no joins', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 404, title: 'Not Found' }, 404));
+    await expect(api.fleetClusters()).resolves.toBeNull();
+  });
+
+  it('throws with the problem detail on a 502', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 502, detail: 'cannot read ghcr.io/acme/pacto-targets' }, 502));
+    await expect(api.fleetClusters()).rejects.toThrow('cannot read ghcr.io/acme/pacto-targets');
   });
 });
 

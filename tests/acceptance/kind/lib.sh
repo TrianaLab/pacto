@@ -41,11 +41,15 @@
 #   pacto_status NS NAME           the CR's contractStatus (empty while unset)
 #   wait_pacto_status NS NAME WANT poll for it, dumping the CR when it never lands
 #   install_registry               an in-cluster OCI registry, ready to push to
+#   node_pulls_from_registry       the kind nodes pull images from that registry
 #   trust_keypair BIN [KEY] [PROD] producer keypair + the Secret evidence mounts
 #   push_bundle BIN PORT DIR REF   publish a bundle -> prints the manifest digest
 #   dump_diag NS                   best-effort diagnostics for a failed run
 #   pf LOCAL_PORT TARGET REMOTE    a port-forward that is already answering
 #   dash_token_login PORT TOKEN [link]  sign in to a forwarded dashboard with a token
+#   can_i VERB RESOURCE AS [args]  kubectl auth can-i as AS -> prints yes or no
+#   pacto_clusterroles / count_pacto_clusterroles  ClusterRoles and bindings named pacto*
+#   assert_release_gone RELEASE    the release left no Role, binding or pacto* ClusterRole
 #   keep_or_teardown NS CLUSTER FN tear down unless KEEP_E2E_CLUSTER is set
 #   helm_teardown NS               uninstall the release, drop the namespace
 
@@ -210,6 +214,7 @@ pull_pinned() {
 # whatever cluster the developer happens to be pointed at.
 _kubeconfig_for_cluster() {
   KUBECONFIG="$(mktemp)"; export KUBECONFIG
+  # shellcheck disable=SC2153  # CLUSTER is the caller's global (header)
   kind get kubeconfig --name "$CLUSTER" > "$KUBECONFIG"
 }
 
@@ -415,10 +420,20 @@ PACTO_REGISTRY_IMAGE="ghcr.io/project-zot/zot-minimal:v2.1.20@sha256:73f26433b34
 # overwrite. A scenario that already put the image on the host under its tag
 # (the delivery demo loads it from CI's one-time pull) sets
 # PACTO_REGISTRY_IMAGE_PRESENT and the pull is skipped.
+#
+# zot's own config with docker2s2 compat: zot refuses a Docker schema 2
+# manifest by default, and a docker push from the classic image store (CI's
+# runners) writes one. Every registry Pacto meets in practice takes it.
 install_registry() {
   [ -n "${PACTO_REGISTRY_IMAGE_PRESENT:-}" ] || pull_pinned "$PACTO_REGISTRY_IMAGE"
   load_images "${PACTO_REGISTRY_IMAGE%@*}"
   kubectl -n "$NS" apply -f - >/dev/null <<YAML
+apiVersion: v1
+kind: ConfigMap
+metadata: { name: pacto-registry-config }
+data:
+  config.json: '{"storage":{"rootDirectory":"/var/lib/registry"},"http":{"address":"0.0.0.0","port":"5000","compat":["docker2s2"]},"log":{"level":"debug"}}'
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata: { name: pacto-registry, labels: { app: pacto-registry } }
@@ -429,7 +444,12 @@ spec:
     metadata: { labels: { app: pacto-registry } }
     spec:
       containers:
-      - { name: registry, image: ${PACTO_REGISTRY_IMAGE%@*}, imagePullPolicy: Never, ports: [ { containerPort: 5000 } ] }
+      - name: registry
+        image: ${PACTO_REGISTRY_IMAGE%@*}
+        imagePullPolicy: Never
+        ports: [ { containerPort: 5000 } ]
+        volumeMounts: [ { name: config, mountPath: /etc/zot, readOnly: true } ]
+      volumes: [ { name: config, configMap: { name: pacto-registry-config } } ]
 ---
 apiVersion: v1
 kind: Service
@@ -439,6 +459,20 @@ spec:
   ports: [ { port: 5000, targetPort: 5000 } ]
 YAML
   wait_ready pacto-registry 120s
+}
+
+# node_pulls_from_registry — the nodes do not resolve cluster names, so the
+# in-cluster registry name ($REG_HOST) is mapped to its ClusterIP for
+# containerd. The cluster must be created with containerd's config_path set to
+# /etc/containerd/certs.d, which is where it reads per-registry hosts.toml.
+node_pulls_from_registry() {
+  local ip node dir="/etc/containerd/certs.d/$REG_HOST"
+  ip="$(kubectl -n "$NS" get svc pacto-registry -o jsonpath='{.spec.clusterIP}')"
+  for node in $(kind get nodes --name "$CLUSTER"); do
+    docker exec "$node" mkdir -p "$dir"
+    printf 'server = "http://%s:5000"\n[host."http://%s:5000"]\n  capabilities = ["pull", "resolve"]\n' "$ip" "$ip" \
+      | docker exec -i "$node" tee "$dir/hosts.toml" >/dev/null
+  done
 }
 
 # PACTO_NOREFERRERS_REGISTRY_IMAGE is CNCF distribution, which serves no
@@ -646,6 +680,49 @@ dash_token_login() {
   rm -f "$body"
 }
 
+# mcp_rpc URL TOKEN METHOD PARAMS — one JSON-RPC call to the MCP endpoint URL
+# (http://host:port/mcp), with TOKEN as the bearer when given; prints the JSON
+# answer once (the servers are stateless: no initialize needed). The `t` ends
+# the cycle after a stripped SSE data line, which now starts with `{` and would
+# otherwise print twice.
+mcp_rpc() {
+  local auth=(); [ -n "$2" ] && auth=(-H "Authorization: Bearer $2")
+  curl -s "${auth[@]}" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' \
+    -H 'Mcp-Protocol-Version: 2025-06-18' \
+    -d "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"$3\",\"params\":$4}" "$1" | sed -n -e 's/^data: //p' -e t -e '/^{/p'
+}
+# mcp_tool URL TOKEN NAME ARGS — one tool call's text answer; a refusal prints
+# as "ERROR: <text>".
+mcp_tool() {
+  mcp_rpc "$1" "$2" tools/call "{\"name\":\"$3\",\"arguments\":$4}" |
+    jq -r 'if .error then "ERROR: \(.error.message)" elif .result.isError then "ERROR: \(.result.content[0].text)" else .result.content[0].text end'
+}
+
+# --- RBAC ---------------------------------------------------------------------
+
+can_i() { # VERB RESOURCE AS [kubectl args...] — prints yes or no
+  local verb="$1" res="$2" as="$3"; shift 3
+  kubectl auth can-i "$verb" "$res" --as="$as" "$@" 2>/dev/null || true
+}
+
+# The dashboard's TokenReview grant is excluded by name: least-privilege.sh
+# checks it exactly, and assert_release_gone's instance-label check still
+# catches a leak.
+pacto_clusterroles() { kubectl get clusterrole,clusterrolebinding -o name | grep '/pacto' | grep -v -- '-dashboard-tokenreview$' || true; }
+count_pacto_clusterroles() { pacto_clusterroles | grep -c . || true; }
+
+assert_release_gone() { # RELEASE
+  local left
+  left="$(kubectl get role,rolebinding,clusterrole,clusterrolebinding -A -l "app.kubernetes.io/instance=$1" -o name)"
+  [ -z "$left" ] || fail "release $1 left RBAC behind: $left"
+  for kind in role rolebinding clusterrole clusterrolebinding; do
+    left="$(kubectl get "$kind" -A --field-selector metadata.name=pacto-dashboard -o name)"
+    [ -z "$left" ] || fail "a $kind named pacto-dashboard is left: $left"
+  done
+  [ "$(count_pacto_clusterroles)" = "0" ] || fail "ClusterRoles or bindings named pacto* are left: $(pacto_clusterroles)"
+  pass "release $1 left no Role, RoleBinding, ClusterRole or ClusterRoleBinding"
+}
+
 # keep_or_teardown NS CLUSTER [TEARDOWN_FN] — tear the run down UNLESS
 # KEEP_E2E_CLUSTER is set/non-empty, in which case the deployed state is left in
 # place for interactive inspection:
@@ -678,4 +755,17 @@ keep_or_teardown() {
 helm_teardown() { # NS — the generic cleanup: uninstall the release, drop the namespace
   helm uninstall pacto-operator -n "$1" --wait >/dev/null 2>&1 || true
   kubectl delete ns "$1" --wait=false >/dev/null 2>&1 || true
+}
+
+# cluster_approver_role CONTEXT — the ClusterRole pacto-cluster-approver, granting
+# approve on clusterjoins.pacto.trianalab.io. The hub authorizes an approval with
+# a SubjectAccessReview on that resource, which no API serves, so it is written
+# as YAML: `kubectl create clusterrole` refuses a resource discovery does not list.
+cluster_approver_role() {
+  kubectl --context "$1" apply -f - >/dev/null <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: pacto-cluster-approver}
+rules: [{apiGroups: [pacto.trianalab.io], resources: [clusterjoins], verbs: [approve]}]
+YAML
 }

@@ -50,9 +50,9 @@ test.describe('WCAG A/AA axe gate over product states', () => {
     await audit(page, ti);
   });
 
-  test('Attention', async ({ page }, ti) => {
-    await page.goto('/#/fleet/attention');
-    await expect(page.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
+  test('Attention (the Overview with its list open and filtered)', async ({ page }, ti) => {
+    await page.goto('/#/fleet/attention?severity=error');
+    await expect(page.getByTestId('fleet-map-rail-filtered')).toBeVisible({ timeout: 20_000 });
     await audit(page, ti);
   });
 
@@ -66,20 +66,27 @@ test.describe('WCAG A/AA axe gate over product states', () => {
     await audit(page, ti);
   });
 
-  test('Operational Graph discovery', async ({ page }, ti) => {
+  test('Operational Graph: the fleet map full screen', async ({ page }, ti) => {
     await page.goto('/#/fleet/graph');
-    await expect(page.getByTestId('graph-discovery')).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('fleet-map-summary')).toBeVisible({ timeout: 20_000 });
     await audit(page, ti);
   });
 
-  test('Focused visual graph', async ({ page }, ti) => {
+  test('Fleet map in focus on a service', async ({ page }, ti) => {
     await page.goto('/#/fleet/graph/service/payments-service');
+    await expect(page.getByTestId('fleet-map-focus')).toBeVisible({ timeout: 20_000 });
+    await audit(page, ti);
+  });
+
+  // A service focus is the map; an external, revision, target or owner focus keeps the neighbourhood.
+  test('Focused visual graph', async ({ page }, ti) => {
+    await page.goto('/#/fleet/graph/external/parcel-carrier');
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
     await audit(page, ti);
   });
 
   test('Graph quick-inspection drawer open', async ({ page }, ti) => {
-    await page.goto('/#/fleet/graph/service/payments-service');
+    await page.goto('/#/fleet/graph/external/parcel-carrier');
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
     await page.getByTestId('graph-textalt').locator('summary').click();
     await page.getByTestId('graph-node-item').first().click();
@@ -112,10 +119,10 @@ test.describe('WCAG A/AA axe gate over product states', () => {
     await audit(page, ti);
   });
 
-  test('LIGHT: Attention (severity + category badges)', async ({ page }, ti) => {
+  test('LIGHT: Attention (severity groups beside the map)', async ({ page }, ti) => {
     await lightTheme(page);
     await page.goto('/#/fleet/attention');
-    await expect(page.getByRole('heading', { level: 1, name: 'Needs attention' })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByTestId('fleet-map-rail-item').first()).toBeVisible({ timeout: 20_000 });
     await audit(page, ti);
   });
 
@@ -138,7 +145,7 @@ test.describe('WCAG A/AA axe gate over product states', () => {
 
   test('LIGHT: Focused visual graph (active segmented controls + legend)', async ({ page }, ti) => {
     await lightTheme(page);
-    await page.goto('/#/fleet/graph/service/payments-service');
+    await page.goto('/#/fleet/graph/external/parcel-carrier');
     await expect(page.getByTestId('neighborhood-canvas')).toBeVisible({ timeout: 20_000 });
     await audit(page, ti);
   });

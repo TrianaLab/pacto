@@ -35,10 +35,18 @@ type MCPConfig struct {
 // MCP verifies bearer tokens and exchanges them for the apiserver.
 type MCP struct {
 	cfg      MCPConfig
-	client   *http.Client
 	verifier *oidc.IDTokenVerifier
-	tokenURL string
-	now      func() time.Time
+	tokenExchange
+}
+
+// tokenExchange trades tokens at an issuer's token endpoint (RFC 8693) as
+// one OAuth client, caching each answer by key until it or its subject
+// expires.
+type tokenExchange struct {
+	client                 *http.Client
+	tokenURL               string
+	clientID, clientSecret string
+	now                    func() time.Time
 
 	mu    sync.Mutex
 	cache map[[32]byte]exchanged
@@ -66,7 +74,8 @@ func NewMCP(cfg MCPConfig) (*MCP, error) {
 	if err != nil {
 		return nil, err
 	}
-	m := &MCP{cfg: cfg, client: client, tokenURL: p.Endpoint().TokenURL, now: time.Now, cache: map[[32]byte]exchanged{}}
+	m := &MCP{cfg: cfg, tokenExchange: tokenExchange{client: client, tokenURL: p.Endpoint().TokenURL, clientID: cfg.ClientID,
+		clientSecret: cfg.ClientSecret, now: time.Now, cache: map[[32]byte]exchanged{}}}
 	m.verifier = p.Verifier(&oidc.Config{ClientID: cfg.Audience, Now: func() time.Time { return m.now() }})
 	return m, nil
 }
@@ -110,16 +119,22 @@ func (m *MCP) Exchange(ctx context.Context, info *auth.TokenInfo) (string, error
 		return "", errors.New("token exchange is not configured")
 	}
 	token, _ := info.Extra[rawTokenKey].(string)
-	key := sha256.Sum256([]byte(token))
-	now := m.now()
-	m.mu.Lock()
-	for k, e := range m.cache { // drop what expired, so the cache stays bounded by live callers
+	return m.exchange(ctx, token, m.cfg.ExchangeAudience, sha256.Sum256([]byte(token)), info.Expiration)
+}
+
+// exchange trades token for one whose audience is audience, keeping the
+// answer under key until the earlier of until and its own expiry. Neither
+// token ever enters an error.
+func (x *tokenExchange) exchange(ctx context.Context, token, audience string, key [32]byte, until time.Time) (string, error) {
+	now := x.now()
+	x.mu.Lock()
+	for k, e := range x.cache { // drop what expired, so the cache stays bounded by live callers
 		if !now.Before(e.until) {
-			delete(m.cache, k)
+			delete(x.cache, k)
 		}
 	}
-	e, ok := m.cache[key]
-	m.mu.Unlock()
+	e, ok := x.cache[key]
+	x.mu.Unlock()
 	if ok {
 		return e.token, nil
 	}
@@ -132,23 +147,22 @@ func (m *MCP) Exchange(ctx context.Context, info *auth.TokenInfo) (string, error
 		"subject_token":        {token},
 		"subject_token_type":   {"urn:ietf:params:oauth:token-type:access_token"},
 		"requested_token_type": {"urn:ietf:params:oauth:token-type:access_token"},
-		"audience":             {m.cfg.ExchangeAudience},
+		"audience":             {audience},
 	}
-	if err := postForm(ctx, m.client, m.tokenURL, m.cfg.ClientID, m.cfg.ClientSecret, form, &out); err != nil {
+	if err := postForm(ctx, x.client, x.tokenURL, x.clientID, x.clientSecret, form, &out); err != nil {
 		return "", fmt.Errorf("exchanging your token for the cluster failed: %w", err)
 	}
 	if out.AccessToken == "" {
 		return "", errors.New("the identity provider's token exchange returned no access token")
 	}
-	until := info.Expiration
 	if out.ExpiresIn > 0 {
 		if t := now.Add(time.Duration(out.ExpiresIn) * time.Second); t.Before(until) {
 			until = t
 		}
 	}
-	m.mu.Lock()
-	m.cache[key] = exchanged{token: out.AccessToken, until: until}
-	m.mu.Unlock()
+	x.mu.Lock()
+	x.cache[key] = exchanged{token: out.AccessToken, until: until}
+	x.mu.Unlock()
 	return out.AccessToken, nil
 }
 

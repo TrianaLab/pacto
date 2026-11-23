@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
@@ -19,6 +20,8 @@ import (
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
+
+	core "github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
 // serviceAccountAC returns a server-side apply configuration for the dashboard ServiceAccount.
@@ -123,8 +126,8 @@ func clusterRoleBindingAC(cfg Config) runtime.ApplyConfiguration {
 		)
 }
 
-// authEnv passes the sign-in settings to the dashboard; the client secret only
-// by secretKeyRef.
+// authEnv passes the sign-in and Declare settings to the dashboard; client
+// secrets only by secretKeyRef.
 func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	var env []*corev1ac.EnvVarApplyConfiguration
 	add := func(name, value string) {
@@ -160,12 +163,49 @@ func authEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 	if a.AllowAnonymous && a.IssuerURL == "" && !a.TokenLogin {
 		add("PACTO_DASHBOARD_ALLOW_ANONYMOUS", "true")
 	}
+	if a.mcpServed() {
+		add("PACTO_DASHBOARD_MCP", "true")
+		add("PACTO_DASHBOARD_MCP_URL", a.MCPURL)
+		add("PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE", a.MCPExchangeAudience)
+	}
 	if a.ClientSecretName != "" {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_OIDC_CLIENT_SECRET").WithValueFrom(
 			corev1ac.EnvVarSource().WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.ClientSecretName).
 				WithKey(keyOr(a.ClientSecretKey, "client-secret")))))
 	}
+	return append(env, declareEnv(cfg)...)
+}
+
+// declareEnv passes how the dashboard signs and publishes declarations: the
+// signing client (its secret by secretKeyRef), the Sigstore, the registry and
+// the path of the push credential mounted by authVolumes.
+func declareEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
+	var env []*corev1ac.EnvVarApplyConfiguration
+	a := cfg.Auth
+	push := ""
+	if cfg.DeclareRegistrySecret != "" {
+		push = declareRegistryDir + "/config.json"
+	}
+	for _, kv := range [][2]string{{"PACTO_DASHBOARD_SIGN_CLIENT_ID", a.SignClientID},
+		{"PACTO_DASHBOARD_SIGN_REDIRECT_URL", a.SignRedirectURL}, {"PACTO_DASHBOARD_FULCIO_URL", cfg.FulcioURL},
+		{"PACTO_DASHBOARD_REKOR_URL", cfg.RekorURL}, {"PACTO_DASHBOARD_TIMESTAMP_URL", cfg.TimestampURL},
+		{"PACTO_DASHBOARD_REGISTRY", cfg.Registry}, {"PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG", push}} {
+		if kv[1] != "" {
+			env = append(env, corev1ac.EnvVar().WithName(kv[0]).WithValue(kv[1]))
+		}
+	}
+	if a.SignClientSecretName != "" {
+		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_SIGN_CLIENT_SECRET").WithValueFrom(corev1ac.EnvVarSource().
+			WithSecretKeyRef(corev1ac.SecretKeySelector().WithName(a.SignClientSecretName).
+				WithKey(keyOr(a.SignClientSecretKey, "client-secret")))))
+	}
 	return env
+}
+
+// mcpServed is the chart's usable-sign-in rule: the dashboard refuses --mcp
+// without one.
+func (a AuthConfig) mcpServed() bool {
+	return a.MCP && (a.TokenLogin || (a.IssuerURL != "" && a.MCPExchangeAudience != "" && a.MCPURL != ""))
 }
 
 // deliveryEnv passes what the delivery and Metrics views read: the namespace
@@ -191,6 +231,9 @@ func deliveryEnv(cfg Config) []*corev1ac.EnvVarApplyConfiguration {
 const (
 	oidcCADir        = "/etc/pacto/oidc-ca"
 	deliveryTrustDir = "/etc/pacto/delivery-trust"
+	// The Declare writer's push credential: its own directory, never the read
+	// keychain at /home/pacto/.docker.
+	declareRegistryDir = "/etc/pacto/declare-registry"
 )
 
 func keyOr(key, def string) string {
@@ -222,6 +265,12 @@ func authVolumes(cfg Config) ([]*corev1ac.VolumeMountApplyConfiguration, []*core
 		add("delivery-trust", deliveryTrustDir, corev1ac.Volume().WithConfigMap(corev1ac.ConfigMapVolumeSource().WithName(t.Name).
 			WithItems(corev1ac.KeyToPath().WithKey(key).WithPath(key))))
 	}
+	// Not optional: the dashboard refuses to start on a missing push
+	// credential, so the pod waits for the Secret instead.
+	if s := cfg.DeclareRegistrySecret; s != "" {
+		add("declare-registry", declareRegistryDir, corev1ac.Volume().WithSecret(corev1ac.SecretVolumeSource().WithSecretName(s).
+			WithItems(corev1ac.KeyToPath().WithKey(string(corev1.DockerConfigJsonKey)).WithPath("config.json"))))
+	}
 	return mounts, vols
 }
 
@@ -246,11 +295,20 @@ const (
 	ownerPolicyKey       = "policy.json"
 )
 
+// The managed dashboard verifies declarations with the trusted root in this file.
+const (
+	trustedRootEnvVar    = "PACTO_DASHBOARD_TRUSTED_ROOT"
+	trustedRootMountPath = "/etc/pacto/trusted-root"
+	trustedRootKey       = "trusted_root.json"
+)
+
 // deploymentAC returns a server-side apply configuration for the dashboard Deployment.
 func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 	env := []*corev1ac.EnvVarApplyConfiguration{
 		corev1ac.EnvVar().WithName("PACTO_DASHBOARD_PORT").WithValue("3000"),
 		corev1ac.EnvVar().WithName("PACTO_NO_UPDATE_CHECK").WithValue("1"),
+		corev1ac.EnvVar().WithName("PACTO_DASHBOARD_OTLP_RECEIVER").
+			WithValue(fmt.Sprintf("http://%s.%s:%d", Name, cfg.Namespace, OTLPPort)),
 	}
 	if len(cfg.WatchNamespaces) > 0 {
 		env = append(env, corev1ac.EnvVar().WithName("PACTO_DASHBOARD_NAMESPACE").WithValue(strings.Join(cfg.WatchNamespaces, ",")))
@@ -338,6 +396,7 @@ func deploymentAC(cfg Config) runtime.ApplyConfiguration {
 		WithImage(cfg.Image).
 		WithPorts(
 			corev1ac.ContainerPort().WithName("http").WithContainerPort(DashboardPort).WithProtocol(corev1.ProtocolTCP),
+			corev1ac.ContainerPort().WithName("otlp-http").WithContainerPort(OTLPPort).WithProtocol(corev1.ProtocolTCP),
 		).
 		WithEnv(env...).
 		WithVolumeMounts(volumeMounts...).
@@ -395,6 +454,11 @@ func serviceAC(cfg Config) runtime.ApplyConfiguration {
 					WithPort(DashboardPort).
 					WithTargetPort(intstr.FromInt32(DashboardPort)).
 					WithProtocol(corev1.ProtocolTCP),
+				corev1ac.ServicePort().
+					WithName("otlp-http").
+					WithPort(OTLPPort).
+					WithTargetPort(intstr.FromInt32(OTLPPort)).
+					WithProtocol(corev1.ProtocolTCP),
 			),
 		)
 	if cfg.OwnerRef != nil {
@@ -433,7 +497,9 @@ func configMapFiles(cfg Config) ([]*corev1ac.EnvVarApplyConfiguration, []*corev1
 		// dashboard names the detection source unavailable.
 		vols = append(vols, corev1ac.Volume().WithName("detected").WithConfigMap(
 			corev1ac.ConfigMapVolumeSource().WithName(cfg.DetectedConfigMap).
-				WithItems(corev1ac.KeyToPath().WithKey(detectedKey).WithPath(detectedKey)).
+				WithItems(corev1ac.KeyToPath().WithKey(detectedKey).WithPath(detectedKey),
+					// The linker's key, read from beside the detection file.
+					corev1ac.KeyToPath().WithKey(core.LinkedConfigMapKey).WithPath(core.LinkedConfigMapKey)).
 				WithOptional(true)))
 	}
 
@@ -456,6 +522,15 @@ func configMapFiles(cfg Config) ([]*corev1ac.EnvVarApplyConfiguration, []*corev1
 			corev1ac.ConfigMapVolumeSource().WithName(cfg.OwnerPolicyConfigMap).
 				WithItems(corev1ac.KeyToPath().WithKey(ownerPolicyKey).WithPath(ownerPolicyKey)).
 				WithOptional(true)))
+	}
+
+	if cfg.TrustedRootConfigMap != "" {
+		env = append(env, corev1ac.EnvVar().WithName(trustedRootEnvVar).WithValue(trustedRootMountPath+"/"+trustedRootKey))
+		mounts = append(mounts,
+			corev1ac.VolumeMount().WithName("trusted-root").WithMountPath(trustedRootMountPath).WithReadOnly(true))
+		vols = append(vols, corev1ac.Volume().WithName("trusted-root").WithConfigMap(
+			corev1ac.ConfigMapVolumeSource().WithName(cfg.TrustedRootConfigMap).
+				WithItems(corev1ac.KeyToPath().WithKey(trustedRootKey).WithPath(trustedRootKey))))
 	}
 	return env, mounts, vols
 }

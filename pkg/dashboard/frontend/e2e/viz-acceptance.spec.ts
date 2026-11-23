@@ -27,7 +27,6 @@ import { runAnalysis } from './typographyChecks';
 const SURFACES = [
   { hash: '#/fleet', name: 'Operational Overview' },
   { hash: '#/fleet/services', name: 'Services list' },
-  { hash: '#/fleet/attention', name: 'Attention' },
 ];
 
 /** A figure is "a visualization" if it carries one of the shared viz roots. */
@@ -81,8 +80,10 @@ async function auditFigures(page: Page): Promise<number> {
     for (const fig of figures) {
       const cap = fig.querySelector('figcaption');
       const heading = cap?.querySelector('h1,h2,h3,h4,h5,h6');
-      const name = heading?.textContent?.trim() || '';
-      // An accessible name, from a real heading -- not a title attribute, not a class.
+      // An accessible name, from a real heading -- not a title attribute, not a class. A
+      // bar inside a tile the tile's own heading already titles (DistributionBar's `label`)
+      // is named by aria-label instead, so it does not repeat the heading.
+      const name = heading?.textContent?.trim() || (cap ? '' : fig.getAttribute('aria-label')?.trim()) || '';
       if (!name) { problems.push(`figure with no caption heading: ${fig.className}`); continue; }
 
       // Every graphic element is hidden from assistive technology, because the text beside
@@ -167,7 +168,8 @@ test.describe('Every product visualization is named, textual and keyboard-operab
     expect(outline).not.toBe('none 0px none');
     await page.keyboard.press('Enter');
     await expect(page).toHaveURL(new RegExp(href!.replace('#', '').replace(/[?&]/g, '.')));
-    await expect(page.getByTestId('attention-shape')).toBeVisible();
+    // The attention link opens the list beside the Overview's map.
+    await expect(page.getByTestId('fleet-map-rail')).toBeVisible();
   });
 
   // Everything that moves is marked `data-motion` in its markup, so this gate is a SWEEP

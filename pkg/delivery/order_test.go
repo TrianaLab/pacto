@@ -440,6 +440,12 @@ func TestAcceptsWhatRunsHereDerivedName(t *testing.T) {
 	if why, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", foreign).Contract, "payments"); why != "" || err != nil {
 		t.Fatalf("the shipping published at the ref: %q %v", why, err)
 	}
+	local := foreign
+	local.Ref = "file://../shipping"
+	if _, err := acceptsWhatRunsHere(s, bundle("orders", "1.9.0", local).Contract, "payments"); err == nil ||
+		!strings.Contains(err.Error(), "Pacto sees no shipping running here") {
+		t.Fatalf("a name derived from a local ref matched: %v", err)
+	}
 }
 
 func TestOrderNeverMovesTheConsumerBack(t *testing.T) {

@@ -58,6 +58,11 @@ check("GET /api/sources keeps its shape",
 // every new endpoint the redesigned dashboard calls must answer for real.
 const caps = json(call("GET", "/api/capabilities"));
 check("capabilities: fleet+impact+observed enabled", caps.fleet === true && caps.impact === true && caps.observed === true, JSON.stringify(caps));
+const inst = caps.installation || {};
+check("capabilities: installation names the default profile and every part its source",
+  JSON.stringify((inst.profile || {}).value) === JSON.stringify(["default"])
+    && ["profile", "registry", "delivery", "provisioning", "clusters", "mcp"].every((p) => typeof (inst[p] || {}).source === "string" && inst[p].source !== ""),
+  JSON.stringify(inst));
 
 const snap = json(call("GET", "/api/fleet/snapshot"));
 const svcCount = Object.keys(snap.services || {}).length;
@@ -214,7 +219,8 @@ check("service summary carries every posture dimension",
 
 // The target page is the runtime inspector: labels and observed runtime are the
 // two things only a collector can supply, and the page is empty without them.
-const prodTarget = (psvc.deployments.items || []).find((t) => t.key.startsWith("prod/"));
+// The demo is a hub with members, so a target key may start with its cluster.
+const prodTarget = (psvc.deployments.items || []).find((t) => /(^|\/)prod\//.test(t.key));
 const ptgt = entity("target", prodTarget.key).target || {};
 check("target detail carries observed runtime", (ptgt.observedRuntime || {}).total >= 2, `${(ptgt.observedRuntime || {}).total} values`);
 check("target detail carries labels", (ptgt.labels || {}).total >= 2, `${(ptgt.labels || {}).total} labels`);

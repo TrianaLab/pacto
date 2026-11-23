@@ -75,10 +75,14 @@ type Row struct {
 	Inferred       int    `json:"inferred"`
 	// Accepted is how many inferred fields signed acceptances made
 	// declared, carried from the baseline into this bundle.
-	Accepted int      `json:"accepted,omitempty"`
-	Reason   string   `json:"reason,omitempty"`
-	Notes    []string `json:"notes,omitempty"`
-	Errors   []string `json:"errors,omitempty"`
+	Accepted int `json:"accepted,omitempty"`
+	// Carried is what a registry declaration or a signed acceptance
+	// decided for this bundle: each field carried into pacto.yaml, left to
+	// pacto.yaml (overridden) or not carried (dropped), and why.
+	Carried []Carried `json:"carried,omitempty"`
+	Reason  string    `json:"reason,omitempty"`
+	Notes   []string  `json:"notes,omitempty"`
+	Errors  []string  `json:"errors,omitempty"`
 	// Publish mode only (pacto ci --publish), empty in plan mode: the version
 	// published, the tool that built the image, who signed, the bundle as
 	// <ref>@<digest>, the outcome (a State constant) and the attempts made.
@@ -95,6 +99,30 @@ type Row struct {
 	// impact answer found; they never change its gate or exit code.
 	Advisories []impact.InferredAdvisory `json:"advisories,omitempty"`
 }
+
+// Carried is one field a registry decision names for a row: the record key
+// (service.owner, dependencies[<name>] or dependencies[<name>].compatibility),
+// its value, where the published value comes from (registry, pacto.yaml or
+// derived), the decision kind (declared, accepted or derived), the decision
+// record and its signer, the state (carried, overridden or dropped) and why
+// a dropped one was dropped.
+type Carried struct {
+	Field  string `json:"field"`
+	Value  string `json:"value"`
+	From   string `json:"from"`
+	Kind   string `json:"kind"`
+	Record string `json:"record,omitempty"`
+	Signer string `json:"signer,omitempty"`
+	State  string `json:"state,omitempty"`
+	Reason string `json:"reason,omitempty"`
+}
+
+// The states of a Carried field.
+const (
+	CarriedCarried    = "carried"
+	CarriedOverridden = "overridden"
+	CarriedDropped    = "dropped"
+)
 
 // The outcomes of a row in publish mode.
 const (
@@ -190,6 +218,10 @@ func (p *Plan) redact() {
 		r.Published, r.Identity = Redact(r.Published), Redact(r.Identity)
 		redactAll(r.Notes)
 		redactAll(r.Errors)
+		for j := range r.Carried {
+			c := &r.Carried[j]
+			c.Value, c.Reason, c.Signer, c.Record = Redact(c.Value), Redact(c.Reason), Redact(c.Signer), Redact(c.Record)
+		}
 	}
 }
 

@@ -377,6 +377,9 @@ type ServiceDetailData struct {
 	// InferredFields is what Pacto inferred for the current revision and the
 	// revision does not declare, from its pacto.inferred.yaml.
 	InferredFields InferredPreview `json:"inferredFields"`
+	// ContractCompleteness is the service's contract checklist; nil for a golden
+	// path or an inferred service.
+	ContractCompleteness *ServiceCompleteness `json:"contractCompleteness,omitempty"`
 	// Summary aggregates the COMPLETE target/revision/edge populations. The
 	// previews below are bounded, so a consumer that needs a proportion or a total
 	// must read it here and never count preview Items.
@@ -430,6 +433,8 @@ type ServiceDetailData struct {
 	Replaces       []Replacement     `json:"replaces,omitempty" doc:"The inferred services this service replaced, at most 200"`
 	ReplacesTotal  int               `json:"replacesTotal,omitempty" doc:"How many inferred services this service replaced"`
 	ReplacesHidden int               `json:"replacesHidden,omitempty" doc:"Replacements of this service whose workload you may not see"`
+	// NextAction is set on an inferred service: declare its workload.
+	NextAction *NextAction `json:"nextAction,omitempty" doc:"The next step for an inferred service: declare a contract for its workload"`
 	// Fields is the service's field provenance, as in [ServiceView].
 	Fields *FieldsPreview `json:"fields,omitempty" doc:"Where each field of the current revision comes from: declared, accepted, attested or inferred"`
 }
@@ -788,6 +793,9 @@ type TargetDetailData struct {
 	// (see [TargetRecord.ClusterRelation]); both absent when no source named one.
 	Cluster         *Cluster `json:"cluster,omitempty" doc:"The cluster that reported this target, with how its name was found and who reported the name; absent when no source reported one"`
 	ClusterRelation string   `json:"clusterRelation,omitempty" enum:"runs-in,reported-through" doc:"runs-in when a Kubernetes source read the target in this cluster; reported-through when the cluster only reported or accepted it (evidence, target-state files)"`
+	// Link is set when the operator linked this workload to a published
+	// contract with no Pacto (see [TargetRecord.Link]).
+	Link *ObservedLink `json:"link,omitempty" doc:"Set when the target is a workload the operator linked to a published contract with no Pacto."`
 }
 
 // TargetEnvironment is the environment a target runs in, read from the
@@ -1428,6 +1436,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Policies:               pols,
 		Configurations:         cfgs,
 		InferredFields:         q.inferredPreview(cur),
+		ContractCompleteness:   q.serviceCompleteness(s),
 		Summary:                summary,
 		// Newest first, in revision chronology: a version list ordered by content
 		// digest is unreadable as history.
@@ -1558,6 +1567,7 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		// projection in O(bound), never re-flattening an arbitrarily wide raw map.
 		ObservedRuntime: t.ObservedRuntime,
 		ClusterRelation: t.ClusterRelation,
+		Link:            t.Link,
 	}
 	if t.Cluster != "" {
 		data.Cluster = &Cluster{ID: t.Cluster, Name: t.ClusterName, NameSource: t.ClusterNameSource, ReportedBy: t.ClusterNameReportedBy}
@@ -1633,6 +1643,7 @@ func (q *Query) ownerDetail(key string) (*EntityDetail, error) {
 		return nil, &NotFoundError{Kind: "owner", ID: key}
 	}
 	sum.Services, sum.Revisions, sum.Targets = len(services), len(revisions), len(deployments)
+	sum.Knowledge.finish()
 	sortEntityRefs(services)
 	sortEntityRefs(deployments)
 	sortEntityRefs(revisions)
@@ -1700,6 +1711,7 @@ func (q *Query) domainDetail(key string) (*EntityDetail, error) {
 		ownerRefs = append(ownerRefs, ownerEntityRef(k))
 	}
 	sum.Services, sum.Targets = len(services), len(deployments)
+	sum.Knowledge.finish()
 	sortEntityRefs(services)
 	sortEntityRefs(deployments)
 	// A constant, valid filter never errors.

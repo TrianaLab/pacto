@@ -8,7 +8,7 @@
  */
 
 import { formatCount } from './format.ts';
-import { formatDateTime } from './dateFormat.ts';
+import { formatDateTime, formatWhen } from './dateFormat.ts';
 
 export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
 
@@ -189,19 +189,14 @@ export function provenanceIsImplied(difference: string | undefined, provenance: 
 
 // ── attention categories ─────────────────────────────────────────────────────
 // The backend enum (pkg/fleet/product.go) is the wire truth; these are the words a
-// first-time user reads. Readiness is one of them ON PURPOSE: readiness is a
-// dimension of triage (declared contract preparedness), not a separate workspace,
-// so this list is also the Overview's set of entry points into the triage view.
-export const ATTENTION_CATEGORIES = [
-  'non-compliant', 'invalid', 'health', 'provisioning', 'unknown', 'stale', 'unresolved', 'out-of-range', 'lifecycle', 'undeclared', 'golden-path', 'readiness', 'knowledge', 'unowned',
-] as const;
-
+// first-time user reads.
 export function attentionCategoryLabel(c: string | undefined): string {
   switch (c) {
     case 'non-compliant': return 'Not compliant';
     case 'unknown': return 'Compliance unknown';
     case 'stale': return 'Stale evidence';
     case 'invalid': return 'Invalid contract';
+    case 'cross-environment': return 'Call across environments';
     case 'health': return 'Health check failing';
     case 'provisioning': return 'Resource provisioning';
     case 'readiness': return 'Readiness gate';
@@ -212,6 +207,7 @@ export function attentionCategoryLabel(c: string | undefined): string {
     case 'golden-path': return 'Golden path running';
     case 'knowledge': return 'Knowledge gap';
     case 'unowned': return 'No declared owner';
+    case 'cluster': return 'Member cluster';
     default: return c || 'Other';
   }
 }
@@ -235,23 +231,35 @@ const ATTENTION_CAUSES: Record<string, string> = {
   NOT_DEPLOYED: 'No source reports an operational target of this service',
   UNVERIFIED_CAPABILITY: 'An extension capability no evaluator checks',
   INFERRED_PROVIDER: 'A dependency range points at an inferred contract, so Pacto never checks it',
+  CROSS_ENVIRONMENT_CALL: 'A workload in one environment calls a workload in another',
+  CROSS_ENVIRONMENT_PREVIEW_CALL: 'A workload calls a workload in a preview environment',
+  CLUSTER_ISSUER_DIFFERS: "Member clusters refuse this hub's sign-in tokens, so reads there use a group mapping",
 };
 /** attentionCause words an attention item's code, or returns the code itself. */
 export function attentionCause(code: string | undefined): string {
   return (code && ATTENTION_CAUSES[code]) || code || '';
 }
 
-/** The words of a next action verb (#472's AttentionItem.nextAction). */
+/** The words of a next action verb (#472's AttentionItem.nextAction, #562's verbs). */
 const NEXT_ACTION_VERBS: Record<string, string> = {
   'edit-contract': 'edit the contract',
-  'plan-rollback': 'plan a rollback',
-  declare: 'declare a contract',
+  // Subject-neutral: a row's entity may be the called provider, not the workload.
+  declare: 'declare the workload',
+  accept: 'accept the proposed ranges',
+  claim: 'claim this external system',
+  'approve-cluster': 'approve the cluster',
 };
-/** nextActionWords says a next action as words only: it is advice, never a control. */
-export function nextActionWords(a: { verb?: string; tool?: string; environment?: string } | null | undefined): string {
+/**
+ * nextActionWords says a next action as words only: it is advice, never a
+ * control. It names the CLI command a person runs; the dashboard serves no MCP
+ * tool, so its answers carry none.
+ */
+export function nextActionWords(a: { verb?: string; cli?: string } | null | undefined): string {
   if (!a?.verb) return '';
   const verb = NEXT_ACTION_VERBS[a.verb] ?? a.verb;
-  return `Fix: ${verb}${a.environment ? ` in ${a.environment}` : ''}${a.tool ? ` with ${a.tool}` : ''}`;
+  if (!a.cli) return `Fix: ${verb}`;
+  // An edit happens in the repository first; pacto ci then publishes it.
+  return `Fix: ${verb}${a.verb === 'edit-contract' ? ', then run' : ' with'} ${a.cli}`;
 }
 
 // ── knowledge gaps ───────────────────────────────────────────────────────────
@@ -423,6 +431,17 @@ export function sourceHealthSentence(status: string | undefined): string {
   }
 }
 
+/** informationalSourceCodes are source messages that report what a source checks,
+ *  never a failure: an operator linker with no registry links by annotation only. */
+const informationalSourceCodes = new Set(['LINK_DIGEST_OFF']);
+
+/** sourceMessageIsNote says a source's message is a note, not a failure: an available
+ *  source's message, or an informational code whatever the health, so a stale or
+ *  partial linker never reads its digest-off note as the failure. */
+export function sourceMessageIsNote(health: string | undefined, code: string | undefined): boolean {
+  return health === 'available' || informationalSourceCodes.has(code ?? '');
+}
+
 /**
  * collectorLabel says, in plain words, who saw the evidence behind a finding.
  * The operator stamps each evidence ref with the producer of the matched
@@ -465,14 +484,52 @@ export function serviceKeyName(key: string): string {
   return name.replaceAll('%2F', '/').replaceAll('%25', '%');
 }
 
-export type ReplacementRef = { from: string; link?: string; target?: string; at?: string; by?: string; revision?: string; workload?: unknown };
+export type ReplacementRef = { from: string; to?: string; link?: string; signal?: string; value?: string; target?: string; at?: string; by?: string; revision?: string; workload?: unknown };
+
+/** observedHow says how the operator linked a workload with no Pacto: "runs image
+ *  <digest>" or "carries pacto.trianalab.io/contract naming <ref>", the value in full. */
+function observedHow(signal: string | undefined, value: string | undefined): string {
+  return signal === 'annotation' ? `carries pacto.trianalab.io/contract naming ${value || 'a contract'}` : `runs image ${value || 'with an unknown digest'}`;
+}
+
+export type ObservedLinkRef = { signal: string; value: string; since?: string; otherVersions?: string[] };
+
+/** maxLinkVersions is how many other versions a link tip names. */
+const maxLinkVersions = 5;
+
+/** linkTip is the tip of a linked target's mark: how the operator linked the workload
+ *  with no Pacto, the value in full (the tip is its only disclosure), since when and,
+ *  for a digest, that the images record is unverified. */
+export function linkTip(link: ObservedLinkRef, asOf?: string): string {
+  const by = link.signal === 'annotation' ? `the pacto.trianalab.io/contract annotation ${link.value}` : `the running image digest ${link.value}`;
+  const since = link.since ? ` · since ${formatWhen(link.since, Date.parse(asOf ?? '') || Date.now())}` : '';
+  let tip = `Linked with no Pacto by ${by} · observed${since}.`;
+  const others = link.otherVersions ?? [];
+  if (others.length) {
+    const shown = others.slice(0, maxLinkVersions).join(', ');
+    const more = others.length > maxLinkVersions ? ` and ${formatCount(others.length - maxLinkVersions)} more, listed by pacto fleet get` : '';
+    tip += ` Other release versions also record its running images (${shown}${more}), so the linked version is the newest and may be wrong.`;
+  }
+  if (link.signal !== 'annotation') tip += ' The images record carries a signature the operator does not verify.';
+  return tip;
+}
 
 /** How a declaration or a Pacto target links one replacement, in the words of the tip. */
 function linkedBy(r: ReplacementRef): string {
+  if (r.link === 'observed') {
+    return `Linked with no Pacto: the workload ${observedHow(r.signal, r.value)}, which this service published. The operator first linked it ${formatDateTime(r.at) || 'at an unknown time'}.`;
+  }
   if (r.link === 'inferred-from') {
     return `Declared by ${r.by || 'an unknown signer'} from this inferred service in revision ${r.revision || 'unknown'}.${r.workload ? '' : ' Pacto read no workload for it here.'}`;
   }
   return `Linked by the Pacto target ${r.target || 'of this service'}, which runs as the workload. The Pacto was created ${formatDateTime(r.at)}.`;
+}
+
+/** alsoBy is how one more replacement was linked, in the short words of the tip's list. */
+function alsoBy(r: ReplacementRef): string {
+  if (r.link === 'inferred-from') return `declared by ${r.by || 'an unknown signer'} in revision ${r.revision || 'unknown'}`;
+  if (r.link === 'observed') return `observed: ${r.signal === 'annotation' ? 'annotation' : 'image digest'}, ${formatDateTime(r.at)}`;
+  return `Pacto target ${r.target || 'of this service'}, ${formatDateTime(r.at)}`;
 }
 
 /** replacesTip is the tooltip of a service's Replaces line: how the newest replacement
@@ -483,8 +540,19 @@ export function replacesTip(replaces: ReplacementRef[], total: number): string {
   if (!first) return '';
   const head = linkedBy(first);
   if (!rest.length) return head;
-  const shown = rest.slice(0, 10).map((r) => `${serviceKeyName(r.from)} (${r.link === 'inferred-from'
-    ? `declared by ${r.by || 'an unknown signer'} in revision ${r.revision || 'unknown'}` : `Pacto target ${r.target || 'of this service'}, ${formatDateTime(r.at)}`})`);
+  const shown = rest.slice(0, 10).map((r) => `${serviceKeyName(r.from)} (${alsoBy(r)})`);
   const unlisted = total - 1 - shown.length;
   return `${head} Also replaces ${shown.join(', ')}${unlisted > 0 ? ` and ${formatCount(unlisted)} more, listed by pacto fleet get` : ''}.`;
+}
+
+// ── contract completeness (509-S12) ──────────────────────────────────────────
+
+/** The word for each state a contract-completeness section takes (not-applicable is never shown). */
+export const COMPLETENESS_STATE: Record<string, string> = {
+  declared: 'Declared', inferred: 'Inferred only', missing: 'Missing', unknown: 'Unknown',
+};
+
+/** completenessText is the tip of one contract-completeness section: its state, why, and what else the fleet knows. */
+export function completenessText(s: { state: string; reason?: string; note?: string }): string {
+  return `${COMPLETENESS_STATE[s.state] ?? s.state}${s.reason ? `: ${s.reason}` : ''}${s.note ? `; ${s.note}` : ''}`;
 }

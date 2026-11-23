@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -736,7 +737,17 @@ func gateCases() []gateCase {
 	accepted := active
 	accepted.Break = &BreakState{State: BreakAccepted, By: "ana@acme.com"}
 	caller := AffectedConsumer{Service: "batch", Uncontracted: true, Evidence: []Evidence{{Kind: EvidenceObservedCall}}}
+	guessed := AffectedConsumer{Service: "web", CompatibilityVerdict: CompatibilityCompatible, Targets: []string{"prod/kubernetes/Deployment/web"}, versionGuessed: true}
+	guessedBreaks := active
+	guessedBreaks.versionGuessed = true
 	return []gateCase{
+		// A consumer whose running version is a guess never clears; one shown to break still blocks.
+		{name: "version guessed", gate: GateUnverified, reason: "Pacto cannot tell which version of web runs", code: GateCodeConsumersUnchecked,
+			r: Result{Classification: "NON_BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{guessed}}},
+		{name: "version guessed, first version", gate: GateUnverified, reason: "LINK_VERSION_AMBIGUOUS", code: GateCodeConsumersUnchecked,
+			r: Result{Classification: "NON_BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, firstVersion: true, Consumers: []AffectedConsumer{guessed}}},
+		{name: "version guessed, blocked", gate: GateBlocked, reason: "do not accept api 2.0.0: web", code: GateCodeConsumersIncompatible,
+			r: Result{Classification: "BREAKING", Service: "api", NewVersion: "2.0.0", Consumers: []AffectedConsumer{guessedBreaks}}},
 		{name: "policy unknown range", gate: GateBlocked, reason: "api -> web range unknown, 1 consumer FAIL (policy unknown-range=fail)", code: GateCodePolicyUnknownRange,
 			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper},
 				unknownRanges: []string{"web"}, Policy: &Policy{UnknownRange: PolicyFail}}},
@@ -1373,5 +1384,43 @@ func TestImpactIgnoresInferredExternalEdges(t *testing.T) {
 	}
 	if strings.Contains(string(b), "stripe") {
 		t.Errorf("impact names the external: %s", b)
+	}
+}
+
+// TestImpactVersionAmbiguousConsumerIsUnverified: a consumer that runs on a
+// target linked by a digest other release versions record too is unverified,
+// never clear, and the answer names those versions.
+func TestImpactVersionAmbiguousConsumerIsUnverified(t *testing.T) {
+	auth := svcContract("auth-service", "1.0.0", contract.Owner{})
+	web := svcContract("web", "1.4.0", contract.Owner{}, contract.Dependency{Name: "auth-service", Ref: "ghcr.io/x/auth-service:1.0.0", Required: true, Compatibility: "^1.0.0"})
+	build := func(others ...string) *fleet.FleetSnapshot {
+		since := time.Now().Add(-time.Hour)
+		col := &fleet.Collection{
+			Revisions: []fleet.RawRevision{{Bundle: mkBundle(auth)}, {Bundle: mkBundle(web)}},
+			Targets: []fleet.RawTarget{{Scope: "prod", Kind: fleet.SourceKindKubernetes, Name: "Deployment/web", Service: "web", Compliance: fleet.StatusCompliant,
+				EvidenceAt: fresh(), Workload: &fleet.WorkloadRef{Kind: "Deployment", Name: "web"},
+				Link: &fleet.ObservedLink{Signal: fleet.LinkSignalImageDigest, Value: "sha256:" + strings.Repeat("a", 64), Since: &since, OtherVersions: others}}},
+		}
+		snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("linked", fleet.SourceKindLinked, col))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return snap
+	}
+	newC := svcContract("auth-service", "1.1.0", contract.Owner{})
+	res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, build("1.3.0", "1.2.0"), Options{})
+	if res.Gate != GateUnverified || res.GateCode() != GateCodeConsumersUnchecked || !hasCode(res.Limitations, fleet.LimitationLinkVersionAmbiguous) {
+		t.Fatalf("gate %s (%s) code %s limitations %+v", res.Gate, res.GateReason, res.GateCode(), res.Limitations)
+	}
+	if i := slices.IndexFunc(res.Limitations, func(l fleet.Limitation) bool { return l.Code == fleet.LimitationLinkVersionAmbiguous }); !strings.Contains(res.Limitations[i].Message, "1.3.0, 1.2.0") {
+		t.Errorf("limitation %+v names no versions", res.Limitations[i])
+	}
+	// The same link with one version recording the digest clears.
+	if res := Analyze(context.Background(), auth, newC, fstest.MapFS{}, fstest.MapFS{}, build(), Options{}); res.Gate != GateClear {
+		t.Errorf("unambiguous link: gate %s (%s)", res.Gate, res.GateReason)
+	}
+	// A consumer absent from the snapshot guesses nothing.
+	if versionGuessed(build(), "nobody") {
+		t.Error("an absent consumer read as guessed")
 	}
 }

@@ -8,10 +8,12 @@
 //
 //	status  reads one Pacto (kubectl get pacto X -o json) on stdin and checks
 //	        contractStatus, findings (code, severity, subject), the evidence
-//	        collector behind a finding and the evaluation coverage
+//	        collector behind a finding, the evaluation coverage and the external
+//	        systems the workload called (observedEgress and its coverage)
 //	nro     reads the NodeRuntimeObservation list (kubectl get
 //	        noderuntimeobservations -o json) on stdin and checks what the kernel
-//	        attributed to one pod UID: listeners, connections, the collection state
+//	        attributed to one pod UID: listeners, connections and the names DNS
+//	        gave them, the collection state
 //
 // Every failure is accumulated and reported together, so one cluster round says
 // everything that is wrong rather than the first thing.
@@ -74,6 +76,12 @@ type finding struct {
 	EvidenceRefs []evidenceRef `json:"evidenceRefs"`
 }
 
+type egress struct {
+	Identity string `json:"identity"`
+	Host     string `json:"host"`
+	Source   string `json:"source"`
+}
+
 type pacto struct {
 	Metadata struct {
 		Name string `json:"name"`
@@ -87,6 +95,11 @@ type pacto struct {
 		ObservedCallersCoverage *struct {
 			State string `json:"state"`
 		} `json:"observedCallersCoverage"`
+		ObservedEgress         []egress `json:"observedEgress"`
+		ObservedEgressCoverage *struct {
+			State  string `json:"state"`
+			Reason string `json:"reason"`
+		} `json:"observedEgressCoverage"`
 		Findings           []finding `json:"findings"`
 		EvaluationCoverage *struct {
 			Evaluated  int      `json:"evaluated"`
@@ -106,9 +119,16 @@ type statusWant struct {
 	callers    []string // Kind/name listed in observedCallers
 	noCallers  []string // Kind/name NOT listed there
 	callerCov  string   // observedCallersCoverage.state
+	egress     egressWant
+	egressCov  string // observedEgressCoverage.state
 	noFindings bool
 	covered    bool
 }
+
+// egressWant names one observedEgress entry; an empty field matches anything.
+type egressWant struct{ identity, host, source string }
+
+func (e egressWant) set() bool { return e != egressWant{} }
 
 func runStatus(args []string, in io.Reader) ([]string, error) {
 	var w statusWant
@@ -124,6 +144,10 @@ func runStatus(args []string, in io.Reader) ([]string, error) {
 	fs.Var(&callers, "caller", "a Kind/name observedCallers must list (repeatable)")
 	fs.Var(&noCallers, "no-caller", "a Kind/name observedCallers must not list (repeatable)")
 	fs.StringVar(&w.callerCov, "caller-coverage", "", "required observedCallersCoverage.state")
+	fs.StringVar(&w.egress.identity, "egress-identity", "", "the identity of an observedEgress entry")
+	fs.StringVar(&w.egress.host, "egress-host", "", "the host of the same observedEgress entry")
+	fs.StringVar(&w.egress.source, "egress-source", "", "the source of the same observedEgress entry")
+	fs.StringVar(&w.egressCov, "egress-coverage", "", "required observedEgressCoverage.state")
 	fs.BoolVar(&w.noFindings, "no-findings", false, "the Pacto has no findings at all")
 	fs.BoolVar(&w.covered, "covered", false, "every required assertion was evaluated")
 	if err := fs.Parse(args); err != nil {
@@ -196,12 +220,31 @@ func checkStatus(p pacto, w statusWant) []string {
 			add("observedCallersCoverage is %+v, want state %s", cov, w.callerCov)
 		}
 	}
+	errs = append(errs, checkEgress(p, w)...)
 	if w.covered {
 		switch cov := s.EvaluationCoverage; {
 		case cov == nil:
 			add("no evaluationCoverage")
 		case cov.Required == 0 || cov.Evaluated != cov.Required:
 			add("evaluationCoverage evaluated=%d required=%d, want equal and non-zero", cov.Evaluated, cov.Required)
+		}
+	}
+	return errs
+}
+
+// checkEgress asserts one observedEgress entry matches every egress flag at once, and the coverage.
+func checkEgress(p pacto, w statusWant) []string {
+	var errs []string
+	s := p.Status
+	if w.egress.set() && !slices.ContainsFunc(s.ObservedEgress, func(e egress) bool {
+		return (w.egress.identity == "" || e.Identity == w.egress.identity) &&
+			(w.egress.host == "" || e.Host == w.egress.host) && (w.egress.source == "" || e.Source == w.egress.source)
+	}) {
+		errs = append(errs, fmt.Sprintf("%s: observedEgress has no entry %+v (got %+v)", p.Metadata.Name, w.egress, s.ObservedEgress))
+	}
+	if w.egressCov != "" {
+		if cov := s.ObservedEgressCoverage; cov == nil || cov.State != w.egressCov {
+			errs = append(errs, fmt.Sprintf("%s: observedEgressCoverage is %+v, want state %s", p.Metadata.Name, cov, w.egressCov))
 		}
 	}
 	return errs
@@ -266,6 +309,7 @@ type listener struct {
 
 type connection struct {
 	Address   string `json:"address"`
+	Host      string `json:"host"`
 	Port      int32  `json:"port"`
 	Successes int64  `json:"successes"`
 	Failures  int64  `json:"failures"`
@@ -301,12 +345,13 @@ type nroWant struct {
 	connected  []string // ADDR:PORT with successes
 	refused    []string // ADDR:PORT with failures and no successes
 	noPeer     []string // ADDR:PORT the pod has no connection entry for
+	hosts      []string // a host DNS named on a successful connection of the pod
 	none       bool     // no node object at all
 }
 
 func runNRO(args []string, in io.Reader) ([]string, error) {
 	var w nroWant
-	var listen, noListen, connected, refused, noPeer multi
+	var listen, noListen, connected, refused, noPeer, hosts multi
 	fs := flag.NewFlagSet("nro", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	fs.StringVar(&w.uid, "uid", "", "the pod UID the listener and connection checks are about")
@@ -318,6 +363,7 @@ func runNRO(args []string, in io.Reader) ([]string, error) {
 	fs.Var(&connected, "connected", "ADDR:PORT the pod connected to successfully (repeatable)")
 	fs.Var(&refused, "refused", "ADDR:PORT the pod only failed to connect to (repeatable)")
 	fs.Var(&noPeer, "no-peer", "ADDR:PORT the pod has no connection to at all (repeatable)")
+	fs.Var(&hosts, "nro-host", "a host the node agent named on a successful connection of the pod (repeatable)")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -335,7 +381,7 @@ func runNRO(args []string, in io.Reader) ([]string, error) {
 		}
 		w.noListener = append(w.noListener, int32(p))
 	}
-	w.connected, w.refused, w.noPeer = connected, refused, noPeer
+	w.connected, w.refused, w.noPeer, w.hosts = connected, refused, noPeer, hosts
 	var l nroList
 	if err := json.NewDecoder(in).Decode(&l); err != nil {
 		return nil, fmt.Errorf("decode NodeRuntimeObservation list: %w", err)
@@ -393,6 +439,11 @@ func checkNRO(l nroList, w nroWant) []string {
 	for _, peer := range w.noPeer {
 		if findConn(pod, peer) != nil {
 			add("pod %s has a connection to %s, want none", w.uid, peer)
+		}
+	}
+	for _, host := range w.hosts {
+		if !slices.ContainsFunc(pod.Connections, func(c connection) bool { return c.Host == host && c.Successes > 0 }) {
+			add("pod %s has no successful connection named %s (connections %v)", w.uid, host, pod.Connections)
 		}
 	}
 	return errs

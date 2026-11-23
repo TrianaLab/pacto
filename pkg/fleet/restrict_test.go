@@ -846,7 +846,7 @@ func TestRestrictedKnowledgeAndOwnership(t *testing.T) {
 	}
 	r := q.Restrict(anyCluster(func(ns string) bool { return ns != "secret" }), anyClusterKind(nil))
 	ov := r.Overview()
-	if ov.Summary.Knowledge != (KnowledgeTally{Services: 1, Described: 1}) || ov.Summary.Ownership != (OwnershipTally{Consistent: 1}) || ov.Summary.KnowledgeItems != 0 {
+	if knowledgeCountsOf(ov.Summary.Knowledge) != (knowledgeCounts{Services: 1, Described: 1}) || ov.Summary.Ownership != (OwnershipTally{Consistent: 1}) || ov.Summary.KnowledgeItems != 0 {
 		t.Fatalf("restricted knowledge %+v, ownership %+v, items %d", ov.Summary.Knowledge, ov.Summary.Ownership, ov.Summary.KnowledgeItems)
 	}
 	if !slices.ContainsFunc(ov.Meta.Limitations, func(l Limitation) bool { return l.Code == LimitationHiddenByPermissions }) {

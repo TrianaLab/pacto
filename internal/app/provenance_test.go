@@ -493,6 +493,7 @@ func (descRegistry) Referrers(context.Context, string, string, string) ([]string
 func (descRegistry) Layer(context.Context, string, string) ([]byte, map[string]string, error) {
 	return nil, nil, nil
 }
+func (descRegistry) ImageSource(context.Context, string) (string, error) { return "", nil }
 func (descRegistry) Mode(context.Context, string, string) (capabilities.ReferrersMode, error) {
 	return capabilities.ReferrersNative, nil
 }

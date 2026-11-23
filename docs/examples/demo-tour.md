@@ -138,7 +138,7 @@ A failing health check differs:
   check answered and reports it is not healthy (`HEALTH_FAILING`), so its
   compliance stays `Unknown`. A target whose health Pacto cannot tell counts as
   unknown, never as healthy.
-- The overview's Knowledge band counts what the contracts leave out, such as a
+- The overview's Contract completeness band counts what the contracts leave out, such as a
   missing summary or a service that runs nowhere. See [Organizational health
   and knowledge](../operational-graph.md#organizational-health-and-knowledge).
 

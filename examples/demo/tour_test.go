@@ -1,10 +1,13 @@
 package main
 
 import (
+	"net/url"
 	"os"
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // TestTourStepsAreOneSentence keeps every tour step to one plain sentence. The
@@ -94,13 +97,16 @@ func TestTourLightsTheControlEachStepNames(t *testing.T) {
 		{"press Compare revisions", "#sec-revisions button[type=submit]"},
 		{"press Ask", "#sec-revisions button[type=submit]"},
 		{"set Earlier revision", "#impact-old-rev"},
-		{"typing orders", "graph-discovery"},
-		{"Open orders-service", "graph-focus-link"},
+		{"typing orders", "fleet-map-search"},
+		{"Open orders-service", "fleet-map-focus"},
 		{"type payments in the search box", "svc-search"},
 		{"open payments-service from the list", "/fleet/services/payments-service"},
 		{"Press What if it becomes unavailable?", "page-hd-actions"},
 		{"the Changes section lists an owner change", "#sec-changes"},
 		{"each change says when its revision reached a Stage", "service-change-reached"},
+		{"open legacy-billing from the list", "legacy-billing"},
+		{"Open Declare this service", "declare-panel"},
+		{"press Save draft", "declare-save-draft"},
 	}
 	for _, tour := range []string{"FLEET_TOUR", "DELIVERY_TOUR"} {
 		for i, s := range tourSteps(t, tour) {
@@ -171,5 +177,30 @@ func TestTourPlansUndoOfTheChangeUnderInvestigation(t *testing.T) {
 	}
 	if act < 0 || undo < 0 || act > undo {
 		t.Fatalf("Act from what you found at %d, Undo it at %d: plan the undo before the rollback", act, undo)
+	}
+}
+
+// TestTourDeclaresLegacyBilling: the fleet tour opens legacy-billing from the
+// inferred services, opens its Declare panel and saves a draft, in that
+// order, and the page it names is the one the services list links.
+func TestTourDeclaresLegacyBilling(t *testing.T) {
+	var order []string
+	for _, s := range tourSteps(t, "FLEET_TOUR") {
+		for _, says := range []string{"open legacy-billing", "Open Declare this service", "press Save draft"} {
+			if strings.Contains(s.text, says) {
+				order = append(order, says)
+			}
+		}
+	}
+	if strings.Join(order, ",") != "open legacy-billing,Open Declare this service,press Save draft" {
+		t.Fatalf("declare steps in order %v", order)
+	}
+	js, err := os.ReadFile("tours.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	key := fleet.NewServiceKey(fleet.K8sCaller(prodClusterID, "shop", "Deployment", "legacy-billing"))
+	if want := `var BILLING = "#/fleet/services/` + strings.ReplaceAll(url.QueryEscape(string(key)), "%3A", ":") + `";`; !strings.Contains(string(js), want) {
+		t.Errorf("tours.js lacks %s", want)
 	}
 }

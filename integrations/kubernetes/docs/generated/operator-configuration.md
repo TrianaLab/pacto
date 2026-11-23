@@ -22,11 +22,16 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-allow-anonymous` | `bool` |  | chart value | Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; everyone who reaches it reads what its ServiceAccount reads. |
 | `-dashboard-cpu-limit` | `string` |  | chart value | CPU limit for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-cpu-request` | `string` |  | chart value | CPU request for the dashboard container. Empty uses the built-in default. |
+| `-dashboard-declare-registry-secret` | `string` |  | chart value | An existing kubernetes.io/dockerconfigjson Secret in the operator namespace with push access to --dashboard-registry, mounted for the dashboard's Declare writer only. Empty: the dashboard plans only. |
 | `-dashboard-delivery-namespace` | `string` |  | chart value | Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; empty means pacto-delivery. |
 | `-dashboard-delivery-trust-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the trust config the dashboard verifies delivery records with, so History reads signed records. |
 | `-dashboard-delivery-trust-key` | `string` | `trust.yaml` | chart value | Key of the trust config in that ConfigMap. |
 | `-dashboard-external-catalog` | `string` |  | chart value | Organization external catalog the dashboard merges over Pacto's default, as oci://REPOSITORY@sha256:DIGEST. |
 | `-dashboard-fingerprints-configmap` | `string` |  | chart value | ConfigMap in the operator namespace holding the workload manager and promoter fingerprints (fingerprints.yaml) the dashboard reads as --fingerprints. |
+| `-dashboard-fulcio-url` | `string` |  | chart value | Fulcio the dashboard gets a person's signing certificate from (empty: public-good Sigstore). |
+| `-dashboard-mcp` | `bool` |  | chart value | Serve MCP to agents at /mcp on the managed dashboard, with its sign-in. |
+| `-dashboard-mcp-exchange-audience` | `string` |  | chart value | With an issuer, the audience an agent's issuer token is exchanged for, one the API server accepts; needs --dashboard-mcp-url. |
+| `-dashboard-mcp-url` | `string` |  | chart value | The dashboard's /mcp URL as agents reach it (empty: the address the agent used). |
 | `-dashboard-memory-limit` | `string` |  | chart value | Memory limit for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-memory-request` | `string` |  | chart value | Memory request for the dashboard container. Empty uses the built-in default. |
 | `-dashboard-mira-url` | `string` |  | chart value | Mira's address, to link the dashboard's health-check citations. |
@@ -47,12 +52,21 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-oidc-username-claim` | `string` |  | chart value | ID token claim the API server takes the username from; must match its claim mapping (empty: sub). |
 | `-dashboard-oidc-username-prefix` | `string` |  | chart value | Prefix the API server puts before the username; must match its claim mapping (empty: the issuer URL and #; - for none). |
 | `-dashboard-owner-policy-configmap` | `string` |  | chart value | Immutable ConfigMap in the operator namespace holding the owner policy (policy.json) the dashboard mounts. |
+| `-dashboard-registry` | `string` |  | chart value | The registry (&lt;host&gt;/&lt;path&gt;) declarations made in the dashboard are published to; empty: no Declare. |
+| `-dashboard-rekor-url` | `string` |  | chart value | Rekor the dashboard records signatures in (empty: public-good Sigstore). |
 | `-dashboard-repositories` | `value` |  | chart value | Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto resources, such as golden paths, which are never deployed. |
 | `-dashboard-session-idle-timeout` | `duration` |  | chart value | A dashboard session without a request for this long ends (0: 1h). |
 | `-dashboard-session-max-age` | `duration` |  | chart value | A dashboard session ends this long after sign-in, renewed or not (0: 12h). |
+| `-dashboard-sign-client-id` | `string` |  | chart value | A second OpenID Connect client at the dashboard's issuer whose audience Fulcio trusts and the API server does not: a signed-in person logs in again with it to sign a declaration. Empty: the dashboard saves drafts. |
+| `-dashboard-sign-client-secret-key` | `string` | `client-secret` | chart value | Key of the sign client's secret in that Secret. |
+| `-dashboard-sign-client-secret-name` | `string` |  | chart value | Secret in the operator namespace holding the sign client's secret, passed to the dashboard by secretKeyRef. |
+| `-dashboard-sign-redirect-url` | `string` |  | chart value | The dashboard's signing callback as browsers reach it. |
 | `-dashboard-stats-registry` | `string` |  | chart value | Stats repository the dashboard's Metrics page reads run records from, with the dashboard's OCI credentials; empty: the page explains how to turn recording on. |
+| `-dashboard-timestamp-url` | `string` |  | chart value | Timestamp authority the dashboard's signatures use (empty: public-good Sigstore). |
 | `-dashboard-token-login` | `bool` |  | chart value | Let people sign in to the dashboard with a Kubernetes token; a ServiceAccount token minted for the pacto-dashboard audience reads the fleet only, and a person's own token acts as them. |
-| `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input only; Pacto runs no OTLP receiver. |
+| `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input; the dashboard also receives OTLP/HTTP JSON in the cluster. |
+| `-dashboard-trusted-root-configmap` | `string` |  | chart value | Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore. |
+| `-egress-gateway-logs` | `=mode` |  | chart value | Istio egress gateway access logs, written =mode: auto, on or off. on reads the access log tail of the pods labelled istio=egressgateway in istio-system to name the calls that left through them (the chart then grants pods/log get there); auto reads nothing and proposes on in the detected providers; off reads nothing and proposes nothing. auto by default. |
 | `-enable-dashboard` | `bool` |  | chart value | Enable the managed Pacto dashboard deployment. Disabled by default. |
 | `-enable-evidence-server` | `bool` |  | chart value | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
 | `-enable-http2` | `bool` |  | no | If set, HTTP/2 will be enabled for the metrics server |
@@ -69,6 +83,8 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-evidence-trust-config-key` | `string` |  | chart value | Optional: key of the trust Secret holding a structured trust config (pacto.dev/evidence-trust/v1, a .yaml key). Set it to grant per-key allowlists such as ResourceProvisioned. Empty trusts every *.pub key in the Secret. |
 | `-evidence-trust-secret` | `string` |  | chart value | Name of a Secret of trusted producer public keys, mounted read-only. Required when the Evidence Server is enabled. |
 | `-health-probe-bind-address` | `string` | `:8081` | always on | The address the probe endpoint binds to. |
+| `-hub-ca-file` | `string` |  | chart value | File holding the PEM CAs the hub's certificate may chain to, beside the system pool. |
+| `-hub-url` | `string` |  | chart value | The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the elected leader dials the hub, proves the installation key and answers the hub's per-person reviews with this cluster's own SubjectAccessReview. Nothing listens for the hub; needs --registry. |
 | `-interface-name-match-discovery` | `bool` |  | chart value | Enable resolving an unbound interface's Service port by matching a Service port whose name equals the interface name (positive availability assist only; never produces an absent or error result). |
 | `-kernel-evidence-namespace` | `string` |  | chart value | Namespace the node agent publishes NodeRuntimeObservation objects and heartbeat Leases to. Empty uses --node-agent-namespace. |
 | `-kernel-evidence-staleness` | `duration` |  | chart value | How old a node's heartbeat (its Lease renewal, or the observation's lastPublished without a Lease) may be before its evidence reads stale. 0 uses three times the publish interval the node agent reports. |
@@ -88,9 +104,10 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-node-agent-namespace` | `string` | `pacto-node-agent` | always on | Dedicated namespace the node agent runs and publishes in. The operator labels it privileged for Pod Security, so it must not be the operator namespace. |
 | `-node-agent-publish-interval` | `duration` | `30s` | chart value | How often each node agent publishes its node's NodeRuntimeObservation. |
 | `-owner-policy` | `string` |  | chart value | File holding the owner policy (policy.json from the chart's declare block): who may set a service owner. Published in the target snapshot; empty publishes none. |
+| `-profile` | `string` | `default` | chart value | Installation profile the chart rendered (default, hardened, idp or hardened,idp); advertised in the detected ConfigMap, never acted on. |
 | `-publishers-default-branch` | `string` | `main` | chart value | The default branch whose CI the derived publisher rule accepts. |
 | `-publishers-policy` | `string` |  | chart value | The signed delivery policy's tag reference (delivery.publishers.policy): once verified, its publisher rules replace the derived rule and its signer class rules classify who signed an owner change, as the fleet does. |
-| `-publishers-policy-signers` | `string` |  | always on | A trust config (YAML) whose role: policy keys sign the delivery policy. Required with --publishers-policy. |
+| `-publishers-policy-signers` | `string` |  | chart value | A trust config (YAML) whose role: policy keys sign the delivery policy. Required with --publishers-policy. |
 | `-publishers-registry` | `string` |  | chart value | The registry (host/org) the installation's services publish to: its derived publisher rule (the organization's CI on the default branch) is the only CI identity whose signed CODEOWNERS or catalog-info.yaml owner counts as attested when an owner change is judged. Empty: no owner is attested. |
 | `-registry` | `string` |  | chart value | The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it and pushes nowhere else; empty turns those features off. |
 | `-registry-pull-secret` | `string` |  | chart value | namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes. |

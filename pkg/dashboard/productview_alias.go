@@ -18,4 +18,5 @@ type (
 	ProductNeighborhood     = productview.ProductNeighborhood
 	ProductAttentionList    = productview.ProductAttentionList
 	ProductOfferingVersions = productview.ProductOfferingVersions
+	ProductMapFocus         = productview.ProductMapFocus
 )

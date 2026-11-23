@@ -71,7 +71,7 @@ func dashboardReviewIdentity(t *testing.T, v *viper.Viper, r *reviewRecorder) *d
 	v.Set("dashboard.token-login", true)
 	d := deliveryDeps("alice", nil)
 	d.dynamicFor = r.client()
-	id, err := newDashboardIdentity(v, "0.0.0.0", &rest.Config{Host: "https://k"}, homeEntries(&rest.Config{Host: "https://k"}), d)
+	id, err := newDashboardIdentity(v, "0.0.0.0", &rest.Config{Host: "https://k"}, homeEntries(&rest.Config{Host: "https://k"}), d, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,11 +120,11 @@ func TestLocalReviewModeOnlyWhenSet(t *testing.T) {
 func TestLocalReviewNeedsNamespaces(t *testing.T) {
 	v := viper.New()
 	v.Set("dashboard.review", reviewLocal)
-	if _, err := newDashboardIdentity(v, "127.0.0.1", nil, homeEntries(nil), defaultDeps()); !errors.Is(err, errLocalReviewNeedsNamespace) {
+	if _, err := newDashboardIdentity(v, "127.0.0.1", nil, homeEntries(nil), defaultDeps(), nil); !errors.Is(err, errLocalReviewNeedsNamespace) {
 		t.Errorf("local without namespaces: %v", err)
 	}
 	v.Set("dashboard.review", "everywhere")
-	if _, err := newDashboardIdentity(v, "127.0.0.1", nil, homeEntries(nil), defaultDeps()); err == nil {
+	if _, err := newDashboardIdentity(v, "127.0.0.1", nil, homeEntries(nil), defaultDeps(), nil); err == nil {
 		t.Error("an unknown review mode starts")
 	}
 }

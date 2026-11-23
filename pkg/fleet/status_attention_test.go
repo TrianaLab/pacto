@@ -75,8 +75,8 @@ func TestStatusCoversEveryAttentionCategory(t *testing.T) {
 	}
 	fleets := []*Query{productFleet(t), rangeFleet(t), undeclaredFleet(t), domainFleet(t), deployedTemplateFleet(t), lifecycleRangeFleet(t)}
 	for _, c := range AttentionCategoriesList() {
-		if c == categoryProvisioning || c == categoryHealth || c == categoryKnowledge {
-			continue // no flag selects them alone: TestStatusIncludesProvisioning, TestStatusIncludesHealth, TestStatusIncludesKnowledge
+		if slices.Contains([]string{categoryProvisioning, categoryHealth, categoryKnowledge, categoryCrossEnvironment, categoryCluster}, c) {
+			continue // no flag selects them alone: TestStatusIncludesProvisioning, TestStatusIncludesHealth, TestStatusIncludesKnowledge, TestStatusIncludesCrossEnvironment, TestStatusIncludesIssuerDiffers
 		}
 		set, ok := flag[c]
 		if !ok {
@@ -171,10 +171,10 @@ func TestUndeclaredAttentionMatchesOverviewTile(t *testing.T) {
 			NextStep: "Declare b in d's contract, or find out why d calls it", NextAction: editContract()},
 		{Entity: q.serviceRef("b"), Service: "b", Label: "k8s:secret/Deployment/x calls b", Severity: severityInfo, Code: "UNCONTRACTED_CALLER", Category: categoryUndeclared,
 			Summary: "Caller with no contract", Reason: "k8s:secret/Deployment/x calls b and no contract describes k8s:secret/Deployment/x",
-			NextStep: "Give k8s:secret/Deployment/x a contract, or find out why it calls b"},
+			NextStep: "Give k8s:secret/Deployment/x a contract, or find out why it calls b", NextAction: declareAction("x", "secret")},
 		{Entity: q.serviceRef("b"), Service: "b", Label: "pay calls b", Severity: severityInfo, Code: "UNCONTRACTED_CALLER", Category: categoryUndeclared,
 			Summary: "Caller matches more than one service", Reason: "pay matches more than one service, so Pacto cannot tell which one calls b",
-			NextStep: "Make pay's name match one contracted service"},
+			NextStep: "Make pay's name match one contracted service", NextAction: editContract()},
 	}
 	for _, w := range want {
 		if got := byLabel[w.Label]; !reflect.DeepEqual(got, w) {

@@ -35,15 +35,35 @@ global:
 # -- The installation registry (host[/path], no scheme), such as
 # `ghcr.io/acme`. The operator publishes the cluster's target snapshot, signed
 # with the installation key it creates once, to `<registry>/pacto-targets`,
-# which `pacto impact` reads in CI; empty publishes none. Delivery stays off
+# which `pacto impact` reads in CI and a hub reads to approve this cluster as a
+# member (`pacto cluster approve`); empty publishes none. Delivery stays off
 # until delivery.enabled=true.
 registry: ""
+
+# -- Installation profile: default, hardened or idp, or a list such as
+# `{hardened,idp}` (hardened wins where they disagree). hardened needs
+# controller.watchNamespaces and renders no ClusterRole, no managed dashboard,
+# no node agent, no Pacto delivery and no namespace; idp turns probing, metrics
+# observation and Pacto delivery on. See
+# https://pacto.run/latest/integrations/kubernetes/profiles/
+profile: default
 
 # -- namespace/name of an existing Secret that authenticates to `registry`, for
 # a registry without workload identity. Pacto proposes one it saw running pods
 # use (helm upgrade notes and Data sources) and never uses it until you name it
 # here. The chart grants get on that Secret only.
 registryPullSecret: ""
+
+hub:
+  # -- The hub's https:// or wss:// URL. Setting it makes this joined cluster a
+  # member: the operator dials out to the hub, proves its installation key and
+  # answers the hub's per-person reviews with this cluster's own
+  # SubjectAccessReview. Nothing listens for the hub: no inbound port, Service
+  # or Ingress. Needs `registry`; profile hardened runs no review channel.
+  url: ""
+  # -- ConfigMap in the release namespace holding `ca.crt`, the PEM CAs the
+  # hub's certificate may chain to beside the system pool.
+  caConfigMap: ""
 
 # -- Number of controller replicas
 replicaCount: 1
@@ -178,6 +198,13 @@ controller:
     # you control: anyone who can create a listed namespace can call your
     # services from a host-network pod there unseen.
     callerIgnoreNamespaces: [kube-flannel, calico-system, tigera-operator]
+  # -- Istio egress gateway access logs. auto finds Istio egress gateways and
+  # proposes the value; on reads their access log tail, which adds pods/log
+  # get; "off" stops both. on reads the istio-proxy log of the pods labelled
+  # istio=egressgateway in istio-system and grants pods/log get and pods list
+  # in a Role there, never in a ClusterRole. Quote "off": a bare off is YAML
+  # false, and false keeps meaning auto; true means on.
+  egressGatewayLogs: auto
 
 leaderElection:
   # -- Enable leader election for HA deployments
@@ -246,8 +273,9 @@ dashboard:
     # static exports only, ~1 MiB cap) supplies it. Pacto reads only the
     # declared files, through a root that blocks symlinks out of the mount, and
     # never writes to them or scans the mount. Whoever owns that storage
-    # produces and rotates the exports. This configures OFFLINE input only:
-    # Pacto ships no OTLP receiver and no trace collector. The optional node
+    # produces and rotates the exports. These files are offline input; the
+    # dashboard also receives OTLP/HTTP JSON from Collectors in the cluster,
+    # and Pacto deploys no trace collector. The optional node
     # agent observes sockets with eBPF and handles no traces.
     sources: []
     #   - name: orders
@@ -297,6 +325,15 @@ dashboard:
       groupsClaim: ""
       # -- Prefix the API server puts before every group; must match its `claimMappings.groups.prefix`
       groupsPrefix: ""
+      # -- A second client at the same issuer whose audience the installation's Fulcio trusts and the API server does not: a signed-in person logs in again with it to sign a declaration as themselves. Empty: the dashboard saves drafts and shows the CLI command
+      signClientID: ""
+      signClientSecretRef:
+        # -- Secret in the operator namespace holding the sign client's secret (passed by secretKeyRef)
+        name: ""
+        # -- Key of the sign client's secret in that Secret
+        key: client-secret
+      # -- The dashboard's signing callback URL as browsers reach it; required with `signClientID`
+      signRedirectURL: ""
     session:
       # -- A session without a request for this long ends, as a Go duration such as `30m` (empty: `1h`). The ID token renews with the refresh token in between
       idleTimeout: ""
@@ -307,6 +344,13 @@ dashboard:
       enabled: true
     # -- Serve the dashboard without sign-in, only with tokenSignIn.enabled=false and no issuer. Everyone who reaches it reads every service the dashboard's ServiceAccount reads. With `false` and no sign-in the dashboard refuses to start
     allowAnonymous: false
+  mcp:
+    # -- Serve MCP to AI agents at /mcp on the dashboard, in the same process and with the same sign-in. A ServiceAccount token minted with `--audience pacto-dashboard` reads the fleet; one also minted for the cluster's own audience proposes and cancels delivery operations as that ServiceAccount. Nobody approves over MCP. Off with the managed dashboard under `profile: hardened`
+    enabled: true
+    # -- The /mcp URL as agents reach it, an absolute http(s) URL whose path is exactly `/mcp` (a path prefix is not supported; empty: derived from the Ingress or HTTPRoute host, else the address the agent used)
+    url: ""
+    # -- With `dashboard.auth.oidc`, the audience to exchange an agent's issuer token for, one the API server accepts. The dashboard's OIDC client exchanges it (RFC 8693). Needs a URL. Set: every token from that issuer must name the MCP URL as its audience. Empty: every token is checked as a Kubernetes token
+    exchangeAudience: ""
   # What the dashboard's delivery views read. They need sign-in
   # (`dashboard.auth`), because every delivery read and action runs with the
   # signed-in person's token.
@@ -320,6 +364,10 @@ dashboard:
       key: trust.yaml
     # -- Mira's address, to link the health-check citations in delivery views
     miraURL: ""
+  declare:
+    registryCredentials:
+      # -- A `kubernetes.io/dockerconfigjson` Secret in the operator namespace with push access to the bundle repositories under `registry`. Only the dashboard's Declare writer uses it; `dashboard.ociSecrets` stays read-only. Empty: the dashboard plans declarations and shows the CLI command
+      secretName: ""
   stats:
     # -- Stats repository the dashboard's Metrics page reads run records from, such as ghcr.io/acme/pacto-stats. Empty: the page explains how to turn recording on. Credentials come from dashboard.ociSecrets
     registry: ""
@@ -476,6 +524,9 @@ nodeAgent:
   # and labels it privileged for Pod Security; it must not be the release
   # namespace and must not exist outside this release.
   namespace: pacto-node-agent
+  # -- Create nodeAgent.namespace. Set false to create it yourself first with
+  # the privileged Pod Security labels.
+  createNamespace: true
   # -- How often each agent publishes its node's observation. A Go duration;
   # kernel evidence reads stale after three intervals unless
   # controller.kernelEvidence.staleness says otherwise.
@@ -890,8 +941,17 @@ declare:
   emailIssuers: []
   # -- A Sigstore trusted root (`trusted_root.json`) the signature of a running bundle that changes its owner must
   # chain to, for an air-gapped install or a private Sigstore. Empty uses `delivery.publishers.trustedRoot`, else
-  # public-good Sigstore. Used only when `defaultApprovers.bootstrap` or `teams` holds a rule
+  # public-good Sigstore. The owner check uses it when `defaultApprovers.bootstrap` or `teams` holds a rule, and the
+  # dashboard (with `registry` set) verifies the declarations it signs with it
   trustedRoot: ""
+  # The Sigstore a person's declaration is signed with in the dashboard.
+  signing:
+    # -- Fulcio the dashboard gets a person's signing certificate from (empty: public-good Sigstore)
+    fulcioURL: ""
+    # -- Rekor the dashboard records the signature in (empty: public-good Sigstore)
+    rekorURL: ""
+    # -- Timestamp authority the dashboard's signatures use (empty: public-good Sigstore)
+    timestampURL: ""
 
 # Optional bundled dependencies for an evaluation install, both off by default.
 # values-quickstart.yaml turns them on and wires them. Every other key under

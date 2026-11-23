@@ -17,7 +17,7 @@ endif
 
 IMAGE := ghcr.io/trianalab/pacto/dashboard
 
-.PHONY: build test test-integration test-registry-conformance test-acceptance-local test-acceptance-compose perf-envtest \
+.PHONY: build test test-integration test-fleet-budgets test-registry-conformance test-acceptance-local test-acceptance-compose perf-envtest \
         test-acceptance-compose-selftest \
         test-browser test-browser-layout-full test-browser-live test-browser-compose docs-screenshots \
         e2e coverage lint check-section clean docs docs-build docs-demo demo-preview-clean gen-cli-docs docker-build docker-run \
@@ -59,6 +59,12 @@ build:
 # Level 1 — unit.
 test:
 	go test -race ./... -v
+
+# The fleet map's time and byte budgets (Review note N5 of the 509-S12 plan):
+# without the race detector or coverage, so the times are the product's. 3000
+# services always; 10000 with PACTO_SCALE_FULL=1.
+test-fleet-budgets:
+	CGO_ENABLED=0 go test ./pkg/dashboard -run TestFleetMapBudget -count=1 -v
 
 # Level 2 — integration. The CLI driven IN PROCESS against a real in-process OCI
 # registry and a real plugin binary on PATH: several real components wired
@@ -224,11 +230,15 @@ e2e-dashboard-wasm: test-browser
 # and on the changesets Version PR, where `required` gates the release on it.
 # PW_SHARD=i/n runs one Playwright slice, as in test-browser. The matrix carries the G1
 # gate too, and here both run in both themes: PRs gate geometry in dark only, so this is
-# where the light theme's geometry is gated.
+# where the light theme's geometry is gated. It also runs the fleet map at 400, 3000
+# and 10000 generated services (fleet-map-scale.spec.ts), with its time budgets asserted.
+# The budgets are wall-clock, so that spec runs alone on one worker in the first slice:
+# beside a layout-matrix worker the same build painted 10000 services in 2.5 s or 4.8 s.
 test-browser-layout-full:
 	$(MAKE) -C examples/demo build
 	$(MAKE) -C examples/demo doc-export
 	cd pkg/dashboard/frontend && npm ci --ignore-scripts && npx playwright install chromium && PACTO_LAYOUT_FULL=1 npx playwright test e2e/layout-matrix.spec.ts --project=desktop$(if $(PW_SHARD), --shard=$(PW_SHARD))
+	$(if $(filter-out 1/%,$(PW_SHARD)),,cd pkg/dashboard/frontend && PACTO_LAYOUT_FULL=1 npx playwright test e2e/fleet-map-scale.spec.ts --project=desktop --workers=1)
 
 # The dashboard screenshots in docs/assets/screenshots, captured from the built WASM
 # demo at 1600x1000 in both themes, so they are reproducible rather than hand-made.
@@ -432,10 +442,11 @@ bpf-generate: ## Regenerate the agent's eBPF object and Go bindings (needs Docke
 
 # The kernel test loads and attaches the real program, so it needs root and a
 # Linux kernel with BTF; on macOS that is Docker Desktop's VM. It also creates a
-# child cgroup, which --privileged makes writable.
+# child cgroup, which --privileged makes writable. The image pins an older Go
+# with GOTOOLCHAIN=local, so auto fetches the version go.work asks for.
 test-ebpf: ## Run the agent kernel test in a privileged container (needs Docker).
 	docker run --rm --privileged -v "$(CURDIR):/src" -w /src \
-		-e GOFLAGS=-buildvcs=false $(BPF_BUILDER_IMAGE) \
+		-e GOFLAGS=-buildvcs=false -e GOTOOLCHAIN=auto $(BPF_BUILDER_IMAGE) \
 		go test -tags ebpf -count=1 -v ./$(RUNTIMEWATCH_EBPF_DIR)/
 
 clean:

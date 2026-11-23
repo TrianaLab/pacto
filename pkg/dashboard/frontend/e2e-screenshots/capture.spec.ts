@@ -19,7 +19,10 @@ const WORKER_CLOCK = `{const T=Date.parse('${NOW}'),D=Date;self.Date=class exten
 const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: number; y: number; width: number; height: number }; clipTo?: string; element?: string }[] = [
   { name: 'overview', open: (p) => go(p, '/#/fleet', 'Is anything wrong?') },
   { name: 'service', open: (p) => go(p, '/#/fleet/services/payments-service', 'payments-service') },
-  { name: 'graph', open: async (p) => { await go(p, '/#/fleet/graph/service/payments-service', 'Operational graph'); await p.waitForTimeout(1500); } },
+  { name: 'graph', open: async (p) => { await go(p, '/#/fleet/graph/service/payments-service', 'Operational graph'); await mapIdle(p); } },
+  // The fleet map (509-S12): full screen on the Operational graph, and in focus on orders-service with its callers and callees two hops out.
+  { name: 'fleet-map', open: async (p) => { await go(p, '/#/fleet/graph', 'Operational graph'); await mapIdle(p); } },
+  { name: 'fleet-map-focus', open: async (p) => { await go(p, '/#/fleet/graph/service/orders-service?hops=2', 'Operational graph'); await expect(p.getByTestId('fleet-map-focus')).toBeVisible(); await mapIdle(p); } },
   {
     name: 'change-analysis',
     open: async (p) => {
@@ -126,12 +129,33 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     },
     element: '[data-testid="inbox-held"]',
   },
+  // legacy-billing's Declare panel: the payments-service range accepted and the plan
+  // saved as draft-1, with the command a person accepts it with.
+  {
+    name: 'declare-panel',
+    open: async (p) => {
+      await go(p, '/#/fleet/services/k8s%3Ashop%252FDeployment%252Flegacy-billing?declare=1', 'legacy-billing');
+      const panel = p.getByTestId('declare');
+      await panel.getByRole('checkbox', { name: 'Accept payments-service range' }).check();
+      await expect(panel.getByTestId('declare-command')).toContainText('--accept payments-service');
+      await panel.getByTestId('declare-save-draft').click();
+      await expect(panel.getByTestId('declare-accept-command')).toBeVisible();
+    },
+    element: '[data-testid="declare-panel"]',
+  },
 ];
 
 async function finish(page: Page) {
   // A spinner loops forever and has no final frame to finish at.
   await page.evaluate(() => document.getAnimations().forEach((a) => { if (a.effect?.getComputedTiming().endTime !== Infinity) a.finish(); }));
   await settle(page);
+}
+
+/** mapIdle waits until the fleet map has drawn its answer and stopped moving. */
+async function mapIdle(page: Page) {
+  await expect(page.getByTestId('fleet-map-summary')).toBeVisible();
+  await page.waitForFunction(() => !!(window as unknown as { __fleetMap?: unknown }).__fleetMap);
+  await page.evaluate(() => (window as unknown as { __fleetMap: { idle: () => Promise<void> } }).__fleetMap.idle());
 }
 
 async function go(page: Page, hash: string, heading: string) {
@@ -141,7 +165,8 @@ async function go(page: Page, hash: string, heading: string) {
 
 for (const theme of ['light', 'dark'] as const) {
   test.describe(theme, () => {
-    test.use({ colorScheme: theme });
+    // Reduced motion: the map jumps to its final view, so a shot never catches it moving.
+    test.use({ colorScheme: theme, reducedMotion: 'reduce' });
     for (const s of SHOTS) {
       test(s.name, async ({ page }) => {
         // A fixed clock, so "as of" times and relative ages read the same on every run.

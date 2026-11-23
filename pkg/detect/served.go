@@ -5,6 +5,8 @@ import (
 	"maps"
 	"slices"
 	"strings"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // Route is one HTTPRoute parent: the route's namespace and the Gateway it
@@ -29,6 +31,91 @@ func Metrics(served bool, err error) Entry {
 	if served {
 		e.Value, e.Evidence = "Prometheus Operator", "serves monitoring.coreos.com/v1; read passively"
 	}
+	return e
+}
+
+// IstioEgress says whether the Istio ServiceEntry API is served: the
+// operator reads the ServiceEntries that name the systems a workload calls
+// outside the cluster. The entry comes from a cluster-wide read.
+func IstioEgress(served bool, err error) Entry {
+	return egressAPI("istio-egress", "ServiceEntry", "networking.istio.io/v1", served, err)
+}
+
+// CiliumFQDN says whether the Cilium network policy API is served: the
+// operator reads the toFQDNs egress rules that select a workload's pods as
+// the systems it may call outside the cluster. The entry comes from a
+// cluster-wide read.
+func CiliumFQDN(served bool, err error) Entry {
+	return egressAPI("cilium-fqdn", "CiliumNetworkPolicy", "cilium.io/v2", served, err)
+}
+
+// egressAPI is the entry of kind for an egress reader that needs the crd of
+// group version gv: complete when served, unknown when not or when discovery
+// failed.
+func egressAPI(kind, crd, gv string, served bool, err error) Entry {
+	e := Entry{Kind: kind, Evidence: crd + " CRD present", Source: "API discovery", Completeness: Complete}
+	switch {
+	case err != nil:
+		e = discoveryFailed(kind, err)
+	case !served:
+		e.Evidence, e.Completeness, e.Reason = "no "+crd+" CRD", Unknown, "the cluster serves no "+gv+" API, so no "+crd+" is read"
+	}
+	e.Scope = fleet.ScopeCluster
+	return e
+}
+
+// ReaderOff is e lowered to partial, with why and the hint that fixes it, when
+// e reads complete but the reader it describes is not running. A running
+// reader, or an entry that is not complete, is e unchanged.
+func ReaderOff(e Entry, running bool, why, hint string) Entry {
+	if !running && e.Completeness == Complete {
+		e.Completeness, e.Reason, e.Hint = Partial, why, hint
+	}
+	return e
+}
+
+// GatewayNamespace is the one namespace whose egress gateways are trusted:
+// Istio's install namespace. A tenant can label its own pod anywhere else.
+const GatewayNamespace = "istio-system"
+
+// Egress gateway log modes, the values of controller.egressGatewayLogs.
+const (
+	GatewayLogsAuto = "auto"
+	GatewayLogsOn   = "on"
+	GatewayLogsOff  = "off"
+)
+
+// EgressGateways says how the Istio egress gateways (pods labelled
+// istio=egressgateway in istio-system, each in Objects) are read in logs mode:
+// complete when on, partial with the helm command that turns it on when auto,
+// unknown when off. No gateway gives no entry (an empty Kind); a failed list
+// is unknown. The evidence only counts, so it names no namespace, and the
+// entry comes from a cluster-wide read.
+func EgressGateways(gateways []Object, mode string, err error) Entry {
+	const kind = "egress-gateway"
+	var e Entry
+	switch {
+	case err != nil:
+		e = UnknownEntry(kind, "listing the egress gateway pods failed: "+err.Error())
+	case len(gateways) == 0:
+		return Entry{}
+	default:
+		noun := "gateway"
+		if len(gateways) != 1 {
+			noun += "s"
+		}
+		e = Entry{Kind: kind, Evidence: fmt.Sprintf("%d Istio egress %s found; logs: %s", len(gateways), noun, mode),
+			Source: "pods labelled istio=egressgateway", Completeness: Complete, Objects: gateways[:min(len(gateways), MaxNamed)]}
+		switch mode {
+		case GatewayLogsOn:
+		case GatewayLogsOff:
+			e.Completeness, e.Reason = Unknown, "turned off by controller.egressGatewayLogs"
+		default:
+			e.Completeness, e.Reason = Partial, "needs pods/log"
+			e.Hint = "helm upgrade <release> <chart> --reuse-values --set controller.egressGatewayLogs=on"
+		}
+	}
+	e.Scope = fleet.ScopeCluster
 	return e
 }
 

@@ -129,6 +129,12 @@ func TestBackstageEntitiesSnapshotUnavailable(t *testing.T) {
 	assertRefused(t, rec, "the fleet snapshot is not available yet: no snapshot yet")
 }
 
+// A fleet provider with nothing published yet is refused like a failed one.
+func TestBackstageEntitiesNothingPublished(t *testing.T) {
+	rec := backstageGet(t, Options{Fleet: func(context.Context) (*fleet.Query, error) { return nil, nil }}, http.MethodGet)
+	assertRefused(t, rec, "the fleet snapshot is not available yet: no snapshot was published")
+}
+
 // A failed view names its own cause, never a snapshot still being built.
 func TestBackstageEntitiesViewFailure(t *testing.T) {
 	rec := backstageGet(t, Options{Fleet: fleetOf(viewQuery(t)), View: func(context.Context, *fleet.Query) (*fleet.Query, error) {

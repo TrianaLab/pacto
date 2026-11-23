@@ -638,7 +638,7 @@ func (q *Query) aggregate(refs []EntityRef, offerings map[string]*offeringFacts)
 			agg.tallyOwner(q.ownerClaimsOf(s), bucket, s, nc, byOwner, present)
 			if !s.Template {
 				agg.Origins.tallyOrigin(byPath, s)
-				agg.Knowledge.add(q.serviceKnowledge(s))
+				agg.Knowledge.addService(q, s)
 			}
 		case KindRevision:
 			agg.Revisions++
@@ -658,6 +658,7 @@ func (q *Query) aggregate(refs []EntityRef, offerings map[string]*offeringFacts)
 			offeringNames = append(offeringNames, r.Key)
 		}
 	}
+	agg.Knowledge.finish()
 	agg.RankedOwners = len(byOwner)
 	agg.DistinctOwners = len(present)
 	markAmbiguousLabels(byOwner, present)
@@ -931,7 +932,7 @@ func (o *OwnerSummary) addService(q *Query, s *ServiceRecord) {
 	runsNowhere, known := q.notDeployed(s)
 	o.NotDeployed += b2i(runsNowhere)
 	o.PlacementUnknown += b2i(!known)
-	o.Knowledge.add(q.serviceKnowledge(s))
+	o.Knowledge.addService(q, s)
 	var deps ServiceSummary
 	q.tallyServiceEdges(&deps, s.Key)
 	o.UnresolvedDependencies += deps.UnresolvedDeclared

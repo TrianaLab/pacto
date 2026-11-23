@@ -42,7 +42,6 @@ const CHANGE = 'Change and delivery';
 const SYSTEM = 'System';
 const FLEET_HEAD: Command[] = [
   { kind: 'view', label: 'Overview', href: fleetOverviewUrl() },
-  { kind: 'view', label: 'Needs attention', href: fleetAttentionUrl() },
   { kind: 'view', label: 'Services', hint: ORG, href: fleetServicesUrl() },
   { kind: 'view', label: 'Owners', hint: ORG, href: fleetOwnersUrl() },
   { kind: 'view', label: 'Domains', hint: ORG, href: fleetDomainsUrl(), keywords: ['business domain'] },
@@ -74,6 +73,8 @@ const FLEET_TAIL: Command[] = [
   // No sidebar item of its own (Services hosts it), so it follows the sidebar's destinations.
   { kind: 'view', label: 'External systems', hint: ORG, href: fleetExternalsUrl(), keywords: ['external', 'vendor', 'third party'] },
   { kind: 'view', label: 'Readiness', href: fleetEntityListUrl('revision'), keywords: ['contract revisions', 'assessment'] },
+  // The list beside the Overview's map; no sidebar item of its own.
+  { kind: 'view', label: 'Needs attention (Overview)', href: fleetAttentionUrl(), keywords: ['attention', 'problems'] },
 ];
 
 const LEGACY_VIEWS: Command[] = [

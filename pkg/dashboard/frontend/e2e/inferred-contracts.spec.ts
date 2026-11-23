@@ -26,7 +26,7 @@ function inferredAttention() {
       summary: 'Range checked against an inferred contract',
       reason: "card-payments pins a compatibility range on stripe's inferred contract, which lives under pacto-inferred; Pacto never checks a range against it",
       nextStep: 'Write a contract with service.external: stripe, publish it outside pacto-inferred, then point the ranges at it',
-      nextAction: { verb: 'declare', tool: 'pacto_declare' },
+      nextAction: { verb: 'edit-contract', cli: 'pacto ci' },
     }, ...(doc.items ?? [])];
     doc.total = (doc.total ?? 0) + 1;
     doc.count = (doc.count ?? 0) + 1;
@@ -58,11 +58,12 @@ test.describe('WASM demo — inferred external contracts', () => {
     await expect(block.locator('.xe-surface li').first()).toContainText('seen by k8s-production');
   });
 
-  test('the knowledge attention item says to declare a contract with pacto_declare', async ({ page }) => {
+  test('the knowledge attention item says to edit the contract and run pacto ci', async ({ page }) => {
     await page.addInitScript(inferredAttention);
     await appReady(page, '/#/fleet/attention?category=knowledge');
-    const item = page.getByTestId('attention-item').filter({ hasText: 'Range checked against an inferred contract' });
+    // The list beside the Overview's map, opened and filtered by the attention link.
+    const item = page.getByTestId('fleet-map-rail-item').filter({ hasText: 'Range checked against an inferred contract' });
     await expect(item).toHaveCount(1, { timeout: T });
-    await expect(item).toContainText('Fix: declare a contract with pacto_declare');
+    await expect(item).toContainText('Fix: edit the contract, then run pacto ci');
   });
 });

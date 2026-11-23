@@ -446,3 +446,20 @@ func TestNamespaceShortFormIsNoExternal(t *testing.T) {
 		t.Error("an unknown namespace was dropped")
 	}
 }
+
+// TestCiliumFQDNUseIsInferred: a Cilium toFQDNs rule allows a call and never
+// witnesses one, so its use is an inferred edge with an inferred source.
+func TestCiliumFQDNUseIsInferred(t *testing.T) {
+	at := fixedNow().Add(-time.Minute)
+	use := RawExternalUse{Service: "checkout", Namespace: "shop", Identity: "stripe", Class: "vendor-api", Confidence: "likely", Kind: "ciliumFQDN",
+		Where: "ciliumnetworkpolicy/shop/egress toFQDNs api.stripe.com", Host: "api.stripe.com", Entry: "stripe", Catalog: externalcatalog.DefaultDigest(), ObservedAt: &at}
+	snap := inferredFleet(t, []inferredSvc{{name: "checkout", ns: []string{"shop"}}}, []RawExternalUse{use}, nil, nil)
+	rels := relsTo(snap, "stripe")
+	if len(rels) != 1 || rels[0].Provenance != ProvenanceInferred || rels[0].Resolved || len(rels[0].InferredSources) != 1 ||
+		rels[0].InferredSources[0].Kind != "ciliumFQDN" || rels[0].InferredSources[0].Where != use.Where {
+		t.Fatalf("edges = %+v", rels)
+	}
+	if rec := snap.Externals["stripe"]; rec == nil || len(rec.Sources) != 1 || rec.Sources[0].Provenance != ProvenanceInferred {
+		t.Fatalf("record = %+v", rec)
+	}
+}

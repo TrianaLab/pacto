@@ -73,8 +73,9 @@ var writeOnceCallers = []string{
 	// organization index, <registry>/pacto-index (CLI only, #452 decision 11).
 	"internal/app/index_write.go",
 	// PutRecord and Push: the delivery record streams repository (records,
-	// approvals, intents and identity pins) and the approvals repository; the
-	// operator's recordstore.go and recorder.go and the CLI write through it.
+	// approvals, intents and identity pins) and the approvals repository, and
+	// cluster join records in <registry>/pacto-targets; the operator's
+	// recordstore.go and recorder.go and the CLI write through it.
 	"pkg/deliveryrecord/deliveryrecord.go",
 	// The publisher's own artifact and bundle repositories (pacto-sig tags,
 	// CLI only); sign.go and apply.go (SBOMs) write through writeReferrer.
@@ -88,6 +89,10 @@ var writeOnceTagWriters = map[string]string{
 	// bundle repository; bundle manifests go through the publish applier.
 	"draft-": "pkg/publish/apply.go",
 }
+
+// writeOnceTagSimulators name a write-once tag and write no registry: the
+// WASM demo's declarer keeps its draft-<n> list in the browser tab (513-S6).
+var writeOnceTagSimulators = []string{"examples/demo/source_declare.go"}
 
 // TestOnlyAllowedCallersWriteOnceTags keeps write-once tags where the
 // operator may push. Tests and the primitive itself are exempt.
@@ -242,7 +247,7 @@ func checkWriteOnceTagWriters(t *testing.T, root string) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if found, err := tagLiterals(rel, src, prefix); err != nil || found && rel != writer {
+			if found, err := tagLiterals(rel, src, prefix); err != nil || found && rel != writer && !slices.Contains(writeOnceTagSimulators, rel) {
 				t.Errorf("%s names a %q tag (%v): only %s writes those write-once tags", rel, prefix, err, writer)
 			}
 		}

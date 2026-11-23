@@ -6,6 +6,7 @@
 
 import { formatDateTime, formatRelative } from './dateFormat.ts';
 import { serviceKeyName, type ReplacementRef } from './entityLabels.ts';
+import { shortDigest } from './format.ts';
 
 /** replacementLine is one replacement as fleet.Replacement.Line words, its age read
  *  against asOf: the same line pacto fleet get prints. */
@@ -13,6 +14,10 @@ export function replacementLine(r: ReplacementRef, asOf?: string): string {
   const from = serviceKeyName(r.from);
   if (r.link === 'inferred-from') return `Declared by ${r.by || 'an unknown signer'} from inferred ${from} (revision ${r.revision || 'unknown'})`;
   const age = formatRelative(r.at, Date.parse(asOf ?? '') || Date.now());
+  if (r.link === 'observed') {
+    const how = r.signal === 'annotation' ? 'its pacto.trianalab.io/contract annotation' : `its running image digest sha256:${shortDigest(r.value, 12)}…`;
+    return `${from} is linked to ${r.to || 'this service'} by ${how} (observed${age ? `, ${age}` : ''})`;
+  }
   return `Replaces ${from}${age ? ` ${age}` : ''} (linked by Pacto target ${r.target || 'of this service'})`;
 }
 

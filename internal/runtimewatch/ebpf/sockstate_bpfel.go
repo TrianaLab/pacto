@@ -16,8 +16,11 @@ import (
 //
 // Used for safe lookups in a Collection or CollectionSpec.
 const (
+	sockstateMapDnsDrops          = "dns_drops"
+	sockstateMapDnsEvents         = "dns_events"
 	sockstateMapDrops             = "drops"
 	sockstateMapEvents            = "events"
+	sockstateProgDnsAnswer        = "dns_answer"
 	sockstateProgInetSockSetState = "inet_sock_set_state"
 )
 
@@ -63,6 +66,7 @@ type sockstateSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type sockstateProgramSpecs struct {
+	DnsAnswer        *ebpf.ProgramSpec `ebpf:"dns_answer"`
 	InetSockSetState *ebpf.ProgramSpec `ebpf:"inet_sock_set_state"`
 }
 
@@ -70,8 +74,10 @@ type sockstateProgramSpecs struct {
 //
 // It can be passed ebpf.CollectionSpec.Assign.
 type sockstateMapSpecs struct {
-	Drops  *ebpf.MapSpec `ebpf:"drops"`
-	Events *ebpf.MapSpec `ebpf:"events"`
+	DnsDrops  *ebpf.MapSpec `ebpf:"dns_drops"`
+	DnsEvents *ebpf.MapSpec `ebpf:"dns_events"`
+	Drops     *ebpf.MapSpec `ebpf:"drops"`
+	Events    *ebpf.MapSpec `ebpf:"events"`
 }
 
 // sockstateVariableSpecs contains global variables before they are loaded into the kernel.
@@ -100,12 +106,16 @@ func (o *sockstateObjects) Close() error {
 //
 // It can be passed to loadSockstateObjects or ebpf.CollectionSpec.LoadAndAssign.
 type sockstateMaps struct {
-	Drops  *ebpf.Map `ebpf:"drops"`
-	Events *ebpf.Map `ebpf:"events"`
+	DnsDrops  *ebpf.Map `ebpf:"dns_drops"`
+	DnsEvents *ebpf.Map `ebpf:"dns_events"`
+	Drops     *ebpf.Map `ebpf:"drops"`
+	Events    *ebpf.Map `ebpf:"events"`
 }
 
 func (m *sockstateMaps) Close() error {
 	return _SockstateClose(
+		m.DnsDrops,
+		m.DnsEvents,
 		m.Drops,
 		m.Events,
 	)
@@ -121,11 +131,13 @@ type sockstateVariables struct {
 //
 // It can be passed to loadSockstateObjects or ebpf.CollectionSpec.LoadAndAssign.
 type sockstatePrograms struct {
+	DnsAnswer        *ebpf.Program `ebpf:"dns_answer"`
 	InetSockSetState *ebpf.Program `ebpf:"inet_sock_set_state"`
 }
 
 func (p *sockstatePrograms) Close() error {
 	return _SockstateClose(
+		p.DnsAnswer,
 		p.InetSockSetState,
 	)
 }

@@ -56,14 +56,29 @@ export type ProductEntityDetail = JSON200<'fleet-entity-detail'>;
 export type ProductNeighborhood = JSON200<'fleet-neighborhood'>;
 export type ProductAttentionList = JSON200<'fleet-attention'>;
 export type ProductImpact = JSON200<'fleet-impact-post'>;
+export type FleetMapAnswer = JSON200<'fleet-map'>;
+export type FleetMapNodesPage = JSON200<'fleet-map-nodes'>;
+export type FleetMapFocusAnswer = JSON200<'fleet-map-focus'>;
 /** What accepting every proposed range of a service would sign, and the command that signs it. */
 export type AcceptPlanAnswer = JSON200<'fleet-accept'>;
+/** What carrying out an accept plan wrote, or why nothing was. */
+export type AcceptExecuteAnswer = JSON200<'fleet-accept-execute'>;
+type AcceptExecuteBody = operations['fleet-accept-execute']['requestBody']['content']['application/json'];
+/** What declaring an inferred service would publish, the drafts waiting and what this person can do here. */
+export type DeclareAnswer = JSON200<'fleet-declare'>;
+/** What accepting a declaration plan wrote, or why nothing was. */
+export type DeclareAcceptAnswer = JSON200<'fleet-declare-accept'>;
+type DeclareBody = operations['fleet-declare']['requestBody']['content']['application/json'];
+type DeclareAcceptBody = operations['fleet-declare-accept']['requestBody']['content']['application/json'];
 export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductOfferingVersions = JSON200<'fleet-versions'>;
 export type ProductStats = JSON200<'get-stats'>;
 export type ProductStatsRecords = JSON200<'get-stats-records'>;
 export type ProvidersResult = JSON200<'fleet-providers'>;
 export type ProductMeta = ProductOverview['meta'];
+/** The member clusters of a hub: approved, pending and removed, with the counts a reader may not see. */
+export type ClusterJoinList = components['schemas']['Delivery.ClusterJoinList'];
+export type ClusterJoinState = components['schemas']['Delivery.ClusterJoinState'];
 
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
 // body straight from the generated `paths`, keyed by the exact path a facade method
@@ -141,6 +156,9 @@ type FleetEntitiesQuery = NonNullable<operations['fleet-entities']['parameters']
 type FleetNeighborhoodQuery = NonNullable<operations['fleet-neighborhood']['parameters']['query']>;
 type FleetAttentionQuery = NonNullable<operations['fleet-attention']['parameters']['query']>;
 type FleetVersionsQuery = operations['fleet-versions']['parameters']['query'];
+type FleetMapQuery = NonNullable<operations['fleet-map']['parameters']['query']>;
+type FleetMapNodesQuery = operations['fleet-map-nodes']['parameters']['query'];
+type FleetMapFocusQuery = operations['fleet-map-focus']['parameters']['query'];
 type FleetImpactBody = NonNullable<operations['fleet-impact-post']['requestBody']>['content']['application/json'];
 
 export type FleetEntitiesInput = FleetEntitiesQuery;
@@ -482,6 +500,15 @@ export const api = {
     productGet(client.GET('/api/fleet/overview')),
   fleetProviders: (): Promise<ProvidersResult> =>
     productGet(client.GET('/api/fleet/providers')),
+  /** The member clusters of this hub; null when this host reads no joins (404). */
+  fleetClusters: async (): Promise<ClusterJoinList | null> => {
+    try {
+      return await unwrap(client.GET('/api/fleet/clusters'));
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 404) return null;
+      throw e;
+    }
+  },
   fleetEntities: (params: FleetEntitiesInput = {}): Promise<ProductEntityList> => {
     const { kinds, ...rest } = params;
     return productGet(client.GET('/api/fleet/entities', {
@@ -501,6 +528,12 @@ export const api = {
       params: { query: { ...rest, views: views?.length ? views.join(',') : undefined } },
     }));
   },
+  fleetMap: (params: FleetMapQuery = {}): Promise<FleetMapAnswer> =>
+    productGet(client.GET('/api/fleet/map', { params: { query: params } })),
+  fleetMapNodes: (params: FleetMapNodesQuery): Promise<FleetMapNodesPage> =>
+    productGet(client.GET('/api/fleet/map/nodes', { params: { query: params } })),
+  fleetMapFocus: (params: FleetMapFocusQuery): Promise<FleetMapFocusAnswer> =>
+    productGet(client.GET('/api/fleet/map/focus', { params: { query: params } })),
   fleetAttention: (params: FleetAttentionInput = {}): Promise<ProductAttentionList> =>
     productGet(client.GET('/api/fleet/attention', {
       params: { query: { ...params, staleOnly: params.staleOnly || undefined } },
@@ -510,10 +543,20 @@ export const api = {
     productGet(client.GET('/api/fleet/versions', { params: { query: params } })),
   fleetImpactByIdentity: (body: FleetImpactInput): Promise<ProductImpact> =>
     productGet(client.POST('/api/fleet/impact', { body })),
-  /** Plans "Accept all proposed ranges" for a service: the plan and the exact
-   *  pacto accept command a person runs. It never signs and never writes. */
-  fleetAccept: (serviceKey: string): Promise<AcceptPlanAnswer> =>
-    unwrap(client.POST('/api/fleet/accept', { body: { serviceKey } })),
+  /** Plans "Accept all proposed ranges" for a service, or accepting one of its
+   *  acceptance drafts: the plan, the exact pacto accept command a person runs and
+   *  what they can do with it here. The plan never signs and never writes. */
+  fleetAccept: (serviceKey: string, fromDraft?: string): Promise<AcceptPlanAnswer> =>
+    unwrap(client.POST('/api/fleet/accept', { body: fromDraft ? { serviceKey, fromDraft } : { serviceKey } })),
+  /** Signs a reviewed accept plan, saves it as an acceptance draft or accepts a draft, by its intent digest. */
+  fleetAcceptExecute: (body: AcceptExecuteBody): Promise<AcceptExecuteAnswer> =>
+    unwrap(client.POST('/api/fleet/accept/execute', { body })),
+  /** Plans declaring an inferred service, or accepting one of its drafts. It writes nothing. */
+  fleetDeclare: (body: DeclareBody): Promise<DeclareAnswer> =>
+    unwrap(client.POST('/api/fleet/declare', { body })),
+  /** Signs a reviewed declaration plan, saves it as a draft or accepts a draft, by its intent digest. */
+  fleetDeclareAccept: (body: DeclareAcceptBody): Promise<DeclareAcceptAnswer> =>
+    unwrap(client.POST('/api/fleet/declare/accept', { body })),
   /** Lazily reads ONE document body belonging to exactly this revision. Kept off
    *  the entity detail so a revision page stays bounded. */
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>

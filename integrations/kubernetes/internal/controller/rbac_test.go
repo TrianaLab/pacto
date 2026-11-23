@@ -412,3 +412,52 @@ func TestOnlyNotesLooksUpDetectedConfigMap(t *testing.T) {
 		t.Error("NOTES.txt does not look up the detected ConfigMap")
 	}
 }
+
+// verbList is one rule's verbs as every chart template and helper spells them, in flow style.
+var verbList = regexp.MustCompile(`verbs:\s*\[([^\]]*)\]`)
+
+// TestNoRenderGrantsImpersonate keeps the chart free of the verbs that let the operator act as someone else
+// or grant more than it holds: a member answers the hub's reviews with its own SubjectAccessReview and
+// impersonates nobody. It reads every RBAC template with template lines stripped, so every gated rule
+// counts, and every verb list in the helpers, whose rules templates include.
+func TestNoRenderGrantsImpersonate(t *testing.T) {
+	forbidden := []string{"impersonate", "escalate", "bind", "*"}
+	check := func(where string, verbs []string) {
+		for _, v := range verbs {
+			if v = strings.Trim(strings.TrimSpace(v), `"'`); slices.Contains(forbidden, v) {
+				t.Errorf("%s grants %q", where, v)
+			}
+		}
+	}
+	for _, tpl := range rbacTemplates(t) {
+		data, err := os.ReadFile(filepath.Join(chartTemplates, tpl))
+		if err != nil {
+			t.Fatal(err)
+		}
+		dec := yaml.NewDecoder(bytes.NewReader(chartDirective.ReplaceAll(data, nil)))
+		for {
+			var d rbacDoc
+			if err := dec.Decode(&d); errors.Is(err, io.EOF) {
+				break
+			} else if err != nil {
+				t.Fatalf("parse templates/%s: %v", tpl, err)
+			}
+			for _, r := range d.Rules {
+				check(fmt.Sprintf("templates/%s %s on %v", tpl, d.Kind, r.Resources), r.Verbs)
+			}
+		}
+	}
+	helpers, _ := filepath.Glob(filepath.Join(chartTemplates, "_*.tpl"))
+	if len(helpers) == 0 {
+		t.Fatal("no chart helper found")
+	}
+	for _, h := range helpers {
+		data, err := os.ReadFile(h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range verbList.FindAllSubmatch(data, -1) {
+			check(filepath.Base(h), strings.Split(string(m[1]), ","))
+		}
+	}
+}

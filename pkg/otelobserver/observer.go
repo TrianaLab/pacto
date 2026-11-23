@@ -14,7 +14,9 @@ import (
 	"fmt"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 )
@@ -25,6 +27,19 @@ const (
 	spanKindClient   = 3
 	spanKindProducer = 4
 )
+
+// maxNameBytes caps a service name from a trace: a DNS name; OTel service
+// names are far shorter.
+const maxNameBytes = 253
+
+// AttributableName reports whether a service name read from a trace source can
+// enter the fleet: printable, at most 253 bytes, not "unknown", and not shaped
+// like a k8s caller, a Kubernetes identity a trace cannot vouch for and whose
+// namespace restricted views would trust.
+func AttributableName(name string) bool {
+	return name != "" && name != "unknown" && len(name) <= maxNameBytes && !strings.HasPrefix(name, "k8s:") &&
+		!strings.ContainsFunc(name, func(r rune) bool { return !unicode.IsPrint(r) })
+}
 
 // calleeKeys is the attribute precedence for identifying a span's callee, from
 // most explicit (an intentional peer service name) to least. The first present

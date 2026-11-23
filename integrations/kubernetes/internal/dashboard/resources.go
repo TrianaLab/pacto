@@ -25,7 +25,10 @@ const (
 
 	// Dashboard defaults
 	DashboardPort = 3000
-	HealthPath    = "/health"
+	// OTLPPort is where the dashboard receives OTLP/HTTP JSON traces from
+	// Collectors in the cluster. Only the operator-applied Service exposes it.
+	OTLPPort   = 4318
+	HealthPath = "/health"
 )
 
 // Labels returns the standard labels applied to all dashboard resources.

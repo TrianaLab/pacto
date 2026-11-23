@@ -70,6 +70,7 @@ jobs:
               # filter: a change there alone must still run the operator's unit
               # tests, coverage gate, chart checks and envtest.
               # TestPathFiltersCoverTheOperatorImports keeps both lists whole.
+              - 'pkg/memberlink/**'
               - 'pkg/probe/**'
               - 'pkg/runtimefacts/**'
               - 'pkg/capability/**'
@@ -97,6 +98,7 @@ jobs:
               - 'pkg/oci/**'
               - 'pkg/ocireferrer/**'
               - 'pkg/openapi/**'
+              - 'pkg/orgindex/**'
               - 'pkg/publish/**'
               - 'pkg/readiness/**'
               - 'pkg/runrecord/**'
@@ -160,6 +162,10 @@ jobs:
               - 'internal/mcp/**'
               - 'internal/cli/mcp*.go'
               - 'internal/cli/dashboard_identity.go'
+              # pacto declare --pr and the Git host APIs it opens the pull
+              # request through: the Gitea acceptance step drives them.
+              - 'internal/cli/declare*.go'
+              - 'internal/gitexport/**'
               - 'internal/authn/**'
               # pacto impact --running and its in-cluster reader: the gitops-kargo
               # kind shard runs them. TestE2EFilterCoversTheKargoGate keeps them.
@@ -178,6 +184,7 @@ jobs:
               - 'pkg/catalog/**'
               - 'pkg/contract/**'
               - 'pkg/delivery/**'
+              - 'pkg/memberlink/**'
               - 'pkg/workloadmanager/**'
               - 'pkg/workloadshape/**'
               - 'pkg/deliveryrecord/**'
@@ -199,6 +206,7 @@ jobs:
               - 'pkg/oci/**'
               - 'pkg/ocireferrer/**'
               - 'pkg/openapi/**'
+              - 'pkg/orgindex/**'
               - 'pkg/publish/**'
               - 'pkg/readiness/**'
               - 'pkg/runrecord/**'
@@ -506,7 +514,7 @@ jobs:
       fail-fast: false
       matrix:
         # delivery runs in its own sharded job below (ci-e2e-kind-delivery).
-        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, gitops-argocd-sync, gitops-kargo, runtime-conformance, least-privilege, delivery-argocd, multi-cluster]
+        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, gitops-argocd-sync, gitops-kargo, linked-workloads, runtime-conformance, least-privilege, profiles, delivery-argocd, multi-cluster, cluster-join, member-review]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -525,7 +533,8 @@ jobs:
       # publish the manifest artifact the delivery tool pulls the promotion from —
       # Flux's OCIRepository in one, Argo's OCI application source in the other.
       # delivery-argocd publishes the versions its registry watch judges.
-      - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-') || matrix.scenario == 'delivery-argocd'
+      # linked-workloads publishes the Argo CD source and reads the target snapshot.
+      - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-') || matrix.scenario == 'delivery-argocd' || matrix.scenario == 'linked-workloads'
         uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
       - name: Install kind (checksum-verified via GOSUMDB)
         timeout-minutes: 5
@@ -694,6 +703,9 @@ jobs:
         with:
           version: v5.5.0
       - run: make ci-e2e-compose
+      # pacto declare --pr against a throwaway Gitea: one real pull request
+      # holding both files, opened with the person's own token (see ci.mk).
+      - run: make test-acceptance-declare-pr
       # Portable runtime evidence on this runner's kernel: the host agent over
       # labelled containers and `pacto run` in both modes (see ci.mk).
       - run: make test-acceptance-local-runtime-docker

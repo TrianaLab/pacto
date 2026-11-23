@@ -406,7 +406,7 @@ func (s *Service) entryLayer(ctx context.Context, r *remote.Repository, repo str
 		}
 		c = indexCached{Manifest: raw}
 	}
-	layer, err := entryLayerDesc(c.Manifest)
+	layer, err := orgindex.EntryLayer(c.Manifest)
 	if err != nil {
 		return nil, err
 	}
@@ -417,22 +417,6 @@ func (s *Service) entryLayer(ctx context.Context, r *remote.Repository, repo str
 		s.keepCachedEntry(repo, desc.Digest, c)
 	}
 	return c.Layer, nil
-}
-
-// entryLayerDesc is the one layer of an entry manifest, refused unless the
-// manifest is an index entry whose layer fits the entry bound.
-func entryLayerDesc(raw []byte) (ocispec.Descriptor, error) {
-	var m ocispec.Manifest
-	_ = json.Unmarshal(raw, &m) // a manifest that does not decode has no artifactType
-	switch {
-	case m.ArtifactType != orgindex.ArtifactType:
-		return ocispec.Descriptor{}, errors.New("the manifest's artifactType is not " + orgindex.ArtifactType)
-	case len(m.Layers) != 1 || m.Layers[0].MediaType != orgindex.MediaType:
-		return ocispec.Descriptor{}, fmt.Errorf("the manifest is not one %s layer", orgindex.MediaType)
-	case m.Layers[0].Size > orgindex.MaxEntryBytes:
-		return ocispec.Descriptor{}, fmt.Errorf("the entry layer is %d bytes, over the %d-byte bound", m.Layers[0].Size, orgindex.MaxEntryBytes)
-	}
-	return m.Layers[0], nil
 }
 
 // confirmEntry requires the version tag in the service's own bundle

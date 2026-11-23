@@ -7,13 +7,14 @@
 - `Base: none`
 - `Consumer source: targets-6f1e0000-cccc-4000-8000-000000000003 (available, asOf <time>)`
 - `Consumer source: targets-6f1e0000-cccc-4000-8000-000000000003-workloads (empty, asOf <time>)`
-- `Index: 1 from ghcr.io/acme/pacto-index (listed by tag, complete)`
-- `Ranges: 0 declared and 0 accepted of 1 dependency edges (0%)`
+- `Index: 0 from ghcr.io/acme/pacto-index (listed by tag, complete)`
+- `Ranges: 0 declared and 1 accepted of 2 dependency edges (50%)`
 - `  unknown: reports -> ledger (proposed ^2.4.0)`
 
 | SERVICE | CHANGED | VERSION | CLASSIFICATION | IMPACT | INFERRED |
 |---|---|---|---|---|---|
-| `ledger` | `yes` | `2.4.0 -> 3.0.0` | `BREAKING` | `clear` | `1 field` |
+| `invoices` | `yes` | `0.1.0 -> 0.2.0 (derived)` | `POTENTIAL_BREAKING` | `unverified (inferred fields changed: configuration.LEDGER_URL, publish.deploy, workload, declaration.accepted.dependencies[ledger].compatibility; declare them to classify)` | `4 fields` |
+| `ledger` | `yes` | `2.4.0 -> 3.0.0` | `BREAKING` | `unverified (the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break. Fix the sources named in limitations and run the analysis again)` | `1 field` |
 | `payments` | `yes` | `1.4.2 -> 1.4.3 (derived)` | `NON_BREAKING` | `unverified (possible break (inferred): interfaces[api]; declare it to classify)` | `6 fields` |
 | `reports` | `no` | - | - | - | `2 fields` |
 
@@ -31,5 +32,9 @@
   </details>
 
 - `skipped: services/legacy (from .pactoignore:1)`
-- `ledger: break accepted for reports (ana@acme.com, ghcr.io/acme/reports@<digest>); expires 2026-12-14 (commit 92b546ad6e54 + 30d, inferred)`
+- `invoices: baseline unverified in plan mode`
+- `invoices: owner: billing, declared in registry (rev sha256:5a54bebec06a)`
+- `invoices: dependencies.ledger: >=2.4.0, accepted in registry (rev sha256:5a54bebec06a)`
+- `invoices: service.version: 0.2.0, derived from 0.1.0 (rev sha256:5a54bebec06a)`
+- `ledger: break accepted for reports (ana@acme.com, ghcr.io/acme/reports@<digest>); expires 2026-12-14 (commit 59b72b83dbeb + 30d, inferred)`
 - `payments: baseline unverified in plan mode`

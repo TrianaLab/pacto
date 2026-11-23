@@ -222,3 +222,9 @@ func TestPlacementLineReadyUnsigned(t *testing.T) {
 		t.Errorf("signed = %q", got)
 	}
 }
+
+func TestStagesHint(t *testing.T) {
+	if got := StagesHint("payments"); got != "Stages: pacto delivery status --service payments" {
+		t.Errorf("StagesHint = %q", got)
+	}
+}

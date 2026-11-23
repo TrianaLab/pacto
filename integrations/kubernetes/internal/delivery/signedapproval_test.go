@@ -615,3 +615,15 @@ func TestKeylessURISignerIsAgent(t *testing.T) {
 		t.Fatalf("source = %s, why %q", signed.source, why)
 	}
 }
+
+// TestKeylessOutsideSubjectsIsRefused: a person's address outside the
+// signer's subjects reads as a decision yet speaks for no approver, so the
+// promoter's keyless guard refuses its view.
+func TestKeylessOutsideSubjectsIsRefused(t *testing.T) {
+	e, o, ss, reg := heldKeylessEnv(t)
+	const eve = "eve@evil.example"
+	e.view("v", o, e.signedRef(reg, ss, eve, o), func(s *delivery.ApprovalSpec) { s.By = "oidc:" + eve })
+	if _, why := e.op.verifySigned(context.Background(), e.getApproval("v").Spec); !strings.Contains(why, "agents cannot approve: oidc:"+eve) {
+		t.Fatalf("why %q", why)
+	}
+}

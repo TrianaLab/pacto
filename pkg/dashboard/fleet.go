@@ -1,14 +1,17 @@
 package dashboard
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"github.com/trianalab/pacto/v4/pkg/dashboard/productview"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -33,6 +36,9 @@ type capabilitiesOutput struct {
 		Auth     capabilityAuth `json:"auth" doc:"What this caller's Kubernetes permissions leave out of the fleet views"`
 		MiraURL  string         `json:"miraURL,omitempty" doc:"Mira's address, to link health-check citations and open a service in Mira"`
 		Stats    bool           `json:"stats" doc:"The Metrics page has a stats repository to read"`
+		Declare  bool           `json:"declare" doc:"This caller can plan declaring an inferred service: the host declares and knows who the caller is"`
+		// Installation is the one answer pacto_capabilities gives too.
+		Installation fleet.Installation `json:"installation" doc:"How this installation runs: its profile, registry, delivery, provisioning engine, clusters and MCP endpoint, each with where Pacto learned it and when"`
 	}
 }
 
@@ -71,7 +77,9 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	// is published, observed is reported false (we cannot confirm it).
 	q := s.publishedQuery(ctx)
 	out.Body.Observed = q != nil && q.HasObserved()
-	if a := s.authSummary(ctx); a.Mode != "none" {
+	a := s.authSummary(ctx)
+	in := s.installationInput(ctx, a.Mode)
+	if a.Mode != "none" {
 		hidden := hiddenByPermissions(q)
 		out.Body.Auth = capabilityAuth{Hidden: hidden, NothingVisible: hidden && len(q.SnapshotForSerialization().Services) == 0}
 		// A cluster that cannot be asked keeps the tab: its views then say
@@ -79,15 +87,43 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 		// is never served, the cluster is not asked at all. A sign-in link
 		// session sees no Delivery, and is told why only where delivery is
 		// installed: its own sign-in would show it there.
-		if s.opts.Delivery != nil && a.Mode != "open" {
-			installed, err := s.deliveryInstalled(ctx)
-			out.Body.Delivery = (installed || err != nil) && !a.State.FleetOnly
-			out.Body.Auth.FleetOnly = installed && a.State.FleetOnly
+		if in.DeliveryWired {
+			out.Body.Delivery = (in.DeliveryInstalled || in.DeliveryErr != nil) && !a.State.FleetOnly
+			out.Body.Auth.FleetOnly = in.DeliveryInstalled && a.State.FleetOnly
 		}
 	}
 	out.Body.MiraURL = s.opts.MiraURL
 	out.Body.Stats = s.opts.Stats != nil
+	// A sign-in link session is refused by every declare route.
+	out.Body.Declare = s.opts.Declare != nil && s.declares(ctx) && !s.authState(ctx).FleetOnly
+	out.Body.Installation = q.Installation(in)
 	return out, nil
+}
+
+// installationInput is what this dashboard knows for capabilities.installation:
+// the operator's configuration and its raw delivery probe, asked in every auth
+// mode that serves delivery (open identifies nobody, so it serves none), and
+// whether the host serves MCP beside it and the pending member clusters the
+// reader may see.
+func (s *Server) installationInput(ctx context.Context, mode string) fleet.InstallationInput {
+	in := fleet.InstallationInput{DeliveryWired: s.opts.Delivery != nil && mode != "open", MCPServed: s.opts.MCPServed,
+		MCPSource: cmp.Or(s.opts.MCPSource, "this dashboard serves no /mcp endpoint"), Now: time.Now().UTC()}
+	if cfg := s.opts.InstallationConfig; cfg != nil {
+		d, st := cfg(ctx)
+		in.Declared, in.DeclaredState = d, &st
+	}
+	if in.DeliveryWired {
+		in.DeliveryProbed, in.DeliveryInProcess = true, s.opts.DeliveryInstalled == nil
+		in.DeliveryInstalled, in.DeliveryErr = s.deliveryInstalled(ctx)
+		if at := s.opts.DeliveryCheckedAt; at != nil {
+			in.DeliveryAsOf = at().UTC()
+		}
+	}
+	if s.opts.ClusterJoins != nil {
+		l, err := s.opts.ClusterJoins(ctx)
+		productview.InstallationPending(&in, l, err)
+	}
+	return in
 }
 
 // hiddenByPermissions reports whether q left out what the caller may not read.
@@ -103,6 +139,8 @@ func (s *Server) registerFleetOperations(api huma.API) {
 		return
 	}
 	s.registerAcceptOperation(api)
+	s.registerAcceptExecuteOperation(api)
+	s.registerDeclareOperations(api)
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-snapshot",
 		Method:      http.MethodGet,
@@ -431,9 +469,40 @@ func impactHTTPError(err error) error {
 // live-host shape, not a contract-view one: only /api/sources emits it, and the
 // offline static export has no sources to report.
 type SourceInfo struct {
-	Type    string `json:"type"` // the fleet source kind: "kubernetes", "oci", "local", "cache"...
-	Enabled bool   `json:"enabled"`
-	Reason  string `json:"reason,omitempty"` // why enabled/disabled
+	Type     string `json:"type"` // the fleet source kind: "kubernetes", "oci", "local", "cache"..., or an egress row id
+	Enabled  bool   `json:"enabled"`
+	Reason   string `json:"reason,omitempty"` // why enabled/disabled
+	Egress   bool   `json:"egress,omitempty" doc:"Set on a row projected from a detected provider that reads calls leaving the cluster; such a row is not a data source"`
+	Coverage string `json:"coverage,omitempty" enum:"complete,partial,unavailable" doc:"How much of the calls leaving the cluster an egress row read; set on egress rows only"`
+	Source   string `json:"source,omitempty" doc:"The fleet source that reported an egress row; set on egress rows only"`
+	Cluster  string `json:"cluster,omitempty" doc:"The cluster an egress row describes, when its source names one; set on egress rows only"`
+}
+
+// egressSources projects every provider row of q that reads calls leaving the
+// cluster (UsedFor names fleet.UseExternalEgress) onto one SourceInfo, with
+// the source and cluster that tell two rows of one id apart. q is
+// the caller's view, so the rows are already restricted. A stale or
+// unavailable row is disabled with coverage unavailable: unknown never reads
+// as positive.
+func egressSources(q *fleet.Query) []SourceInfo {
+	if q == nil {
+		return nil
+	}
+	var out []SourceInfo
+	for _, p := range q.SnapshotForSerialization().Providers {
+		if !slices.Contains(p.UsedFor, fleet.UseExternalEgress) {
+			continue
+		}
+		info := SourceInfo{Type: p.ID, Reason: p.Evidence, Egress: true, Coverage: "unavailable", Source: p.Source, Cluster: p.Cluster}
+		switch p.Status {
+		case fleet.SourceAvailable:
+			info.Enabled, info.Coverage = true, "complete"
+		case fleet.SourcePartial:
+			info.Enabled, info.Coverage = true, "partial"
+		}
+		out = append(out, info)
+	}
+	return out
 }
 
 // sourcesFromFleet projects a snapshot's source health onto the legacy

@@ -28,8 +28,8 @@ export async function appReady(page: Page, path = '/'): Promise<void> {
  *
  * Two consecutive quiet samples rather than one: a test gates on a heading, the list
  * under it arrives later, and an entrance that begins between the samples resets the
- * count. Every product animation is finite by design (the alarm in FleetAttentionView
- * is three pulses, not an infinite loop, precisely so this can be a real wait), so the
+ * count. Every product animation is finite by design (an alarm pulses a few times, never
+ * an infinite loop, precisely so this can be a real wait), so the
  * deadline is a backstop against a bug, not the normal path.
  */
 export async function settle(page: Page): Promise<void> {

@@ -25,6 +25,7 @@ const text = (el: HTMLElement | null) => (el?.textContent ?? '').replace(/\s+/g,
 
 describe('TargetEntity cluster fact', () => {
   it.each([
+    ['approval', 'approval'],
     ['node-label', 'node label'],
     ['context', 'context name'],
     ['file', 'target-state file'],
@@ -54,5 +55,25 @@ describe('TargetEntity cluster fact', () => {
     mounted = render({});
     expect(fact(mounted.el)).toBeNull();
     expect(mounted.el.textContent).not.toContain('cluster');
+  });
+});
+
+describe('TargetEntity link', () => {
+  const DIGEST = `sha256:ab12${'0'.repeat(60)}`;
+  const link = (el: HTMLElement) => el.querySelector('[data-testid="target-link"]') as HTMLElement | null;
+
+  it('shows one mark on a linked target, the full digest in its tip and title', () => {
+    mounted = render({ link: { signal: 'image-digest', value: DIGEST, since: '2026-11-20T11:57:00Z' } });
+    const row = link(mounted.el);
+    expect(text(row)).toMatch(/^Linked image digest sha256:ab1200000000…/);
+    expect(row?.querySelector(`[title="${DIGEST}"]`)).not.toBeNull();
+    expect(mounted.el.querySelectorAll('.prov-mark')).toHaveLength(1);
+    expect(row?.querySelector('.prov-tip')?.textContent).toContain(DIGEST);
+  });
+
+  it('shows no link row and no mark on an unlinked target', () => {
+    mounted = render({});
+    expect(link(mounted.el)).toBeNull();
+    expect(mounted.el.querySelectorAll('.prov-mark')).toHaveLength(0);
   });
 });

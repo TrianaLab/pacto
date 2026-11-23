@@ -1,4 +1,36 @@
 ---
+# Source: pacto-operator/templates/dashboard-networkpolicy.yaml
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pacto-operator-dashboard
+  namespace: default
+  labels:
+    helm.sh/chart: pacto-operator-VERSION
+    app.kubernetes.io/name: pacto-operator
+    app.kubernetes.io/instance: pacto-operator
+    app.kubernetes.io/version: "VERSION"
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/component: dashboard
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/component: dashboard
+      app.kubernetes.io/name: pacto-dashboard
+  policyTypes:
+    - Ingress
+  ingress:
+    # The web UI keeps its reach: Ingress, HTTPRoute and port-forward.
+    - ports:
+        - port: 3000
+          protocol: TCP
+    # OTLP/HTTP from Collectors: pods in this cluster only.
+    - from:
+        - namespaceSelector: {}
+      ports:
+        - port: 4318
+          protocol: TCP
+---
 # Source: pacto-operator/templates/dashboard-signin.yaml
 apiVersion: v1
 kind: ServiceAccount
@@ -148,6 +180,33 @@ spec:
                 required:
                 - state
                 type: object
+              dns:
+                description: |-
+                  DNS is the health of DNS answer capture, the source of connection hosts.
+                  Absent from an agent that does not capture DNS answers.
+                properties:
+                  droppedAnswers:
+                    description: |-
+                      DroppedAnswers is the cumulative number of DNS answers lost because the
+                      ring buffer was full, since the agent started.
+                    format: int64
+                    minimum: 0
+                    type: integer
+                  reason:
+                    description: Reason is a CamelCase machine-readable cause for
+                      a non-Running state.
+                    maxLength: 128
+                    type: string
+                  state:
+                    description: State is Running, Degraded or Failed.
+                    enum:
+                    - Running
+                    - Degraded
+                    - Failed
+                    type: string
+                required:
+                - state
+                type: object
               kernelRelease:
                 description: KernelRelease is the node's kernel release (uname -r).
                 type: string
@@ -187,6 +246,11 @@ spec:
                             maxLength: 45
                             minLength: 1
                             type: string
+                          ambiguous:
+                            description: |-
+                              Ambiguous is true when the pod's DNS answers named the address under more
+                              than one registrable domain (a CDN or shared ingress), so Host is empty.
+                            type: boolean
                           failures:
                             description: |-
                               Failures counts handshakes that went from SYN_SENT straight to CLOSE
@@ -194,6 +258,12 @@ spec:
                             format: int64
                             minimum: 0
                             type: integer
+                          host:
+                            description: |-
+                              Host is the name the pod's own DNS answers gave the address, empty when
+                              none did. Only lowercase letters, digits, hyphens and dots.
+                            maxLength: 253
+                            type: string
                           lastFailureAt:
                             description: LastFailureAt is the time of the most recent
                               failure.
@@ -1142,7 +1212,8 @@ spec:
                   workload's pod spec names: env names and values, the ConfigMap keys it
                   references, Secret and Secret key names (never a Secret value) and the
                   ExternalName Services, selectorless Services and Istio ServiceEntries
-                  of its own namespace it points at. Each entry carries the normalized
+                  of its own namespace it points at, and the Cilium toFQDNs egress rules
+                  that select its pods (an allow-list, so a possible call). Each entry carries the normalized
                   host and port at most. Capped at 50, sorted by identity, kind and where.
                 items:
                   description: |-
@@ -1187,6 +1258,7 @@ spec:
                       - externalNameService
                       - selectorlessService
                       - serviceEntry
+                      - ciliumFQDN
                       type: string
                     where:
                       description: Where names the object and key that name the external,
@@ -1211,7 +1283,10 @@ spec:
                   ServiceEntry API), serviceentry-unreadable (the ServiceEntries could
                   not be listed), object-host-unclassified (a Service or ServiceEntry
                   names a host that gives no identity, such as one under a private
-                  suffix) or truncated (more than 50 externals).
+                  suffix), cilium-unreadable (the Cilium network policies could not be
+                  listed), fqdn-pattern-unbounded (a Cilium toFQDNs pattern allows hosts
+                  that no registrable domain bounds) or truncated (more than 50
+                  externals).
                 properties:
                   reason:
                     type: string
@@ -1480,6 +1555,100 @@ spec:
                   ObservedCallersCoverage says whether observedCallers can be trusted as
                   complete. Absent when runtime observation is not configured for this Pacto.
                 properties:
+                  reason:
+                    type: string
+                  refreshSeconds:
+                    description: |-
+                      RefreshSeconds is how often the operator rewrites this status. A reader
+                      treats a status not reconciled within twice that as stale, so an operator
+                      that stopped never leaves a complete coverage in place.
+                    format: int32
+                    type: integer
+                  state:
+                    enum:
+                    - complete
+                    - partial
+                    - unavailable
+                    type: string
+                required:
+                - state
+                type: object
+              observedEgress:
+                description: |-
+                  ObservedEgress are the systems outside the cluster the node agent saw
+                  the target workload's pods call inside the caller window, named from the
+                  DNS answers each pod received and one entry per identity. Capped at 32,
+                  sorted by identity.
+                items:
+                  description: |-
+                    EgressStatus is one external system the target workload's pods were seen
+                    calling. Host is one host it was reached by, never a path or a value.
+                  properties:
+                    class:
+                      enum:
+                      - vendor-api
+                      - managed-cloud
+                      - legacy
+                      - unclassified
+                      type: string
+                    firstSeen:
+                      description: |-
+                        FirstSeen is set once, when the external first appears, so the status
+                        does not change on every reconcile.
+                      format: date-time
+                      type: string
+                    host:
+                      maxLength: 253
+                      type: string
+                    identity:
+                      description: |-
+                        Identity is the external's canonical identity (stripe,
+                        host/<registrable-domain>).
+                      type: string
+                    port:
+                      format: int32
+                      type: integer
+                    source:
+                      description: |-
+                        Source is what saw the calls: the node agent (ebpf) or an egress
+                        gateway's access log.
+                      enum:
+                      - ebpf
+                      - egress-gateway-log
+                      type: string
+                  required:
+                  - class
+                  - firstSeen
+                  - host
+                  - identity
+                  - port
+                  - source
+                  type: object
+                maxItems: 32
+                type: array
+              observedEgressCoverage:
+                description: |-
+                  ObservedEgressCoverage says whether observedEgress can be trusted as
+                  complete: partial or unavailable means a missing external is unknown,
+                  not absent. The reason names the first gap: a read the operator could
+                  not make (no-agent-data, agent-data-unreadable, pods-unreadable,
+                  pactos-unreadable, services-unreadable), a node it cannot trust
+                  (node-without-agent, stale-node, degraded-node, collection-failed,
+                  shared-netns), no running pod to watch (no-running-pods), calls it
+                  cannot name (dns-unavailable, ambiguous-peers, unnamed-public,
+                  unnamed-private-peers), a name that gives no identity
+                  (egress-host-unclassified), truncated or not-evaluated. Absent when runtime
+                  observation is not configured for this Pacto.
+                properties:
+                  nodes:
+                    description: Nodes is how many nodes run pods.
+                    format: int32
+                    type: integer
+                  nodesWithAgent:
+                    description: NodesWithAgent is how many of those nodes publish
+                      node agent data.
+                    format: int32
+                    type: integer
                   reason:
                     type: string
                   refreshSeconds:
@@ -1811,7 +1980,9 @@ spec:
                   the contract's business domain in contract.domain, so its absence there
                   means the contract declares none. Format 3 also records the external
                   systems the target workload names in externals, with externalsCoverage
-                  saying how far that list can be trusted. A status without a format, or with an
+                  saying how far that list can be trusted. Format 4 also records the
+                  external systems the node agent saw the workload call in observedEgress,
+                  with observedEgressCoverage. A status without a format, or with an
                   older one, was written by an older operator, so readers treat what it
                   would record as unknown until the operator reconciles the Pacto again.
                 format: int32
@@ -2011,8 +2182,10 @@ rules:
     resourceNames: [kube-system]
     verbs: [get]
   # Detection reads each node's providerID, labels and kernel to propose the
-  # cloud and the node kernels in <fullname>-detected. It writes nothing on
-  # nodes, and with controller.watchNamespaces this rule is not rendered.
+  # cloud and the node kernels in <fullname>-detected; kernel egress reads each
+  # node's pod CIDRs to tell a gone pod's address from an external one. It
+  # writes nothing on nodes, and with controller.watchNamespaces this rule is
+  # not rendered.
   - apiGroups: [""]
     resources: [nodes]
     verbs: [list]
@@ -2407,12 +2580,14 @@ spec:
             - --metrics-secure=true
             - --enable-probing=auto
             - --enable-metrics-observation=auto
+            - --egress-gateway-logs=auto
             - --node-agent-namespace=pacto-node-agent
             - --enable-dashboard
             - --dashboard-cpu-request=50m
             - --dashboard-memory-request=128Mi
             - --dashboard-memory-limit=512Mi
             - --dashboard-token-login
+            - --dashboard-mcp
             - --dashboard-fingerprints-configmap=pacto-operator-fingerprints
           ports:
             - name: metrics

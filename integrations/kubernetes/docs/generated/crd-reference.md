@@ -485,6 +485,10 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.collection.message` | `string` | no |  |  | Message is a human-readable explanation of a non-Running state. |
 | `status.collection.reason` | `string` | no |  |  | Reason is a CamelCase machine-readable cause for a non-Running state. |
 | `status.collection.state` | `string` | yes |  | `Running`, `Degraded`, `Failed` | State is Running, Degraded or Failed. |
+| `status.dns` | `object` | no |  |  | DNS is the health of DNS answer capture, the source of connection hosts. Absent from an agent that does not capture DNS answers. |
+| `status.dns.droppedAnswers` | `integer` | no |  |  | DroppedAnswers is the cumulative number of DNS answers lost because the ring buffer was full, since the agent started. |
+| `status.dns.reason` | `string` | no |  |  | Reason is a CamelCase machine-readable cause for a non-Running state. |
+| `status.dns.state` | `string` | yes |  | `Running`, `Degraded`, `Failed` | State is Running, Degraded or Failed. |
 | `status.kernelRelease` | `string` | no |  |  | KernelRelease is the node's kernel release (uname -r). |
 | `status.lastPublished` | `string` | no |  |  | LastPublished is the heartbeat: the time of the most recent publish. |
 | `status.nodeName` | `string` | no |  |  | NodeName is the Kubernetes node this object describes. |
@@ -493,7 +497,9 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.pods[].baselineAt` | `string` | no |  |  | BaselineAt is the last /proc scan that saw the pod. |
 | `status.pods[].connections` | `[]object` | no |  |  | Connections are the pod's outbound TCP peers within the retention window. |
 | `status.pods[].connections[].address` | `string` | yes |  |  | Address is the peer IP address. |
+| `status.pods[].connections[].ambiguous` | `boolean` | no |  |  | Ambiguous is true when the pod's DNS answers named the address under more than one registrable domain (a CDN or shared ingress), so Host is empty. |
 | `status.pods[].connections[].failures` | `integer` | no |  |  | Failures counts handshakes that went from SYN_SENT straight to CLOSE (refused, reset or timed out). |
+| `status.pods[].connections[].host` | `string` | no |  |  | Host is the name the pod's own DNS answers gave the address, empty when none did. Only lowercase letters, digits, hyphens and dots. |
 | `status.pods[].connections[].lastFailureAt` | `string` | no |  |  | LastFailureAt is the time of the most recent failure. |
 | `status.pods[].connections[].lastSuccessAt` | `string` | no |  |  | LastSuccessAt is the time of the most recent success. |
 | `status.pods[].connections[].port` | `integer` | yes |  |  | Port is the peer port. |
@@ -669,15 +675,15 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.evaluationCoverage.required` | `integer` | yes |  |  | Required is the total number of required assertions the contract declares. |
 | `status.evaluationCoverage.unverified` | `[]string` | no |  |  | Unverified lists, sorted, the contract paths of declared facets that have a runtime check but no usable fact this time (for example interfaces[name=api].type with probing off). Metadata only: it never changes the contract status. |
 | `status.externalCatalog` | `string` | no |  |  | ExternalCatalog is the digest of the external catalog externals were classified with, followed by " (embedded)" for the copy compiled into the operator. |
-| `status.externals` | `[]object` | no |  |  | Externals are the systems outside the cluster that the target workload's pod spec names: env names and values, the ConfigMap keys it references, Secret and Secret key names (never a Secret value) and the ExternalName Services, selectorless Services and Istio ServiceEntries of its own namespace it points at. Each entry carries the normalized host and port at most. Capped at 50, sorted by identity, kind and where. |
+| `status.externals` | `[]object` | no |  |  | Externals are the systems outside the cluster that the target workload's pod spec names: env names and values, the ConfigMap keys it references, Secret and Secret key names (never a Secret value) and the ExternalName Services, selectorless Services and Istio ServiceEntries of its own namespace it points at, and the Cilium toFQDNs egress rules that select its pods (an allow-list, so a possible call). Each entry carries the normalized host and port at most. Capped at 50, sorted by identity, kind and where. |
 | `status.externals[].class` | `string` | yes |  | `vendor-api`, `managed-cloud`, `legacy`, `unclassified` |  |
 | `status.externals[].confidence` | `string` | yes |  | `likely`, `possible` | Confidence is likely when a host matched and possible when only a key name did. |
 | `status.externals[].entry` | `string` | no |  |  | Entry is the catalog entry that matched, empty for an unclassified host. |
 | `status.externals[].host` | `string` | no |  |  |  |
 | `status.externals[].identity` | `string` | yes |  |  | Identity is the external's canonical identity (stripe, aws/rds/&lt;account&gt;/&lt;region&gt;/&lt;id&gt;, host/&lt;registrable-domain&gt;). |
-| `status.externals[].kind` | `string` | yes |  | `env`, `configMap`, `secretKeyRef`, `secretRef`, `externalNameService`, `selectorlessService`, `serviceEntry` | Kind is where in the pod spec or the namespace the external was named. |
+| `status.externals[].kind` | `string` | yes |  | `env`, `configMap`, `secretKeyRef`, `secretRef`, `externalNameService`, `selectorlessService`, `serviceEntry`, `ciliumFQDN` | Kind is where in the pod spec or the namespace the external was named. |
 | `status.externals[].where` | `string` | yes |  |  | Where names the object and key that name the external, never a value. |
-| `status.externalsCoverage` | `object` | no |  |  | ExternalsCoverage says whether externals can be trusted as complete: partial or unavailable means a missing external is unknown, not absent. The reason is pod-spec-unavailable (the target workload could not be read), configmap-unreadable (a ConfigMap the pod spec references could not be read), serviceentry-reader-off (the cluster serves no Istio ServiceEntry API), serviceentry-unreadable (the ServiceEntries could not be listed), object-host-unclassified (a Service or ServiceEntry names a host that gives no identity, such as one under a private suffix) or truncated (more than 50 externals). |
+| `status.externalsCoverage` | `object` | no |  |  | ExternalsCoverage says whether externals can be trusted as complete: partial or unavailable means a missing external is unknown, not absent. The reason is pod-spec-unavailable (the target workload could not be read), configmap-unreadable (a ConfigMap the pod spec references could not be read), serviceentry-reader-off (the cluster serves no Istio ServiceEntry API), serviceentry-unreadable (the ServiceEntries could not be listed), object-host-unclassified (a Service or ServiceEntry names a host that gives no identity, such as one under a private suffix), cilium-unreadable (the Cilium network policies could not be listed), fqdn-pattern-unbounded (a Cilium toFQDNs pattern allows hosts that no registrable domain bounds) or truncated (more than 50 externals). |
 | `status.externalsCoverage.reason` | `string` | no |  |  |  |
 | `status.externalsCoverage.refreshSeconds` | `integer` | no |  |  | RefreshSeconds is how often the operator rewrites this status. A reader treats a status not reconciled within twice that as stale, so an operator that stopped never leaves a complete coverage in place. |
 | `status.externalsCoverage.state` | `string` | yes |  | `complete`, `partial`, `unavailable` |  |
@@ -728,6 +734,19 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.observedCallersCoverage.reason` | `string` | no |  |  |  |
 | `status.observedCallersCoverage.refreshSeconds` | `integer` | no |  |  | RefreshSeconds is how often the operator rewrites this status. A reader treats a status not reconciled within twice that as stale, so an operator that stopped never leaves a complete coverage in place. |
 | `status.observedCallersCoverage.state` | `string` | yes |  | `complete`, `partial`, `unavailable` |  |
+| `status.observedEgress` | `[]object` | no |  |  | ObservedEgress are the systems outside the cluster the node agent saw the target workload's pods call inside the caller window, named from the DNS answers each pod received and one entry per identity. Capped at 32, sorted by identity. |
+| `status.observedEgress[].class` | `string` | yes |  | `vendor-api`, `managed-cloud`, `legacy`, `unclassified` |  |
+| `status.observedEgress[].firstSeen` | `string` | yes |  |  | FirstSeen is set once, when the external first appears, so the status does not change on every reconcile. |
+| `status.observedEgress[].host` | `string` | yes |  |  |  |
+| `status.observedEgress[].identity` | `string` | yes |  |  | Identity is the external's canonical identity (stripe, host/&lt;registrable-domain&gt;). |
+| `status.observedEgress[].port` | `integer` | yes |  |  |  |
+| `status.observedEgress[].source` | `string` | yes |  | `ebpf`, `egress-gateway-log` | Source is what saw the calls: the node agent (ebpf) or an egress gateway's access log. |
+| `status.observedEgressCoverage` | `object` | no |  |  | ObservedEgressCoverage says whether observedEgress can be trusted as complete: partial or unavailable means a missing external is unknown, not absent. The reason names the first gap: a read the operator could not make (no-agent-data, agent-data-unreadable, pods-unreadable, pactos-unreadable, services-unreadable), a node it cannot trust (node-without-agent, stale-node, degraded-node, collection-failed, shared-netns), no running pod to watch (no-running-pods), calls it cannot name (dns-unavailable, ambiguous-peers, unnamed-public, unnamed-private-peers), a name that gives no identity (egress-host-unclassified), truncated or not-evaluated. Absent when runtime observation is not configured for this Pacto. |
+| `status.observedEgressCoverage.nodes` | `integer` | no |  |  | Nodes is how many nodes run pods. |
+| `status.observedEgressCoverage.nodesWithAgent` | `integer` | no |  |  | NodesWithAgent is how many of those nodes publish node agent data. |
+| `status.observedEgressCoverage.reason` | `string` | no |  |  |  |
+| `status.observedEgressCoverage.refreshSeconds` | `integer` | no |  |  | RefreshSeconds is how often the operator rewrites this status. A reader treats a status not reconciled within twice that as stale, so an operator that stopped never leaves a complete coverage in place. |
+| `status.observedEgressCoverage.state` | `string` | yes |  | `complete`, `partial`, `unavailable` |  |
 | `status.observedGeneration` | `integer` | no |  |  | ObservedGeneration is the most recent generation observed by the controller. |
 | `status.observedRuntime` | `object` | no |  |  | ObservedRuntime describes the actual runtime state observed from the cluster. Only populated when a target workload exists. This is a lean evidence view. |
 | `status.observedRuntime.containerImages` | `[]string` | no |  |  | ContainerImages lists the container images from the pod spec. |
@@ -787,7 +806,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 | `status.resources.workload.exists` | `boolean` | yes |  |  | Exists indicates whether the resource was found in the cluster. |
 | `status.resources.workload.kind` | `string` | no |  |  | Kind of the resource (only set for workloads). |
 | `status.resources.workload.name` | `string` | yes |  |  | Name of the resource. |
-| `status.statusFormat` | `integer` | no |  |  | StatusFormat is the layout this status is written in. Format 1 records interface guarantees and dependency requirements. Format 2 also records the contract's business domain in contract.domain, so its absence there means the contract declares none. Format 3 also records the external systems the target workload names in externals, with externalsCoverage saying how far that list can be trusted. A status without a format, or with an older one, was written by an older operator, so readers treat what it would record as unknown until the operator reconciles the Pacto again. |
+| `status.statusFormat` | `integer` | no |  |  | StatusFormat is the layout this status is written in. Format 1 records interface guarantees and dependency requirements. Format 2 also records the contract's business domain in contract.domain, so its absence there means the contract declares none. Format 3 also records the external systems the target workload names in externals, with externalsCoverage saying how far that list can be trusted. Format 4 also records the external systems the node agent saw the workload call in observedEgress, with observedEgressCoverage. A status without a format, or with an older one, was written by an older operator, so readers treat what it would record as unknown until the operator reconciles the Pacto again. |
 | `status.summary` | `object` | no |  |  | Summary provides severity-based finding counts. |
 | `status.summary.errorCount` | `integer` | yes |  |  | ErrorCount is the number of error-severity findings. |
 | `status.summary.infoCount` | `integer` | yes |  |  | InfoCount is the number of info-severity findings. |

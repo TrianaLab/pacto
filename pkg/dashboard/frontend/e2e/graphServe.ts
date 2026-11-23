@@ -39,9 +39,19 @@ export function installServeInterceptor(): void {
       // A large neighborhood: sixty entities two hops out, four teams of fifteen, all
       // calling a service that uses the focus. Three of those calls were never declared.
       const focus = doc.nodes.find((n: { focus?: boolean }) => n.focus) || doc.nodes[0];
-      const user = (doc.edges || []).find((e: { to: { key: string } }) => e.to.key === focus.ref.key)?.from;
-      if (!user) return res;
       doc.edges = doc.edges || [];
+      let user = doc.edges.find((e: { to: { key: string } }) => e.to.key === focus.ref.key)?.from;
+      if (!user) {
+        // A revision is used only by the revisions that lock it: give it one user to call through.
+        user = { kind: 'service', key: 'synthetic-user', label: 'synthetic-user', href: '/fleet/services/synthetic-user' };
+        doc.nodes.push({ ref: user, depth: 1, status: 'Compliant' });
+        doc.edges.push({
+          id: `synthetic-user->${focus.ref.key}`, from: user, to: focus.ref, relation: 'dependency',
+          expected: true, observed: true, provenance: 'declared+observed', difference: 'matched',
+          declaredClaims: { total: 0, count: 0, truncated: false },
+          observationSources: { total: 0, count: 0, truncated: false },
+        });
+      }
       for (let i = 0; i < 60; i++) {
         const ref = { kind: 'service', key: `far-${i}`, label: `far-${i}`, href: `/fleet/services/far-${i}` };
         doc.nodes.push({ ref, depth: 2, status: 'Compliant', owner: `team-${i % 4}` });

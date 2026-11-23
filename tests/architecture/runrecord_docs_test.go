@@ -20,6 +20,8 @@ func TestRunRecordReferenceListsEveryField(t *testing.T) {
 		reflect.TypeFor[runrecord.GateResult](),
 		reflect.TypeFor[runrecord.Coverage](),
 		reflect.TypeFor[runrecord.CoverageKnowledge](),
+		reflect.TypeFor[runrecord.CoverageMatch](),
+		reflect.TypeFor[runrecord.CoverageContracts](),
 		reflect.TypeFor[runrecord.CoverageLinks](),
 	} {
 		for f := range typ.Fields() {

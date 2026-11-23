@@ -383,7 +383,7 @@ var fleetToolNames = []string{
 	"pacto_fleet_status", "pacto_fleet_explain",
 	"pacto_fleet_entities", "pacto_fleet_entity", "pacto_fleet_attention",
 	"pacto_fleet_neighborhood", "pacto_fleet_versions", "pacto_fleet_revision_document",
-	"pacto_fleet_overview",
+	"pacto_fleet_overview", "pacto_fleet_map",
 }
 
 // --- SAFETY ----------------------------------------------------------------
@@ -991,5 +991,31 @@ func TestFleetGetDescriptionNamesOwnerSource(t *testing.T) {
 		if !strings.Contains(d, want) {
 			t.Errorf("pacto_fleet_get description lacks %q", want)
 		}
+	}
+}
+
+// pacto_fleet_get hands an agent the link of a workload the operator linked
+// with no Pacto.
+func TestMCPFleetGetCarriesLink(t *testing.T) {
+	src := fleet.NewMemorySource("linked", "kubernetes-linked", &fleet.Collection{
+		Targets: []fleet.RawTarget{{Scope: "shop", Kind: fleet.SourceKindKubernetes, Name: "Deployment/payments", Service: "payments", Compliance: fleet.StatusUnknown,
+			Link: &fleet.ObservedLink{Signal: fleet.LinkSignalAnnotation, Value: "oci://ghcr.io/acme/contracts/payments:2.3.0"}}},
+	})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := callHandler(t, fleetGetTool(), fleetGetHandler(fleet.NewQuery(snap)), map[string]any{"target": string(fleet.NewTargetKey("shop", fleet.SourceKindKubernetes, "Deployment/payments"))})
+	var out struct {
+		Target struct {
+			Link *struct {
+				Signal string `json:"signal"`
+				Value  string `json:"value"`
+			} `json:"link"`
+		} `json:"target"`
+	}
+	decode(t, res, &out)
+	if l := out.Target.Link; l == nil || l.Signal != fleet.LinkSignalAnnotation || l.Value != "oci://ghcr.io/acme/contracts/payments:2.3.0" {
+		t.Fatalf("link = %+v\n%s", l, resultText(t, res))
 	}
 }

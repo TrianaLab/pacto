@@ -54,8 +54,8 @@ func replaceInferred(snap *FleetSnapshot, inputs []inferredInput) []inferredInpu
 func targetsByWorkload(snap *FleetSnapshot) (targeting map[workloadKey][]TargetKey, unknown map[TargetKey]workloadKey) {
 	targeting, unknown = map[workloadKey][]TargetKey{}, map[TargetKey]workloadKey{}
 	for k, t := range snap.Targets {
-		if t.workload == nil {
-			continue
+		if t.workload == nil || t.Link != nil {
+			continue // a linked target is no Pacto target
 		}
 		wk := workloadKey{namespace: t.Scope, kind: t.workload.Kind, name: t.workload.Name}
 		if snap.clusterKeyed && t.Cluster == "" {
@@ -174,9 +174,22 @@ func ambiguousReplacement(snap *FleetSnapshot, message string) {
 // Line is r in words: "Replaces <from> <age> ago (linked by Pacto
 // <namespace>/<name> target)" for a Pacto target, "Declared by <by> from
 // inferred <from> (revision <revision>)" for an inferred-from link, which
-// adds "; Pacto read no workload for it here" when no source reported it.
+// adds "; Pacto read no workload for it here" when no source reported it,
+// and "<from> is linked to <to> by its running image digest <short>
+// (observed, <age> ago)" for an observed link.
 func (r Replacement) Line(asOf time.Time) string {
 	_, from := ParseServiceKey(r.From)
+	if r.Link == linkObserved {
+		how := "its running image digest " + shortDigestOf(r.Value)
+		if r.Signal == LinkSignalAnnotation {
+			how = "its " + contractAnnotation + " annotation"
+		}
+		when := "observed"
+		if r.At != nil {
+			when += ", " + Age(asOf.Sub(*r.At)) + " ago"
+		}
+		return from + " is linked to " + string(r.To) + " by " + how + " (" + when + ")"
+	}
 	if r.Link != linkPactoTarget {
 		line := "Declared by " + r.By + " from inferred " + from + " (revision " + string(r.Revision) + ")"
 		if r.Workload == nil {

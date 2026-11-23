@@ -134,7 +134,7 @@ func TestOpenAPI_FiniteEnums(t *testing.T) {
 		{"direction", sortedSet("dependencies", "dependents", "both")},
 		{"impact outcome", sortedSet("incompatible", "unknown", "compatible", "unclassified", "breaks", "may-degrade")},
 		{"lifecycle filter", sortedSet("deprecated", "sunset")},
-		{"accept refusal", sortedSet("AcceptNothingProposed", "NotPublished")},
+		{"accept refusal", sortedSet("AcceptNothingProposed", "NotPublished", "DraftNotFound", "PlanStale", "SignerUnverified")},
 	}
 	for _, c := range cases {
 		if !hasEnumEqual(enums, c.want) {
@@ -194,8 +194,9 @@ func TestOpenAPI_EnumsOnSpecificFields(t *testing.T) {
 		{"ProductNeighborhood", "direction", sortedSet("dependencies", "dependents", "both")},
 		{"ProductNeighborhood", "views", sortedSet("expected", "observed", "differences")},
 		{"StatsAnswer", "environmentOrder", sortedSet("stages", "name")},
-		{"Fleet.ClusterRecord", "nameSource", sortedSet("node-label", "context", "file", "uid")},
-		{"Fleet.TargetRecord", "clusterNameSource", sortedSet("node-label", "context", "file", "uid")},
+		{"Fleet.ClusterRecord", "nameSource", sortedSet("approval", "node-label", "context", "file", "uid")},
+		{"Fleet.ClusterSummary", "nameSource", sortedSet("approval", "node-label", "context", "file", "uid")},
+		{"Fleet.TargetRecord", "clusterNameSource", sortedSet("approval", "node-label", "context", "file", "uid")},
 		{"Fleet.TargetRecord", "clusterRelation", sortedSet("runs-in", "reported-through")},
 		{"ProductTargetDetail", "clusterRelation", sortedSet("runs-in", "reported-through")},
 		{"Delivery.ApplierStatus", "state", sortedSet(delivery.ApplierAdopted, delivery.ApplierUnmanaged, delivery.ApplierConflict, delivery.ApplierUnknown)},

@@ -1,6 +1,6 @@
 {{- if include "pacto-operator.clusterScoped" . }}
 {{- $scoped := not (empty (include "pacto-operator.watchNamespaces" . | fromYamlArray)) }}
-{{- $dashboard := and .Values.dashboard.enabled (or (not $scoped) (include "pacto-operator.dashboardDeliveryNamespace" .)) }}
+{{- $dashboard := and (include "pacto-operator.dashboardEnabled" .) (or (not $scoped) (include "pacto-operator.dashboardDeliveryNamespace" .)) }}
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -54,6 +54,13 @@ rules:
   - apiGroups: [networking.istio.io]
     resources: [serviceentries]
     verbs: [get, list, watch]
+  {{- end }}
+  {{- if include "pacto-operator.apiServed" (list $ "cilium.io/v2") }}
+  # Cilium toFQDNs egress rules that select the target's pods (externals, inferred).
+  # list only: the reader lists them uncached and never watches.
+  - apiGroups: [cilium.io]
+    resources: [ciliumnetworkpolicies, ciliumclusterwidenetworkpolicies]
+    verbs: [list]
   {{- end }}
   # daemonsets: the dashboard ClusterRole the operator applies lists them, and Kubernetes lets it grant only what it holds.
   - apiGroups: [apps]
@@ -113,8 +120,10 @@ rules:
   {{- end }}
   {{- if not $scoped }}
   # Detection reads each node's providerID, labels and kernel to propose the
-  # cloud and the node kernels in <fullname>-detected. It writes nothing on
-  # nodes, and with controller.watchNamespaces this rule is not rendered.
+  # cloud and the node kernels in <fullname>-detected; kernel egress reads each
+  # node's pod CIDRs to tell a gone pod's address from an external one. It
+  # writes nothing on nodes, and with controller.watchNamespaces this rule is
+  # not rendered.
   - apiGroups: [""]
     resources: [nodes]
     verbs: [list]
@@ -166,6 +175,14 @@ rules:
   - apiGroups: [""]
     resources: [namespaces]
     verbs: [list]
+  {{- end }}
+  {{- if and (include "pacto-operator.member" .) (not $dashboard) }}
+  # A member answers the hub's per-person reviews with this cluster's
+  # SubjectAccessReview. It reveals nothing but yes or no about the
+  # permissions of the person asked about.
+  - apiGroups: [authorization.k8s.io]
+    resources: [subjectaccessreviews]
+    verbs: [create]
   {{- end }}
   {{- if .Values.nodeAgent.enabled }}
   # Node agent, cluster-scoped half. Nodes get is the orphan prune: the objects

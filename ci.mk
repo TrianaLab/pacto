@@ -9,12 +9,12 @@ REPOWISE_VERSION ?= 0.36.0
 
 .PHONY: ci ci-static ci-static-engine ci-engine ci-dashboard ci-integration-kubernetes \
        ci-e2e-envtest ci-perf-envtest ci-e2e-compose ci-release-version kind-install docs-serve docs-deploy \
-       test-acceptance-local-runtime-docker test-acceptance-local-runtime-run \
+       test-acceptance-local-runtime-docker test-acceptance-local-runtime-run test-acceptance-declare-pr \
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
-       test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
+       test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
-       test-acceptance-kind-multi-cluster ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-profiles test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -46,11 +46,12 @@ ci-static: ci-static-engine
 ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint check-section ci-docs ci-ui-drift check-dashboard-sdk-drift
 
 # Engine leg: unit tests (100% coverage gate) + the in-process CLI integration
-# suite + the cluster-free local acceptance (tests/acceptance/local/fleet-graph.sh).
+# suite + the cluster-free local acceptance (tests/acceptance/local/fleet-graph.sh)
+# + the fleet map budgets (test-fleet-budgets, no race detector).
 # The Compose demo acceptance is NOT here: it needs a Docker daemon and an image
 # build, and ci-engine is the leg a contributor runs on a laptop with nothing
 # installed. It has its own job, ci-e2e-compose.
-ci-engine: ci-test test-integration test-acceptance-local
+ci-engine: ci-test test-integration test-acceptance-local test-fleet-budgets
 
 # The distributed Compose demo, end to end from a registry: push the artifact,
 # pull it BY DIGEST into an empty directory outside the checkout, start it there
@@ -82,6 +83,12 @@ test-acceptance-local-runtime-docker:
 
 test-acceptance-local-runtime-run:
 	bash tests/acceptance/local/runtime-run.sh
+
+# pacto declare --pr against a throwaway Gitea and registry on ephemeral
+# loopback ports: one real pull request holding both files (see the script's
+# header). A step of the ci-e2e-compose job, which has the Docker daemon.
+test-acceptance-declare-pr:
+	bash tests/acceptance/local/declare-pr-gitea.sh
 
 # Dashboard leg: frontend lint + tests.
 ci-dashboard: ci-ui
@@ -125,9 +132,9 @@ ci-perf-envtest:
 # say which boundary broke, and cannot be sharded.
 test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
-	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
+	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
 	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-least-privilege \
-	test-acceptance-kind-multi-cluster
+	test-acceptance-kind-profiles test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -139,6 +146,14 @@ test-acceptance-kind-dashboard:
 test-acceptance-kind-least-privilege:
 	bash tests/acceptance/kind/least-privilege.sh
 
+# Installation profiles on a real API server: profile hardened renders no
+# cluster-scoped privilege, refuses a missing namespace list and delivery, and
+# reads the cluster id through one kube-system Role; hardened with idp turns
+# observation on and stays namespaced; dropping delivery keeps its namespace;
+# idp runs delivery and the dashboard's capability answer says so.
+test-acceptance-kind-profiles:
+	bash tests/acceptance/kind/profiles.sh
+
 # Multi-cluster reads on two real API servers: one dashboard started with
 # --context on the runner reads two kind clusters (an alias context of the
 # first is read once), signs people in against the first context, and a
@@ -146,6 +161,25 @@ test-acceptance-kind-least-privilege:
 # other cluster is hidden as not-reviewable and the answer is partial.
 test-acceptance-kind-multi-cluster:
 	bash tests/acceptance/kind/multi-cluster.sh
+
+# Join a cluster through the registry on two kind clusters and an authenticated
+# zot: the member's operator publishes its snapshot, the hub lists it pending
+# (CLI and dashboard through a pull-only credential), a swapped key gets nothing
+# signed, a keyless approval by a user granted approve on clusterjoins brings
+# the member's targets in, an ungranted record is not counted, a new key reads
+# pending and a removal takes the targets out.
+test-acceptance-kind-cluster-join:
+	bash tests/acceptance/kind/cluster-join.sh
+
+# Review people in a member cluster through its outbound channel on two kind
+# clusters, Keycloak (issuer A, token exchange) and Dex (issuer B): the member
+# dials the hub through a TLS ingress with nothing inbound (a default-deny
+# NetworkPolicy), a token exchanged for the member works there and gets 401 on
+# the hub, issuer-B people are hidden until a person approves a group mapping,
+# an idle link outlives the ingress timeout, a stopped member is hidden, no
+# token is logged and the member may not impersonate.
+test-acceptance-kind-member-review:
+	bash tests/acceptance/kind/member-review.sh
 
 # Operator-managed OFFLINE observation packaging: a declared Helm observation
 # source becomes a read-only mount whose stable Data Source identity and observed
@@ -188,6 +222,14 @@ test-acceptance-kind-gitops-flux:
 # because a customization Argo does not recognise leaves the Application green.
 test-acceptance-kind-gitops-argocd:
 	bash tests/acceptance/kind/gitops-argocd.sh
+
+# Runtime conformance with no Pacto CR: Argo CD deploys two workloads whose
+# contracts were published with `pacto publish --image`; the operator links one
+# by its running image digest and one by its pacto.trianalab.io/contract
+# annotation and evaluates both with the finding codes a Pacto CR gets. A
+# hand-written Pacto CR still wins, and a digest two services record links none.
+test-acceptance-kind-linked-workloads:
+	bash tests/acceptance/kind/linked-workloads.sh
 
 # The Argo CD sync gate: the documented Pacto plugin sidecar on argocd-repo-server
 # judges each render with `pacto impact --running` against the operator's signed

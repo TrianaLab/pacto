@@ -8,13 +8,16 @@ See LICENSE file in the project root for full license text.
 package dashboard
 
 import (
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	appsv1ac "k8s.io/client-go/applyconfigurations/apps/v1"
 	corev1ac "k8s.io/client-go/applyconfigurations/core/v1"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -528,7 +531,7 @@ func TestDeploymentAC_DetectedVolumeOptional(t *testing.T) {
 		}
 		cm := v.ConfigMap
 		vol = cm != nil && *cm.Name == "pacto-operator-detected" && cm.Optional != nil && *cm.Optional &&
-			len(cm.Items) == 1 && *cm.Items[0].Key == "detected.json" && *cm.Items[0].Path == "detected.json"
+			len(cm.Items) == 2 && *cm.Items[0].Key == "detected.json" && *cm.Items[0].Path == "detected.json"
 	}
 	if !vol {
 		t.Error("expected an optional ConfigMap volume detected with the detected.json item")
@@ -601,5 +604,214 @@ func TestApplyMountsOwnerPolicy(t *testing.T) {
 		if *v.Name == "owner-policy" {
 			t.Error("owner policy volume without a ConfigMap")
 		}
+	}
+}
+
+// The dashboard receives OTLP/HTTP JSON in the cluster on its own port; the
+// address it advertises names the operator-applied Service.
+func TestDeploymentRunsTheReceiver(t *testing.T) {
+	deploy := deploymentAC(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}).(*appsv1ac.DeploymentApplyConfiguration)
+	c := deploy.Spec.Template.Spec.Containers[0]
+	want := fmt.Sprintf("http://pacto-dashboard.test-ns:%d", OTLPPort)
+	var got string
+	for _, env := range c.Env {
+		if *env.Name == "PACTO_DASHBOARD_OTLP_RECEIVER" {
+			got = *env.Value
+		}
+	}
+	if got != want {
+		t.Errorf("PACTO_DASHBOARD_OTLP_RECEIVER=%q, want %q", got, want)
+	}
+	var port bool
+	for _, p := range c.Ports {
+		if *p.Name == "otlp-http" && *p.ContainerPort == OTLPPort && *p.Protocol == corev1.ProtocolTCP {
+			port = true
+		}
+	}
+	if !port {
+		t.Errorf("container ports %v lack otlp-http on %d", c.Ports, OTLPPort)
+	}
+}
+
+func TestServiceExposesOTLPOnlyOnOperatorService(t *testing.T) {
+	svc := serviceAC(Config{Enabled: true, Image: "img:v1", Namespace: "test-ns"}).(*corev1ac.ServiceApplyConfiguration)
+	got := map[string]int32{}
+	for _, p := range svc.Spec.Ports {
+		got[*p.Name] = *p.Port
+		if *p.TargetPort != intstr.FromInt32(*p.Port) {
+			t.Errorf("port %s targets %v", *p.Name, *p.TargetPort)
+		}
+	}
+	if len(got) != 2 || got["http"] != DashboardPort || got["otlp-http"] != OTLPPort {
+		t.Errorf("service ports = %v, want http:%d and otlp-http:%d", got, DashboardPort, OTLPPort)
+	}
+}
+
+func podSpec(cfg Config) *corev1ac.PodSpecApplyConfiguration {
+	return deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec
+}
+
+func envByName(pod *corev1ac.PodSpecApplyConfiguration) map[string]corev1ac.EnvVarApplyConfiguration {
+	env := map[string]corev1ac.EnvVarApplyConfiguration{}
+	for _, e := range pod.Containers[0].Env {
+		env[*e.Name] = e
+	}
+	return env
+}
+
+func TestAuthEnvPassesSignSettings(t *testing.T) {
+	cfg := Config{Image: "i", Namespace: "n", Auth: AuthConfig{IssuerURL: "https://idp", ClientID: "c", RedirectURL: "https://d/cb",
+		SignClientID: "c-sign", SignRedirectURL: "https://d/auth/sign/callback"},
+		FulcioURL: "https://fulcio.acme", RekorURL: "https://rekor.acme", TimestampURL: "https://tsa.acme", Registry: "ghcr.io/acme"}
+	env := envByName(podSpec(cfg))
+	for name, want := range map[string]string{"PACTO_DASHBOARD_SIGN_CLIENT_ID": "c-sign",
+		"PACTO_DASHBOARD_SIGN_REDIRECT_URL": "https://d/auth/sign/callback", "PACTO_DASHBOARD_FULCIO_URL": "https://fulcio.acme",
+		"PACTO_DASHBOARD_REKOR_URL": "https://rekor.acme", "PACTO_DASHBOARD_TIMESTAMP_URL": "https://tsa.acme",
+		"PACTO_DASHBOARD_REGISTRY": "ghcr.io/acme"} {
+		if e, ok := env[name]; !ok || e.Value == nil || *e.Value != want {
+			t.Errorf("%s: want %q, got %+v", name, want, e)
+		}
+	}
+	for name := range envByName(podSpec(Config{Image: "i", Namespace: "n"})) {
+		if strings.Contains(name, "SIGN") || strings.Contains(name, "FULCIO") || strings.Contains(name, "REKOR") ||
+			strings.Contains(name, "TIMESTAMP") || name == "PACTO_DASHBOARD_REGISTRY" {
+			t.Errorf("nothing configured, no %s", name)
+		}
+	}
+}
+
+func TestAuthEnvSignSecretBySecretKeyRef(t *testing.T) {
+	cfg := Config{Image: "i", Namespace: "n", Auth: AuthConfig{SignClientID: "c-sign", SignClientSecretName: "sign-oidc"}}
+	secret := envByName(podSpec(cfg))["PACTO_DASHBOARD_SIGN_CLIENT_SECRET"]
+	if secret.Value != nil || secret.ValueFrom == nil || *secret.ValueFrom.SecretKeyRef.Name != "sign-oidc" ||
+		*secret.ValueFrom.SecretKeyRef.Key != "client-secret" {
+		t.Fatalf("the sign client secret goes by secretKeyRef only: %+v", secret)
+	}
+	cfg.Auth.SignClientSecretKey = "secret"
+	if k := *envByName(podSpec(cfg))["PACTO_DASHBOARD_SIGN_CLIENT_SECRET"].ValueFrom.SecretKeyRef.Key; k != "secret" {
+		t.Fatalf("a custom key is used, got %q", k)
+	}
+}
+
+// TestDashboardDeclarePushSecretMounted: the push Secret mounts read-only at its
+// own path, never where the read credentials (dashboard.ociSecrets) live.
+func TestDashboardDeclarePushSecretMounted(t *testing.T) {
+	pod := podSpec(Config{Image: "i", Namespace: "n", OCISecrets: []string{"read"}, DeclareRegistrySecret: "push"})
+	if e := envByName(pod)["PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG"]; e.Value == nil ||
+		*e.Value != "/etc/pacto/declare-registry/config.json" {
+		t.Fatalf("PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG: %+v", e)
+	}
+	mount := slices.ContainsFunc(pod.Containers[0].VolumeMounts, func(m corev1ac.VolumeMountApplyConfiguration) bool {
+		return *m.Name == "declare-registry" && *m.MountPath == "/etc/pacto/declare-registry" && *m.ReadOnly
+	})
+	vol := slices.ContainsFunc(pod.Volumes, func(v corev1ac.VolumeApplyConfiguration) bool {
+		return *v.Name == "declare-registry" && v.Secret != nil && *v.Secret.SecretName == "push" &&
+			*v.Secret.Items[0].Key == ".dockerconfigjson" && *v.Secret.Items[0].Path == "config.json"
+	})
+	if !mount || !vol {
+		t.Errorf("mount %v volume %v", mount, vol)
+	}
+	for _, v := range pod.Volumes {
+		if v.Secret != nil && *v.Secret.SecretName == "push" && *v.Name != "declare-registry" {
+			t.Errorf("the push Secret also mounts as %s", *v.Name)
+		}
+	}
+	for _, m := range pod.Containers[0].VolumeMounts {
+		if *m.Name == "declare-registry" && strings.HasPrefix(*m.MountPath, "/home/pacto/.docker") {
+			t.Error("the push Secret mounts where the read keychain is")
+		}
+		if *m.Name == "oci-creds" && strings.HasPrefix(*m.MountPath, "/etc/pacto/declare-registry") {
+			t.Error("the read secret mounts where the push keychain is")
+		}
+	}
+}
+
+func TestNoDeclarePushSecretNoVolume(t *testing.T) {
+	pod := podSpec(Config{Image: "i", Namespace: "n", OCISecrets: []string{"read"}})
+	if _, ok := envByName(pod)["PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG"]; ok {
+		t.Error("push config env without a push Secret")
+	}
+	for _, v := range pod.Volumes {
+		if *v.Name == "declare-registry" {
+			t.Error("push volume without a push Secret")
+		}
+	}
+}
+
+// The dashboard verifies what it signs with the installation's trusted root,
+// mounted from the ConfigMap the operator names.
+func TestApplyMountsTrustedRoot(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", TrustedRootConfigMap: "pacto-operator-owner-policy-0123456789"}
+	env := envByName(podSpec(cfg))
+	if e, ok := env["PACTO_DASHBOARD_TRUSTED_ROOT"]; !ok || e.Value == nil || *e.Value != "/etc/pacto/trusted-root/trusted_root.json" {
+		t.Errorf("env %+v", e)
+	}
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	vol := slices.ContainsFunc(deploy.Spec.Template.Spec.Volumes, func(v corev1ac.VolumeApplyConfiguration) bool {
+		return *v.Name == "trusted-root" && v.ConfigMap != nil && *v.ConfigMap.Name == cfg.TrustedRootConfigMap && *v.ConfigMap.Items[0].Key == "trusted_root.json"
+	})
+	mount := slices.ContainsFunc(deploy.Spec.Template.Spec.Containers[0].VolumeMounts, func(vm corev1ac.VolumeMountApplyConfiguration) bool {
+		return *vm.Name == "trusted-root" && *vm.MountPath == "/etc/pacto/trusted-root" && *vm.ReadOnly
+	})
+	if !vol || !mount {
+		t.Errorf("volume %v mount %v", vol, mount)
+	}
+	if _, ok := envByName(podSpec(Config{Image: "i", Namespace: "n"}))["PACTO_DASHBOARD_TRUSTED_ROOT"]; ok {
+		t.Error("no root configured, no PACTO_DASHBOARD_TRUSTED_ROOT")
+	}
+}
+
+// The linker writes linked.json into the detection ConfigMap; the dashboard
+// reads it from beside detected.json.
+func TestDetectedVolumeMountsLinkedKey(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", DetectedConfigMap: "pacto-operator-detected"}
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	for _, v := range deploy.Spec.Template.Spec.Volumes {
+		if *v.Name != "detected" {
+			continue
+		}
+		for _, it := range v.ConfigMap.Items {
+			if *it.Key == "linked.json" && *it.Path == "linked.json" {
+				return
+			}
+		}
+	}
+	t.Error("expected the detected volume to mount linked.json")
+}
+
+// TestAuthEnvMCP: the dashboard serves /mcp only with a usable sign-in (token
+// sign-in, or an issuer with an exchange audience and a URL), the chart's rule,
+// so the operator never starts a dashboard that refuses --mcp.
+func TestAuthEnvMCP(t *testing.T) {
+	issuer := AuthConfig{MCP: true, IssuerURL: "https://idp", MCPExchangeAudience: "kube", MCPURL: "https://dash/mcp"}
+	for _, c := range []struct {
+		name string
+		auth AuthConfig
+		want map[string]string
+	}{
+		{"token login", AuthConfig{MCP: true, TokenLogin: true}, map[string]string{"PACTO_DASHBOARD_MCP": "true"}},
+		{"issuer, exchange audience and URL", issuer, map[string]string{"PACTO_DASHBOARD_MCP": "true",
+			"PACTO_DASHBOARD_MCP_URL": "https://dash/mcp", "PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE": "kube"}},
+		{"issuer without exchange audience", AuthConfig{MCP: true, IssuerURL: "https://idp", MCPURL: "https://dash/mcp"}, nil},
+		{"issuer and audience without URL", AuthConfig{MCP: true, IssuerURL: "https://idp", MCPExchangeAudience: "kube"}, nil},
+		{"anonymous only", AuthConfig{MCP: true, AllowAnonymous: true}, nil},
+		{"off", AuthConfig{TokenLogin: true, MCPURL: "https://dash/mcp"}, nil},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			got := map[string]string{}
+			for _, e := range authEnv(Config{Auth: c.auth}) {
+				if strings.HasPrefix(*e.Name, "PACTO_DASHBOARD_MCP") {
+					got[*e.Name] = *e.Value
+				}
+			}
+			if len(got) != len(c.want) {
+				t.Fatalf("MCP env = %v, want %v", got, c.want)
+			}
+			for k, v := range c.want {
+				if got[k] != v {
+					t.Errorf("%s = %q, want %q", k, got[k], v)
+				}
+			}
+		})
 	}
 }

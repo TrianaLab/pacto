@@ -16,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
@@ -70,7 +71,16 @@ func main() {
 	// Wire the operational graph (fleet) and impact provider from the embedded
 	// bundles + deterministic targets, so the Operational Graph and Impact pages
 	// prove the full product story in the browser with no server and no OCI.
-	if snap, byRef, err := buildDemoFleet(src, partners); err != nil {
+	// ?fleet=N (engine.js hands it over as __pactoFleet) swaps the narrative
+	// fleet for a generated one of N services, to see the map at real sizes.
+	var snap *fleet.FleetSnapshot
+	var byRef map[string]*contract.Bundle
+	if n := demoFleetSize(js.Global().Get("__pactoFleet").String()); n > 0 {
+		snap, err = buildGeneratedFleet(n)
+	} else {
+		snap, byRef, err = buildDemoFleet(src, partners)
+	}
+	if err != nil {
 		panic(err)
 	} else {
 		q := fleet.NewQuery(snap)
@@ -104,6 +114,14 @@ func main() {
 		panic(err)
 	}
 	d.wire(&opts)
+	// Declare an inferred service from its page (source_declare.go): nobody
+	// signs in the demo, so Save draft keeps a draft-<n> in the tab.
+	opts.Declare = newDemoDeclarer(func(r *http.Request) string { return d.State(r).User })
+	// The production cluster is a hub with two members and one pending cluster.
+	opts.ClusterJoins = func(context.Context) (delivery.ClusterJoinList, error) { return demoClusterJoins(), nil }
+	if opts.InstallationConfig, err = demoInstallationConfig(); err != nil {
+		panic(err)
+	}
 	js.Global().Set("__pactoDeliveryKey", d.KeyHint())
 	js.Global().Set("__pactoPactifyPlan", pactifyPlan)
 	// __pactoPersona(name, fresh) switches who the tab acts as: pay-agent,

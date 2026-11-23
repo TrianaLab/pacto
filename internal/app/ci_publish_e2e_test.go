@@ -224,3 +224,38 @@ func TestCIPublishThenDeriveNext(t *testing.T) {
 		}
 	}
 }
+
+// TestCIPublishCarriesRegistryDeclarationEndToEnd runs pacto declare
+// invoices --accept ledger as ana, then pacto ci --publish over a two-line
+// invoices pacto.yaml, and pulls what it published.
+func TestCIPublishCarriesRegistryDeclarationEndToEnd(t *testing.T) {
+	e := newDeclCIEnv(t)
+	de := newDeclareEnv(t)
+	de.host, de.reg, de.svc.sys.publishRegistry = e.host, e.inner, func() publish.Registry { return e.inner }
+	e.ss, e.de.ss = de.ss, de.ss
+	de.login(personToken("ana@acme.com"))
+	declared := de.declare(t, de.req("ledger"))
+	e.folder(t, "", ledgerManifest)
+	r := e.publishCI(t, "r1")
+	raw, rec := e.published(t, r)
+	if r.State != ci.StatePublished || !strings.Contains(raw, "  - name: \"ledger\"\n") || !strings.Contains(raw, `compatibility: "^2.3.0"`) ||
+		rec.Inputs.Declaration == nil || rec.Inputs.Declaration.Record != declared.Published || rec.Inputs.Declaration.Fields != "dependencies[ledger]" {
+		t.Fatalf("%+v\n%s\n%s", r, raw, rec.Marshal())
+	}
+	_, digest, _ := strings.Cut(declared.Published, "@")
+	rev := digest[:len("sha256:")+12]
+	var text bytes.Buffer
+	ci.Text(&text, &ci.Plan{Rows: []ci.Row{r}})
+	for _, l := range []string{
+		"invoices: dependencies.ledger: ^2.3.0 (oci://reg.io/acme/contracts/ledger), accepted in registry (rev " + rev + ")",
+		"invoices: service.version: " + r.To + ", derived from " + declared.Tag + " (rev " + rev + ")",
+	} {
+		if !strings.Contains(text.String(), l+"\n") {
+			t.Errorf("no %q in\n%s", l, text.String())
+		}
+	}
+	out, _ := json.Marshal(r)
+	if !strings.Contains(string(out), `"carried":[{"field":"dependencies[ledger]","value":"^2.3.0 (oci://reg.io/acme/contracts/ledger)","from":"registry","kind":"declared","record":"`+declared.Published+`"`) {
+		t.Fatalf("%s", out)
+	}
+}

@@ -362,3 +362,30 @@ func TestInferredOwnerRowAttested(t *testing.T) {
 		}
 	}
 }
+
+// TestCIUndecided: a CI signer no accept covers is undecided only where no
+// installation rule was read; an accepted CI publish, a person and a missing
+// provenance never are.
+func TestCIUndecided(t *testing.T) {
+	signers := []VerifiedSigner{{Subject: "ci", Issuer: "iss", Class: "ci"}, {Subject: "ana", Issuer: "iss", Class: "human"}}
+	prov := func(status, source, signer string) *BundleProvenance {
+		return &BundleProvenance{Signature: BundleSignature{Status: status, Source: source, Signer: signer, Issuer: "iss"}, Signers: signers}
+	}
+	for _, c := range []struct {
+		name     string
+		p        *BundleProvenance
+		ruleRead bool
+		want     bool
+	}{
+		{"unaccepted CI, no rule read", prov(SignatureUnknown, "none", "ci"), false, true},
+		{"unaccepted CI, rule read", prov(SignatureUnknown, "none", "ci"), true, false},
+		{"inferred accept", prov(SignatureUnknown, "inferred", "ci"), false, false},
+		{"verified accept", prov(SignatureVerified, "rule", "ci"), false, false},
+		{"person", prov(SignatureUnverified, "none", "ana"), false, false},
+		{"no provenance", nil, false, false},
+	} {
+		if got := CIUndecided(c.p, c.ruleRead); got != c.want {
+			t.Errorf("%s: CIUndecided = %v, want %v", c.name, got, c.want)
+		}
+	}
+}

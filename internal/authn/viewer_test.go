@@ -19,6 +19,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/memberlink"
 )
 
 func fakeJWT(payload string) string {
@@ -858,5 +859,26 @@ func TestViewerKeyIncludesRepositoryScopes(t *testing.T) {
 	got, err := NewViewer(one(root.review)).Query(context.Background(), alice, q)
 	if err != nil || got == q || slices.Contains(repositoryURLs(got), "https://github.com/acme/shop") {
 		t.Errorf("a reader of everything but Applications sees %v, %v", repositoryURLs(got), err)
+	}
+}
+
+func TestAuthnResourcesAreReviewable(t *testing.T) {
+	seen := map[memberlink.Resource]bool{}
+	all := []ResourceAttributes{PactoResource}
+	for _, m := range []map[string]ResourceAttributes{workloadResources, gitopsResources} {
+		for _, r := range m {
+			all = append(all, r)
+		}
+	}
+	for _, r := range all {
+		if !memberlink.Reviewable(r.Group, r.Resource) {
+			t.Errorf("%s/%s is reviewed by the hub but not reviewable by a member", r.Group, r.Resource)
+		}
+		seen[memberlink.Resource{Group: r.Group, Resource: r.Resource}] = true
+	}
+	for kind, r := range memberlink.ReviewableResources {
+		if !seen[r] {
+			t.Errorf("%s (%s/%s) is reviewable by a member but never reviewed by the hub", kind, r.Group, r.Resource)
+		}
 	}
 }

@@ -1,10 +1,13 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path"
 	"slices"
 	"strings"
 
@@ -13,6 +16,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/gitexport"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -72,6 +76,9 @@ pacto.inferred.yaml as inferred.`,
 			if err := declareSubject(&req, args[0]); err != nil {
 				return err
 			}
+			if req.Draft && req.FromDraft != "" {
+				return errors.New("--draft writes a new draft and --from-draft accepts one: pass only one of them")
+			}
 			dyn, err := declareDynamic(req)
 			if err != nil {
 				return err
@@ -80,14 +87,31 @@ pacto.inferred.yaml as inferred.`,
 			asJSON := v.GetString(outputFormatKey) == "json"
 			req.Signing.Prompt = func(s string) { _, _ = fmt.Fprintln(cmd.ErrOrStderr(), s) }
 			req.Signing.FreshLogin = d.freshLogin
+			pr := &exportPR{d: d, req: req, gitHost: req.GitHost}
 			if !yes {
 				p, err := d.planDeclare(svc, cmd.Context(), req)
+				if err == nil && req.PR {
+					err = pr.resolve(cmd.Context(), p)
+				}
 				return printDeclare(cmd, asJSON, p, nil, err)
 			}
-			if !asJSON {
-				req.OnPlan = func(p *app.DeclarePlan) { printDeclarePlan(cmd.OutOrStdout(), p) }
+			if !asJSON || req.PR {
+				req.OnPlan = func(p *app.DeclarePlan) error {
+					if req.PR {
+						if err := pr.resolve(cmd.Context(), p); err != nil {
+							return err
+						}
+					}
+					if !asJSON {
+						printDeclarePlan(cmd.OutOrStdout(), p)
+					}
+					return nil
+				}
 			}
 			res, err := d.declare(svc, cmd.Context(), req)
+			if err == nil && req.PR {
+				err = pr.export(cmd.Context(), res)
+			}
 			return printDeclare(cmd, asJSON, nil, res, err)
 		},
 	}
@@ -98,6 +122,7 @@ pacto.inferred.yaml as inferred.`,
 	f.StringSliceVar(&req.Accept, "accept", nil, "a dependency whose proposed range you accept as declared; repeat it for more")
 	f.BoolVar(&yes, "yes", false, "publish the plan (or write a draft) after printing it")
 	f.StringVar(&req.IntentDigest, "intent", "", "the intent digest of the plan you reviewed: a different plan is refused")
+	f.BoolVar(&req.Draft, "draft", false, "write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set")
 	f.StringVar(&req.FromDraft, "from-draft", "", "accept this draft-<n> tag: the workload is read again and you sign")
 	f.IntVar(&req.MaxItems, "max-items", 0, "the most items read per kind of object; a kind cut short reads as partial (default 10000)")
 	f.DurationVar(&req.CallWindow, "call-window", 0, "how far back a call counts as a dependency (at least 1m, default 24h)")
@@ -109,6 +134,11 @@ pacto.inferred.yaml as inferred.`,
 	f.StringVar(&req.Signing.TimestampURL, "timestamp-url", "", "timestamp authority to date the signature with")
 	f.StringVar(&req.Signing.RekorURL, "rekor-url", signing.PublicRekor, "Rekor transparency log the signature is recorded in")
 	f.StringVar(&req.Signing.TrustedRoot, "trusted-root", "", "Sigstore trusted root JSON to verify with (default: public-good Sigstore)")
+	f.BoolVar(&req.PR, "pr", false, "open a pull request with your own Git token after the bundle is written; needs --yes to write")
+	f.StringVar(&req.Repository, "repository", "", "the service's source repository URL, used over every source Pacto reads; confirms an image label for --pr")
+	f.StringVar(&req.Folder, "folder", "", "the folder of the repository the contract lives in (default: the folder a source names, else the root)")
+	f.StringVar(&req.RepoMap, "repo-map", "", "a YAML file mapping service names to {repository, folder}; read only with --pr")
+	f.StringVar(&req.GitHost, "git-host", "", "the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)")
 	f.StringVar(&req.DeliveryTrust, "delivery-trust", "", "the trust config the target snapshots that carry the owner policy are verified with: "+
 		"a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
 	return cmd
@@ -193,10 +223,15 @@ func printDeclareJSON(cmd *cobra.Command, p *app.DeclarePlan, res *app.DeclareRe
 			Refusal *app.DeclareError `json:"refusal,omitempty"`
 		}{res, refusal}, err)
 	}
+	var pr *app.PRPlan
+	if p != nil {
+		pr = p.PullRequest
+	}
 	return printJSONExit(cmd, struct {
 		*app.DeclarePlan
-		Refusal *app.DeclareError `json:"refusal,omitempty"`
-	}{p, refusal}, err)
+		PullRequest *app.PRPlan       `json:"pullRequest,omitempty"`
+		Refusal     *app.DeclareError `json:"refusal,omitempty"`
+	}{p, pr, refusal}, err)
 }
 
 // printDeclarePlan prints the plan block: what is published where, every
@@ -205,6 +240,7 @@ func printDeclareJSON(cmd *cobra.Command, p *app.DeclarePlan, res *app.DeclareRe
 func printDeclarePlan(w io.Writer, p *app.DeclarePlan) {
 	if p.Unchanged != "" {
 		_, _ = fmt.Fprintf(w, "plan: %s unchanged since %s: nothing to publish\n", p.Service, p.Unchanged)
+		printPullRequestPlan(w, p.PullRequest)
 		return
 	}
 	from := "first declaration"
@@ -223,6 +259,8 @@ func printDeclarePlan(w io.Writer, p *app.DeclarePlan) {
 		}
 		_, _ = fmt.Fprintf(w, "inferredFrom %s%s\n", p.InferredFrom, cluster)
 	}
+	printDeclareRepository(w, p)
+	printPullRequestPlan(w, p.PullRequest)
 	for _, s := range p.Skipped {
 		_, _ = fmt.Fprintf(w, "skipped %s, signed by %s: %s\n", s.Tag, s.Signer, s.Why)
 	}
@@ -241,7 +279,77 @@ func printDeclarePlan(w io.Writer, p *app.DeclarePlan) {
 	if p.PolicyNote != "" {
 		_, _ = fmt.Fprintln(w, p.PolicyNote)
 	}
+	printDeclareDrafts(w, p)
 	_, _ = fmt.Fprintln(w, "intent: "+p.IntentDigest)
+}
+
+// printPullRequestPlan prints the pull request --pr would open.
+func printPullRequestPlan(w io.Writer, r *app.PRPlan) {
+	if r == nil {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "pull request: %s %s, branch %s, files %s and %s, with %s\n", r.Kind, r.URL, r.Branch,
+		path.Join(r.Folder, app.DefaultContractPath), path.Join(r.Folder, contract.InferredRecordFile), r.TokenSource)
+}
+
+// printDeclareRepository prints where the service's source lives and how
+// it was found, or that it is unknown and why each rung gave nothing.
+func printDeclareRepository(w io.Writer, p *app.DeclarePlan) {
+	if p.Repository != nil {
+		_, _ = fmt.Fprintln(w, "repository: "+app.RepositoryText(p.Repository))
+		return
+	}
+	if len(p.RepositoryTried) > 0 {
+		_, _ = fmt.Fprintln(w, "repository: unknown")
+	}
+	for _, n := range p.RepositoryTried {
+		_, _ = fmt.Fprintf(w, "  tried %s: %s\n", n.Rung, n.Reason)
+	}
+}
+
+// printDeclareDrafts prints the drafts waiting in the bundle repository, one
+// line each: who asked, for whom and what it requests.
+func printDeclareDrafts(w io.Writer, p *app.DeclarePlan) {
+	if p.DraftsTotal == 0 {
+		return
+	}
+	shown := ""
+	if p.DraftsTotal > len(p.Drafts) {
+		shown = fmt.Sprintf(" (newest %d of %d)", len(p.Drafts), p.DraftsTotal)
+	}
+	_, _ = fmt.Fprintf(w, "Drafts%s:\n", shown)
+	for _, d := range p.Drafts {
+		_, _ = fmt.Fprintln(w, "  "+draftLine(d))
+	}
+}
+
+// draftLine is one draft as the plan lists it.
+func draftLine(d app.DraftView) string {
+	if d.State == "unreadable" {
+		return d.Tag + " unreadable: " + d.Reason
+	}
+	// Only a signature proves who asked: an unsigned record's asker is a claim.
+	by := "an agent"
+	switch {
+	case d.Signed && d.Asker.Subject != "":
+		by = d.Asker.Subject
+	case d.Asker.Class == contract.SignerClassHuman:
+		by = "a person"
+	}
+	line := d.Tag + " by " + by
+	if d.OnBehalfOf != "" {
+		line += " for " + d.OnBehalfOf
+	}
+	if len(d.Requested) > 0 {
+		line += ", requests " + strings.Join(d.Requested, ", ")
+	}
+	if !d.Signed {
+		line += " (unsigned)"
+	}
+	if d.Reason != "" {
+		line += " (" + d.Reason + ")"
+	}
+	return line
 }
 
 // rangeText is one dependency's declared range, what proposed it and
@@ -307,4 +415,80 @@ func printDeclareResult(w io.Writer, res *app.DeclareResult) {
 		_, _ = fmt.Fprintf(w, "signed as %s via %s\n", p.Signer.Subject, p.Signer.Issuer)
 		_, _ = fmt.Fprintf(w, "published %s (inferredFrom %s)\n", res.Published, p.InferredFrom)
 	}
+	if r := res.PullRequest; r != nil {
+		_, _ = fmt.Fprintf(w, "opened %s as %s (%s)\n", r.URL, r.Login, r.TokenSource)
+	}
+}
+
+// exportPR opens the pull request of a declare --pr run with the person's
+// own Git token: the host kind and the token are resolved before anything
+// is written, and the files committed are the exact ones written.
+type exportPR struct {
+	d       deps
+	req     app.DeclareRequest
+	gitHost string
+	kind    gitexport.Kind
+	token   string
+}
+
+// resolve detects p's Git host and finds the person's token for it,
+// refusing the run when either is unknown. It makes no request to the host.
+func (x *exportPR) resolve(ctx context.Context, p *app.DeclarePlan) error {
+	r := p.Repository // ponytail: a --pr plan without a repository is refused (RepositoryUnknown)
+	kind, e := gitexport.Detect(r.URL, x.gitHost, os.Getenv)
+	if e != nil {
+		return &app.DeclareError{Code: e.Code, Message: e.Message}
+	}
+	fill := x.d.gitCredentialFill
+	if fill == nil {
+		fill = gitexport.CredentialFill
+	}
+	token, source, e := gitexport.Token(ctx, kind, r.URL, os.Getenv, fill)
+	if e != nil {
+		return &app.DeclareError{Code: e.Code, Message: e.Message}
+	}
+	tag := p.Version
+	if p.State == contract.DeclarationDraft {
+		tag = "<next draft tag>"
+	}
+	x.kind, x.token = kind, token
+	p.PullRequest = &app.PRPlan{Kind: string(kind), URL: r.URL, Folder: r.Folder, Branch: gitexport.Branch(p.Service, tag), TokenSource: source}
+	return nil
+}
+
+// export opens the pull request after res was written, or for an unchanged
+// plan with the baseline bundle's own files. A failure keeps what was
+// published and says how to retry.
+func (x *exportPR) export(ctx context.Context, res *app.DeclareResult) error {
+	p := &res.Plan
+	if p.PullRequest == nil {
+		// An unchanged plan wrote nothing and never reached OnPlan.
+		if err := x.resolve(ctx, p); err != nil {
+			return err
+		}
+	}
+	dec := gitexport.Declaration{Service: p.Service, Tag: res.Tag, Bundle: res.Published, State: contract.DeclarationDeclared, Signer: p.Signer.Subject,
+		Rung: p.Repository.Rung}
+	what := "published " + res.Published
+	switch {
+	case !res.Executed:
+		// The baseline's own state, and the identity it counted by.
+		dec.Tag, dec.Bundle, dec.Signer = p.Unchanged, p.Baseline.Bundle, p.Baseline.Signer
+		dec.State = cmp.Or(p.Baseline.State, "published")
+		what = p.Service + " is unchanged since " + p.Unchanged
+	case res.Draft:
+		dec.State, dec.OnBehalfOf = contract.DeclarationDraft, x.req.OnBehalfOf
+		if !res.Signed {
+			dec.Signer = ""
+		}
+	}
+	r := p.Repository
+	opened, e := gitexport.Open(ctx, gitexport.Request{Kind: x.kind, URL: r.URL, Folder: r.Folder, Files: res.Files, Token: x.token,
+		Confirmed: r.Rung == contract.RepositoryRungGiven && !x.req.Agent, Declaration: dec, Transport: x.d.gitTransport})
+	if e != nil {
+		res.PullRequestError = &app.DeclareError{Code: e.Code, Message: e.Message}
+		return fmt.Errorf("%s; the pull request failed: %s; rerun with --pr --yes to retry", what, e.Message)
+	}
+	res.PullRequest = &app.PullRequestResult{URL: opened.URL, Login: opened.Login, Branch: opened.Branch, TokenSource: p.PullRequest.TokenSource}
+	return nil
 }

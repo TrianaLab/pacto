@@ -50,12 +50,11 @@ func (p *DeclarationSignerPolicy) allows(s contract.InferredSigner) string {
 // acceptDeclaration is the one place that decides whether the facts of a
 // revision's inferred record count. A record with no declaration counts as
 // read. A draft is not a version: the revision is not ingested (false). A
-// declared record's declarer is accepted only when a signature the
-// revision's provenance verified names its asker as a person and the
-// reader's signer policy allows that person; otherwise its cluster facts,
-// coverage and hidden counts are dropped, its folder fields stay and a
-// limitation says why. It records on rev whether the signature matched and,
-// when the declarer is not accepted, why.
+// declared record's declarer is accepted only when DeclarationAccepted
+// accepts it; otherwise its cluster facts, coverage and hidden counts are
+// dropped, its folder fields stay and a limitation says why. It records on
+// rev whether the signature matched and, when the declarer is not accepted,
+// why.
 func acceptDeclaration(rev *ContractRevision, rec *contract.InferredRecord, signers *DeclarationSignerPolicy) (*contract.InferredRecord, []Limitation, bool) {
 	var asker *contract.InferredSigner
 	if rec != nil && rec.Declaration != nil {
@@ -65,23 +64,41 @@ func acceptDeclaration(rev *ContractRevision, rec *contract.InferredRecord, sign
 	if asker == nil {
 		return rec, nil, true
 	}
-	d := rec.Declaration
-	if d.State != contract.DeclarationDeclared {
-		return nil, []Limitation{{Code: LimitationDeclarationDraftIgnored, Source: rev.Source,
+	_, lim, ok := DeclarationAccepted(rev.Provenance, rec, signers)
+	if lim.Code == LimitationDeclarationDraftIgnored {
+		return nil, []Limitation{{Code: lim.Code, Source: rev.Source,
 			Message: "revision " + rev.Service + " is a declaration draft, not a version, so it is left out until a person accepts it"}}, false
 	}
-	rev.declarationChecked = signedBy(rev.Provenance, d.Asker)
-	code, why := LimitationDeclarationSignerUnverified, "no signature this reader verified names its declarer as a person"
-	if rev.declarationChecked {
-		code, why = LimitationDeclarationSignerNotAllowed, signers.allows(d.Asker)
-	}
-	rev.declarationRefused = why
-	if why == "" || !hasClusterFacts(rec) {
+	rev.declarationChecked = lim.Code != LimitationDeclarationSignerUnverified
+	rev.declarationRefused = lim.Message
+	if ok || !hasClusterFacts(rec) {
 		return rec, nil, true
 	}
 	kept, _ := withoutClusterFacts(rec)
-	return kept, []Limitation{{Code: code, Source: rev.Source,
-		Message: "revision " + rev.Service + " carries cluster facts that are not shown: " + why}}, true
+	return kept, []Limitation{{Code: lim.Code, Source: rev.Source,
+		Message: "revision " + rev.Service + " carries cluster facts that are not shown: " + lim.Message}}, true
+}
+
+// DeclarationAccepted is the one declaration predicate: whether the
+// declarer of rec (which must carry a declaration) is accepted, a person
+// whose signature prov verified and whom policy allows. When it is not, the
+// limitation's code and message say why: a draft is never a version
+// (LimitationDeclarationDraftIgnored), no verified signature names the asker
+// as a person (LimitationDeclarationSignerUnverified), or policy does not
+// allow the asker (LimitationDeclarationSignerNotAllowed). Its Source is
+// left to the caller.
+func DeclarationAccepted(prov *BundleProvenance, rec *contract.InferredRecord, policy *DeclarationSignerPolicy) (VerifiedSigner, Limitation, bool) {
+	d := rec.Declaration
+	switch {
+	case d.State != contract.DeclarationDeclared:
+		return VerifiedSigner{}, Limitation{Code: LimitationDeclarationDraftIgnored, Message: "a declaration draft is not a version"}, false
+	case !signedBy(prov, d.Asker):
+		return VerifiedSigner{}, Limitation{Code: LimitationDeclarationSignerUnverified, Message: "no signature this reader verified names its declarer as a person"}, false
+	}
+	if why := policy.allows(d.Asker); why != "" {
+		return VerifiedSigner{}, Limitation{Code: LimitationDeclarationSignerNotAllowed, Message: why}, false
+	}
+	return VerifiedSigner{Subject: d.Asker.Subject, Issuer: d.Asker.Issuer, Class: contract.SignerClassHuman}, Limitation{}, true
 }
 
 // boundSigners keeps at most MaxProvenanceSigners of p's signers, in order,
@@ -187,14 +204,15 @@ func hideClusterDependencies(s *FleetSnapshot, rev *ContractRevision, hiddenSvc 
 }
 
 // hideDeclarationSource is a clone of rev for a viewer who may not read the
-// workload its declaration came from: no inferredFrom, no cluster field,
+// workload its declaration came from: no inferredFrom or source repository
+// (read from that workload's image and GitOps objects), no cluster field,
 // coverage or hidden count, only how many cluster fields were hidden. The
 // snapshot's revision and record are never changed.
 func hideDeclarationSource(rev *ContractRevision) *ContractRevision {
 	c := *rev
 	c.Record, c.hiddenClusterFields = withoutClusterFacts(rev.Record)
 	d := *rev.Record.Declaration
-	d.InferredFrom = ""
+	d.InferredFrom, d.Repository = "", nil
 	c.Record.Declaration = &d
 	c.declarationHidden = true
 	return &c
@@ -232,11 +250,12 @@ type DeclarationView struct {
 	InferredFrom     string          `json:"inferredFrom,omitempty" doc:"The inferred service the declaration came from, k8s:<namespace>/<kind>/<name>"`
 	// InferredFromHidden says the viewer may not read the workload the
 	// declaration came from, so InferredFrom and every cluster fact are left out.
-	InferredFromHidden bool     `json:"inferredFromHidden,omitempty" doc:"You may not read the workload the declaration came from, so its cluster facts are left out"`
-	Cluster            string   `json:"cluster,omitempty" doc:"The uid of the kube-system namespace of the cluster read"`
-	Baseline           string   `json:"baseline,omitempty" doc:"The published version the declaration started from"`
-	Accepted           []string `json:"accepted,omitempty" doc:"The proposed ranges the declarer accepted, as <field> <range>"`
-	Draft              string   `json:"draft,omitempty" doc:"The draft tag the declaration accepted"`
+	InferredFromHidden bool                               `json:"inferredFromHidden,omitempty" doc:"You may not read the workload the declaration came from, so its cluster facts are left out"`
+	Cluster            string                             `json:"cluster,omitempty" doc:"The uid of the kube-system namespace of the cluster read"`
+	Baseline           string                             `json:"baseline,omitempty" doc:"The published version the declaration started from"`
+	Accepted           []string                           `json:"accepted,omitempty" doc:"The proposed ranges the declarer accepted, as <field> <range>"`
+	Draft              string                             `json:"draft,omitempty" doc:"The draft tag the declaration accepted"`
+	Repository         *contract.InferredSourceRepository `json:"repository,omitempty" doc:"Where the service's source lives and how it was found; left out when no source named it or you may not read the workload the declaration came from"`
 }
 
 // declarationDetail is the coverage, hidden counts and declaration view of
@@ -260,7 +279,7 @@ func declarationDetail(rev *ContractRevision) ([]InferredCoverageRow, *InferredH
 	}
 	d := rec.Declaration
 	v := &DeclarationView{State: d.State, SignatureChecked: rev.declarationChecked, InferredFrom: d.InferredFrom,
-		InferredFromHidden: rev.declarationHidden, Cluster: d.Cluster, NotAccepted: rev.declarationRefused}
+		InferredFromHidden: rev.declarationHidden, Cluster: d.Cluster, NotAccepted: rev.declarationRefused, Repository: d.Repository}
 	if v.SignatureChecked && v.NotAccepted == "" {
 		v.Signer = &VerifiedSigner{Subject: d.Asker.Subject, Issuer: d.Asker.Issuer, Class: d.Asker.Class}
 	} else {

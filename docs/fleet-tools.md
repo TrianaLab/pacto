@@ -12,9 +12,9 @@ engineers](platform-engineers.md).
 ## Dashboard
 
 `pacto dashboard` opens a web dashboard over the same contracts the CLI manages
-and the operator checks. It has four views: what needs attention now, the
-service list, the [Operational Graph](operational-graph.md) and change
-analysis. It finds its sources at startup and merges them per service. Next to
+and the operator checks. It has four views: the Overview, which leads with the
+[fleet map](fleet-map.md) and what needs attention, the service list, the
+Operational graph and change analysis. It finds its sources at startup and merges them per service. Next to
 the Kubernetes operator it needs no OCI arguments: it reads the registry
 addresses from the `resolvedRef` field in each Pacto resource's status, then
 shows version history, interfaces, configuration schemas and diffs. See the [`pacto dashboard`
@@ -123,6 +123,17 @@ and the [knowledge vocabulary](operational-graph.md#knowledge) behind
 [rows the operator detected](operational-graph-providers.md#detected-rows),
 marked `(inferred)`, here and in `pacto fleet status`.
 
+- Each [trace backend](operational-graph-providers.md#trace-backends) is its
+  own row with its own status.
+- A source marked `cautionOnly`, such as the OTLP receiver, never corroborates
+  a declared dependency.
+- The same flag adds the
+  [workloads the operator linked](integrations/kubernetes/linked-workloads.md)
+  to a published contract with no Pacto. `pacto fleet get` and the TUI print
+  each one's link, such as
+  `observed: image digest sha256:ab12… since 3m ago; no Pacto`; JSON carries
+  it as `link` on the target and as `signal` and `value` on the replacement.
+
 ### Namespace scope
 
 A Kubernetes source that reads a list of namespaces (`--namespace
@@ -152,10 +163,11 @@ demo fixture, abridged:
 
 ```console
 $ pacto fleet overview --local examples/demo/bundles --target-state examples/demo/fleet-targets.yaml
-asOf 2026-11-15T04:41:58+01:00  completeness complete
-Targets 9: compliant 5 (5 stale) · not compliant 1 · unknown 3
-Health: healthy 0 · failing 1 · unknown 2 · not observed 6
-Owners: 34 declared · 3 disputed · 0 none declared · 0 unknown
+asOf 2026-11-21T14:32:54+01:00  completeness complete
+Targets 14: compliant 8 (8 stale) · not compliant 2 · unknown 4
+Health: healthy 0 · failing 1 · unknown 13 · not observed 0
+Contract completeness: 47% · 0 of 40 judged services fully described · most missing: domain 35, readiness 33, summary 32
+Owners: 38 declared · 1 disputed · 1 none declared · 0 unknown
 Next: pacto fleet attention --category health  (Operational targets failing their health check: 1)
 ```
 
@@ -186,6 +198,7 @@ the note says where that answer lives instead.
 | What changed in this service, and when did it reach each Stage? | `pacto fleet entity service <key> --reached` | `pacto_fleet_entity` with `reached` | `GET /api/fleet/entities/{kind}?reached=true` | Times only from delivery records read as you; an HTTP MCP server answers `times: not-read` |
 | What needs attention? | `pacto fleet attention` | `pacto_fleet_attention` | `GET /api/fleet/attention` | |
 | Who depends on this service, and on whom does it depend? | `pacto fleet neighborhood` | `pacto_fleet_neighborhood` | `GET /api/fleet/neighborhood` | |
+| What does the whole fleet look like, and where are its problems? | `pacto fleet map` | `pacto_fleet_map` | `GET /api/fleet/map`, `GET /api/fleet/map/nodes`, `GET /api/fleet/map/focus` | `--group` (`group`) pages one group's services through `/api/fleet/map/nodes`; `--focus` (`focus`) is `/api/fleet/map/focus?service`. The dashboard orders environments by the Stages you may read; the CLI and MCP list them by name and say so |
 | Which services match this text or filter? | `pacto fleet search` | `pacto_fleet_search` | `GET /api/fleet/services` | |
 | How is the fleet doing? | `pacto fleet status` | `pacto_fleet_status` | `GET /api/fleet/status` | |
 | How healthy is the organization and how much do we know? | `pacto fleet overview` | `pacto_fleet_overview` | `GET /api/fleet/overview` | |
@@ -200,6 +213,7 @@ the note says where that answer lives instead.
 | Which consumers does this change affect? | `pacto impact` | `pacto_impact` | `GET /api/fleet/impact`, `POST /api/fleet/impact` | Over HTTP and on a shared dashboard, only revisions in your view |
 | What did Pacto catch and deliver? | `pacto stats` | `pacto_stats` | `GET /api/stats` | Unsigned statistics; the dashboard reads the repository `pacto dashboard --stats-registry` names |
 | Which run records are behind this number? | - | - | `GET /api/stats/records` | The Metrics page lists them; the CLI and MCP answer totals |
+| Which member clusters joined this hub, and which wait for approval? | `pacto cluster list` | `pacto_cluster_list` | `GET /api/fleet/clusters` | Approved members always; pending and removed rows only for people who may approve `clusterjoins` |
 | What does this server serve? | - | `pacto_capabilities` | `GET /api/capabilities` | The CLI runs every command as the local user |
 | Who am I to delivery? | `pacto delivery caller` | `pacto_delivery_caller` | `GET /api/delivery/caller` | |
 | What waits on me? | `pacto delivery inbox` | `pacto_delivery_inbox` | `GET /api/delivery/inbox` | |
@@ -228,8 +242,8 @@ the note says where that answer lives instead.
 | Edit a contract | - | `pacto_edit` | - | People edit `pacto.yaml` and run `pacto validate` |
 | Is this contract valid? | `pacto validate` | `pacto_check` | - | The dashboard validates nothing |
 | What may a contract say? | - | `pacto_schema` | - | The JSON Schema is published with the docs |
-| Declare a running service | `pacto declare` | `pacto_declare` | - | An agent writes a draft a person accepts with `pacto declare --from-draft`; over HTTP the tool only plans |
-| Accept proposed ranges or a break | `pacto accept` | `pacto_accept` | `POST /api/fleet/accept` | An agent writes an acceptance draft a person signs with `pacto accept --draft`; the tool is served over stdio only; the dashboard shows the plan and the `pacto accept` command and never signs or writes |
+| Declare a running service | `pacto declare`, `pacto declare --draft` | `pacto_declare`, with `draft` over stdio | `POST /api/fleet/declare`, `POST /api/fleet/declare/accept` | An agent writes a draft a person accepts with `pacto declare --from-draft`; `--draft` writes a person's own draft unsigned; over HTTP the tool writes a draft only with a registry and a push credential of its own, else it plans; the dashboard plans for the signed-in person, signs with their fresh login or saves a draft |
+| Accept proposed ranges or a break | `pacto accept` | `pacto_accept` | `POST /api/fleet/accept`, `POST /api/fleet/accept/execute` | An agent writes an acceptance draft a person signs with `pacto accept --draft`; the tool is served over stdio only; the dashboard accepts every proposed range: it plans for the signed-in person, signs with their fresh login or saves an acceptance draft, and lists the drafts waiting |
 
 For one fleet, the three surfaces return the same `asOf`, `completeness`,
 `limitations` and unknown counts. The dashboard, and MCP with `--dashboard-url`,

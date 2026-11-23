@@ -109,7 +109,8 @@ func TestServiceSummarySignatures(t *testing.T) {
 	}
 	var odd SignatureTally
 	odd.add(&BundleProvenance{Signature: BundleSignature{Status: "weird"}})
-	if odd.Unknown != 1 {
+	odd.add(&BundleProvenance{Signature: BundleSignature{Status: SignatureUnverified}})
+	if odd != (SignatureTally{Unknown: 1, Unverified: 1}) {
 		t.Errorf("unrecognised status = %+v, want unknown", odd)
 	}
 }

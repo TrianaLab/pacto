@@ -61,7 +61,9 @@ type TargetSnapshot struct {
 	// Publisher is who published, as the publisher claims it. A reader names
 	// the signer from its own trust config, never from this field.
 	Publisher string `json:"publisher"`
-	// Pactos are the Pacto objects, as the stable read contract.
+	// Pactos are the Pacto objects, and the workloads the operator linked to
+	// a published contract with no Pacto, marked by the
+	// pacto.trianalab.io/linked-by label, as the stable read contract.
 	Pactos []PactoView `json:"pactos"`
 	// Workloads are the workloads no Pacto targets, as inferred services.
 	Workloads []fleet.RawInferredService `json:"workloads"`
@@ -79,6 +81,10 @@ type TargetSnapshot struct {
 	// declare block: who may set a service owner. Absent when the chart
 	// sets none.
 	OwnerPolicy *OwnerPolicy `json:"ownerPolicy,omitempty"`
+	// Join says how a hub may approve this cluster as a member: its display
+	// name, the environments it seems to host and the key that signs the
+	// snapshot. Absent when the publisher fills none.
+	Join *SnapshotJoin `json:"join,omitempty"`
 }
 
 // SnapshotSource is one section of a target snapshot: its kind, when it was
@@ -131,8 +137,8 @@ func TargetSnapshotTag(cluster string) (string, error) {
 // Check refuses a snapshot a reader could not place: a cluster that cannot sit
 // in a tag, an asOf that is not RFC 3339, a completeness other than complete
 // or partial, no publisher, a section of an unknown or repeated kind or with
-// the same faults, an evidence section over evidenceingest's body bound or an
-// owner policy OwnerPolicy.Check refuses.
+// the same faults, an evidence section over evidenceingest's body bound, an
+// owner policy OwnerPolicy.Check refuses or a join block checkJoin refuses.
 func (s TargetSnapshot) Check() error {
 	if _, err := TargetSnapshotTag(s.Cluster); err != nil {
 		return err
@@ -159,6 +165,11 @@ func (s TargetSnapshot) Check() error {
 	if s.OwnerPolicy != nil {
 		if err := s.OwnerPolicy.Check(); err != nil {
 			return fmt.Errorf("owner policy: %w", err)
+		}
+	}
+	if s.Join != nil {
+		if err := checkJoin(*s.Join); err != nil {
+			return fmt.Errorf("join: %w", err)
 		}
 	}
 	return nil

@@ -59,6 +59,9 @@ type ValidateResult struct {
 	// unknown never reads as "not declared".
 	Inferred        []contract.Inferred `json:"inferred,omitempty"`
 	VersionDeclared *bool               `json:"versionDeclared,omitempty"`
+	// ContractCompleteness is how completely the contract describes its
+	// service, section by section; absent when it did not load.
+	ContractCompleteness *contract.ContractCompleteness `json:"contractCompleteness,omitempty"`
 }
 
 // stageOrder is every stage of a validate run, in the order it runs them.
@@ -128,9 +131,12 @@ func (s *Service) Validate(ctx context.Context, opts ValidateOptions) (*Validate
 	return implied(newValidateResult(ref, opts, rawYAML, stages...), bundle), nil
 }
 
-// implied records on res what the loaded bundle implied.
+// implied records on res what the loaded bundle implied and how complete
+// its contract is.
 func implied(res *ValidateResult, b *contract.Bundle) *ValidateResult {
 	res.Inferred, res.VersionDeclared = b.Inferred, new(b.Contract.Service.Version != "")
+	rec, _ := contract.ReadInferredRecord(b.FS) // ponytail: an unreadable record is reported by its own check; completeness then reads none
+	res.ContractCompleteness = new(contract.Completeness(b.Contract, rec))
 	return res
 }
 

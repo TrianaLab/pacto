@@ -17,6 +17,8 @@
 #     findings that cite the ebpf collector;
 #   - the Kubernetes-API facets (protocol, exposure, workload kind, persistence,
 #     configuration, health, metrics) each produce their documented finding;
+#   - a pod's call to a host outside the cluster is named from the DNS answer
+#     the pod received and lands on its Pacto as an observed external;
 #   - pod restarts and rollouts re-attribute by pod UID; an agent that stops
 #     publishing reads stale, an agent that cannot attach reads failed, and both
 #     recover.
@@ -47,6 +49,9 @@ REG_HOST="pacto-registry.${NS}.svc.cluster.local:5000"
 LOCAL_REG_PORT=5597
 AGNHOST="registry.k8s.io/e2e-test-images/agnhost:2.53@sha256:99c6b4bb4a1e1df3f0b3752168c89358794d02258ebebc26bf21c29399011a85"
 NRO=noderuntimeobservations.pacto.trianalab.io
+# The external host of the egress scenario: a container on the kind network,
+# outside the cluster, that CoreDNS answers for api.stripe.com.
+VENDOR=pacto-e2e-vendor
 # shellcheck source=tests/acceptance/kind/lib.sh
 source "$(dirname "$0")/lib.sh"
 
@@ -90,7 +95,7 @@ summary() {
 }
 
 # shellcheck disable=SC2154  # rc is assigned by rc=$? inside the trap body
-trap 'rc=$?; [ $rc -ne 0 ] && [ -n "$CURRENT" ] && FAILED+=("$CURRENT"); [ ${#SCENARIOS[@]} -gt 0 ] && summary; if [ $rc -ne 0 ]; then dump_diag "$NS"; kubectl -n "$AGENT_NS" logs ds/pacto-node-agent --tail=100 || true; kubectl -n "$AGENT_NS" get "$NRO" -o yaml | tail -80 || true; fi; pkill -f "kubectl.*port-forward" 2>/dev/null || true; exit $rc' EXIT
+trap 'rc=$?; [ $rc -ne 0 ] && [ -n "$CURRENT" ] && FAILED+=("$CURRENT"); [ ${#SCENARIOS[@]} -gt 0 ] && summary; if [ $rc -ne 0 ]; then dump_diag "$NS"; kubectl -n "$AGENT_NS" logs ds/pacto-node-agent --tail=100 || true; kubectl -n "$AGENT_NS" get "$NRO" -o yaml | tail -80 || true; fi; pkill -f "kubectl.*port-forward" 2>/dev/null || true; docker rm -f "$VENDOR" >/dev/null 2>&1 || true; exit $rc' EXIT
 
 # miss MSG — a failed assertion: reported, charged to the open scenario, not fatal.
 miss() {
@@ -143,6 +148,24 @@ CHART="$(package_chart "$PACTO_CHART")"
 ensure_cluster
 pull_pinned "$AGNHOST"; AGNHOST="${AGNHOST%@*}"
 load_images "$OP_IMG" "$DASH_IMG" "$AGNHOST"
+
+echo "== an external host: api.stripe.com resolves to a container outside the cluster =="
+docker rm -f "$VENDOR" >/dev/null 2>&1 || true
+docker run -d --network kind --name "$VENDOR" "$AGNHOST" netexec --http-port=8080 >/dev/null
+VENDOR_IP="$(docker inspect -f '{{(index .NetworkSettings.Networks "kind").IPAddress}}' "$VENDOR")"
+[ -n "$VENDOR_IP" ] || fail "the vendor container has no address on the kind network"
+# kind's default Corefile has no hosts block; any left by an earlier `up` is replaced.
+COREFILE="$(mktemp)"
+kubectl -n kube-system get configmap coredns -o jsonpath='{.data.Corefile}' | awk -v ip="$VENDOR_IP" '
+  /^ *hosts \{/ { skip = 1 }
+  skip { if ($0 ~ /^ *\}/) skip = 0; next }
+  /^ *kubernetes / { print "    hosts {\n        " ip " api.stripe.com\n        fallthrough\n    }" }
+  { print }' > "$COREFILE"
+grep -q "$VENDOR_IP api.stripe.com" "$COREFILE" || fail "could not add api.stripe.com to the CoreDNS Corefile"
+kubectl -n kube-system create configmap coredns --from-file=Corefile="$COREFILE" --dry-run=client -o yaml \
+  | kubectl replace -f - >/dev/null
+kubectl -n kube-system rollout restart deploy/coredns >/dev/null
+kubectl -n kube-system rollout status deploy/coredns --timeout=120s >/dev/null
 
 # The node agent needs hostPID and BPF capabilities, which only the privileged Pod
 # Security level admits. The chart creates the agent namespace privileged; the
@@ -308,6 +331,10 @@ $HDR
 service: {name: unbound, version: "1.0.0"}
 interfaces: [$API]
 YAML
+publish egress-caller <<YAML
+$HDR
+service: {name: egress-caller, version: "1.0.0"}
+YAML
 
 echo "== install the operator with the node agent (publish every 5s, 20s stabilization window) =="
 SETS=(--set global.imageRegistry= --set image.repository="$OP_REPO" --set image.tag="$VER" --set image.pullPolicy=Never
@@ -416,6 +443,8 @@ service metrics
 # purpose: the pod stays Ready, so the interface stays available and only the health check fails.
 workload health-failing 1 "[{name: server, image: $AGNHOST, imagePullPolicy: Never, args: [liveness], ports: [{containerPort: 8080}]}]"
 service health-failing
+# Calls api.stripe.com:8080 every 2s; no Service, no contract and no trace names the host.
+workload egress-caller 1 "[{name: client, image: $AGNHOST, imagePullPolicy: Never, command: [sh, -c, 'while true; do /agnhost connect api.stripe.com:8080 --timeout=2s; sleep 2; done']}]"
 workload scratch 1 "[$PAUSE]" "[{name: data, emptyDir: {}}]"
 workload shared 2 "[$PAUSE]" "[{name: data, persistentVolumeClaim: {claimName: shared-data}}]"
 workload durable 1 "[$PAUSE]" "[{name: data, persistentVolumeClaim: {claimName: durable-data}}]"
@@ -438,7 +467,7 @@ spec:
       template:
         spec: {restartPolicy: Never, containers: [$PAUSE]}
 YAML
-for d in backend conforming deaf caller deaf-caller curl probe-target metrics health-failing scratch shared durable; do
+for d in backend conforming deaf caller deaf-caller curl probe-target metrics health-failing egress-caller scratch shared durable; do
   rollout "deploy/$d" || fail "deployment $d never rolled out"
 done
 
@@ -481,6 +510,7 @@ pacto multi "{serviceName: probe-lb, workloadRef: {name: probe-target, kind: Dep
 pacto metrics "{serviceName: metrics, interfaceBindings: $HTTP80}"
 pacto health-failing "{serviceName: health-failing, interfaceBindings: $HTTP80}"
 pacto unbound "{workloadRef: {name: backend}}"
+pacto egress-caller "{workloadRef: {name: egress-caller}}"
 
 # The violations every non-conforming workload below produces. None may ever land
 # on the conforming Pacto, which shares the node, the kernel and the agent.
@@ -551,6 +581,11 @@ expect_pacto undeclared-client "$R" -status Warning -expect DEPENDENCY_UNDECLARE
 scenario "uncontracted-caller" "a workload no Pacto describes calls the backend; callers a Pacto targets stay off the list"
 expect_pacto backend "$R" -caller Deployment/curl -no-caller Deployment/caller -no-caller Deployment/conforming
 echo "  backend caller coverage: $(kubectl -n "$APP" get pacto backend -o jsonpath='{.status.observedCallersCoverage}')"
+
+scenario "egress-external-host" "a pod calls api.stripe.com, which CoreDNS resolves to a container outside the cluster"
+expect_nro "$R" -uid "$(pod_uid egress-caller)" -connected "$VENDOR_IP:8080" -nro-host api.stripe.com
+expect_pacto egress-caller "$R" -egress-identity stripe -egress-host api.stripe.com -egress-source ebpf -egress-coverage complete
+echo "  egress-caller egress coverage: $(kubectl -n "$APP" get pacto egress-caller -o jsonpath='{.status.observedEgressCoverage}')"
 
 scenario "workload-mismatch" "contract says job, the explicit workload is a Deployment"
 expect_pacto wl-mismatch "$R" -status NonCompliant -expect WORKLOAD_MISMATCH:error

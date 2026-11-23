@@ -80,6 +80,10 @@ func TestDetailRendersInferredWorkload(t *testing.T) {
 		if !strings.Contains(out, "Workload: Deployment shop/"+name) || !strings.Contains(out, "Calls unknown: Pacto reads no traffic source here") || strings.Contains(out, "Summary") {
 			t.Errorf("%s detail:\n%s", name, out)
 		}
+		// The same line the CLI prints (fleet.TestInferredLinesNameDeclare).
+		if !strings.Contains(out, "Next: pacto declare "+name+" --namespace shop\n") {
+			t.Errorf("%s lacks the declare command:\n%s", name, out)
+		}
 		if name == "billing" && !strings.Contains(out, "image registry.example/billing:1.4.2 (from k8s-workloads: Deployment spec.template.spec.containers[name=billing].image)") {
 			t.Errorf("billing lacks its image:\n%s", out)
 		}

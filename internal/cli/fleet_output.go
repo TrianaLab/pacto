@@ -138,8 +138,16 @@ func printServiceTargets(w io.Writer, targets []*fleet.TargetRecord) {
 	}
 	_, _ = fmt.Fprintf(w, "Targets (%d):\n", len(targets))
 	for _, t := range targets {
-		_, _ = fmt.Fprintf(w, "  %s  compliance=%s stale=%t\n", t.Key, t.Compliance, t.Stale)
+		_, _ = fmt.Fprintf(w, "  %s  compliance=%s stale=%t%s\n", t.Key, t.Compliance, t.Stale, linkedMark(t.Link))
 	}
+}
+
+// linkedMark names how a target was linked with no Pacto, or nothing.
+func linkedMark(l *fleet.ObservedLink) string {
+	if l == nil {
+		return ""
+	}
+	return " (observed: " + strings.ReplaceAll(l.Signal, "-", " ") + ")"
 }
 
 func printServiceEdges(w io.Writer, sv *fleet.ServiceView) {
@@ -291,6 +299,9 @@ func printFleetTarget(cmd *cobra.Command, tv *fleet.TargetView, format string) e
 			rev += " (" + t.RevisionMatch + ")"
 		}
 		_, _ = fmt.Fprintf(w, "Revision: %s\n", rev)
+		if t.Link != nil {
+			_, _ = fmt.Fprintf(w, "Linked: %s\n", t.Link.Line(tv.Meta.AsOf))
+		}
 		_, _ = fmt.Fprintf(w, "Stale: %t\n", t.Stale)
 		if t.Coverage != nil {
 			_, _ = fmt.Fprintf(w, "Coverage: %d/%d evaluated\n", t.Coverage.Evaluated, t.Coverage.Required)
@@ -348,6 +359,7 @@ func printFleetStatus(cmd *cobra.Command, res *fleet.StatusResult, format string
 		for _, it := range res.Items {
 			_, _ = fmt.Fprintf(w, "  [%s] %s %s — %s\n", it.Code, it.Kind, it.Name, it.Reason)
 		}
+		printContractCompleteness(w, res.ContractCompleteness)
 		printDetected(w, res.Providers, res.Meta.Sources)
 		printPinnedSources(w, res.Meta.Sources, res.Meta.Limitations)
 		printClusters(w, res.Meta.Clusters, res.Meta.Limitations)
@@ -376,7 +388,7 @@ func printClusters(w io.Writer, clusters []fleet.ClusterSummary, lims []fleet.Li
 	hidden := false
 	for _, c := range clusters {
 		hidden = hidden || c.Access != ""
-		words = append(words, clusterLabelOf(c)+" "+clusterWordOf(c, lims))
+		words = append(words, clusterLabelOf(c)+" "+clusterWordOf(c, lims)+linkWordOf(c))
 	}
 	if len(clusters) >= 2 || hidden {
 		_, _ = fmt.Fprintln(w, "Clusters: "+strings.Join(words, ", "))
@@ -402,6 +414,30 @@ func clusterWordOf(c fleet.ClusterSummary, lims []fleet.Limitation) string {
 		}
 	}
 	return clusterWords[cmp.Or(c.Access, string(c.Status))]
+}
+
+// modelWords word how a member reviews the people of one issuer.
+var modelWords = map[string]string{fleet.IssuerShared: "shared issuer", fleet.IssuerGroupMapping: "group mapping", fleet.IssuerNotAccepted: "issuer not accepted"}
+
+// linkWordOf is a member's channel word and, while it is live, the model of
+// each issuer it reviewed: " live shared issuer", " no live channel" for a
+// channel that dropped. Only the hub knows its members' channels, so a
+// cluster with no link fact, as every cluster read outside the hub is,
+// prints no word: an unknown channel is never "no live channel".
+func linkWordOf(c fleet.ClusterSummary) string {
+	switch {
+	case c.Link != nil && c.Link.Channel == fleet.LinkLive:
+		var models []string
+		for _, m := range c.Link.Issuers {
+			if w := modelWords[m.Model]; !slices.Contains(models, w) {
+				models = append(models, w)
+			}
+		}
+		return strings.TrimRight(" live "+strings.Join(models, " and "), " ")
+	case c.Link != nil:
+		return " no live channel"
+	}
+	return ""
 }
 
 // printPinnedSources prints one line per source that read a pinned ref (each
@@ -484,12 +520,14 @@ func asOfText(at *time.Time) string {
 	return at.UTC().Format(time.RFC3339)
 }
 
-// printAdvisorySources prints one line per advisory source that is not
-// available, with its reason, and reports whether it printed any.
+// printAdvisorySources prints one line per advisory detection source that is
+// not available, with its reason, and reports whether it printed any: the
+// line names a detection Pacto could not read. Other advisory sources, such
+// as a mesh source, already say partial and why on their rows.
 func printAdvisorySources(w io.Writer, sources []fleet.SourceState) bool {
 	printed := false
 	for _, s := range sources {
-		if !s.Advisory || s.Status == fleet.SourceAvailable {
+		if !s.Advisory || s.Kind != fleet.SourceKindDetection || s.Status == fleet.SourceAvailable {
 			continue
 		}
 		state, reason := string(s.Status), ""

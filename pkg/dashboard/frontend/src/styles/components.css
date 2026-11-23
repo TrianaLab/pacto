@@ -355,7 +355,7 @@ select {
 }
 .source-dot + .source-dot { margin-left: 4px; }
 .source-dot:hover { transform: scale(1.2); }
-.source-dot-kubernetes, .source-dot-kubernetes-workloads { background: #3b82f6; }
+.source-dot-kubernetes, .source-dot-kubernetes-workloads, .source-dot-kubernetes-linked { background: #3b82f6; }
 .source-dot-oci { background: #8b5cf6; }
 .source-dot-local { background: #f59e0b; }
 .source-dot-cache { background: #64748b; }

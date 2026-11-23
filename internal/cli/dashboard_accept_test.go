@@ -73,7 +73,7 @@ func TestDashboardAcceptPlanCommand(t *testing.T) {
 		// publish.bundle its contract declares.
 		revision("oci://"+e.repo+":1.6.0", &contract.Publish{Bundle: "oci://" + e.repo + "-hidden"}),
 	} {
-		ans, err := plan(t.Context(), "reports", rev)
+		ans, err := plan(t.Context(), "reports", rev, "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -89,13 +89,13 @@ func TestDashboardAcceptPlanCommand(t *testing.T) {
 func TestDashboardAcceptNeverWrites(t *testing.T) {
 	e := newDashboardAcceptEnv(t)
 	plan := dashboardAcceptPlan(e.svc, func(context.Context) (app.Installation, error) { return app.Installation{}, nil })
-	if _, err := plan(t.Context(), "reports", revision("oci://"+e.repo+":1.6.0", nil)); err != nil {
+	if _, err := plan(t.Context(), "reports", revision("oci://"+e.repo+":1.6.0", nil), ""); err != nil {
 		t.Fatal(err)
 	}
 	// A revision naming no repository and a repository holding no version
 	// are refused NotPublished, each with the command a person runs.
 	for _, rev := range []*fleet.ContractRevision{revision("/srv/reports", nil), revision("oci://"+e.repo+"-none:1.0.0", nil)} {
-		ans, err := plan(t.Context(), "reports", rev)
+		ans, err := plan(t.Context(), "reports", rev, "")
 		if err != nil || ans.Refusal == nil || ans.Refusal.Code != "NotPublished" || ans.Refusal.Command == "" || ans.Plan != nil {
 			t.Errorf("%s: %+v %v", rev.ResolvedRef, ans, err)
 		}
@@ -107,7 +107,7 @@ func TestDashboardAcceptNeverWrites(t *testing.T) {
 
 func TestDashboardAcceptRegistryErrorIsReturned(t *testing.T) {
 	e := newDashboardAcceptEnv(t)
-	if _, err := dashboardAcceptPlan(e.svc, nil)(t.Context(), "reports", revision("oci://127.0.0.1:1/acme/reports:1.0.0", nil)); err == nil {
+	if _, err := dashboardAcceptPlan(e.svc, nil)(t.Context(), "reports", revision("oci://127.0.0.1:1/acme/reports:1.0.0", nil), ""); err == nil {
 		t.Error("an unreachable registry must be an error, never an empty plan")
 	}
 }

@@ -1055,3 +1055,17 @@ func TestRefLessRenderersNotExternal(t *testing.T) {
 		t.Fatalf("doc:\n%s", md)
 	}
 }
+
+// A contract that declares no version and an inferred name says both in the
+// summary line.
+func TestGenerate_InferredNameNoVersion(t *testing.T) {
+	d := fullSnapshot()
+	d.Version, d.NameInferredFrom = "", "chart/Chart.yaml:2"
+	md, err := Generate(d, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "**payments-api** (name inferred from chart/Chart.yaml:2) `version not declared`"; !strings.Contains(md, want) {
+		t.Errorf("summary missing %q:\n%s", want, md)
+	}
+}

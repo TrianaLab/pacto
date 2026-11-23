@@ -5,7 +5,7 @@
  */
 import {
   ownersUrl, readinessUrl, fleetUrl, fleetOverviewUrl, fleetChangesUrl, compareDiffUrl, deliveryInboxUrl,
-  fleetSourcesUrl, fleetAttentionUrl, fleetOwnersUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetGoldenPathsUrl, metricsUrl,
+  fleetSourcesUrl, fleetOwnersUrl, fleetDomainsUrl, fleetOfferingsUrl, fleetGoldenPathsUrl, metricsUrl,
 } from './router';
 import { formatCount } from './format';
 
@@ -22,7 +22,7 @@ export interface NavItem {
 }
 
 export interface NavGroup {
-  /** Empty for the ungrouped head (Overview, Needs attention). */
+  /** Empty for the ungrouped head (Overview). */
   label: string;
   items: NavItem[];
 }
@@ -63,7 +63,6 @@ export function navGroups(capabilities: any): NavGroup[] {
       label: '',
       items: [
         { key: 'overview', label: 'Overview', href: fleetOverviewUrl(), views: ['fleet-overview'], glyph: 'overview' },
-        { key: 'attention', label: 'Needs attention', href: fleetAttentionUrl(), views: ['fleet-attention'], glyph: 'attention' },
       ],
     },
     {
@@ -124,7 +123,7 @@ export function navCurrent(item: NavItem, view: string, kind: string): 'page' | 
 }
 
 /**
- * attentionBadge is the count the Attention badge shows: the items above info severity
+ * attentionBadge is the count the Overview item shows (Needs attention is the list beside its map): the items above info severity
  * (AttentionPreview.actionable), so documentation gaps never inflate it. An older engine
  * sends no `actionable`, and the full total stands in. null = not known.
  */

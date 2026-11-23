@@ -295,8 +295,8 @@ func TestUnknownItemWithNoFindings(t *testing.T) {
 }
 
 func TestAttentionCategoryOrderIsTheAgreedOrder(t *testing.T) {
-	want := []string{"non-compliant", "invalid", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range",
-		"lifecycle", "undeclared", "golden-path", "readiness", "knowledge", "unowned"}
+	want := []string{"non-compliant", "invalid", "cross-environment", "health", "provisioning", "unknown", "stale", "unresolved", "out-of-range",
+		"lifecycle", "undeclared", "golden-path", "readiness", "knowledge", "unowned", "cluster"}
 	if got := AttentionCategoriesList(); !slices.Equal(got, want) {
 		t.Fatalf("attentionCategoryOrder = %v\nwant %v", got, want)
 	}

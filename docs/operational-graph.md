@@ -73,11 +73,11 @@ backs it; `inferred: true` marks the inferred evidence either way. An
 inferred-only edge appears in the Differences view and has no `difference`
 value.
 
-The dashboard's Operational Graph draws each edge by what backs it: matched,
-expected but not observed, or observed but not expected.
+The dashboard's [fleet map](fleet-map.md) draws each call by what backs it:
+matched, expected but not observed, or observed but not expected.
 
-![The Operational Graph focused on payments-service: three dependencies on the left, three consumers on the right, with orders-service outlined red and one call from audit-log observed but not declared](assets/screenshots/dashboard-graph-light.png#only-light)
-![The Operational Graph focused on payments-service: three dependencies on the left, three consumers on the right, with orders-service outlined red and one call from audit-log observed but not declared](assets/screenshots/dashboard-graph-dark.png#only-dark)
+![The fleet map focused on payments-service: four callers on the left, orders-service outlined red and audit-log's call observed but not declared, three callees on the right](assets/screenshots/dashboard-graph-light.png#only-light)
+![The fleet map focused on payments-service: four callers on the left, orders-service outlined red and audit-log's call observed but not declared, three callees on the right](assets/screenshots/dashboard-graph-dark.png#only-dark)
 
 ## Sources and queries
 
@@ -174,12 +174,15 @@ summaries or business domains conflict or whose placement Pacto cannot see is
 Unknown, and its
 attention item names the cause.
 
-Ownership keeps two cases apart. **No declared owner** means Pacto read the
-contracts and none declares an owner. **Owner unknown** means Pacto cannot read
+[Contract completeness](operational-graph-tallies.md#contract-completeness)
+turns these gaps into an eight-section checklist.
+
+**No declared owner** means Pacto read the contracts and none declares
+one. **Owner unknown** means Pacto cannot read
 the contract, so it cannot tell whether an owner is declared.
 
-![The overview's Knowledge band for the demo: all 44 services leave something out of the contract; 38 have no summary, 36 no domain, 37 no readiness assessment and 29 run nowhere](assets/screenshots/dashboard-overview-knowledge-light.png#only-light)
-![The overview's Knowledge band for the demo: all 44 services leave something out of the contract; 38 have no summary, 36 no domain, 37 no readiness assessment and 29 run nowhere](assets/screenshots/dashboard-overview-knowledge-dark.png#only-dark)
+![The overview's Contract completeness band for the demo: 44% complete on average and 0 of 48 judged services fully described; 40 have no summary, 40 no domain, 41 no readiness assessment and 27 run nowhere](assets/screenshots/dashboard-overview-knowledge-light.png#only-light)
+![The overview's Contract completeness band for the demo: 44% complete on average and 0 of 48 judged services fully described; 40 have no summary, 40 no domain, 41 no readiness assessment and 27 run nowhere](assets/screenshots/dashboard-overview-knowledge-dark.png#only-dark)
 
 The [tallies reference](operational-graph-tallies.md) lists every field.
 
@@ -196,11 +199,13 @@ flowchart LR
         EVI["Evidence Server<br/>signed EvidenceSet reports"]
     end
     OTEL["OTel trace file<br/>offline analysis"]
+    LIVE["Trace backends and<br/>OTLP receiver (dashboard)"]
     OCI --> OG
     LOCAL --> OG
     K8S --> OG
     EVI --> OG
     OTEL -->|--traces| OG
+    LIVE -->|live edges| OG
     OG["Operational Graph<br/><i>immutable read model</i>"]
     OTEL --> RECON["reconcile · impact<br/>declared vs observed"]
     OG --> RECON
@@ -217,8 +222,9 @@ flowchart LR
   The endpoints the UI reads (overview, entities, neighborhood and attention)
   carry their own `schemaVersion`, `pacto.dev/fleet-product/v1`, so a UI
   versions independently of the `pacto.dev/fleet/v1` snapshot export above. The
-  Operational Graph view offers three **perspectives** (Services, Revisions and
-  Operational targets) and a **Knowledge** control (Expected · Observed ·
+  [fleet map](fleet-map.md) on the Overview and the Operational graph page
+  draws every service; a revision, target, owner or external system keeps its
+  own neighborhood view with a **Knowledge** control (Expected · Observed ·
   Differences). An operational target links to the dependency *service* it
   depends on. It draws no target-to-target mesh, because the snapshot has not
   observed that runtime routing. [The service page](dashboard-service-page.md)
@@ -227,14 +233,15 @@ flowchart LR
 - **CLI (`pacto fleet …`)**: the five queries on the command line, plus
   `overview` for the organization in one answer, `entities`, `entity` and
   `attention` for owners, domains, offerings and what needs attention,
-  `neighborhood` for the services around one service, `versions` for an
+  `neighborhood` for the services around one service, `map` for the whole
+  fleet as groups, `versions` for an
   offering's versions and `reconcile` and `snapshot`. Scriptable,
   deterministic output.
 - **MCP fleet tools**: `pacto_fleet_search`, `pacto_fleet_get`,
   `pacto_fleet_graph`, `pacto_fleet_status`, `pacto_fleet_explain`,
   `pacto_fleet_overview`, `pacto_fleet_entities`, `pacto_fleet_entity`,
-  `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_versions`
-  and `pacto_fleet_revision_document`, plus
+  `pacto_fleet_attention`, `pacto_fleet_neighborhood`, `pacto_fleet_map`,
+  `pacto_fleet_versions` and `pacto_fleet_revision_document`, plus
   [`pacto_impact`](impact.md) and `pacto_stats`, give an agent read-only understanding of the
   operational system. See [MCP integration](mcp-reference.md#three-tool-families-and-their-boundaries)
   for how they differ from authoring tools and generated service tools.
@@ -275,7 +282,8 @@ The callee of a span is the first of these attributes it carries:
 `messaging.system` and `rpc.system`. It can also
 emit signable EvidenceSets (`pacto otel observe --evidence`) so observed
 dependencies travel the same [evidence protocol](evidence.md) as any
-other report.
+other report. The dashboard's
+[OTLP receiver](operational-graph-reference.md#sources) is a separate live input.
 
 Those observed edges meet the declared graph in three places:
 
@@ -322,5 +330,7 @@ demand and versioned by its as-of time.
   boundaries the graph inherits
 - [Impact analysis](impact.md): the consumers a change affects, projected onto
   this graph
+- [The fleet map](fleet-map.md): the whole fleet on one map, its zoom
+  levels, lenses and focus
 - [Fleet tools](fleet-tools.md): the dashboard, `pacto fleet` and the terminal UI
 - [MCP integration](mcp-integration.md): the three MCP tool families

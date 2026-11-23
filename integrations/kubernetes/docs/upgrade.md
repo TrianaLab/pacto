@@ -286,6 +286,14 @@ the dashboard asks people to sign in
 A dashboard you run yourself beyond loopback still needs `--token-login`,
 `--oidc-issuer-url` or `--allow-anonymous`.
 
+## The dashboard serves MCP at /mcp
+
+After an upgrade, reused values included, the managed dashboard also serves
+MCP at `/mcp` when token sign-in is on. The new value `dashboard.mcp.enabled` defaults to
+`true`; the install notes print a client snippet, and no RBAC, Service or
+port changes. Set it to `false` to turn MCP off; see
+[MCP at /mcp](dashboard-authentication.md#mcp-at-mcp).
+
 ## Pull secrets outside granted namespaces
 
 The operator no longer reads Secrets across the cluster. It reads a pull
@@ -314,8 +322,9 @@ also when an upgrade reuses earlier values.
 Moving from a cluster-wide install to a namespace list leaves the
 `pacto-dashboard` ClusterRole and ClusterRoleBinding behind: the
 operator may no longer delete them. The `helm upgrade` notes and a
-`StaleClusterRBAC` Warning event on the dashboard Deployment report them.
-Delete them:
+`StaleClusterRBAC` Warning event on the dashboard Deployment report them,
+also when the namespace-list install runs no dashboard (the `hardened`
+profile). Delete them:
 
 ```bash
 kubectl delete clusterrole,clusterrolebinding pacto-dashboard

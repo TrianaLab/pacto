@@ -420,3 +420,154 @@ func TestHideClusterDependenciesKeepsUnrelatedFields(t *testing.T) {
 		t.Error("a clone without any hidden dependency")
 	}
 }
+
+func acceptedFixture(state, signerClass string) (*BundleProvenance, *contract.InferredRecord) {
+	asker := contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://idp", Class: contract.SignerClassHuman}
+	prov := &BundleProvenance{Signers: []VerifiedSigner{{Subject: "ana@acme.com", Issuer: "https://idp", Class: signerClass}}}
+	return prov, &contract.InferredRecord{Declaration: &contract.InferredDeclaration{State: state, Asker: asker}}
+}
+
+var anaSigners = &DeclarationSignerPolicy{Signers: []PolicySigner{{Issuer: "https://idp", Subjects: `.+@acme\.com`}}}
+
+func TestDeclarationAcceptedHumanAsker(t *testing.T) {
+	prov, rec := acceptedFixture(contract.DeclarationDeclared, contract.SignerClassHuman)
+	s, lim, ok := DeclarationAccepted(prov, rec, anaSigners)
+	if !ok || lim != (Limitation{}) || s != (VerifiedSigner{Subject: "ana@acme.com", Issuer: "https://idp", Class: contract.SignerClassHuman}) {
+		t.Fatalf("%+v %+v %v", s, lim, ok)
+	}
+}
+
+func TestDeclarationAcceptedDraftRefused(t *testing.T) {
+	prov, rec := acceptedFixture(contract.DeclarationDraft, contract.SignerClassHuman)
+	if _, lim, ok := DeclarationAccepted(prov, rec, anaSigners); ok || lim.Code != LimitationDeclarationDraftIgnored {
+		t.Fatalf("%+v %v", lim, ok)
+	}
+}
+
+func TestDeclarationAcceptedOtherSigner(t *testing.T) {
+	prov, rec := acceptedFixture(contract.DeclarationDeclared, contract.SignerClassCI)
+	if _, lim, ok := DeclarationAccepted(prov, rec, anaSigners); ok || lim.Code != LimitationDeclarationSignerUnverified {
+		t.Fatalf("%+v %v", lim, ok)
+	}
+	prov.Signers[0] = VerifiedSigner{Subject: "bob@acme.com", Issuer: "https://idp", Class: contract.SignerClassHuman}
+	if _, lim, ok := DeclarationAccepted(prov, rec, anaSigners); ok || lim.Code != LimitationDeclarationSignerUnverified {
+		t.Fatalf("%+v %v", lim, ok)
+	}
+}
+
+func TestDeclarationAcceptedPolicyRefuses(t *testing.T) {
+	prov, rec := acceptedFixture(contract.DeclarationDeclared, contract.SignerClassHuman)
+	other := &DeclarationSignerPolicy{Signers: []PolicySigner{{Issuer: "https://idp", Subjects: `.+@other\.com`}}}
+	for _, p := range []*DeclarationSignerPolicy{nil, other} {
+		if _, lim, ok := DeclarationAccepted(prov, rec, p); ok || lim.Code != LimitationDeclarationSignerNotAllowed || lim.Message == "" {
+			t.Fatalf("%+v %v", lim, ok)
+		}
+	}
+}
+
+// repoOpts is signedOpts whose declaration names newsletter's repository.
+func repoOpts(t *testing.T) declFleetOpts {
+	t.Helper()
+	o := signedOpts(t)
+	rec, err := contract.ParseInferredRecord(o.record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec.Declaration.Repository = &contract.InferredSourceRepository{URL: "https://github.com/acme/newsletter", Rung: contract.RepositoryRungGitOps,
+		Folder: "deploy", FolderRung: contract.RepositoryRungGitOps}
+	o.record = rec.Marshal()
+	return o
+}
+
+func TestRevisionDetailCarriesRepository(t *testing.T) {
+	d := newsRevision(t, declFleet(t, repoOpts(t)))
+	if r := d.Declaration.Repository; r == nil || r.URL != "https://github.com/acme/newsletter" || r.Rung != contract.RepositoryRungGitOps || r.Folder != "deploy" {
+		t.Fatalf("repository = %+v", d.Declaration.Repository)
+	}
+	if d := newsRevision(t, declFleet(t, signedOpts(t))); d.Declaration.Repository != nil {
+		t.Errorf("a declaration with no repository shows one: %+v", d.Declaration.Repository)
+	}
+}
+
+func TestRestrictHidesDeclarationRepository(t *testing.T) {
+	r := restrictNews(declFleet(t, repoOpts(t)))
+	wantInferredFromHidden(t, r)
+	d := newsRevision(t, r)
+	if b, _ := json.Marshal(d); d.Declaration.Repository != nil || strings.Contains(string(b), "github.com/acme/newsletter") {
+		t.Fatalf("a viewer who may not read news sees its repository: %s", b)
+	}
+}
+
+// A viewer who reads the workload but may not list the GitOps objects its
+// repository was read from never sees a GitOps repository in the record.
+func TestRestrictHidesGitOpsRepositoryOfUnlistableObjects(t *testing.T) {
+	q := declFleet(t, repoOpts(t))
+	noArgo := q.Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(func(ns, kind string) bool { return ns != "argocd" }))
+	d := newsRevision(t, noArgo)
+	if b, _ := json.Marshal(d); d.Declaration.Repository != nil || strings.Contains(string(b), "github.com/acme/newsletter") {
+		t.Fatalf("a viewer who may not list Applications in argocd sees the GitOps repository: %s", b)
+	}
+	if d.Declaration.InferredFrom == "" {
+		t.Error("the workload stayed readable, yet inferredFrom went")
+	}
+	o := repoOpts(t)
+	rec, _ := contract.ParseInferredRecord(o.record)
+	rec.Declaration.Repository = &contract.InferredSourceRepository{URL: "https://github.com/acme/newsletter", Rung: contract.RepositoryRungGiven, Folder: "deploy", FolderRung: contract.RepositoryRungGiven}
+	o.record = rec.Marshal()
+	if d := newsRevision(t, declFleet(t, o).Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(func(ns, _ string) bool { return ns != "argocd" }))); d.Declaration.Repository == nil {
+		t.Error("a given repository went with the GitOps objects")
+	}
+}
+
+func TestRestrictKeepsRepositoryForAllowedViewer(t *testing.T) {
+	q := declFleet(t, repoOpts(t))
+	_ = newsRevision(t, restrictNews(q))
+	everyone := q.Restrict(anyCluster(func(string) bool { return true }), anyClusterKind(func(string, string) bool { return true }))
+	for _, v := range []*Query{q, everyone} {
+		if d := newsRevision(t, v); d.Declaration.Repository == nil {
+			t.Fatal("a viewer who may read news lost its repository")
+		}
+	}
+}
+
+// With the live workload in the snapshot, the GitOps objects its own read
+// names decide whether the record's GitOps repository shows.
+func TestGitOpsRepositoryHiddenFollowsLiveWorkload(t *testing.T) {
+	rev := &ContractRevision{Record: &contract.InferredRecord{Declaration: &contract.InferredDeclaration{InferredFrom: "k8s:news/Deployment/newsletter",
+		Repository: &contract.InferredSourceRepository{URL: "https://github.com/acme/newsletter", Rung: contract.RepositoryRungGitOps, Folder: ".", FolderRung: contract.FolderRungDefault}}}}
+	w := &InferredWorkload{Namespace: "news", Kind: "Deployment", Name: "newsletter",
+		Repositories: []InferredRepository{{URL: "https://github.com/acme/newsletter", Namespace: "shop-gitops", Kind: "Application"}}}
+	s := &FleetSnapshot{Services: map[ServiceKey]*ServiceRecord{NewServiceKey("newsletter"): {Workload: w}}}
+	noShop := func(_, ns, _ string) bool { return ns == "shop-gitops" }
+	noArgo := func(_, ns, _ string) bool { return ns == "argocd" }
+	if !gitopsRepositoryHidden(s, rev, noShop) {
+		t.Error("an unlistable Application the live read names left the repository showing")
+	}
+	if gitopsRepositoryHidden(s, rev, noArgo) {
+		t.Error("the live read names no argocd object, yet the repository went")
+	}
+	replaced := &FleetSnapshot{Replacements: []Replacement{{Workload: w}}}
+	if !gitopsRepositoryHidden(replaced, rev, noShop) || gitopsRepositoryHidden(replaced, rev, noArgo) {
+		t.Error("a replaced service's live workload did not decide the repository")
+	}
+	rev.Record.Declaration.InferredFrom = "not-a-caller"
+	if !gitopsRepositoryHidden(s, rev, noArgo) {
+		t.Error("an unparsable inferredFrom kept the repository")
+	}
+}
+
+func TestRepositoriesIncomplete(t *testing.T) {
+	for _, c := range []struct {
+		w    InferredWorkload
+		want string
+	}{
+		{InferredWorkload{}, ""},
+		{InferredWorkload{RepositoryUnknown: "Applications unreadable (forbidden)", Dropped: []string{"repositories[3]"}}, "Applications unreadable (forbidden)"},
+		{InferredWorkload{Dropped: []string{"images[1]", "repositories[3]"}}, "more GitOps repositories than Pacto keeps"},
+		{InferredWorkload{Dropped: []string{"images[1]"}}, ""},
+	} {
+		if got := c.w.RepositoriesIncomplete(); got != c.want {
+			t.Errorf("%+v: RepositoriesIncomplete() = %q, want %q", c.w, got, c.want)
+		}
+	}
+}

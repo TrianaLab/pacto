@@ -71,36 +71,53 @@ func (e *exporter) ref(rel *fleet.Relationship) string {
 func componentRef(name string) string { return "component:default/" + name }
 
 // evidence is how one ref is known: declared, observed or both, and the last
-// time an observation saw it.
+// time an observation saw it. An observation only caution-only sources made
+// (see [fleet.FleetSnapshot.CautionOnly]) counts on an undeclared ref alone:
+// it never corroborates a declared one.
 type evidence struct {
-	declared, observed bool
-	lastSeen           *time.Time
+	declared, observed, caution bool
+	lastSeen, cautionSeen       *time.Time
 }
 
-// add folds rel's provenance into ev.
-func (ev *evidence) add(rel *fleet.Relationship) {
-	if rel.Provenance == fleet.ProvenanceDeclared {
+// add folds rel's provenance into ev; caution says only caution-only sources
+// saw it.
+func (ev *evidence) add(rel *fleet.Relationship, caution bool) {
+	switch {
+	case rel.Provenance == fleet.ProvenanceDeclared:
 		ev.declared = true
-		return
+	case caution:
+		ev.caution = true
+		ev.cautionSeen = later(ev.cautionSeen, rel.LastSeen)
+	default:
+		ev.observed = true
+		ev.lastSeen = later(ev.lastSeen, rel.LastSeen)
 	}
-	ev.observed = true
-	if rel.LastSeen != nil && (ev.lastSeen == nil || rel.LastSeen.After(*ev.lastSeen)) {
-		ev.lastSeen = rel.LastSeen
+}
+
+// later is the later of a and b, either of which may be nil.
+func later(a, b *time.Time) *time.Time {
+	if b != nil && (a == nil || b.After(*a)) {
+		return b
 	}
+	return a
 }
 
 // String is the provenance of ev, with @<last seen> in RFC 3339 UTC on an
 // observed one: the trace window, never the snapshot's time.
 func (ev *evidence) String() string {
+	observed, seen := ev.observed, ev.lastSeen
+	if !observed && !ev.declared && ev.caution {
+		observed, seen = true, ev.cautionSeen
+	}
 	p := fleet.ProvenanceDeclared
 	switch {
-	case ev.declared && ev.observed:
+	case ev.declared && observed:
 		p = fleet.ProvenanceDeclaredObserved
-	case ev.observed:
+	case observed:
 		p = fleet.ProvenanceObserved
 	}
-	if ev.lastSeen != nil {
-		p += "@" + ev.lastSeen.UTC().Format(time.RFC3339)
+	if observed && seen != nil {
+		p += "@" + seen.UTC().Format(time.RFC3339)
 	}
 	return p
 }
@@ -156,7 +173,7 @@ func (e *exporter) relations(s *fleet.ServiceRecord) relationInfo {
 			inferred[ref] = true
 		default:
 			known[ref] = cmp.Or(known[ref], &evidence{})
-			known[ref].add(rel)
+			known[ref].add(rel, e.snap.CautionOnly(*rel))
 		}
 	}
 	ri := relationInfo{dependsOn: slices.Sorted(maps.Keys(known)), consumes: slices.Sorted(maps.Keys(consumes)), unresolved: len(unresolved)}

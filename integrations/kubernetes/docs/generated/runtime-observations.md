@@ -101,6 +101,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `CAPABILITY_INTERFACE_UNKNOWN` | `InvalidCapability` |
 | `CAPABILITY_PATH_INVALID` | `InvalidCapability` |
 | `CAPABILITY_REF_INVALID` | `InvalidCapability` |
+| `CARRIED_FIELD_NOT_DECLARED` | `InvalidFile` |
 | `CONFIGURATION_ABSENT` | `RuntimeDrift` |
 | `CONFIGURATION_MISMATCH` | `RuntimeDrift` |
 | `CONFIG_REF_AMBIGUOUS` | `InvalidReference` |

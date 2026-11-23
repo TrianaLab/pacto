@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +13,8 @@ import (
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/internal/k8sclient"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
@@ -86,6 +89,10 @@ type FleetOptions struct {
 	K8sContexts []string
 	// K8sNamespaces scopes the live Kubernetes sources; empty means all namespaces.
 	K8sNamespaces []string
+	// LiveEdges, set only by the dashboard, turns the trace backends the
+	// operator detected into live edge sources sharing it; nil keeps them
+	// detected rows (a laptop cannot reach their in-cluster URLs).
+	LiveEdges *fleetsrc.LiveEdges
 	// Detected adds what the operator detected as inferred provider rows:
 	// k8s:<namespace>/<name> of its ConfigMap, read with the kubeconfig, or a
 	// file holding the same JSON. The source is advisory; --k8s never adds it.
@@ -106,6 +113,13 @@ type FleetOptions struct {
 	// TargetSnapshotTrustFile is the delivery trust config the snapshots are
 	// verified with; empty reads $PACTO_DELIVERY_TRUST.
 	TargetSnapshotTrustFile string
+	// ClusterJoins reads the member clusters a person approved in this hub
+	// from the registry, each verified under its approved key; nil reads
+	// none.
+	ClusterJoins *JoinOptions
+	// MemberLinks returns the hub's member link facts by cluster id at each
+	// build; nil adds no source.
+	MemberLinks func() map[string]fleet.ClusterLink
 	// Now overrides the build clock (freshness classification); defaults to
 	// time.Now. Injected in tests for deterministic staleness.
 	Now func() time.Time
@@ -133,6 +147,15 @@ func (o FleetOptions) addedSources() []fleet.Source {
 		return o.extraSources
 	}
 	return append(slices.Clone(o.extraSources), o.indexSrc)
+}
+
+// memberLinkSources is the carrier of the hub's member link facts when o
+// has them.
+func (o FleetOptions) memberLinkSources() []fleet.Source {
+	if o.MemberLinks == nil {
+		return nil
+	}
+	return []fleet.Source{fleetsrc.NewMemberLinkSource(o.MemberLinks)}
 }
 
 // ConsumerSources names, one printable entry each, the sources set in o that
@@ -167,6 +190,11 @@ func (o FleetOptions) ConsumerSources() []string {
 	add("--mira-source", o.MiraURLs...)
 	add("--target-state", o.TargetStateFiles...)
 	add("--target-snapshot", o.TargetSnapshot...)
+	if o.Detected != "" {
+		// Only the workloads the operator linked with no Pacto: alone it
+		// never covers the cluster (see consumerEvidence).
+		add("--detected", o.Detected+" (linked workloads only)")
+	}
 	for _, spec := range o.ObservationSources {
 		add("--traces", spec.Path)
 	}
@@ -227,8 +255,10 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	if opts.IncludeK8s || len(opts.K8sContexts) > 0 {
 		sources = append(sources, s.k8sSources(ctx, opts, fp.Promoters)...)
 	}
-	sources = append(sources, s.detectionSources(opts.Detected)...)
+	sources = append(sources, s.detectionSources(ctx, opts, slices.Concat(sources, snaps, opts.addedSources()))...)
+	sources = append(sources, s.linkedSources(opts.Detected)...)
 	sources = append(sources, snaps...)
+	sources = append(sources, opts.memberLinkSources()...)
 	sources = append(sources, opts.addedSources()...)
 	if err := checkSourceIDsAreUnique(sources); err != nil {
 		return nil, err
@@ -272,37 +302,178 @@ func CheckDetectedRef(ref string) error {
 	return nil
 }
 
-// detectionSources is the advisory detection source of ref, checked by
-// [CheckDetectedRef], none when ref is empty: k8s:NS/NAME reads that
+// detectionReader is the advisory detection source of ref, checked by
+// [CheckDetectedRef], nil when ref is empty: k8s:NS/NAME reads that
 // ConfigMap, anything else is a file. A dynamic client that cannot be built
-// is an unavailable source that says so.
-func (s *Service) detectionSources(ref string) []fleet.Source {
+// is an unavailable source that says so. It is the one reader of a
+// detection: the fleet and pacto ci's installation advertisement both use it.
+func (s *Service) detectionReader(ref string) *fleetsrc.DetectionSource {
 	const id = "detection"
 	rest, ok := strings.CutPrefix(ref, "k8s:")
 	switch {
 	case ref == "":
 		return nil
 	case !ok:
-		return []fleet.Source{fleetsrc.NewDetectionFileSource(id, ref, s.env().now)}
+		return fleetsrc.NewDetectionFileSource(id, ref, s.env().now)
 	}
 	ns, name, _ := strings.Cut(rest, "/")
 	dyn, err := s.env().newDynamic()
 	if err != nil {
-		return []fleet.Source{fleetsrc.NewDetectionFailedSource(id, fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err))}
+		return fleetsrc.NewDetectionFailedSource(id, fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err))
 	}
-	return []fleet.Source{fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)}
+	return fleetsrc.NewDetectionK8sSource(id, dyn, ns, name, s.env().now)
 }
 
-// workloadsSuffix names a cluster's workload source after its Pacto source.
-const workloadsSuffix = "-workloads"
+// linkedSources are the sources of the workloads the operator linked to a
+// published contract with no Pacto, read from the detection at ref (checked
+// by [CheckDetectedRef]), none when ref is empty: k8s:NS/NAME reads the
+// linked key of that ConfigMap; a detection file has the linked file beside
+// it when one is there. A dynamic client that cannot be built is an
+// unavailable source that says so.
+func (s *Service) linkedSources(ref string) []fleet.Source {
+	const linkedID = "linked"
+	rest, ok := strings.CutPrefix(ref, "k8s:")
+	switch {
+	case ref == "":
+		return nil
+	case !ok:
+		if linked := filepath.Join(filepath.Dir(ref), delivery.LinkedConfigMapKey); fileThere(linked) {
+			return []fleet.Source{fleetsrc.NewLinkedFileSource(linkedID, linked, s.env().now)}
+		}
+		return nil
+	}
+	ns, name, _ := strings.Cut(rest, "/")
+	dyn, err := s.env().newDynamic()
+	if err != nil {
+		return []fleet.Source{fleetsrc.NewLinkedFailedSource(linkedID, fmt.Errorf("%w: %w", fleetsrc.ErrDetectionNoCluster, err))}
+	}
+	return []fleet.Source{fleetsrc.NewLinkedK8sSource(linkedID, dyn, ns, name, s.env().now)}
+}
 
-// liveK8sSources are a cluster's two live sources: its Pacto CRs and its
-// workloads, the Pacto source named id and the workload source after it.
-// cluster is nil when the cluster identity could not be read.
-func liveK8sSources(id string, cluster *fleet.Cluster, client k8sclient.K8sClient, namespaces []string, promoters []workloadmanager.Fingerprint) []fleet.Source {
+// fileThere reports whether path names something Stat can read.
+func fileThere(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
+// liveEdgeIDs are, per detected kind a live edge source takes, the id of that
+// source. A Collector entry is taken only by the OTLP receiver, when it runs;
+// the service graph only reads it.
+var liveEdgeIDs = map[string]string{"jaeger": "detected-jaeger", "tempo": serviceGraphID, "otel-collector": receiverID}
+
+// InstallationConfig reads what the operator was configured with from the
+// detection at ref (as [Service.detectionReader] reads it) on each call, for
+// the installation capability: nil when ref is empty.
+// ponytail: one read per call (one ConfigMap GET for k8s:); cache it with
+// the published snapshot if a profile shows it hot.
+func (s *Service) InstallationConfig(ref string) func(context.Context) (*fleet.InstallationDeclared, fleet.SourceState) {
+	src := s.detectionReader(ref)
+	if src == nil {
+		return nil
+	}
+	// A file ref is a path on this host: remote callers read a fixed label.
+	label := "a detection file"
+	if strings.HasPrefix(ref, "k8s:") {
+		label = ref
+	}
+	return func(ctx context.Context) (*fleet.InstallationDeclared, fleet.SourceState) {
+		res, st := src.Read(ctx)
+		return res.Declared(label), st
+	}
+}
+
+// serviceGraphID and receiverID are the ids of the service-graph and OTLP
+// receiver edge sources.
+const (
+	serviceGraphID = "detected-service-graph"
+	receiverID     = "otlp-receiver"
+)
+
+// detectionSources are the detection sources of opts.Detected and the OTLP
+// receiver's source. Only the dashboard (opts.LiveEdges set) reads live
+// edges: it reads the detection once, gives each entry a live edge source
+// takes to that source and the rest to the detection source, so each backend
+// is one row. Elsewhere, and when the detection cannot be read, the detection
+// source reads as it always did. The receiver's source is built whenever the
+// receiver runs, with the Collector entry when one was read. assembled are
+// the sources gathered so far.
+func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assembled []fleet.Source) []fleet.Source {
+	// ponytail: a configured source holding an id (a --trace-source
+	// detected-jaeger=...) wins; the backend stays a detected row.
+	free := func(id string) bool {
+		return !slices.ContainsFunc(assembled, func(a fleet.Source) bool { return a.ID() == id })
+	}
+	receiver := opts.LiveEdges != nil && opts.LiveEdges.Receiver != nil && free(receiverID)
+	var bare []fleet.Source
+	if receiver {
+		bare = []fleet.Source{fleetsrc.NewReceiverSource(receiverID, nil, nil, opts.LiveEdges)}
+	}
+	src := s.detectionReader(opts.Detected)
+	switch {
+	case src == nil:
+		return bare
+	case opts.LiveEdges == nil:
+		return []fleet.Source{src}
+	}
+	res, st := src.Read(ctx)
+	if st.Status == fleet.SourceUnavailable {
+		return append([]fleet.Source{src}, bare...)
+	}
+	var kinds []string
+	for kind, id := range liveEdgeIDs {
+		if free(id) && (id != receiverID || receiver) {
+			kinds = append(kinds, kind)
+		}
+	}
+	rest, taken := detect.SplitEdgeKinds(res, kinds)
+	out := append([]fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
+	if !slices.ContainsFunc(taken, func(e detect.Entry) bool { return e.Kind == "otel-collector" }) {
+		out = append(out, bare...)
+	}
+	return out
+}
+
+// liveEdgeSources are the live edge sources of the taken entries of res. A
+// taken Tempo is read through the service graph; with none and graph free, a
+// Collector entry with a Prometheus Endpoint is read through it too, without
+// being taken. A taken Collector is the OTLP receiver's row.
+func (s *Service) liveEdgeSources(res detect.Result, taken []detect.Entry, graph bool, opts FleetOptions) []fleet.Source {
+	var out []fleet.Source
+	for _, e := range taken {
+		switch e.Kind {
+		case "jaeger":
+			out = append(out, fleetsrc.NewJaegerSource(liveEdgeIDs[e.Kind], res, e, opts.LiveEdges, s.env().now))
+		case "tempo":
+			out = append(out, fleetsrc.NewServiceGraphSource(serviceGraphID, res, e, opts.LiveEdges, s.env().now))
+			graph = false
+		case "otel-collector":
+			out = append(out, fleetsrc.NewReceiverSource(receiverID, &res, &e, opts.LiveEdges))
+		}
+	}
+	if i := slices.IndexFunc(res.Entries, func(e detect.Entry) bool { return e.Kind == "otel-collector" && e.Endpoint != "" }); graph && i >= 0 {
+		out = append(out, fleetsrc.NewServiceGraphSource(serviceGraphID, res, res.Entries[i], opts.LiveEdges, s.env().now))
+	}
+	return out
+}
+
+// workloadsSuffix and meshSuffix name a cluster's workload and mesh sources
+// after its Pacto source.
+const (
+	workloadsSuffix = "-workloads"
+	meshSuffix      = "-mesh"
+)
+
+// liveK8sSources are a cluster's three live sources: its Pacto CRs, its
+// workloads and the calls a service mesh records, the Pacto source named id
+// and the others after it. cluster is nil when the cluster identity could not
+// be read. meshMemo keeps the mesh source's last read across builds; now is
+// the mesh source's clock.
+func liveK8sSources(id string, cluster *fleet.Cluster, client k8sclient.K8sClient, namespaces []string, promoters []workloadmanager.Fingerprint,
+	meshMemo *fleetsrc.MeshMemo, now func() time.Time) []fleet.Source {
 	return []fleet.Source{
 		fleetsrc.NewK8sSource(id, cluster, client, namespaces),
 		fleetsrc.NewWorkloadSource(id+workloadsSuffix, cluster, client, namespaces).WithPromoters(promoters),
+		fleetsrc.NewMeshSource(id+meshSuffix, cluster, client, namespaces).WithMemo(meshMemo).WithClock(now),
 	}
 }
 

@@ -34,7 +34,9 @@
   // canonical key, knowledge caveat and contextual actions. The kind-specific rich
   // body is delegated to the per-kind component.
   // miraURL: Mira's address, only for a caller whose permissions hide nothing.
-  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '', correlation = '', changesQuery = {} } = $props();
+  // canDeclare and declareQuery reach the inferred service page's Declare panel; its
+  // signed intent also reaches a declared service page's accept plan.
+  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '', correlation = '', changesQuery = {}, canDeclare = false, declareQuery = {} } = $props();
 
   // Four lifecycle events, three behaviours -- the distinction this page used to lack.
   //
@@ -190,7 +192,7 @@
         <p class="page-answer t-body ev-answer tone-{entityAnswer.tone}" data-testid="entity-answer"><strong>{entityAnswer.lead}</strong> {entityAnswer.rest}</p>
       {/if}
       {#if replacedFrom}
-        <p class="ev-replaced t-body-2" data-testid="entity-replaced-from"><bdi title={serviceKeyName(replacedFrom.from)}>{serviceKeyName(replacedFrom.from)}</bdi> was replaced by {detail.entity?.label || replacedFrom.to}{replacedAge}{replacedFrom.target ? `, linked by Pacto ${replacedFrom.target}` : ''}</p>
+        <p class="ev-replaced t-body-2" data-testid="entity-replaced-from"><bdi title={serviceKeyName(replacedFrom.from)}>{serviceKeyName(replacedFrom.from)}</bdi> was replaced by {detail.entity?.label || replacedFrom.to}{replacedAge}{replacedFrom.link === 'observed' ? `, linked with no Pacto by its ${replacedFrom.signal === 'annotation' ? 'annotation' : 'image digest'}` : replacedFrom.target ? `, linked by Pacto ${replacedFrom.target}` : ''}</p>
       {/if}
       <!-- Uncertainty and failed refreshes come FIRST and are never collapsible: they
            qualify everything below them, so a reader who stops after the first screen
@@ -222,9 +224,9 @@
            this body, not the page: without a boundary it left the skeleton up for ever. -->
       <svelte:boundary>
         {#if detail.service && detail.entity?.declaration === 'inferred'}
-          <InferredServiceEntity {detail} />
+          <InferredServiceEntity {detail} {canDeclare} {declareQuery} />
         {:else if detail.service}
-          <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} {changesQuery} />
+          <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} {changesQuery} acceptSigned={declareQuery.signed ?? ''} />
         {:else if detail.revision}
           <RevisionEntity {detail} {deliveryState} {miraURL} {correlation} />
         {:else if detail.target}

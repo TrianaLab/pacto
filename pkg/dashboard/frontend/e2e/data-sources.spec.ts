@@ -8,22 +8,40 @@ import { settle } from './ready';
  * and honest about the two different things a source page counts.
  *
  * The demo fleet is the fixture and it is adversarial on purpose (examples/demo/
- * source_fleet.go): nine sources in three health states, of which `local` is Available
+ * source_fleet.go): fourteen sources in three health states, of which `local` is Available
  * and `edge-cluster` is Unavailable. That combination is the whole point -- it means
  * the snapshot is partial WHILE the source you are looking at is fine, which is the
  * state that used to print "Source unavailable" above a page badged Available.
  *
  * None of these can be proven off the components. The unit tests prove each piece draws
  * what it is handed; only the built browser proves the overview, the inventory and the
- * source page are describing the same nine sources, that the links between them land,
+ * source page are describing the same fourteen sources, that the links between them land,
  * and that a number computed over the complete population did not quietly become a
  * number computed over the page.
  */
 
 const flat = (s: string | null) => (s ?? '').replace(/\s+/g, ' ').trim();
 
-/** The demo fleet: 7 available, 1 partial (registry-mirror), 1 unavailable (edge-cluster). */
-const DEMO_SOURCES = 9;
+/**
+ * The demo fleet: 11 available (the service-graph trace backend, the linked
+ * workloads and the hub's two members among them), 1 partial
+ * (registry-mirror), 1 unavailable (edge-cluster), all tallied, plus three advisory
+ * partial sources: the mesh (k8s-production-mesh), Jaeger (detected-jaeger) and the
+ * OTLP receiver (otlp-receiver). The inventory lists them, and the tallies leave them
+ * out: an advisory source that is not available never counts against the fleet.
+ */
+const DEMO_SOURCES_TALLIED = 13;
+const DEMO_UNTALLIED = ['detected-jaeger', 'k8s-production-mesh', 'otlp-receiver'];
+const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
+
+/**
+ * The pills the legacy navbar's sources popover lists: the /api/sources rows that are
+ * data sources, one per source kind. The demo's four egress readers come back as rows
+ * of their own with `egress` set, so they never add a pill. The hub's two members
+ * share one target-snapshot pill.
+ */
+const NAV_PILLS = 11;
+const EGRESS_ROWS = { 'kernel-egress': 'partial', 'istio-egress': 'complete', 'cilium-fqdn': 'unavailable', 'egress-gateway': 'partial' };
 
 async function overviewSources(page: Page) {
   const band = page.locator('#sec-sources');
@@ -61,13 +79,16 @@ test.describe('the overview leads to the data sources', () => {
     // The trust figure counts the sources by state (one carrier per fact, L3), so the
     // section states no second tally; its chips name the sources and agree with the
     // inventory. Each source that needs a look keeps its own chip; more than three
-    // healthy ones fold into one "7 available" chip.
+    // healthy ones fold into one "11 available" chip. The advisory mesh, Jaeger and OTLP
+    // receiver sources are partial and not tallied, so they get no warning chip beside
+    // the figure that leaves them out; the inventory lists them.
     await expect(band.locator('.ov-tally')).toHaveCount(0);
-    await expect(page.locator('#fig-trust .src-n').last()).toHaveText(String(DEMO_SOURCES - 2));
+    await expect(page.locator('#fig-trust .src-n').last()).toHaveText(String(DEMO_SOURCES_TALLIED - 2));
 
     const chips = band.locator('a.sh-chip');
     await expect(chips).toHaveCount(3);
-    await expect(band.getByTestId('sources-healthy')).toHaveText(/7 available/);
+    for (const id of DEMO_UNTALLIED) await expect(band.locator('a.sh-chip', { hasText: id })).toHaveCount(0);
+    await expect(band.getByTestId('sources-healthy')).toHaveText(/11 available/);
     await expect(band.getByTestId('sources-healthy')).toHaveAttribute('href', /#\/fleet\/sources\?.*sourceHealth=available/);
     // Least healthy first, so the source that costs you data is the first one read.
     expect(flat(await chips.first().textContent())).toContain('Unavailable');
@@ -93,7 +114,7 @@ test.describe('overview to inventory to source and back', () => {
     await expect(page).toHaveURL(/#\/fleet\/sources$/);
     await expect(page.locator('main h1')).toContainText('Data sources');
     // The inventory's own total agrees with the sentence the overview just showed.
-    await expect(page.locator('.page-hd')).toContainText(`${DEMO_SOURCES} data sources`);
+    await expect(page.locator('.page-hd')).toContainText(`${DEMO_SOURCES_LISTED} data sources`);
 
     // 2. Inventory -> a source.
     await page.locator('.lv-item a', { hasText: 'local' }).first().click();
@@ -131,7 +152,7 @@ test.describe('overview to inventory to source and back', () => {
     const tally = page.getByTestId('source-tally');
     const links = tally.locator('.dist-item a');
     const legend = () => links.evaluateAll((as) => as.map((a) => `${a.querySelector('.dist-label')?.textContent} ${a.querySelector('.dist-value')?.textContent}`));
-    await expect.poll(legend, { timeout: 20_000 }).toEqual(['Unavailable 1', 'Partial 1', `Current ${DEMO_SOURCES - 2}`]);
+    await expect.poll(legend, { timeout: 20_000 }).toEqual(['Unavailable 1', 'Partial 1', `Current ${DEMO_SOURCES_TALLIED - 2}`]);
 
     // The bucket IS the filter. Following it must leave exactly that many rows.
     await links.first().click();
@@ -141,8 +162,21 @@ test.describe('overview to inventory to source and back', () => {
 
     // The summary is over the COMPLETE population, so a filter does not shrink it --
     // it only marks where you are.
-    await expect.poll(legend).toEqual(['Unavailable 1', 'Partial 1', `Current ${DEMO_SOURCES - 2}`]);
+    await expect.poll(legend).toEqual(['Unavailable 1', 'Partial 1', `Current ${DEMO_SOURCES_TALLIED - 2}`]);
     await expect(tally.locator('a[aria-current="true"] .dist-label')).toHaveText('Unavailable');
+
+    // Partial counts registry-mirror only, so its filter lists that one row, never the
+    // advisory sources the bucket leaves out.
+    await links.nth(1).click();
+    await expect(page).toHaveURL(/sourceHealth=partial/);
+    await expect(page.locator('.lv-item')).toHaveCount(1);
+    await expect(page.locator('.lv-item').first()).toContainText('registry-mirror');
+
+    // The header counts every listed source and the bar three fewer, so the bar names
+    // the advisory sources it leaves out.
+    const untallied = tally.getByTestId('source-untallied');
+    await expect(untallied).toContainText(`${DEMO_UNTALLIED.length} advisory sources not counted:`);
+    for (const id of DEMO_UNTALLIED) await expect(untallied.getByRole('link', { name: id })).toHaveCount(1);
   });
 });
 
@@ -152,20 +186,28 @@ test.describe('the inventory says what Pacto detected', () => {
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Thirteen reported rows (the Pacto CRD, Kubernetes workloads, the Argo CD,
-    // Flux and Helm rows that group the inferred services, the Kargo
-    // promotion row, the demo and
-    // partner registries and five reporting adapter rows, one producer's
-    // signed and unsigned reports apart), the operator's declared Installation
-    // row and the seven the cluster's operator detected: five show, the
-    // reported and declared ones first, the rest behind Show all, and no
-    // cluster is unread in the demo.
+    // Fifteen reported rows (the Pacto CRD, the kernel-egress row,
+    // Kubernetes workloads, the Argo CD, Flux and Helm rows that group the
+    // inferred services, the Kargo promotion row, the Istio row of the mesh
+    // source, the demo and partner registries and five reporting adapter
+    // rows, one producer's signed and unsigned reports apart), the operator's
+    // declared Installation row, the eleven the cluster's operator detected
+    // (Datadog and three egress readers among them) and the three trace
+    // backends their edge sources report: five show, the
+    // reported and declared ones first and least healthy first, the rest
+    // behind Show all, and no cluster is unread in the demo.
     await expect(rows).toHaveCount(5);
     for (const i of [0, 1, 2, 3, 4]) await expect(rows.nth(i)).not.toHaveClass(/dp-inferred/);
+    // Istio is partial, so it is the first row, and it says why.
+    const istio = rows.filter({ has: page.locator('.dp-name bdi[title="Istio"]') });
+    await expect(istio).toHaveCount(1);
+    await expect(istio).toContainText('observed edges');
+    await istio.getByText('Why partial').click();
+    await expect(istio.locator('.dp-why li')).toHaveText(['1 namespace without sidecars']);
     await expect(block).toContainText('Pacto CRD');
     await expect(block).toContainText('reports provisioning');
-    await block.getByRole('button', { name: 'Show all 21 providers' }).click();
-    await expect(rows).toHaveCount(21);
+    await block.getByRole('button', { name: 'Show all 30 providers' }).click();
+    await expect(rows).toHaveCount(30);
     await expect(block).toContainText('Kubernetes workloads');
     await expect(block).toContainText('service grouping, repository provenance');
     // One registry serves Referrers and _catalog; the other serves neither,
@@ -173,12 +215,54 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(block).toContainText('Registry demo.pacto.local');
     await expect(block).toContainText('Registry partners.demo.pacto.local');
     await expect(block).toContainText('no Referrers, no _catalog');
-    await expect(rows.nth(13)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(14)).toHaveClass(/dp-inferred/);
+    await expect(rows.nth(15)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(16)).toHaveClass(/dp-inferred/);
     await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
     // The block lives inside Data sources: the primary navigation gained no entry.
     const primary = page.getByRole('navigation', { name: 'Primary' }).first();
     await expect(primary.getByRole('link', { name: /provider/i })).toHaveCount(0);
+  });
+
+  test('the egress readers are provider rows and never a data source pill', async ({ page }) => {
+    await boot(page, '#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await expect(block.getByTestId('provider-row').first()).toBeVisible();
+    await block.getByRole('button', { name: /^Show all/ }).click();
+    const row = (name: string) => block.getByTestId('provider-row').filter({ has: page.locator('.dp-name').getByTitle(name, { exact: true }) });
+    // The cluster source reports what the node agent read, so its row is not inferred.
+    const kernel = row('Kernel egress');
+    await expect(kernel).toHaveCount(1);
+    await expect(kernel).not.toHaveClass(/dp-inferred/);
+    await expect(kernel.locator('.dp-evidence')).toContainText('node agent on 3/4 nodes');
+    await expect(kernel.locator('.dp-status')).toHaveText('Partial');
+    for (const name of ['Istio egress', 'Cilium FQDN', 'Egress gateway']) await expect(row(name)).toHaveClass(/dp-inferred/);
+    await expect(row('Egress gateway').locator('.dp-evidence')).toContainText('1 Istio egress gateway found; logs: auto');
+    // The external-egress token selects the reader; the cell shows the sentence alone.
+    await expect(row('Istio egress').locator('.dp-used')).toHaveText('reads calls leaving the cluster; nothing is turned on');
+    // /api/sources lists the readers apart from the data sources the nav counts.
+    const sources = await page.evaluate(async () => ((await (await fetch('/api/sources')).json()).sources as Array<{ type: string; egress?: boolean; coverage?: string }>));
+    expect(sources.filter((s) => !s.egress)).toHaveLength(NAV_PILLS);
+    expect(Object.fromEntries(sources.filter((s) => s.egress).map((s) => [s.type, s.coverage]))).toEqual(EGRESS_ROWS);
+  });
+
+  test('Connect an agent says the demo serves no MCP endpoint and opens with the keyboard', async ({ page }) => {
+    await boot(page, '#/fleet/sources');
+    const line = page.getByTestId('connect-agent');
+    await expect(line).toHaveCount(1);
+    await expect(line).not.toHaveAttribute('open', '');
+    const summary = line.locator('summary');
+    await expect(summary).toHaveText('Connect an agent');
+    await summary.focus();
+    await page.keyboard.press('Enter');
+    await expect(line).toHaveAttribute('open', '');
+    await expect(line.getByTestId('connect-agent-source')).toHaveText('This demo runs in your browser and serves no MCP endpoint. An installed Pacto serves it at /mcp.');
+    await expect(line.getByRole('link', { name: 'Connect an agent over MCP' })).toHaveAttribute('href', 'https://pacto.run/latest/mcp-integration/');
+    // It sits right after Detected providers, and the page gained no other disclosure block.
+    const after = await page.evaluate(() => {
+      const dp = document.querySelector('[data-testid="detected-providers"]'), ca = document.querySelector('[data-testid="connect-agent"]');
+      return !!(dp && ca && dp.compareDocumentPosition(ca) & Node.DOCUMENT_POSITION_FOLLOWING);
+    });
+    expect(after).toBe(true);
   });
 
   test('the Argo CD row offers the sync gate in one muted line', async ({ page }) => {

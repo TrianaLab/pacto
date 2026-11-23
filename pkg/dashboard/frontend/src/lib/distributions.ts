@@ -245,7 +245,7 @@ export function linkSegments(t: LinkTally | undefined): Segment[] {
  * severity has no wire value, so it is a bucket with no filter behind it -- the same
  * shape "Other" takes in COMPLIANCE_STATES, and for the same reason.
  */
-export const SEVERITY_STATES: BucketState<keyof SeverityTally>[] = [
+const SEVERITY_STATES: BucketState<keyof SeverityTally>[] = [
   { value: 'error', field: 'errors', label: 'Errors', tone: 'err' },
   { value: 'warning', field: 'warnings', label: 'Warnings', tone: 'warn' },
   { value: '', field: 'unknown', label: 'Unknown severity', tone: 'neutral', hatch: true },
@@ -255,11 +255,6 @@ export const SEVERITY_STATES: BucketState<keyof SeverityTally>[] = [
 /** severitySegments renders a finding-severity distribution. */
 export function severitySegments(t: SeverityTally | undefined, hrefs: Record<string, string> = {}): Segment[] {
   return stateSegments(SEVERITY_STATES, t, hrefs);
-}
-
-/** severityHrefs is statusHrefs for severity: the drill-down for every real filter. */
-export function severityHrefs(url: (severity: string) => string): Record<string, string> {
-  return Object.fromEntries(SEVERITY_STATES.filter((s) => s.value).map((s) => [s.field, url(s.value)]));
 }
 
 /**

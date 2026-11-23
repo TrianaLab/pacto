@@ -9,7 +9,7 @@ import { test, expect, type Page } from '@playwright/test';
 // Scenarios the small offline demo cannot exercise (same-named services across
 // domains, an ambiguous target, an empty fleet, multi-page pagination, the search
 // stale-request race) are covered deterministically by the Vitest component suite
-// (FleetServicesView / FleetEntityView / FleetAttentionView / EntitySearch / router).
+// (FleetServicesView / FleetEntityView / FleetMapRail / EntitySearch / router).
 
 const T = 20_000;
 
@@ -176,10 +176,9 @@ test.describe('WASM demo — product pages', () => {
   test('L8: an attention filter deep link survives reload', async ({ page }) => {
     await boot(page);
     await page.goto('/#/fleet/attention?severity=error');
-    await expect(page.getByRole('heading', { name: 'Needs attention' })).toBeVisible({ timeout: T });
-    await expect(page.getByLabel('Filter by severity')).toHaveValue('error');
+    await expect(page.getByTestId('fleet-map-rail-filtered')).toContainText('Severity Error', { timeout: T });
     await page.reload();
     await expect(page).toHaveURL(/severity=error/, { timeout: T });
-    await expect(page.getByLabel('Filter by severity')).toHaveValue('error');
+    await expect(page.getByTestId('fleet-map-rail-filtered')).toContainText('Severity Error', { timeout: T });
   });
 });

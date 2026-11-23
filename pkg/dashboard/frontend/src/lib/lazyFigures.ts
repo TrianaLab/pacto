@@ -20,3 +20,7 @@ export const loadOfferingsFigure = once(() => import('../components/figure/Offer
 // The Cluster filter shows only with two or more clusters, so the list views' first load skips it.
 // @ts-expect-error — Svelte component has no declaration file
 export const loadClusterFilter = once(() => import('../components/ClusterFilter.svelte'));
+// The fleet map's canvas engine, and the two figures over it, load with the Overview's map block.
+export const loadFleetMap = once(() => import('../components/FleetMap.svelte'));
+// @ts-expect-error — Svelte component has no declaration file
+export const loadFleetFigures = once(() => import('../components/FleetFigures.svelte'));

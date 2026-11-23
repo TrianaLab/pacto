@@ -15,10 +15,12 @@ import (
 	"sync"
 	"time"
 
+	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/capability"
 	"github.com/trianalab/pacto/v4/pkg/catalog"
@@ -69,7 +71,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"a contract's version exactly as `pacto publish` does, with this process's registry credentials.\n\n" +
 			"Over HTTP the contract tools are pacto_schema and pacto_declare: pacto_create, pacto_edit and pacto_check read and write the server's folders and follow refs with its credentials, so they run beside the agent over stdio. " +
 			"pacto_declare plans declaring a running workload; over stdio it writes a draft-<n> tag a person accepts with pacto declare --from-draft, and over HTTP " +
-			"(with --auth-issuer and token exchange) it plans with the caller's own cluster credentials, only in the registries --oci names, and writes nothing.\n\n" +
+			"(with --auth-issuer and token exchange) it plans with the caller's own cluster credentials, only in the registries --oci names; with --registry and " +
+			"--declare-registry-config it also writes an unsigned draft into --registry on behalf of the caller, when the apiserver says the caller may update the workload.\n\n" +
 			"A bundle reference, --fleet and --delivery combine in one server; --root and --publish select servers of their own. " +
 			"Call pacto_capabilities to learn what a server serves.",
 		Example: `  # Start MCP server over stdio (default)
@@ -153,6 +156,9 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
 	cmd.Flags().String("owner-policy", "", "over HTTP: the mounted owner policy (the chart's declare block as policy.json) that names who may set a service owner in pacto_declare plans; "+
 		"refused over stdio, which reads it from the signed target snapshots")
+	cmd.Flags().String("registry", "", "with --fleet or --delivery over HTTP with --auth-issuer: the registry (<host>/<path>) pacto_declare writes a caller's draft to, with --declare-registry-config")
+	cmd.Flags().String("declare-registry-config", "", "with --registry: a Docker config.json with push access to it, the only credential pacto_declare writes drafts with over HTTP; "+
+		"without the two pacto_declare only plans there")
 	cmd.Flags().Bool("publish", false, "expose pacto_publish_plan and pacto_publish beside the authoring tools")
 	cmd.Flags().String("delivery-namespace", delivery.PolicyNamespace, "in --delivery mode: "+"namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.Flags().String("delivery-trust", "", "the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots (the owner policy pacto_declare reads included) "+
@@ -257,8 +263,10 @@ func buildFleetMode(cmd *cobra.Command, svc *app.Service, d deps) (*pactomcp.Fle
 		// Under a view the new revision is never added: the rebuild would read
 		// the unrestricted sources.
 		Impact: mcpImpactProvider(cmd, svc, d, view == nil, transport == "stdio"), View: view, DashboardURL: url,
-		Reached: stdioReached(cmd, d, transport),
-		Stats:   mcpStatsProvider(cmd, svc, transport == "stdio", home),
+		Reached:            stdioReached(cmd, d, transport),
+		Stats:              mcpStatsProvider(cmd, svc, transport == "stdio", home),
+		InstallationConfig: svc.InstallationConfig(fopts.Detected),
+		Clusters:           mcpClusters(svc, d, fopts.ClusterJoins, view != nil),
 	}}, nil
 }
 
@@ -323,6 +331,10 @@ var errStatsRegistryNeedsFleet = errors.New("--stats-read-registry needs --fleet
 // errReviewNeedsFleet: only the fleet tools review a caller's namespaces.
 var errReviewNeedsFleet = errors.New("--review needs --fleet: only the fleet tools review which namespaces a caller may read")
 
+// errDetectedNeedsFleet: only the fleet mode reads the detection, so the
+// installation answer would otherwise blame a missing --detected.
+var errDetectedNeedsFleet = errors.New("--detected needs --fleet: only the fleet mode reads the detection")
+
 // checkFleetOnlyFlags refuses a flag only the fleet tools read when the
 // server has none, so it is never silently ignored, and checks --review
 // before any source is built.
@@ -337,6 +349,8 @@ func checkFleetOnlyFlags(cmd *cobra.Command, fleetMode bool) error {
 		return errDashboardURLNeedsFleet
 	case cmd.Flags().Changed("stats-read-registry"):
 		return errStatsRegistryNeedsFleet
+	case cmd.Flags().Changed("detected"):
+		return errDetectedNeedsFleet
 	}
 	return nil
 }
@@ -380,7 +394,7 @@ func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pac
 	id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
 	reads := mcpDeliveryReads(id, fm, deliveryNarrowing(flagNamespaces(cmd)))
 	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
-		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe(), Refs: c}, nil
+		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe(), InstalledAt: id.installedAt(), Refs: c}, nil
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface.
@@ -426,6 +440,8 @@ func checkTransportOnly(cmd *cobra.Command, svc *app.Service, transport string, 
 		return errPublishOverHTTP
 	case path != "" && transport == "stdio":
 		return errOwnerPolicyOverStdio
+	case transport == "stdio" && (cmd.Flags().Changed("registry") || cmd.Flags().Changed("declare-registry-config")):
+		return errDeclareWriterOverStdio
 	}
 	svc.OwnerPolicyPath = cmp.Or(path, svc.OwnerPolicyPath)
 	return nil
@@ -436,6 +452,28 @@ func checkTransportOnly(cmd *cobra.Command, svc *app.Service, transport string, 
 // the policy only from the signed target snapshots.
 var errOwnerPolicyOverStdio = errors.New("--owner-policy serves HTTP only: over stdio the owner policy is read from the signed target snapshots, " +
 	"never from a file the agent's user writes")
+
+// errDeclareWriterOverStdio refuses the HTTP draft writer's flags beside the
+// agent: over stdio pacto_declare writes with the registry and credentials
+// its caller names.
+var errDeclareWriterOverStdio = errors.New("--registry and --declare-registry-config serve HTTP only: over stdio pacto_declare writes into the registry its caller names, " +
+	"with this process's own registry credentials")
+
+// declareWriter is where and with what pacto_declare writes a caller's draft
+// over HTTP: --registry with the push credential --declare-registry-config,
+// or neither.
+func declareWriter(cmd *cobra.Command) (string, gcrauthn.Keychain, error) {
+	registry, _ := cmd.Flags().GetString("registry")
+	path, _ := cmd.Flags().GetString("declare-registry-config")
+	switch {
+	case registry == "" && path == "":
+		return "", nil, nil
+	case registry == "" || path == "":
+		return "", nil, errors.New("--registry and --declare-registry-config go together: pacto_declare writes drafts over HTTP only with both")
+	}
+	kc, err := loadDockerConfig(path)
+	return registry, kc, err
+}
 
 // mcpAuthoring is what every server's authoring tools get. pacto_create,
 // pacto_edit, pacto_check and the drafting pacto_declare serve stdio only:
@@ -667,14 +705,31 @@ func mcpFleetView(cmd *cobra.Command, svc *app.Service, d deps) (pactomcp.FleetV
 	home := newHomeCluster(cluster, d)
 	fopts := mcpFleetOptions(cmd)
 	_, _ = fmt.Fprint(cmd.ErrOrStderr(), mcpSignInLine(fopts))
-	viewer := clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces)
+	// A separate MCP server is no hub: its member clusters stay unreviewable.
+	return viewerFleetView(clusterViewer(fleetEntries(svc, d, fopts), home, d, mode, namespaces, nil)), home.UID
+}
+
+// viewerFleetView narrows each request's fleet to what v lets the caller the
+// apiserver (or the token review) named for it read; an unnamed request reads
+// nothing.
+func viewerFleetView(v *authn.Viewer) pactomcp.FleetView {
 	return func(ctx context.Context, _ *auth.TokenInfo, q *fleet.Query) (*fleet.Query, error) {
 		p, ok := personFrom(ctx)
 		if !ok {
 			return nil, errNobodyReviewed
 		}
-		return viewer.Query(ctx, p, q)
-	}, home.UID
+		return v.Query(ctx, p, q)
+	}
+}
+
+// remoteAuthoring is the contract tools of an HTTP server whose callers the
+// apiserver names: pacto_schema, and pacto_declare planning only in the
+// registries ociRefs name. Every HTTP authoring tool is set here, so both
+// remote servers (pacto mcp -t http and the dashboard's /mcp) register it.
+func remoteAuthoring(svc *app.Service, ociRefs []string, fleet *pactomcp.FleetMode, registry string, push gcrauthn.Keychain) pactomcp.Authoring {
+	rd := newRemoteDeclarer(svc, ociRefs, fleet)
+	rd.registry, rd.push = registry, push
+	return pactomcp.Authoring{Validate: svc.ValidationReport, Remote: true, Declare: rd}
 }
 
 // mcpSignInLine names the cluster an MCP server signs callers in against:

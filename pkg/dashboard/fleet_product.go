@@ -9,6 +9,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/trianalab/pacto/v4/pkg/dashboard/productview"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
@@ -54,6 +55,7 @@ func (s *Server) registerProductOperations(api huma.API) {
 		Summary: "Bounded neighborhood", Tags: []string{"Fleet"},
 		Description: "Returns the focus entity's bounded local neighborhood across the expected, observed and differences knowledge views, with graph-ready nodes and edges.",
 	}, s.fleetNeighborhood)
+	s.registerMapOperations(api)
 
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-attention", Method: http.MethodGet, Path: "/api/fleet/attention",
@@ -83,7 +85,9 @@ func (s *Server) fleetOverview(ctx context.Context, _ *struct{}) (*fleetOverview
 	if err != nil {
 		return nil, err
 	}
-	return &fleetOverviewOutput{Body: productview.ToOverview(q.Overview())}, nil
+	ov := q.Overview()
+	fleet.KeepServedTools(ov.Attention.Items, fleet.NoTools) // the dashboard serves no MCP tool
+	return &fleetOverviewOutput{Body: productview.ToOverview(ov)}, nil
 }
 
 type fleetEntitiesInput struct {
@@ -196,6 +200,7 @@ func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInp
 	if in.Reached && res.Service != nil {
 		s.attachReached(ctx, q, fleet.ServiceKey(res.Entity.Key), &res.Service.Changes)
 	}
+	res.KeepServedTools(fleet.NoTools) // the dashboard serves no MCP tool
 	return &fleetEntityDetailOutput{Body: productview.ToEntityDetail(res)}, nil
 }
 
@@ -278,6 +283,7 @@ func (s *Server) fleetAttention(ctx context.Context, in *fleetAttentionInput) (*
 	if err != nil {
 		return nil, productQueryError(err)
 	}
+	fleet.KeepServedTools(res.Items, fleet.NoTools) // the dashboard serves no MCP tool
 	return &fleetAttentionOutput{Body: productview.ToAttentionList(res)}, nil
 }
 
@@ -463,12 +469,37 @@ func (s *Server) stubProvidersForSchemaExport() {
 		return nil, errors.New("schema export only")
 	}
 	s.opts.Delivery = func(*http.Request) (DeliveryAPI, error) { return nil, errors.New("schema export only") }
-	s.opts.AcceptPlan = func(context.Context, fleet.ServiceKey, *fleet.ContractRevision) (AcceptPlanAnswer, error) {
+	s.opts.AcceptPlan = func(context.Context, fleet.ServiceKey, *fleet.ContractRevision, string) (AcceptPlanAnswer, error) {
 		return AcceptPlanAnswer{}, errors.New("schema export only")
 	}
 	s.opts.Stats = func(context.Context, []string) (stats.RecordSet, error) {
 		return stats.RecordSet{}, errors.New("schema export only")
 	}
+	s.opts.ClusterJoins = func(context.Context) (delivery.ClusterJoinList, error) {
+		return delivery.ClusterJoinList{}, errors.New("schema export only")
+	}
+	s.opts.Declare = schemaDeclarer{}
+}
+
+// schemaDeclarer registers both declare routes for the schema export.
+type schemaDeclarer struct{}
+
+func (schemaDeclarer) Plan(*http.Request, DeclareWorkload, DeclareInput) (*DeclareAnswer, error) {
+	return nil, errors.New("schema export only")
+}
+
+func (schemaDeclarer) Accept(*http.Request, DeclareWorkload, DeclareAcceptInput) (*DeclareAcceptAnswer, error) {
+	return nil, errors.New("schema export only")
+}
+
+func (schemaDeclarer) CanWrite() bool { return true }
+
+func (schemaDeclarer) AcceptOffer(*http.Request, string) AcceptExecuteOffer {
+	return AcceptExecuteOffer{}
+}
+
+func (schemaDeclarer) AcceptRanges(*http.Request, AcceptTarget, AcceptExecuteInput) (*AcceptExecuteAnswer, error) {
+	return nil, errors.New("schema export only")
 }
 
 func parseViews(s string) []fleet.KnowledgeView {

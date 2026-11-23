@@ -10,8 +10,7 @@ follows that person's Kubernetes RBAC and every action runs as them:
   (SubjectAccessReview) whether you may make the same list or get there, so a
   namespace your RBAC denies stays out of every view, and a list across every
   namespace needs your cluster-wide permission. The caches are an index: they
-  decide what you see, never what you may do, and one copy scales where a copy
-  per person does not.
+  decide what you see, never what you may do.
 - **Every other read and every action uses your token.** Propose, approve,
   cancel, roll back and unfreeze go to the API server with your own token, so
   RBAC and admission decide and the audit log names you. The reads an action
@@ -56,8 +55,6 @@ whose token a sign-in link carries (TokenReview). There is no impersonation.
    and for a moment after you change something, the dashboard reads with your
    token instead.
 
-On every page, the person button in the header opens who you are, your groups
-and **Sign out**.
 Approving a held change needs your own identity, from your identity provider
 or your own token, and a recent sign-in where delivery asks for one
 ([a recent sign-in to decide](delivery-identity.md#a-recent-sign-in-to-decide)).
@@ -79,6 +76,11 @@ A dashboard that reads several clusters reviews each person in each cluster
 with that cluster's own credentials, so a grant in one cluster shows nothing
 in another. A failed review hides that cluster and marks the answer partial;
 it never fails the request. See [Multi-cluster](../../multi-cluster.md).
+
+A hub dashboard reviews a signed-in person in each member cluster through the
+member's live channel. It forwards a token exchanged for that member, never
+the session token, or the person under an approved group mapping. See
+[Member clusters](../../member-clusters.md#identity-models).
 
 ## Configure the chart
 
@@ -107,10 +109,6 @@ dashboard:
 
 For an evaluation cluster, the chart can bundle Dex and wire it for you
 ([quickstart](quickstart.md)).
-
-The sign-in screen's button says **Sign in with OIDC**. Set `displayName` to
-the name people know the provider by and it says **Sign in with** that name
-instead.
 
 Register `https://<dashboard>/auth/callback` as the client's redirect URL and
 terminate TLS in front of the dashboard. `pacto dashboard` takes the same
@@ -264,6 +262,24 @@ With no issuer either, the dashboard then refuses to start unless you also set
 everything its ServiceAccount reads, and the install notes warn about it
 ([without sign-in](dashboard-access.md#without-sign-in)).
 
+## MCP at /mcp
+
+The managed dashboard serves MCP to agents at `/mcp` with the same sign-in
+(`dashboard.mcp.enabled`, on by default; [connect an agent](../../mcp-integration.md#connect-to-an-installed-pacto)).
+Every request carries a bearer token:
+
+| Token | Checked by | The agent may |
+|---|---|---|
+| A person's own token (OIDC ID, EKS, GKE) | SelfSubjectReview; an accepted token never enters a TokenReview | Read the fleet and delivery as the person |
+| A ServiceAccount token for `pacto-dashboard` only | TokenReview for `pacto-dashboard` | Read the fleet as that ServiceAccount's RBAC allows |
+| A ServiceAccount token for `pacto-dashboard` and the cluster's audience | TokenReview and SelfSubjectReview | Also propose and cancel, as that ServiceAccount |
+| A token from the dashboard's issuer naming the MCP URL, with `dashboard.mcp.exchangeAudience` | The issuer's keys, then token exchange (RFC 8693); it never reaches the API server | Act as the exchanged identity |
+
+Nobody approves over MCP. Writes use the caller's own token, so admission
+records the ServiceAccount; nothing is impersonated. At most 8 reviews run
+at once; a verdict is kept up to 30 seconds and a refusal not at all.
+`profile: hardened` has no managed dashboard and so no `/mcp`.
+
 ## Bearer readers
 
 A server-side reader such as a Backstage backend may send
@@ -274,6 +290,46 @@ on by default, and a ServiceAccount token minted with `--audience
 pacto-dashboard`; with token sign-in off, every bearer read is refused. No
 session or cookie is created; see
 [Serve entities from the dashboard](../../backstage.md#serve-entities-from-the-dashboard) for the reader setup.
+
+## Sign declarations { #sign-declarations }
+
+People [declare an inferred service](../../dashboard-service-page.md#declare-an-inferred-service)
+from the dashboard. It publishes to the chart's `registry`.
+
+```yaml
+registry: ghcr.io/acme
+dashboard:
+  auth:
+    oidc:
+      signClientID: pacto-sign        # a second client at the same issuer
+      signClientSecretRef: {name: dashboard-sign, key: client-secret}
+      signRedirectURL: https://pacto.example.com/auth/sign/callback
+  declare:
+    registryCredentials:
+      secretName: dashboard-declare-push   # kubernetes.io/dockerconfigjson with push access
+declare:
+  signing:
+    fulcioURL: https://fulcio.example.com   # empty: public-good Sigstore
+```
+
+- **A second client.** Signing asks the person for a fresh login with
+  `signClientID`, never the sign-in client. Its audience must be one the API
+  server does not accept, so a Kubernetes bearer token can never get a signing
+  certificate and the session's ID token never reaches Fulcio. Pacto cannot
+  read the API server's audiences: check them yourself. Register
+  `https://<dashboard>/auth/sign/callback` as its redirect URL.
+- **Fulcio must trust it.** The dashboard reads Fulcio's
+  `/api/v2/configuration` every 10 minutes and offers signing only when an
+  issuer entry names the sign-in issuer with `signClientID` as its audience.
+  An unreadable configuration means nobody signs, with the reason.
+- **Its own push credential.** `dashboard.declare.registryCredentials` holds
+  the only credential the dashboard pushes with, scoped to one service's
+  bundle repository per write. `dashboard.ociSecrets` stays the read-only
+  credential every view reads with. Without it the dashboard plans and shows
+  the command.
+- **Without a signing client** a person saves an unsigned draft that someone
+  accepts later with `pacto declare --from-draft`. A token sign-in always
+  saves drafts.
 
 ## Identity providers
 

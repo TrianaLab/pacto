@@ -1,0 +1,139 @@
+# No render grants impersonate, escalate, bind or a wildcard verb (514-S4): a
+# member answers the hub's reviews with its own SubjectAccessReview and acts as
+# nobody. It generalizes the per-template check in dashboard_signin_test.yaml
+# to every RBAC template of the inventory and every install shape.
+# TestNoRenderGrantsImpersonate (internal/controller/rbac_test.go) catches a
+# rule any template adds, gated or not.
+suite: no impersonate
+templates:
+  - templates/clusterrole.yaml
+  - templates/clusterrolebinding.yaml
+  - templates/role.yaml
+  - templates/leader-election-role.yaml
+  - templates/nodeagent-namespace.yaml
+  - templates/watch-namespaces.yaml
+  - templates/secret-grants.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/recorder.yaml
+  - templates/delivery/identities.yaml
+  - templates/dashboard-signin.yaml
+  - templates/cluster-identity-role.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: the default grants no impersonate, escalate, bind or wildcard verb
+    asserts:
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: Role, matchMany: true, skipEmptyTemplates: true}
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}
+
+  - it: hub.url without the dashboard grants no impersonate, escalate, bind or wildcard verb
+    set:
+      registry: "ghcr.io/acme"
+      hub.url: "https://pacto.acme.dev"
+      dashboard.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: Role, matchMany: true, skipEmptyTemplates: true}
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}
+
+  - it: hub.url on a namespace list grants no impersonate, escalate, bind or wildcard verb
+    set:
+      registry: "ghcr.io/acme"
+      hub.url: "https://pacto.acme.dev"
+      dashboard.enabled: false
+      controller.watchNamespaces: ["payments"]
+    asserts:
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: Role, matchMany: true, skipEmptyTemplates: true}
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}
+
+  - it: hub.url with the dashboard grants no impersonate, escalate, bind or wildcard verb
+    set:
+      registry: "ghcr.io/acme"
+      hub.url: "https://pacto.acme.dev"
+    asserts:
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: Role, matchMany: true, skipEmptyTemplates: true}
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}
+
+  - it: delivery grants no impersonate, escalate, bind or wildcard verb
+    set:
+      delivery.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: Role, matchMany: true, skipEmptyTemplates: true}
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}
+
+  - it: dashboard sign-in grants no impersonate, escalate, bind or wildcard verb
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      dashboard.auth.tokenSignIn.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: Role, matchMany: true, skipEmptyTemplates: true}
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}
+
+  - it: profile hardened with hub.url grants no impersonate, escalate, bind or wildcard verb
+    set:
+      profile: "hardened"
+      registry: "ghcr.io/acme"
+      hub.url: "https://pacto.acme.dev"
+      controller.watchNamespaces: ["payments"]
+    asserts:
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: Role, matchMany: true, skipEmptyTemplates: true}
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}
+
+  - it: profile idp grants no impersonate, escalate, bind or wildcard verb
+    set:
+      profile: "idp"
+    asserts:
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: Role, matchMany: true, skipEmptyTemplates: true}
+      - notMatchRegex:
+          path: rules[*].verbs[*]
+          pattern: ^(impersonate|escalate|bind|\*)$
+        documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}

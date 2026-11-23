@@ -32,6 +32,7 @@ func TestLoginCommand_ReadPasswordSuccess(t *testing.T) {
 
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GOTELEMETRY", "off") // keep Go telemetry out of the temporary HOME
 	t.Setenv("XDG_CONFIG_HOME", "")
 
 	cmd := newLoginCommand(d)
@@ -56,6 +57,7 @@ func TestLoginCommand_ReadPasswordSuccess(t *testing.T) {
 func TestLoginCommand_KeepsOtherRegistriesWhenTheConfigCannotBeRead(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
+	t.Setenv("GOTELEMETRY", "off") // keep Go telemetry out of the temporary HOME
 	t.Setenv("XDG_CONFIG_HOME", "")
 
 	pactoDir := filepath.Join(dir, ".config", "pacto")

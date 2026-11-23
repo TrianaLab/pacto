@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"maps"
 	"slices"
@@ -20,6 +21,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/memberlink"
 )
 
 // Person is who the apiserver authenticates a caller as: the username and
@@ -104,36 +106,51 @@ func (c Claims) Person(token string) Person {
 	return Person{User: user, Groups: out}
 }
 
-// Review answers whether p may list res in namespace ("" for every namespace
-// at once).
+// Review answers whether p may list res (or res.Verb it) in namespace (""
+// for every namespace at once).
 type Review func(ctx context.Context, p Person, namespace string, res ResourceAttributes) (bool, error)
 
-// ResourceAttributes is the API group and resource a review asks about.
+// ResourceAttributes is the API group and resource a review asks about, the
+// verb asked (empty means list) and, for a question about one object, its
+// name.
 type ResourceAttributes struct {
 	Group    string
 	Resource string
+	Verb     string
+	Name     string
 }
 
+// ClusterJoinResource is the virtual resource a person must be allowed to
+// approve, named by the member's UID, for their approval of a member cluster
+// to count. No CRD serves it: only RBAC names it.
+var ClusterJoinResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "clusterjoins", Verb: "approve"}
+
 // PactoResource is the resource every fleet answer is reviewed against.
-var PactoResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "pactos"}
+var PactoResource = reviewable("Pacto")
 
 // workloadResources maps the workload kind of an inferred service to the
 // resource a person must be allowed to list to see it.
-var workloadResources = map[string]ResourceAttributes{
-	"Deployment":  {Group: "apps", Resource: "deployments"},
-	"StatefulSet": {Group: "apps", Resource: "statefulsets"},
-	"DaemonSet":   {Group: "apps", Resource: "daemonsets"},
-	"CronJob":     {Group: "batch", Resource: "cronjobs"},
-}
+var workloadResources = reviewables("Deployment", "StatefulSet", "DaemonSet", "CronJob")
 
 // gitopsResources maps the GitOps kind a repository was read from, or a
 // provider row counts, to the resource a person must be allowed to list to
 // see it.
-var gitopsResources = map[string]ResourceAttributes{
-	"Application":   {Group: "argoproj.io", Resource: "applications"},
-	"GitRepository": {Group: "source.toolkit.fluxcd.io", Resource: "gitrepositories"},
-	"Kustomization": {Group: "kustomize.toolkit.fluxcd.io", Resource: "kustomizations"},
-	"HelmRelease":   {Group: "helm.toolkit.fluxcd.io", Resource: "helmreleases"},
+var gitopsResources = reviewables("Application", "GitRepository", "Kustomization", "HelmRelease")
+
+// reviewable is the resource kind decides, from the one list a member
+// cluster may be asked about.
+func reviewable(kind string) ResourceAttributes {
+	r := memberlink.ReviewableResources[kind]
+	return ResourceAttributes{Group: r.Group, Resource: r.Resource}
+}
+
+// reviewables maps each kind to the resource it decides.
+func reviewables(kinds ...string) map[string]ResourceAttributes {
+	out := make(map[string]ResourceAttributes, len(kinds))
+	for _, k := range kinds {
+		out[k] = reviewable(k)
+	}
+	return out
 }
 
 // reviewedAs is every resource a person must be allowed to list in a
@@ -187,16 +204,20 @@ func LocalSubjectAccessReview(dyn dynamic.Interface) Review {
 	}
 }
 
-// reviewObject is a review of kind asking whether p may list res in namespace.
+// reviewObject is a review of kind asking whether p may do res's verb (list
+// when empty) on res in namespace, on the one object res names when set.
 func reviewObject(kind string, p Person, namespace string, res ResourceAttributes) *unstructured.Unstructured {
 	groups := make([]any, len(p.Groups))
 	for i, g := range p.Groups {
 		groups[i] = g
 	}
+	attrs := map[string]any{"namespace": namespace, "verb": cmp.Or(res.Verb, "list"), "group": res.Group, "resource": res.Resource}
+	if res.Name != "" {
+		attrs["name"] = res.Name
+	}
 	return &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "authorization.k8s.io/v1", "kind": kind,
-		"spec": map[string]any{"user": p.User, "groups": groups, "resourceAttributes": map[string]any{
-			"namespace": namespace, "verb": "list", "group": res.Group, "resource": res.Resource}},
+		"spec": map[string]any{"user": p.User, "groups": groups, "resourceAttributes": attrs},
 	}}
 }
 
@@ -317,7 +338,7 @@ func (w *clusterWork) sees() bool { return w.all || len(w.visible) > 0 || len(w.
 // CLUSTER_HIDDEN limitation, and the answer is partial. Query fails only when
 // ctx ends.
 func (v *Viewer) Query(ctx context.Context, p Person, q *fleet.Query) (*fleet.Query, error) {
-	who := p.User + "\x00" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\x00")
+	who := reviewer(p)
 	m := v.reviews(ctx)
 	route := v.router(ctx, m, p)
 	work, access := v.plan(m, route, q)
@@ -670,9 +691,43 @@ func (v *Viewer) askAll(ctx context.Context, w *clusterWork, p Person, who, ns s
 	return true, nil
 }
 
+// reviewer is p as an answer cache key: the user and the sorted groups.
+func reviewer(p Person) string {
+	return p.User + "\x00" + strings.Join(slices.Sorted(slices.Values(p.Groups)), "\x00")
+}
+
+// ErrClusterNotReviewable is a question about a cluster no reviewer decides
+// for the person.
+var ErrClusterNotReviewable = errors.New("this cluster cannot review you")
+
+// PactoKind names a Pacto resource to MayUpdateWorkload.
+const PactoKind = "Pacto"
+
+// MayUpdateWorkload asks the reviewer of cluster (the only one when cluster
+// is empty) whether p may update the workload kind/name in namespace (or the
+// Pacto resource name, for PactoKind): the rule delivery counts approvals
+// by. A kind Pacto does not read is never allowed; a cluster nobody reviews p in is ErrClusterNotReviewable.
+func (v *Viewer) MayUpdateWorkload(ctx context.Context, p Person, cluster, namespace, kind, name string) (bool, error) {
+	res, ok := workloadResources[kind]
+	if kind == PactoKind {
+		res, ok = PactoResource, true
+	}
+	if !ok {
+		return false, nil
+	}
+	m := v.reviews(ctx)
+	key, ok := v.router(ctx, m, p)(cluster)
+	if !ok {
+		return false, ErrClusterNotReviewable
+	}
+	res.Verb, res.Name = "update", name
+	who := reviewer(p)
+	return v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, who, namespace, res)
+}
+
 // ask is one cached review in w's cluster. Failures are not cached.
 func (v *Viewer) ask(ctx context.Context, w *clusterWork, p Person, who, ns string, res ResourceAttributes) (bool, error) {
-	key := w.key + "\x01" + who + "\x01" + res.Resource + "." + res.Group + "\x01" + ns
+	key := w.key + "\x01" + who + "\x01" + res.Resource + "." + res.Group + "\x01" + cmp.Or(res.Verb, "list") + "\x01" + res.Name + "\x01" + ns
 	now := v.now()
 	v.mu.Lock()
 	a, ok := v.answers[key]

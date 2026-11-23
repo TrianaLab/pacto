@@ -720,6 +720,40 @@ func TestFleetStatusPrintsClusters(t *testing.T) {
 	}
 }
 
+// pacto fleet status prints a member's channel and identity models after
+// its status word.
+func TestFleetStatusPrintsLinkWord(t *testing.T) {
+	live := func(models ...string) *fleet.ClusterLink {
+		l := &fleet.ClusterLink{Channel: fleet.LinkLive}
+		for _, m := range models {
+			l.Issuers = append(l.Issuers, fleet.IssuerModel{Issuer: "https://" + m, Model: m})
+		}
+		return l
+	}
+	res := &fleet.StatusResult{Meta: fleet.Meta{Clusters: []fleet.ClusterSummary{
+		{ID: "uid-eu", Name: "eu-prod", Status: fleet.SourceAvailable, Link: live(fleet.IssuerShared)},
+		{ID: "uid-us", Name: "us-prod", Status: fleet.SourceAvailable, Link: live(fleet.IssuerGroupMapping, fleet.IssuerShared, fleet.IssuerShared)},
+		{ID: "uid-ap", Name: "ap-prod", Status: fleet.SourceAvailable, NameSource: fleet.ClusterNameFromApproval},
+		{ID: "uid-ca", Name: "ca-prod", Status: fleet.SourceAvailable, Link: &fleet.ClusterLink{Channel: fleet.LinkDown}},
+		{ID: "uid-la", Name: "la-prod", Status: fleet.SourceAvailable, Link: live()},
+		{ID: "uid-ctx", Name: "ctx", Status: fleet.SourceAvailable},
+	}}}
+	cmd := &cobra.Command{}
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&bytes.Buffer{})
+	if err := printFleetStatus(cmd, res, "text"); err != nil {
+		t.Fatal(err)
+	}
+	// ap-prod was named at approval, but no link fact says its channel is
+	// down: outside the hub the channel is unknown, so no word.
+	want := "Clusters: eu-prod (uid-eu) complete live shared issuer, us-prod (uid-us) complete live group mapping and shared issuer, " +
+		"ap-prod (uid-ap) complete, ca-prod (uid-ca) complete no live channel, la-prod (uid-la) complete live, ctx (uid-ctx) complete\n"
+	if !strings.Contains(out.String(), want) {
+		t.Errorf("status lacks %q:\n%s", want, out.String())
+	}
+}
+
 // One cluster with nothing hidden prints no Clusters line; one hidden
 // cluster does.
 func TestFleetStatusOmitsClustersForOne(t *testing.T) {
@@ -801,4 +835,48 @@ func TestPrintServiceReplacedByInferredFrom(t *testing.T) {
 	out := printed(t, func(c *cobra.Command) error { return printFleetService(c, view, "text") })
 	line := "Declared by ana@acme.com from inferred k8s:billing/Deployment/invoices (revision invoices@sha256:a); Pacto read no workload for it here\n"
 	expect(t, strings.HasPrefix(out, line+"Service: invoices\n") && strings.Count(out, line) == 2, "get lacks the inferred-from lines:\n%s", out)
+}
+
+// A target the operator linked with no Pacto says how, after its revision.
+func TestFleetGetTargetPrintsLink(t *testing.T) {
+	asOf := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	since := asOf.Add(-3 * time.Minute)
+	cmd := &cobra.Command{}
+	var buf bytes.Buffer
+	cmd.SetOut(&buf)
+	tv := &fleet.TargetView{Meta: fleet.Meta{AsOf: asOf}, Target: &fleet.TargetRecord{
+		Key: "shop/k8s/Deployment/payments", Service: "payments", Compliance: "Compliant",
+		Link: &fleet.ObservedLink{Signal: fleet.LinkSignalImageDigest, Value: "sha256:ab12" + strings.Repeat("0", 60), Since: &since},
+	}}
+	if err := printFleetTarget(cmd, tv, "text"); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	want := "Revision: -\nLinked: observed: image digest sha256:ab12"
+	if !strings.Contains(out, want) || !strings.Contains(out, "since 3m ago; no Pacto\nStale:") {
+		t.Errorf("missing link line:\n%s", out)
+	}
+	buf.Reset()
+	tv.Target.Link = nil
+	_ = printFleetTarget(cmd, tv, "text")
+	if strings.Contains(buf.String(), "Linked:") {
+		t.Errorf("an unlinked target prints no link:\n%s", buf.String())
+	}
+}
+
+// A service's target rows mark the ones linked with no Pacto by their signal.
+func TestServiceTargetsMarkLinked(t *testing.T) {
+	var buf bytes.Buffer
+	printServiceTargets(&buf, []*fleet.TargetRecord{
+		{Key: "a", Compliance: "Compliant", Link: &fleet.ObservedLink{Signal: fleet.LinkSignalImageDigest}},
+		{Key: "b", Compliance: "Unknown", Link: &fleet.ObservedLink{Signal: fleet.LinkSignalAnnotation}},
+		{Key: "c", Compliance: "Compliant"},
+	})
+	want := "Targets (3):\n" +
+		"  a  compliance=Compliant stale=false (observed: image digest)\n" +
+		"  b  compliance=Unknown stale=false (observed: annotation)\n" +
+		"  c  compliance=Compliant stale=false\n"
+	if buf.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", buf.String(), want)
+	}
 }

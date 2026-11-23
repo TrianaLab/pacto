@@ -15,6 +15,9 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/internal/runtimewatch"
+	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )
 
 func TestLoaderStatus(t *testing.T) {
@@ -29,7 +32,7 @@ func TestLoaderStatus(t *testing.T) {
 	default:
 		t.Fatal("attach not signalled")
 	}
-	if l.status.Failed || l.status.AttachedAt.IsZero() {
+	if l.status.Failed || l.status.AttachedAt.IsZero() || l.status.DNSState != runtimefacts.StateRunning {
 		t.Fatalf("attached = %+v", l.status)
 	}
 	l.set(&probe{}, "", nil) // a second signal while the first is unread never blocks
@@ -39,8 +42,26 @@ func TestLoaderStatus(t *testing.T) {
 	l.current = nil
 	l.set(nil, reasonReaderFailed, errors.New("read: EBADF"))
 	st := l.Status()
-	if !st.Failed || st.Reason != reasonReaderFailed || st.Dropped != 1 || !st.AttachedAt.IsZero() {
-		t.Fatalf("after a reader failure = %+v", st)
+	if !st.Failed || st.Reason != reasonReaderFailed || st.Dropped != 1 || !st.AttachedAt.IsZero() ||
+		st.DNSState != runtimefacts.StateRunning {
+		t.Fatalf("after a reader failure = %+v (the DNS fields outlive a detach)", st)
+	}
+}
+
+// TestLoaderStatusDNSBeforeAttach: until the first attach DNS is never Running.
+func TestLoaderStatusDNSBeforeAttach(t *testing.T) {
+	if st := newLoader(0).Status(); st.DNSState != runtimefacts.StateFailed || st.DNSReason != runtimewatch.ReasonDNSNotAttached {
+		t.Fatalf("before the first attach = %+v", st)
+	}
+}
+
+// TestLoaderStatusDNSAttachFailed: a probe whose DNS step failed runs sockets
+// and reports why DNS is down.
+func TestLoaderStatusDNSAttachFailed(t *testing.T) {
+	l := newLoader(0)
+	l.set(&probe{dnsReason: reasonDNSAttachFailed, dnsErr: errors.New("no BTF for skb_consume_udp")}, "", nil)
+	if l.status.Failed || l.status.DNSState != runtimefacts.StateFailed || l.status.DNSReason != reasonDNSAttachFailed {
+		t.Fatalf("DNS attach failed = %+v", l.status)
 	}
 }
 

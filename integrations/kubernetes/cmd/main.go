@@ -10,6 +10,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"crypto/ed25519"
 	"crypto/tls"
 	"errors"
 	"flag"
@@ -34,6 +35,8 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
+	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
@@ -51,7 +54,9 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/inferredpublish"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/installkey"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/linker"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/member"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
@@ -116,6 +121,7 @@ type options struct {
 	dashboardExternalCatalog string
 	dashboardFingerprints    string
 	dashboardOwnerPolicy     string
+	dashboardDeclare         dashboard.Config // the Sigstore, TrustedRootConfigMap, Registry, DeclareRegistrySecret
 
 	enableEvidence            bool
 	evidenceTrustSecret       string
@@ -131,6 +137,7 @@ type options struct {
 	enableKernelEvidence              bool
 	kernelEvidenceNamespace           string
 	kernelEvidenceStaleness           time.Duration
+	egressGatewayLogs                 string
 	callerIgnoreNamespaces            []string
 
 	enableNodeAgent          bool
@@ -141,6 +148,9 @@ type options struct {
 	nodeAgentResources       component.Resources
 
 	registry             string
+	profile              string
+	hubURL               string
+	hubCAFile            string
 	registryPullSecret   string
 	registryPushPrefixes []string
 
@@ -152,6 +162,34 @@ type options struct {
 	policySigners      string
 
 	zap zap.Options
+}
+
+// bindDashboardDeclareFlags registers how the dashboard signs and publishes
+// declarations.
+func bindDashboardDeclareFlags(fs *flag.FlagSet, o *options) {
+	fs.StringVar(&o.dashboardAuth.SignClientID, "dashboard-sign-client-id", "",
+		"A second OpenID Connect client at the dashboard's issuer whose audience Fulcio trusts and the API server "+
+			"does not: a signed-in person logs in again with it to sign a declaration. Empty: the dashboard saves drafts.")
+	fs.StringVar(&o.dashboardAuth.SignClientSecretName, "dashboard-sign-client-secret-name", "",
+		"Secret in the operator namespace holding the sign client's secret, passed to the dashboard by secretKeyRef.")
+	fs.StringVar(&o.dashboardAuth.SignClientSecretKey, "dashboard-sign-client-secret-key", "client-secret",
+		"Key of the sign client's secret in that Secret.")
+	fs.StringVar(&o.dashboardAuth.SignRedirectURL, "dashboard-sign-redirect-url", "",
+		"The dashboard's signing callback as browsers reach it.")
+	fs.StringVar(&o.dashboardDeclare.FulcioURL, "dashboard-fulcio-url", "",
+		"Fulcio the dashboard gets a person's signing certificate from (empty: public-good Sigstore).")
+	fs.StringVar(&o.dashboardDeclare.RekorURL, "dashboard-rekor-url", "",
+		"Rekor the dashboard records signatures in (empty: public-good Sigstore).")
+	fs.StringVar(&o.dashboardDeclare.TimestampURL, "dashboard-timestamp-url", "",
+		"Timestamp authority the dashboard's signatures use (empty: public-good Sigstore).")
+	fs.StringVar(&o.dashboardDeclare.TrustedRootConfigMap, "dashboard-trusted-root-configmap", "",
+		"Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations "+
+			"it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore.")
+	fs.StringVar(&o.dashboardDeclare.Registry, "dashboard-registry", "",
+		"The registry (<host>/<path>) declarations made in the dashboard are published to; empty: no Declare.")
+	fs.StringVar(&o.dashboardDeclare.DeclareRegistrySecret, "dashboard-declare-registry-secret", "",
+		"An existing kubernetes.io/dockerconfigjson Secret in the operator namespace with push access to "+
+			"--dashboard-registry, mounted for the dashboard's Declare writer only. Empty: the dashboard plans only.")
 }
 
 // bindFlags registers every operator flag on fs.
@@ -185,7 +223,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.Func("dashboard-trace-source",
 		"Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as "+
 			"name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source "+
-			"identity. Configures offline input only; Pacto runs no OTLP receiver.",
+			"identity. Configures offline input; the dashboard also receives OTLP/HTTP JSON in the cluster.",
 		func(spec string) error {
 			src, err := dashboard.ParseObservationSource(spec)
 			if err != nil {
@@ -228,6 +266,7 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardAuth.ClientID, "dashboard-oidc-client-id", "", "The dashboard's OpenID Connect client id.")
 	fs.StringVar(&o.dashboardAuth.RedirectURL, "dashboard-oidc-redirect-url", "",
 		"The dashboard's /auth/callback as browsers reach it; TLS must terminate in front of it.")
+	bindDashboardDeclareFlags(fs, o)
 	fs.StringVar(&o.dashboardExtraScopes, "dashboard-oidc-extra-scopes", "",
 		"Comma-separated scopes beyond openid, profile and groups.")
 	fs.StringVar(&o.dashboardAuth.ClientSecretName, "dashboard-oidc-client-secret-name", "",
@@ -253,6 +292,13 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.BoolVar(&o.dashboardAuth.AllowAnonymous, "dashboard-allow-anonymous", false,
 		"Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; "+
 			"everyone who reaches it reads what its ServiceAccount reads.")
+	fs.BoolVar(&o.dashboardAuth.MCP, "dashboard-mcp", false,
+		"Serve MCP to agents at /mcp on the managed dashboard, with its sign-in.")
+	fs.StringVar(&o.dashboardAuth.MCPURL, "dashboard-mcp-url", "",
+		"The dashboard's /mcp URL as agents reach it (empty: the address the agent used).")
+	fs.StringVar(&o.dashboardAuth.MCPExchangeAudience, "dashboard-mcp-exchange-audience", "",
+		"With an issuer, the audience an agent's issuer token is exchanged for, one the API server accepts; "+
+			"needs --dashboard-mcp-url.")
 	fs.StringVar(&o.dashboardDeliveryNS, "dashboard-delivery-namespace", "",
 		"Namespace Pacto delivery runs in, whose published identity policy the dashboard reads; "+
 			"empty means pacto-delivery.")
@@ -306,6 +352,20 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.kernelEvidenceStaleness, "kernel-evidence-staleness", 0,
 		"How old a node's heartbeat (its Lease renewal, or the observation's lastPublished without a Lease) may be "+
 			"before its evidence reads stale. 0 uses three times the publish interval the node agent reports.")
+	o.egressGatewayLogs = detect.GatewayLogsAuto
+	fs.Func("egress-gateway-logs",
+		"Istio egress gateway access logs, written `=mode`: auto, on or off. on reads the access log tail of the "+
+			"pods labelled istio=egressgateway in istio-system to name the calls that left through them (the chart "+
+			"then grants pods/log get there); auto reads nothing and proposes on in the detected providers; off "+
+			"reads nothing and proposes nothing. auto by default.",
+		func(v string) error {
+			switch v {
+			case detect.GatewayLogsAuto, detect.GatewayLogsOn, detect.GatewayLogsOff:
+				o.egressGatewayLogs = v
+				return nil
+			}
+			return fmt.Errorf("want auto, on or off, got %q", v)
+		})
 	fs.Func("caller-coverage-ignore-namespace",
 		"Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller "+
 			"coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's "+
@@ -332,9 +392,18 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.DurationVar(&o.nodeAgentPublishInterval, "node-agent-publish-interval", 30*time.Second,
 		"How often each node agent publishes its node's NodeRuntimeObservation.")
 	bindResourceFlags(fs, &o.nodeAgentResources, "node-agent", "node agent")
+	fs.StringVar(&o.profile, "profile", "default",
+		"Installation profile the chart rendered (default, hardened, idp or hardened,idp); "+
+			"advertised in the detected ConfigMap, never acted on.")
 	fs.StringVar(&o.registry, "registry", "",
 		"The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it "+
 			"and pushes nowhere else; empty turns those features off.")
+	fs.StringVar(&o.hubURL, "hub-url", "",
+		"The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the elected leader dials "+
+			"the hub, proves the installation key and answers the hub's per-person reviews with this cluster's own "+
+			"SubjectAccessReview. Nothing listens for the hub; needs --registry.")
+	fs.StringVar(&o.hubCAFile, "hub-ca-file", "",
+		"File holding the PEM CAs the hub's certificate may chain to, beside the system pool.")
 	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
 		"namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes.")
 	fs.Func("registry-push-prefix",
@@ -476,6 +545,8 @@ func main() {
 		CallerIgnoreNamespaces:            o.callerIgnoreNamespaces,
 		Scoped:                            len(o.namespaces) > 0,
 		ServiceEntries:                    servesServiceEntries(mgr),
+		CiliumPolicies:                    servesCiliumPolicies(mgr),
+		GatewayLogs:                       gatewayLogs(o.egressGatewayLogs, mgr.GetConfig()),
 		Owners:                            owners,
 	}
 	if err := pactoReconciler.SetupWithManager(mgr); err != nil {
@@ -492,7 +563,7 @@ func main() {
 	}
 	// +kubebuilder:scaffold:builder
 
-	if err := addComponents(mgr, &o, operatorNamespace, publishKeychain); err != nil {
+	if err := addComponents(mgr, &o, operatorNamespace, publishKeychain, keychain, pactoReconciler); err != nil {
 		setupLog.Error(err, "Failed to set up the managed components")
 		os.Exit(1)
 	}
@@ -522,6 +593,28 @@ func main() {
 func servesServiceEntries(mgr ctrl.Manager) bool {
 	_, err := mgr.GetRESTMapper().RESTMapping(schema.GroupKind{Group: "networking.istio.io", Kind: "ServiceEntry"}, "v1")
 	return err == nil
+}
+
+// servesCiliumPolicies reports whether the cluster serves Cilium's cilium.io/v2 CiliumNetworkPolicy at
+// startup. Without it no toFQDNs rule can exist, so the externals list reads none and loses no coverage.
+// ponytail: a Cilium installed later is read after the operator restarts.
+func servesCiliumPolicies(mgr ctrl.Manager) bool {
+	_, err := mgr.GetRESTMapper().RESTMapping(schema.GroupKind{Group: "cilium.io", Kind: "CiliumNetworkPolicy"}, "v2")
+	return err == nil
+}
+
+// gatewayLogs is the Istio egress gateway log reader when a person set the mode on, nil otherwise: auto and
+// off read no log.
+func gatewayLogs(mode string, cfg *rest.Config) *observer.GatewayLogs {
+	if mode != detect.GatewayLogsOn {
+		return nil
+	}
+	c, err := corev1client.NewForConfig(cfg)
+	if err != nil {
+		setupLog.Error(err, "Failed to build the egress gateway log reader")
+		os.Exit(1)
+	}
+	return observer.NewGatewayLogs(c)
 }
 
 func newManager(o *options) (ctrl.Manager, error) {
@@ -599,8 +692,9 @@ func newManager(o *options) (ctrl.Manager, error) {
 
 // addComponents validates the dashboard, Evidence Server and node agent configurations and registers each
 // sub-component with the manager. A disabled component is still registered: its first sync is its cleanup.
-// kc is the target snapshot publisher's keychain.
-func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keychain) error {
+// kc is the target snapshot publisher's keychain, loaderKC the contract loader's; rec judges linked workloads.
+func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC authn.Keychain,
+	rec *controller.PactoReconciler) error {
 	if o.enableDashboard && dashboardImage == "" {
 		return fmt.Errorf("dashboard enabled but no dashboard image was set at build time: " +
 			"this binary was not built with the required -ldflags for dashboard support")
@@ -631,7 +725,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 	// The cluster id names the cluster in Evidence Server reports and in what
 	// detection writes; read once.
 	ident := readClusterIdentity(mgr)
-	inst, err := addTargetSnapshot(mgr, o, namespace, ident.ID, evidenceSourceURL, kc)
+	inst, err := addPublishers(mgr, o, namespace, ident, evidenceSourceURL, kc, loaderKC, rec)
 	if err != nil {
 		return err
 	}
@@ -656,13 +750,21 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc authn.Keyc
 		ExternalCatalog:       o.dashboardExternalCatalog,
 		FingerprintsConfigMap: o.dashboardFingerprints,
 		OwnerPolicyConfigMap:  o.dashboardOwnerPolicy,
+		FulcioURL:             o.dashboardDeclare.FulcioURL,
+		RekorURL:              o.dashboardDeclare.RekorURL,
+		TimestampURL:          o.dashboardDeclare.TimestampURL,
+		TrustedRootConfigMap:  o.dashboardDeclare.TrustedRootConfigMap,
+		Registry:              o.dashboardDeclare.Registry,
+		DeclareRegistrySecret: o.dashboardDeclare.DeclareRegistrySecret,
 	}
 	// Detection proposes what the cluster provides in one ConfigMap; it never
 	// changes an argument, a rule or a feature. The managed dashboard mounts it
 	// as a file.
 	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
 		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
-		inst, lastPush.Load); d != nil {
+		inst, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
+			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr)}); d != nil {
+		d.Wake = pushed
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
 		}
@@ -753,16 +855,93 @@ func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 	return nil
 }
 
-// lastPush is the target snapshot publisher's last attempt, which detection advertises.
-var lastPush atomic.Pointer[detect.PushResult]
+// addPublishers runs the linker, the target snapshot publisher and, with --hub-url, the member link (both
+// signing with the one installation key). It returns the installation block detection advertises on every
+// install; only its registry fields need --registry.
+func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string,
+	kc, loaderKC authn.Keychain, rec *controller.PactoReconciler) (*detect.Installation, error) {
+	linked, err := addLinker(mgr, o, namespace, ident.ID, kc, loaderKC, rec)
+	if err != nil {
+		return nil, err
+	}
+	profiles, err := detection.ParseProfile(o.profile)
+	if err != nil {
+		return nil, err
+	}
+	inst := &detect.Installation{Profile: profiles}
+	key, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked)
+	if err != nil {
+		return nil, err
+	}
+	return inst, addMember(mgr, o, ident, key)
+}
+
+// addMember makes this cluster a member when --hub-url is set: the elected leader dials the hub and answers
+// its reviews with this cluster's SelfSubjectReview and SubjectAccessReview. It needs --registry (the
+// installation key the hub approved) and the cluster id, and stops the operator at start without them.
+func addMember(mgr ctrl.Manager, o *options, ident kubecluster.Identity, key ed25519.PrivateKey) error {
+	if o.hubURL == "" {
+		return nil
+	}
+	if o.registry == "" {
+		return errors.New("--hub-url needs --registry: a member is a cluster that joined the hub through the registry")
+	}
+	rv := &member.Reviewer{Own: mgr.GetConfig(), Client: mgr.GetClient(), Now: time.Now,
+		NewClient: func(c *rest.Config) (client.Client, error) {
+			return client.New(c, client.Options{Scheme: mgr.GetScheme()})
+		}}
+	link, err := member.New(o.hubURL, o.hubCAFile, ident, key, rv)
+	if err != nil {
+		return err
+	}
+	setupLog.Info("This cluster is a member: dialling the hub", "hub", o.hubURL, "cluster", ident.ID)
+	return mgr.Add(link)
+}
+
+// addLinker runs the linker when the operator runs inside the chart: it links every workload no Pacto
+// targets to the published contract it runs and judges it through rec on a Pacto that is never stored.
+// It returns the linker's last result for the target snapshot, nil when it is off.
+func addLinker(mgr ctrl.Manager, o *options, namespace, clusterID string, kc, loaderKC authn.Keychain,
+	rec *controller.PactoReconciler) (func() core.LinkedTargets, error) {
+	l, err := linker.ForOperator(linker.Config{DeploymentName: os.Getenv("OPERATOR_DEPLOYMENT_NAME"), Namespace: namespace,
+		Cluster: clusterID, Registry: o.registry, Watched: o.namespaces, Keychain: kc, LoaderKeychain: loaderKC,
+		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Writer: mgr.GetClient()})
+	if err != nil || l == nil {
+		return nil, err
+	}
+	// An annotation naming a repository outside the organization index is loaded with no credentials,
+	// so writing a Deployment never borrows the operator's registry access.
+	rec.Linked = l.Siblings
+	anonymous := *rec
+	anonymous.Loader = loader.New(loader.WithKeychain(authn.NewMultiKeychain()))
+	l.Evaluate, l.EvaluateAnonymous = rec.EvaluateDetached, anonymous.EvaluateDetached
+	return l.Current, mgr.Add(l)
+}
+
+// lastPush is the target snapshot publisher's last attempt, which detection advertises; pushed wakes
+// detection after each attempt, so it is advertised at once rather than on the next detection round.
+var (
+	lastPush atomic.Pointer[detect.PushResult]
+	pushed   = make(chan struct{}, 1)
+)
+
+// recordPush stores a publish attempt and wakes detection without ever blocking the publisher.
+func recordPush(r detect.PushResult) {
+	lastPush.Store(&r)
+	select {
+	case pushed <- struct{}{}:
+	default:
+	}
+}
 
 // addTargetSnapshot runs the target snapshot publisher when --registry is set: it ensures the installation
 // key, then publishes <registry>/pacto-targets:cluster-<uid> and the inferred contracts under
-// <registry>/pacto-inferred on the elected leader. It returns the
-// installation detection advertises, nil without --registry. Any missing piece stops the operator at start
-// with its reason.
-func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evidenceURL string,
-	kc authn.Keychain) (*detect.Installation, error) {
+// <registry>/pacto-inferred on the elected leader. It fills the registry fields of inst, the installation
+// detection advertises, and leaves them empty without --registry. It returns the installation key, nil
+// without --registry. A member (--hub-url) publishes no inferred contracts: its hub does, from the merged
+// snapshot. Any missing piece stops the operator at start with its reason.
+func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string,
+	kc authn.Keychain, inst *detect.Installation, linked func() core.LinkedTargets) (ed25519.PrivateKey, error) {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
 		return nil, nil
@@ -777,32 +956,42 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace, clusterID, evide
 	if err != nil {
 		return nil, err
 	}
-	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: clusterID,
+	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: ident.ID,
+		ClusterName: ident.Name, ClusterNameSource: ident.NameSource,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
-		OnPush: func(r detect.PushResult) { lastPush.Store(&r) }, OwnerPolicy: readOwnerPolicy(o.ownerPolicy)})
+		OnPush: recordPush, OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
+		Linked: linked})
 	if err != nil {
 		return nil, err
 	}
-	// The inferred contracts of the externals the Pactos name, signed with the same key, under
-	// <registry>/pacto-inferred: the same push scope, on the elected leader.
+	if err := addInferred(mgr, o, key, kc); err != nil {
+		return nil, err
+	}
+	inst.Registry = o.registry
+	inst.Targets = oci.InstallationRepository(o.registry, oci.TargetsRepository)
+	inst.Index = oci.InstallationRepository(o.registry, oci.IndexRepository)
+	inst.Inferred = oci.InstallationRepository(o.registry, oci.InferredRepository)
+	inst.Pushes = credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes)
+	inst.SnapshotKey, inst.SnapshotKeyID = installkey.PublicKeyBase64(key), signing.Hint(key.Public())
+	setupLog.Info("Target snapshot is on", "repository", inst.Targets,
+		"snapshotKeyID", inst.SnapshotKeyID, "snapshotKey", inst.SnapshotKey)
+	return key, mgr.Add(pub)
+}
+
+// addInferred publishes the inferred contracts of the externals the Pactos name, signed with the installation
+// key, under <registry>/pacto-inferred: the same push scope, on the elected leader. A member publishes none.
+func addInferred(mgr ctrl.Manager, o *options, key ed25519.PrivateKey, kc authn.Keychain) error {
+	if o.hubURL != "" {
+		setupLog.Info("Inferred contracts are off on a member: its hub publishes them")
+		return nil
+	}
 	inferred, err := inferredpublish.ForOperator(inferredpublish.Config{Registry: o.registry, Key: key, Keychain: kc,
 		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Watched: o.namespaces, Pacto: version})
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if err := mgr.Add(inferred); err != nil {
-		return nil, err
-	}
-	inst := &detect.Installation{Registry: o.registry,
-		Targets:     oci.InstallationRepository(o.registry, oci.TargetsRepository),
-		Index:       oci.InstallationRepository(o.registry, oci.IndexRepository),
-		Inferred:    oci.InstallationRepository(o.registry, oci.InferredRepository),
-		Pushes:      credentials.InstallationPrefixes(o.registry, o.registryPushPrefixes),
-		SnapshotKey: installkey.PublicKeyBase64(key), SnapshotKeyID: signing.Hint(key.Public())}
-	setupLog.Info("Target snapshot is on", "repository", inst.Targets,
-		"snapshotKeyID", inst.SnapshotKeyID, "snapshotKey", inst.SnapshotKey)
-	return inst, mgr.Add(pub)
+	return mgr.Add(inferred)
 }
 
 // readOwnerPolicy reads the mounted owner policy once at start: the ConfigMap

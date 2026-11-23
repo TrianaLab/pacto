@@ -27,6 +27,8 @@ type ObservedConsumer struct {
 	// snapshot's as-of time, or the source gave no time.
 	Stale   bool     `json:"stale,omitempty"`
 	Sources []string `json:"sources,omitempty"`
+	// NextAction is set on an uncontracted row: declare the caller.
+	NextAction *NextAction `json:"nextAction,omitempty" doc:"The next step for an uncontracted row: declare a contract for the caller"`
 }
 
 // ObservedConsumersPreview is a bounded preview of observed consumers; Total
@@ -60,7 +62,7 @@ func (q *Query) observedConsumers(providers []*ServiceRecord, declared map[Servi
 	}
 	for _, c := range q.snap.UncontractedCallers {
 		if p := isProvider[c.ToService]; p != nil {
-			row := ObservedConsumer{Caller: c.Caller, Uncontracted: true, Provider: serviceEntityRef(p), Provenance: ProvenanceObserved, Sources: c.Sources}
+			row := ObservedConsumer{Caller: c.Caller, Uncontracted: true, Provider: serviceEntityRef(p), Provenance: ProvenanceObserved, Sources: c.Sources, NextAction: uncontractedAction(c)}
 			if e := q.snap.Services[c.Entity]; e != nil {
 				row.Consumer = new(serviceEntityRef(e))
 			}

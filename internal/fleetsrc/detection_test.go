@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 	"time"
 
@@ -196,6 +197,23 @@ func TestDetectionSourceStatusIgnoresRowCompleteness(t *testing.T) {
 	for _, p := range snap.Providers {
 		if p.Status != fleet.SourcePartial {
 			t.Errorf("row %s = %s, want partial", p.ID, p.Status)
+		}
+	}
+}
+
+// TestDetectionResultSourceMatchesCollect: a Result handed to the source
+// reports what reading the same Result does, fresh or stale.
+func TestDetectionResultSourceMatchesCollect(t *testing.T) {
+	for _, asOf := range []time.Time{detectionNow.Add(-time.Minute), detectionNow.Add(-detect.StaleAfter - time.Minute)} {
+		data := detectionJSON(t, asOf, detect.Partial)
+		read := collectDetection(t, NewDetectionFileSource("detection", writeDetection(t, data), clockAt(detectionNow)))
+		res, err := detect.Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		fixed := collectDetection(t, NewDetectionResultSource("detection", res, clockAt(detectionNow)))
+		if !reflect.DeepEqual(read, fixed) {
+			t.Fatalf("result source = %+v, want %+v", fixed, read)
 		}
 	}
 }

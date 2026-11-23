@@ -304,6 +304,17 @@ tests:
       - matchRegexRaw:
           pattern: "Pacto lists what it detects under Data sources in the dashboard"
 
+  - it: NOTES points at a local dashboard when no managed dashboard runs
+    template: templates/NOTES.txt
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments]
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "under Data sources in the dashboard"
+      - matchRegexRaw:
+          pattern: "No managed dashboard runs here. Pacto lists what it detects under Data sources\nin a local pacto dashboard --detected k8s:default/pacto-operator-detected, or run:"
+
   - it: NOTES prints the --set registry line only as a proposal (510-S6)
     template: templates/NOTES.txt
     release:
@@ -354,7 +365,7 @@ tests:
       - template: templates/deployment.yaml
         equal:
           path: spec.template.spec.containers[0].args
-          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--enable-probing=auto","--enable-metrics-observation=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-token-login","--dashboard-fingerprints-configmap=pacto-operator-fingerprints"]
+          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--enable-probing=auto","--enable-metrics-observation=auto","--egress-gateway-logs=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-token-login","--dashboard-mcp","--dashboard-fingerprints-configmap=pacto-operator-fingerprints"]
       - template: templates/clusterrole.yaml
         equal:
           path: rules

@@ -249,3 +249,24 @@ func TestCalleeRPCSystemLast(t *testing.T) {
 		t.Errorf("edges = %+v, want %+v", got, want)
 	}
 }
+
+func TestAttributableName(t *testing.T) {
+	long := make([]byte, 254)
+	for i := range long {
+		long[i] = 'a'
+	}
+	for name, want := range map[string]bool{
+		"":                         false,
+		"unknown":                  false,
+		string(long):               false,
+		string(long[:253]):         true,
+		"bad\x07name":              false,
+		"k8s:shop/Deployment/cart": false,
+		"checkout":                 true,
+		"db.orders":                true,
+	} {
+		if got := AttributableName(name); got != want {
+			t.Errorf("AttributableName(%q) = %v, want %v", name, got, want)
+		}
+	}
+}

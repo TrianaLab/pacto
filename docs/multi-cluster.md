@@ -60,7 +60,8 @@ never kept.
 
 Every cluster reviews the same person the sign-in cluster signed in. This is
 right when every cluster maps people the same way: one OIDC issuer with the
-same claim mapping. Clusters with different issuers are not supported yet.
+same claim mapping. A [member](member-clusters.md#identity-models) with
+another issuer reviews people under an approved group mapping.
 
 ServiceAccount and node identities exist in one cluster only, so Pacto reviews
 a person whose user starts with `system:serviceaccount:` or `system:node:`, or
@@ -112,6 +113,13 @@ dashboard API takes `?cluster=`. On the dashboard, the Services and Targets
 lists show a Cluster filter with a line such as
 `Showing 1 of 2 clusters (us-prod: no access)`, and Data sources shows each
 cluster's status, both only when two or more clusters are known.
+
+## Join a cluster through the registry
+
+A cluster can also join a hub as a [member](glossary.md#member) through the
+registry alone, with no kubeconfig of it, and link out to the hub so that
+each member reviews signed-in people with its own RBAC. See
+[Member clusters](member-clusters.md).
 
 ## Operation records
 
