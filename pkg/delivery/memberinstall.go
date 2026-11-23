@@ -3,6 +3,7 @@ package delivery
 import (
 	"archive/tar"
 	"bytes"
+	"cmp"
 	"compress/gzip"
 	"errors"
 	"fmt"
@@ -56,14 +57,20 @@ var ErrNoChartVersion = errors.New("no chart version: pass --chart-version, or r
 // chart reference (DefaultMemberChart when empty) at ChartVersion. Digest, a
 // pushed install's manifest digest, adds the Flux bootstrap that pins it.
 // Flux are the Flux candidates (their kubeconfig refs); Argo the Argo CD
-// candidates, whose namespace is the ApplicationSet's (argocd when none).
-// Matched are the hub's candidates as matched: every matched or same-uid Argo
-// CD one already runs Pacto and gets a warning.
+// candidates. ArgoNamespaces are where Argo CD's controllers run, the
+// ApplicationSet's namespace (else the candidates', else an assumed argocd,
+// with a warning). Matched are the hub's candidates as matched and HubUID the
+// hub's UID: a candidate of the engine that is matched, states the same UID
+// or states the hub's UID may already run Pacto and gets a warning. Warnings
+// lead the result's: what the inputs could not rule out.
 type MemberInstallOptions struct {
 	Engine, Registry, HubURL, Chart, ChartVersion, Digest string
 	InsecureRegistry                                      bool
 	Flux, Argo                                            []detect.Candidate
+	ArgoNamespaces                                        []string
 	Matched                                               []ClusterCandidate
+	HubUID                                                string
+	Warnings                                              []string
 }
 
 // InstallFile is one generated file; Content is YAML text.
@@ -100,17 +107,18 @@ func MemberInstall(opts MemberInstallOptions) (MemberInstallResult, error) {
 		return MemberInstallResult{}, err
 	}
 	var docs []installDoc
+	var warns []string
 	var err error
 	if opts.Engine == InstallArgoCD {
-		docs, err = argoInstall(opts)
+		docs, warns, err = argoInstall(opts)
 	} else {
-		docs, err = fluxInstall(opts)
+		docs, warns, err = fluxInstall(opts)
 	}
 	if err != nil {
 		return MemberInstallResult{}, err
 	}
 	docs[0].nodes[0].HeadComment = fmt.Sprintf(pushCredentialStep, opts.Registry)
-	res := MemberInstallResult{Warnings: argoWarnings(opts.Matched)}
+	res := MemberInstallResult{Warnings: append([]string{}, slices.Concat(opts.Warnings, warns, candidateWarnings(opts))...)}
 	for _, d := range docs {
 		var b bytes.Buffer
 		enc := yaml.NewEncoder(&b)
@@ -170,13 +178,13 @@ func memberValues(o MemberInstallOptions) *yaml.Node {
 
 // argoInstall is the ApplicationSet over every Argo CD cluster but the hub's
 // own and the opted-out ones, and the Helm OCI repository Secret.
-func argoInstall(o MemberInstallOptions) ([]installDoc, error) {
-	ns := "argocd"
-	if len(o.Argo) > 0 {
-		ns = o.Argo[0].Namespace
+func argoInstall(o MemberInstallOptions) ([]installDoc, []string, error) {
+	if o.Digest != "" {
+		return nil, nil, errors.New("a digest pins the Flux bootstrap; for Argo CD point an Application at the pushed reference")
 	}
+	ns, warns := argoNamespace(o)
 	if !dnsLabel(ns) {
-		return nil, fmt.Errorf("the Argo CD namespace %q is not a DNS label", ns)
+		return nil, nil, fmt.Errorf("the Argo CD namespace %q is not a DNS label", ns)
 	}
 	chartRepo, chart := splitChart(o.Chart)
 	data := ymap("name", "pacto-charts", "url", chartRepo, "type", "helm", "enableOCI", "true")
@@ -202,7 +210,28 @@ func argoInstall(o MemberInstallOptions) ([]installDoc, error) {
 	secret := ymap("apiVersion", "v1", "kind", "Secret",
 		"metadata", ymap("name", "pacto-charts", "namespace", ns, "labels", ymap("argocd.argoproj.io/secret-type", "repository")),
 		"stringData", data)
-	return []installDoc{{"pacto-members-applicationset.yaml", []*yaml.Node{appSet}}, {"pacto-charts-repository.yaml", []*yaml.Node{secret}}}, nil
+	return []installDoc{{"pacto-members-applicationset.yaml", []*yaml.Node{appSet}}, {"pacto-charts-repository.yaml", []*yaml.Node{secret}}}, warns, nil
+}
+
+// argoNamespace is the namespace the ApplicationSet goes in: Argo CD's
+// control plane, else its candidates', else an assumed argocd. Several, or
+// the assumption, give a warning.
+func argoNamespace(o MemberInstallOptions) (string, []string) {
+	nss := slices.Clone(o.ArgoNamespaces)
+	if len(nss) == 0 {
+		for _, c := range o.Argo {
+			nss = append(nss, c.Namespace)
+		}
+	}
+	slices.Sort(nss)
+	switch nss = slices.Compact(nss); len(nss) {
+	case 0:
+		return "argocd", []string{"no Argo CD namespace was detected, so the ApplicationSet and its repository Secret assume namespace argocd: change it where Argo CD runs elsewhere"}
+	case 1:
+		return nss[0], nil
+	}
+	return nss[0], []string{fmt.Sprintf("Argo CD runs in %d namespaces (%s): the ApplicationSet in %s reaches only the clusters of the Argo CD there; apply a copy in each other namespace",
+		len(nss), strings.Join(nss, ", "), nss[0])}
 }
 
 // splitChart is an oci:// chart reference as an Argo CD repository URL (no
@@ -212,26 +241,48 @@ func splitChart(ref string) (string, string) {
 	return strings.TrimPrefix(ref[:i], "oci://"), ref[i+1:]
 }
 
-// argoWarnings name every Argo CD candidate that already runs Pacto, which
-// the ApplicationSet would give a second release, and how to keep it out.
-func argoWarnings(cands []ClusterCandidate) []string {
-	out := []string{}
-	for _, c := range cands {
-		if c.Source != detect.SourceArgoCD || c.Match == CandidateUnmatched {
+// candidateWarnings name every candidate of the engine that may already run
+// Pacto, which the install would give a second release, and how to keep it
+// out: matched to an approved member, stating the UID a pending or removed
+// cluster reported, or stating the hub's own UID.
+func candidateWarnings(o MemberInstallOptions) []string {
+	src, object := detect.SourceArgoCD, "Argo CD cluster Secret"
+	if o.Engine == InstallFlux {
+		src, object = detect.SourceFlux, "Flux kubeconfig"
+	}
+	var out []string
+	for _, c := range o.Matched {
+		if c.Source != src {
 			continue
 		}
-		out = append(out, fmt.Sprintf("Argo CD cluster Secret %s/%s states the UID of a member that runs Pacto; keep it out of the ApplicationSet: kubectl -n %s label secret %s %s=false",
-			c.Namespace, c.Name, c.Namespace, c.Name, installOptOut))
+		var why string
+		switch {
+		case c.Match == CandidateMatched && c.Member != nil:
+			why = "is the approved member " + cmp.Or(c.Member.Name, shortClusterUID(c.Member.UID)) + ", which runs Pacto; keep it out"
+		case c.Match == CandidateMatched:
+			why = "is an approved member, which runs Pacto; keep it out"
+		case c.Match == CandidateSameUID:
+			why = "states the UID a pending or removed cluster reported about itself; if that cluster still runs Pacto, keep it out"
+		case c.UID != "" && c.UID == o.HubUID:
+			why = "states the hub's own UID; keep it out"
+		default:
+			continue
+		}
+		how := fmt.Sprintf("of the ApplicationSet: kubectl -n %s label secret %s %s=false", c.Namespace, c.Name, installOptOut)
+		if o.Engine == InstallFlux {
+			how = fmt.Sprintf("by leaving out %s/pacto-%s.yaml", c.Namespace, c.Name)
+		}
+		out = append(out, fmt.Sprintf("%s %s/%s %s %s", object, c.Namespace, c.Name, why, how))
 	}
 	return out
 }
 
 // fluxInstall is, per kubeconfig namespace, one chart OCIRepository and one
 // HelmRelease per ref, plus the digest-pinned bootstrap when a digest is known.
-func fluxInstall(o MemberInstallOptions) ([]installDoc, error) {
-	refs, err := fluxRefs(o.Flux)
+func fluxInstall(o MemberInstallOptions) ([]installDoc, []string, error) {
+	refs, warns, err := fluxRefs(o.Flux)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	var docs []installDoc
 	for i, ref := range refs {
@@ -263,40 +314,69 @@ func fluxInstall(o MemberInstallOptions) ([]installDoc, error) {
 	if o.Digest != "" {
 		docs = append(docs, fluxBootstrap(o))
 	}
-	return docs, nil
+	return docs, warns, nil
 }
 
-// fluxRefs are the distinct kubeconfig refs of cands, sorted, each validated:
-// none is an error, as is a name that is not a DNS name or a key that is not
-// a data key.
-func fluxRefs(cands []detect.Candidate) ([]detect.KubeConfigRef, error) {
+// fluxRefs are the distinct kubeconfig refs of cands, sorted, each validated,
+// leaving out the Secrets labelled pacto.trianalab.io/install=false: none is
+// an error, as is a name that is not a DNS name or a key that is not a data
+// key. A name given twice (as a Secret and a ConfigMap, or with two keys)
+// keeps its first ref and warns.
+func fluxRefs(cands []detect.Candidate) ([]detect.KubeConfigRef, []string, error) {
 	var refs []detect.KubeConfigRef
+	optedOut := 0
 	for _, c := range cands {
 		if c.KubeConfig == nil {
 			continue
 		}
 		r := *c.KubeConfig
-		if (r.Kind != "Secret" && r.Kind != "ConfigMap") || !dnsLabel(r.Namespace) || !subdomainPattern.MatchString(r.Name) || len(r.Name) > 63-len("pacto-") {
-			return nil, fmt.Errorf("the Flux kubeconfig %s %q in namespace %q: a Secret or ConfigMap with a DNS name of at most 57 characters", r.Kind, r.Name, r.Namespace)
+		if err := checkKubeConfigRef(r); err != nil {
+			return nil, nil, err
 		}
-		if r.Key != "" && !dataKey.MatchString(r.Key) {
-			return nil, fmt.Errorf("the Flux kubeconfig %s/%s names key %q, which is not a data key", r.Namespace, r.Name, r.Key)
+		if c.Labels[installOptOut] == "false" {
+			optedOut++
+			continue
 		}
 		refs = append(refs, r)
 	}
-	if len(refs) == 0 {
-		return nil, errors.New("no Flux kubeconfig ref was detected on the hub: Flux installs a member through a Kustomization or HelmRelease that sets spec.kubeConfig")
+	switch {
+	case len(refs) == 0 && optedOut > 0:
+		return nil, nil, fmt.Errorf("every Flux kubeconfig the hub names is labelled %s=false", installOptOut)
+	case len(refs) == 0:
+		return nil, nil, errors.New("no Flux kubeconfig ref was detected on the hub: Flux installs a member through a Kustomization or HelmRelease that sets spec.kubeConfig")
 	}
 	slices.SortFunc(refs, func(a, b detect.KubeConfigRef) int {
 		return strings.Compare(a.Namespace+"/"+a.Name+"/"+a.Kind+"/"+a.Key, b.Namespace+"/"+b.Name+"/"+b.Kind+"/"+b.Key)
 	})
-	refs = slices.Compact(refs)
-	for i := 1; i < len(refs); i++ {
-		if refs[i].Namespace == refs[i-1].Namespace && refs[i].Name == refs[i-1].Name {
-			return nil, fmt.Errorf("the Flux kubeconfig %s/%s is named twice, as a Secret and a ConfigMap or with two keys; one HelmRelease per name is generated", refs[i].Namespace, refs[i].Name)
+	var out []detect.KubeConfigRef
+	var warns []string
+	for _, r := range slices.Compact(refs) {
+		// Sorted, so a name given twice sits next to its first ref.
+		if n := len(out); n > 0 && out[n-1].Namespace == r.Namespace && out[n-1].Name == r.Name {
+			warns = append(warns, fmt.Sprintf("the Flux kubeconfig %s/%s is named twice (%s, %s); its HelmRelease uses the first: check it reaches the cluster each Flux object does",
+				r.Namespace, r.Name, kubeConfigOf(out[n-1]), kubeConfigOf(r)))
+			continue
 		}
+		out = append(out, r)
 	}
-	return refs, nil
+	return out, warns, nil
+}
+
+// checkKubeConfigRef refuses a ref that is not a Secret or ConfigMap with a
+// DNS name, or names a key that is not a data key.
+func checkKubeConfigRef(r detect.KubeConfigRef) error {
+	if (r.Kind != "Secret" && r.Kind != "ConfigMap") || !dnsLabel(r.Namespace) || !subdomainPattern.MatchString(r.Name) || len(r.Name) > 63-len("pacto-") {
+		return fmt.Errorf("the Flux kubeconfig %s %q in namespace %q: a Secret or ConfigMap with a DNS name of at most 57 characters", r.Kind, r.Name, r.Namespace)
+	}
+	if r.Key != "" && !dataKey.MatchString(r.Key) {
+		return fmt.Errorf("the Flux kubeconfig %s/%s names key %q, which is not a data key", r.Namespace, r.Name, r.Key)
+	}
+	return nil
+}
+
+// kubeConfigOf words r's kind and key.
+func kubeConfigOf(r detect.KubeConfigRef) string {
+	return r.Kind + " key " + cmp.Or(r.Key, "(default)")
 }
 
 // fluxBootstrap is the OCIRepository that pins the pushed install by digest

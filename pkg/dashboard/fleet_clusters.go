@@ -70,6 +70,8 @@ func (s *Server) getClusterInstall(ctx context.Context, in *clusterInstallInput)
 	}
 	b, err := s.opts.ClusterInstall(ctx, in.From)
 	switch {
+	case errors.As(err, new(HubReadError)):
+		return nil, huma.Error502BadGateway("the hub could not be read for the member install: " + err.Error())
 	case errors.Is(err, delivery.ErrNoChartVersion):
 		return nil, huma.Error422UnprocessableEntity("the hub's operator advertises no chart version: run pacto cluster install --from " + in.From + " --chart-version <version>")
 	case err != nil:
@@ -78,6 +80,13 @@ func (s *Server) getClusterInstall(ctx context.Context, in *clusterInstallInput)
 	return &clusterInstallOutput{ContentType: "application/yaml",
 		ContentDisposition: `attachment; filename="pacto-members-` + in.From + `.yaml"`, Body: b}, nil
 }
+
+// HubReadError is a ClusterInstall failure to read the hub (its API server,
+// detection or candidates), which the request could not have avoided.
+type HubReadError struct{ Err error }
+
+func (e HubReadError) Error() string { return e.Err.Error() }
+func (e HubReadError) Unwrap() error { return e.Err }
 
 type clustersOutput struct {
 	Body delivery.ClusterJoinList

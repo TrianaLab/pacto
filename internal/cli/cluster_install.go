@@ -13,9 +13,11 @@ import (
 	"k8s.io/client-go/rest"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/detect"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // memberInstall is what pacto cluster install produced: the files, what to
@@ -53,8 +55,8 @@ func newClusterInstallCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.C
 	cmd.Flags().String("chart", delivery.DefaultMemberChart, "the chart reference, for a mirror")
 	cmd.Flags().String("chart-version", "", "the chart version to install (default the version the hub's operator advertises)")
 	cmd.Flags().Bool("push", false, "push the files to <registry>/pacto-targets with your registry credentials and pin the bootstrap to their digest")
-	cmd.Flags().String("digest", "", "pin the Flux bootstrap to an install pushed earlier, sha256:<64 hex>")
-	cmd.Flags().Bool("insecure-registry", false, "reach the registry over plain HTTP, for a local registry only")
+	cmd.Flags().String("digest", "", "pin the Flux bootstrap to an install pushed earlier, sha256:<64 hex> (--from flux only)")
+	cmd.Flags().Bool("insecure-registry", false, "members, and --push, reach the registry over plain HTTP, for a local registry only (the member list read follows PACTO_INSECURE_REGISTRIES)")
 	_ = cmd.MarkFlagRequired("from")
 	cmd.MarkFlagsMutuallyExclusive("push", "digest")
 	addClusterHubFlags(cmd)
@@ -74,8 +76,8 @@ func clusterInstall(cmd *cobra.Command, svc *app.Service, d deps) (memberInstall
 	}
 	o := delivery.MemberInstallOptions{Engine: flag("from"), HubURL: flag("hub-url"), Chart: flag("chart"), ChartVersion: flag("chart-version"),
 		Digest: flag("digest"), InsecureRegistry: insecure}
-	matched := func(ctx context.Context) []delivery.ClusterCandidate {
-		return visibleJoins(svc.ClusterJoins(ctx, opts), true, nil).Candidates
+	matched := func(ctx context.Context) delivery.ClusterJoinList {
+		return visibleJoins(svc.ClusterJoins(ctx, opts), true, nil)
 	}
 	if err := installInputs(ctx, dyn, opts, flag("detected"), &o, matched); err != nil {
 		return memberInstall{}, err
@@ -84,7 +86,12 @@ func clusterInstall(cmd *cobra.Command, svc *app.Service, d deps) (memberInstall
 	if err != nil || !push {
 		return memberInstall{Engine: o.Engine, Files: res.Files, Warnings: res.Warnings}, err
 	}
-	repo, err := d.newRecordRepo(opts.Repository)
+	var hosts []string
+	if insecure {
+		host, _, _ := strings.Cut(o.Registry, "/")
+		hosts = append(hosts, host)
+	}
+	repo, err := d.newRecordRepo(opts.Repository, hosts...)
 	if err != nil {
 		return memberInstall{}, err
 	}
@@ -101,29 +108,88 @@ func clusterInstall(cmd *cobra.Command, svc *app.Service, d deps) (memberInstall
 	return out, nil
 }
 
+// notRuledOut leads every warning that says why clusters already running
+// Pacto may get no warning of their own.
+const notRuledOut = "clusters that already run Pacto could not all be ruled out: "
+
 // installInputs fills o from the hub dyn reaches through opts: the
 // registry its members publish to, the chart version its detection at
-// detected advertises when o names none, and its candidates, with matched
-// (the hub's list of them) for the warnings.
+// detected advertises when o names none, and its candidates, with joins
+// (the hub's list of them) for the warnings. Candidates that were not read,
+// are stale or short of complete warn; Flux, whose files are built from its
+// refs, refuses refs it could not read rather than calling them absent. A
+// failed read of the hub is a dashboard.HubReadError.
 func installInputs(ctx context.Context, dyn dynamic.Interface, opts app.JoinOptions, detected string, o *delivery.MemberInstallOptions,
-	matched func(context.Context) []delivery.ClusterCandidate) error {
-	o.Registry = strings.TrimSuffix(opts.Repository, "/"+delivery.TargetSnapshotRepository)
+	joins func(context.Context) delivery.ClusterJoinList) error {
+	o.Registry, o.HubUID = strings.TrimSuffix(opts.Repository, "/"+delivery.TargetSnapshotRepository), opts.Hub
 	var err error
 	if o.ChartVersion == "" && detected != "" {
 		if o.ChartVersion, err = app.AdvertisedChartVersion(ctx, dyn, detected, time.Now); err != nil {
-			return err
+			return dashboard.HubReadError{Err: err}
 		}
 	}
+	flux := o.Engine == delivery.InstallFlux
 	if opts.Candidates == nil {
+		if flux {
+			return errors.New("the Flux kubeconfig refs come from the hub's detection: pass --detected")
+		}
+		o.Warnings = append(o.Warnings, notRuledOut+"the hub's candidate clusters were not read (pass --detected)")
 		return nil
 	}
 	c, err := opts.Candidates(ctx)
 	if err != nil {
-		return fmt.Errorf("the candidate clusters were not read: %w", err)
+		return dashboard.HubReadError{Err: fmt.Errorf("the candidate clusters were not read: %w", err)}
+	}
+	if c.AsOf.IsZero() {
+		const off = "the hub's operator runs no cluster inventory: set clusterInventory.enabled on it"
+		if flux {
+			return errors.New(off)
+		}
+		o.Warnings = append(o.Warnings, notRuledOut+off)
+		return nil
 	}
 	o.Flux, o.Argo = c.From(detect.SourceFlux), c.From(detect.SourceArgoCD)
-	o.Matched = matched(ctx)
+	if s, ok := c.Source(detect.SourceArgoCD); ok {
+		o.ArgoNamespaces = s.ControlPlane
+	}
+	if flux {
+		if err := fluxUnread(c); err != nil {
+			return err
+		}
+	}
+	l := joins(ctx)
+	o.Matched = l.Candidates
+	o.Warnings = append(o.Warnings, joinWarnings(l)...)
 	return nil
+}
+
+// fluxUnread says why c's Flux refs cannot stand for every ref the hub has:
+// an unknown source, or none listed from a source short of complete or a
+// stale read. nil when they can.
+func fluxUnread(c detect.Clusters) error {
+	refs := len(c.From(detect.SourceFlux))
+	if s, ok := c.Source(detect.SourceFlux); ok && (s.Completeness == detect.Unknown || refs == 0 && s.Completeness != detect.Complete) {
+		return fmt.Errorf("the hub's Flux kubeconfig refs were not read: %s", s.Reason)
+	}
+	if refs == 0 && time.Since(c.AsOf) > detect.StaleAfter {
+		return fmt.Errorf("the hub's Flux kubeconfig refs were read at %s, over %s ago: check the operator's detection", c.AsOf.UTC().Format(time.RFC3339), detect.StaleAfter)
+	}
+	return nil
+}
+
+// joinWarnings say what of l's members and candidates was not read, so a
+// cluster that already runs Pacto may get no warning of its own.
+func joinWarnings(l delivery.ClusterJoinList) []string {
+	var out []string
+	if l.Completeness == fleet.CompletenessPartial {
+		out = append(out, notRuledOut+"the member list is partial, so a candidate may state the UID of a member not read")
+	}
+	for _, lim := range l.Limitations {
+		if lim.Source == delivery.CandidatesID {
+			out = append(out, notRuledOut+lim.Message)
+		}
+	}
+	return out
 }
 
 // dashboardInstall hands out, for the engine from, the member install of
@@ -139,18 +205,17 @@ func dashboardInstall(d deps, cluster *rest.Config, detected string, joins *app.
 	return func(ctx context.Context, from string) ([]byte, error) {
 		dyn, err := d.dynamicFor(cluster)
 		if err != nil {
-			return nil, err
+			return nil, dashboard.HubReadError{Err: err}
 		}
 		opts, err := joinsOn(ctx, dyn, "", detected, "")
 		if err != nil {
-			return nil, err
+			return nil, dashboard.HubReadError{Err: err}
 		}
 		if opts.Repository == "" {
 			return nil, errors.New("the hub's operator advertises no registry: set registry on it")
 		}
 		o := delivery.MemberInstallOptions{Engine: from}
-		matched := func(ctx context.Context) []delivery.ClusterCandidate { return list(ctx).Candidates }
-		if err := installInputs(ctx, dyn, opts, detected, &o, matched); err != nil {
+		if err := installInputs(ctx, dyn, opts, detected, &o, list); err != nil {
 			return nil, err
 		}
 		res, err := delivery.MemberInstall(o)

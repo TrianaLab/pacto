@@ -1074,6 +1074,30 @@ func TestClusterJoinsMatchesCandidates(t *testing.T) {
 	}
 }
 
+// TestUnresolvedJoinsKeepCandidates: a hub that sets no registry still
+// shows the candidates its operator wrote, and one whose options could not be
+// resolved says the candidates were not read rather than showing none.
+func TestUnresolvedJoinsKeepCandidates(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	var err error
+	o := JoinOptions{Resolve: func(context.Context) (JoinOptions, error) {
+		r := e.opts()
+		r.Repository, r.Candidates = "", func(context.Context) (detect.Clusters, error) {
+			return detect.Clusters{AsOf: e.clock, Candidates: []detect.Candidate{{Source: detect.SourceArgoCD, Kind: "Secret", Namespace: "argocd", Name: "eu"}}}, nil
+		}
+		return r, err
+	}}
+	if l := e.svc.ClusterJoins(t.Context(), o); len(l.Candidates) != 1 || l.CandidatesCompleteness != fleet.CompletenessComplete || len(l.Clusters) != 0 {
+		t.Fatalf("no registry: %+v", l)
+	}
+	err = errors.New("unavailable")
+	l := e.svc.ClusterJoins(t.Context(), o)
+	if l.Candidates != nil || l.CandidatesCompleteness != fleet.CompletenessPartial ||
+		!slices.ContainsFunc(l.Limitations, func(lim fleet.Limitation) bool { return lim.Source == delivery.CandidatesID }) {
+		t.Fatalf("unresolved: %+v", l)
+	}
+}
+
 // TestFleetReadsNoCandidates: the fleet's join read never reads candidates,
 // however its options resolve, so none reaches a source or a gate.
 func TestFleetReadsNoCandidates(t *testing.T) {

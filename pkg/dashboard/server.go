@@ -140,7 +140,8 @@ type Options struct {
 	// ClusterInstall generates the member install for the engine from
 	// (argocd or flux) as YAML, never with a hub URL; it is served only
 	// with ClusterJoins and only to a reader that list lets approve
-	// clusterjoins. delivery.ErrNoChartVersion is a 422 naming the CLI flag.
+	// clusterjoins. delivery.ErrNoChartVersion is a 422 naming the CLI flag,
+	// a HubReadError a 502 and any other error a 422.
 	ClusterInstall func(ctx context.Context, from string) ([]byte, error)
 	// OperationAccess reviews a signed-in viewer's access to list operations
 	// in the Stage namespaces the operation records name and says which they

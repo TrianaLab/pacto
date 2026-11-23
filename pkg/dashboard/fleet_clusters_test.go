@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -159,6 +160,17 @@ func TestInstallRouteNeedsChartVersion(t *testing.T) {
 	}
 	code, body = fetch(t, installServer(t, memberList(), nil, &asked, errors.New("no Flux kubeconfig ref was detected")), "/api/fleet/clusters/install?from=flux")
 	if code != http.StatusUnprocessableEntity || !strings.Contains(body, "could not be generated: no Flux kubeconfig ref") {
+		t.Errorf("status %d: %s", code, body)
+	}
+}
+
+// TestInstallRouteHubReadIs502: a failure to read the hub is the upstream's,
+// not the request's, so it answers 502 rather than 422.
+func TestInstallRouteHubReadIs502(t *testing.T) {
+	var asked string
+	err := HubReadError{Err: errors.New("the candidate clusters were not read: Forbidden")}
+	code, body := fetch(t, installServer(t, memberList(), nil, &asked, fmt.Errorf("wrapped: %w", err)), "/api/fleet/clusters/install?from=flux")
+	if code != http.StatusBadGateway || !strings.Contains(body, "the hub could not be read for the member install") || !strings.Contains(body, "Forbidden") {
 		t.Errorf("status %d: %s", code, body)
 	}
 }

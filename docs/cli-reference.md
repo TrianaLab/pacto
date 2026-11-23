@@ -466,11 +466,11 @@ pacto cluster install [flags]
       --context stringArray              kubeconfig context of the hub cluster (default the current context)
       --delivery-namespace string        namespace of the hub's delivery identities ConfigMap, which lists the approver signers (default "pacto-delivery")
       --detected string                  what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
-      --digest string                    pin the Flux bootstrap to an install pushed earlier, sha256:<64 hex>
+      --digest string                    pin the Flux bootstrap to an install pushed earlier, sha256:<64 hex> (--from flux only)
       --from string                      the engine that applies the install: argocd or flux (required)
   -h, --help[=true|false]                help for install
       --hub-url string                   the hub's https:// or wss:// URL, set as hub.url on every member
-      --insecure-registry[=true|false]   reach the registry over plain HTTP, for a local registry only
+      --insecure-registry[=true|false]   members, and --push, reach the registry over plain HTTP, for a local registry only (the member list read follows PACTO_INSECURE_REGISTRIES)
       --push[=true|false]                push the files to <registry>/pacto-targets with your registry credentials and pin the bootstrap to their digest
       --registry string                  the registry the members publish to, or its pacto-targets repository; this or --detected is required
 ```

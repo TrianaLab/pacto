@@ -143,7 +143,7 @@ func demoClusterInstall(_ context.Context, from string) ([]byte, error) {
 	l, c := demoClusterJoins(), demoCandidates()
 	res, err := delivery.MemberInstall(delivery.MemberInstallOptions{Engine: from,
 		Registry: strings.TrimSuffix(demoTargetsRepository, "/"+delivery.TargetSnapshotRepository), ChartVersion: demoChartVersion,
-		Argo: c.From(detect.SourceArgoCD), Flux: c.From(detect.SourceFlux), Matched: l.Candidates})
+		Argo: c.From(detect.SourceArgoCD), Flux: c.From(detect.SourceFlux), Matched: l.Candidates, HubUID: l.Hub.UID})
 	if err != nil {
 		return nil, err
 	}

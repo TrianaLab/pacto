@@ -116,7 +116,10 @@ func TestMemberInstallValuesAreRegistryAndHubURL(t *testing.T) {
 func TestMemberInstallInsecureRegistryAddsOnlyThat(t *testing.T) {
 	for _, engine := range []string{InstallArgoCD, InstallFlux} {
 		o := installOpts(engine)
-		o.Registry, o.InsecureRegistry, o.Digest = "zot.local:5000/acme", true, testDigest
+		o.Registry, o.InsecureRegistry = "zot.local:5000/acme", true
+		if engine == InstallFlux {
+			o.Digest = testDigest
+		}
 		res := mustInstall(t, o)
 		for _, v := range values(t, res) {
 			if !reflect.DeepEqual(v, map[string]any{"registry": "zot.local:5000/acme", "insecureRegistries": []any{"zot.local:5000"}}) {
@@ -157,20 +160,94 @@ func TestArgoPostSelectorExcludesInClusterSecret(t *testing.T) {
 }
 
 func TestArgoWarnsOnMatchedCandidates(t *testing.T) {
-	o := installOpts(InstallArgoCD)
-	o.Matched = []ClusterCandidate{
-		{Source: detect.SourceArgoCD, Namespace: "argocd", Name: "eu-prod", Match: CandidateMatched},
+	const hub = "0a0a0a0a-0000-4000-8000-000000000000"
+	matched := []ClusterCandidate{
+		{Source: detect.SourceArgoCD, Namespace: "argocd", Name: "eu-prod", Match: CandidateMatched, Member: &ClusterRef{Name: "eu-prod"}},
 		{Source: detect.SourceArgoCD, Namespace: "argocd", Name: "ap-test", Match: CandidateSameUID},
+		{Source: detect.SourceArgoCD, Namespace: "argocd", Name: "hub", UID: hub, Match: CandidateUnmatched},
 		{Source: detect.SourceArgoCD, Namespace: "argocd", Name: "us-dev", Match: CandidateUnmatched},
 		{Source: detect.SourceCAPI, Namespace: "fleet", Name: "eu-prod", Match: CandidateMatched},
+		{Source: detect.SourceFlux, Kind: "Secret", Namespace: "flux-system", Name: "eu-prod", Match: CandidateMatched, Member: &ClusterRef{Name: "eu-prod"}},
 	}
+	o := installOpts(InstallArgoCD)
+	o.ArgoNamespaces, o.Matched, o.HubUID = []string{"argocd"}, matched, hub
 	w := mustInstall(t, o).Warnings
-	if len(w) != 2 || !strings.Contains(w[0], "argocd/eu-prod") || !strings.Contains(w[0], "kubectl -n argocd label secret eu-prod pacto.trianalab.io/install=false") ||
-		!strings.Contains(w[1], "argocd/ap-test") {
+	if len(w) != 3 || !strings.Contains(w[0], "Argo CD cluster Secret argocd/eu-prod is the approved member eu-prod, which runs Pacto") ||
+		!strings.Contains(w[0], "kubectl -n argocd label secret eu-prod pacto.trianalab.io/install=false") ||
+		!strings.Contains(w[1], "argocd/ap-test states the UID a pending or removed cluster reported about itself; if that cluster still runs Pacto") ||
+		!strings.Contains(w[2], "argocd/hub states the hub's own UID") {
 		t.Fatalf("warnings %q", w)
 	}
-	if w := mustInstall(t, installOpts(InstallArgoCD)).Warnings; w == nil || len(w) != 0 {
+	// Flux warns about its own candidates only, naming the file to leave out.
+	f := installOpts(InstallFlux)
+	f.Matched, f.HubUID = matched, hub
+	w = mustInstall(t, f).Warnings
+	if len(w) != 1 || !strings.Contains(w[0], "Flux kubeconfig flux-system/eu-prod is the approved member eu-prod") ||
+		!strings.Contains(w[0], "leaving out flux-system/pacto-eu-prod.yaml") || strings.Contains(w[0], "ApplicationSet") {
+		t.Fatalf("flux warnings %q", w)
+	}
+	a := installOpts(InstallArgoCD)
+	a.ArgoNamespaces = []string{"argocd"}
+	if w := mustInstall(t, a).Warnings; w == nil || len(w) != 0 {
 		t.Fatalf("no candidate gives %#v", w)
+	}
+	a.Warnings = []string{"the hub's candidate clusters were not read"}
+	if w := mustInstall(t, a).Warnings; len(w) != 1 || w[0] != a.Warnings[0] {
+		t.Fatalf("input warnings %#v", w)
+	}
+}
+
+// TestArgoNamespaceFromTheControlPlane: the ApplicationSet goes where Argo
+// CD's controllers run; several namespaces or none give a warning.
+func TestArgoNamespaceFromTheControlPlane(t *testing.T) {
+	ns := func(o MemberInstallOptions) (string, []string) {
+		res := mustInstall(t, o)
+		return at(docs(t, res)[0], "metadata", "namespace").(string), res.Warnings
+	}
+	o := installOpts(InstallArgoCD)
+	o.ArgoNamespaces = []string{"openshift-gitops"}
+	if got, w := ns(o); got != "openshift-gitops" || len(w) != 0 {
+		t.Errorf("control plane: %s %q", got, w)
+	}
+	o.ArgoNamespaces = []string{"argocd-edge", "argocd", "argocd"}
+	if got, w := ns(o); got != "argocd" || len(w) != 1 || !strings.Contains(w[0], "Argo CD runs in 2 namespaces (argocd, argocd-edge)") {
+		t.Errorf("several: %s %q", got, w)
+	}
+	o.ArgoNamespaces = nil
+	if got, w := ns(o); got != "argocd" || len(w) != 1 || !strings.Contains(w[0], "assume namespace argocd") {
+		t.Errorf("none: %s %q", got, w)
+	}
+	o.Argo = []detect.Candidate{{Source: detect.SourceArgoCD, Namespace: "gitops", Name: "eu"}}
+	if got, w := ns(o); got != "gitops" || len(w) != 0 {
+		t.Errorf("candidates: %s %q", got, w)
+	}
+}
+
+// TestFluxNameTwiceKeepsTheFirstAndWarns: one kubeconfig Secret named with an
+// omitted key and with `value` no longer refuses every other cluster's install.
+func TestFluxNameTwiceKeepsTheFirstAndWarns(t *testing.T) {
+	o := installOpts(InstallFlux)
+	o.Flux = []detect.Candidate{fluxCand("Secret", "flux-system", "eu"), keyed(fluxCand("Secret", "flux-system", "eu"), "value"), fluxCand("Secret", "flux-system", "us")}
+	res := mustInstall(t, o)
+	var paths []string
+	for _, f := range res.Files {
+		paths = append(paths, f.Path)
+	}
+	if !reflect.DeepEqual(paths, []string{"flux-system/pacto-chart.yaml", "flux-system/pacto-eu.yaml", "flux-system/pacto-us.yaml"}) ||
+		len(res.Warnings) != 1 || !strings.Contains(res.Warnings[0], "flux-system/eu is named twice (Secret key (default), Secret key value)") {
+		t.Fatalf("paths %v, warnings %q", paths, res.Warnings)
+	}
+}
+
+// TestFluxSkipsOptedOutKubeconfigs: a kubeconfig Secret labelled
+// pacto.trianalab.io/install=false gets no HelmRelease, like the Argo CD label.
+func TestFluxSkipsOptedOutKubeconfigs(t *testing.T) {
+	o := installOpts(InstallFlux)
+	o.Flux[0].Labels = map[string]string{"pacto.trianalab.io/install": "false"}
+	for _, f := range mustInstall(t, o).Files {
+		if strings.Contains(f.Path, "eu-prod") {
+			t.Fatalf("opted out got %s", f.Path)
+		}
 	}
 }
 
@@ -242,10 +319,15 @@ func TestFluxBootstrapPinsDigest(t *testing.T) {
 	if !reflect.DeepEqual(without.Files, res.Files[:len(res.Files)-1]) {
 		t.Fatal("the digest changed a file the push carries")
 	}
-	for _, f := range mustInstall(t, func() MemberInstallOptions { a := installOpts(InstallArgoCD); a.Digest = testDigest; return a }()).Files {
-		if f.Path == "bootstrap.yaml" {
-			t.Fatal("Argo CD got a Flux bootstrap")
-		}
+}
+
+// TestDigestIsOnlyForFlux: a digest pins only the Flux bootstrap, so one
+// given for Argo CD is refused rather than silently dropped.
+func TestDigestIsOnlyForFlux(t *testing.T) {
+	a := installOpts(InstallArgoCD)
+	a.Digest = testDigest
+	if _, err := MemberInstall(a); err == nil || !strings.Contains(err.Error(), "for Argo CD point an Application at the pushed reference") {
+		t.Fatal(err)
 	}
 }
 
@@ -290,7 +372,9 @@ func TestMemberInstallOrphansOnDeletion(t *testing.T) {
 func TestMemberInstallNamesThePushCredentialStep(t *testing.T) {
 	for _, engine := range []string{InstallArgoCD, InstallFlux} {
 		o := installOpts(engine)
-		o.Digest = testDigest
+		if engine == InstallFlux {
+			o.Digest = testDigest
+		}
 		y := string(MemberInstallYAML(mustInstall(t, o).Files))
 		if strings.Count(y, "#") != 1 || strings.Count(y, "push credential on ghcr.io/acme/pacto-targets") != 1 || !strings.HasPrefix(y, "# ") {
 			t.Fatalf("%s:\n%s", engine, y)
@@ -339,12 +423,11 @@ func TestMemberInstallRefusesBadOptions(t *testing.T) {
 		"flux long": {func(o *MemberInstallOptions) {
 			o.Flux = []detect.Candidate{fluxCand("Secret", "ns", strings.Repeat("a", 58))}
 		}, "57"},
-		"flux twice": {func(o *MemberInstallOptions) {
-			o.Flux = []detect.Candidate{fluxCand("Secret", "ns", "x"), fluxCand("ConfigMap", "ns", "x")}
-		}, "as a Secret and a ConfigMap or with two keys"},
-		"flux two keys": {func(o *MemberInstallOptions) {
-			o.Flux = []detect.Candidate{keyed(fluxCand("Secret", "ns", "x"), "a"), keyed(fluxCand("Secret", "ns", "x"), "b")}
-		}, "with two keys"},
+		"flux opted out": {func(o *MemberInstallOptions) {
+			c := fluxCand("Secret", "ns", "x")
+			c.Labels = map[string]string{"pacto.trianalab.io/install": "false"}
+			o.Flux = []detect.Candidate{c}
+		}, "labelled pacto.trianalab.io/install=false"},
 		"flux key": {func(o *MemberInstallOptions) {
 			o.Flux = []detect.Candidate{keyed(fluxCand("Secret", "ns", "x"), "a\n  b: c")}
 		}, "not a data key"},

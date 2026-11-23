@@ -78,8 +78,18 @@ func (s *Service) ClusterJoins(ctx context.Context, opts JoinOptions) delivery.C
 	now := s.env().now()
 	if opts.Resolve != nil {
 		r, err := opts.Resolve(ctx)
-		if err != nil || r.Repository == "" {
-			return unresolvedJoins(now, err)
+		switch {
+		case err != nil:
+			l := unresolvedJoins(now, err)
+			l.CandidatesCompleteness = fleet.CompletenessPartial
+			l.Limitations = append(l.Limitations, fleet.Limitation{Code: fleet.LimitationSourceUnavailable, Source: delivery.CandidatesID,
+				Message: "the candidate clusters were not read: " + err.Error()})
+			return l
+		case r.Repository == "" && r.Candidates != nil:
+			// No member can join, yet the candidates the operator wrote show.
+			return withCandidates(ctx, unresolvedJoins(now, nil), r.Candidates, now)
+		case r.Repository == "":
+			return unresolvedJoins(now, nil)
 		}
 		opts = r
 	}

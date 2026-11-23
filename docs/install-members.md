@@ -51,8 +51,9 @@ Candidates show only to people who may approve clusterjoins; others see how
 many are hidden. A candidate never joins on its own and never counts as a
 member. Its environment labels (`env`, `environment` or
 `delivery.pacto.trianalab.io/environment`) appear on a matched member as
-inferred inventory environments, naming the label and the object they came
-from. They never reach a gate or a placement.
+inferred inventory environments in the JSON answer (`-o json`, the API and
+`pacto_cluster_list`), naming the label and the object they came from. They
+never reach a gate or a placement.
 
 ## State a cluster's UID
 
@@ -94,7 +95,12 @@ cluster that already runs Pacto, so that no cluster gets a second release:
 kubectl -n argocd label secret hub pacto.trianalab.io/install=false
 ```
 
-The command warns about each candidate that states the UID of a member.
+The command warns about each Argo CD candidate that is a member, states a
+member's UID or states the hub's UID. It also warns when it could not rule
+out clusters that already run Pacto: no `--detected`, an inventory that is
+off, a stale read or a partial member or candidate list. The ApplicationSet
+goes in the namespace Argo CD's controllers run in; the command warns when
+it finds several or must assume `argocd`. `--digest` is for Flux only.
 
 ## Install through Flux
 
@@ -107,6 +113,14 @@ HelmRelease for each kubeconfig ref the hub's Kustomizations and HelmReleases
 name in `spec.kubeConfig`. Apply the files on the hub, or push them and apply
 the bootstrap that pins them. On Data sources, **Get Flux manifests**
 downloads the same files.
+
+Leave out the HelmRelease of every cluster that already runs Pacto, so that
+none gets a second release. The command warns about each Flux candidate that
+is a member or states a member's or the hub's UID, and names its file. A
+kubeconfig Secret labelled `pacto.trianalab.io/install=false` gets no
+HelmRelease. The command refuses, rather than generating fewer files, when
+the hub's Flux refs were not read: no `--detected`, an inventory that is off,
+or a Flux source that is unknown.
 
 ## Give each member a push credential
 
@@ -138,7 +152,9 @@ ConfigMap does not exist in a new member.
 
 For a local registry over plain HTTP, pass `--insecure-registry`. It adds
 `insecureRegistries` with the registry host to the values and lets Argo CD or
-Flux pull over HTTP. Use it for a local registry only.
+Flux pull over HTTP, and `--push` pushes over HTTP. The member list the
+command reads for its warnings follows `PACTO_INSECURE_REGISTRIES`. Use it for
+a local registry only.
 
 ## Push the artifact and pin its digest
 
