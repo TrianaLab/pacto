@@ -193,3 +193,23 @@ func TestFleetGetExternalShowsRepositorySource(t *testing.T) {
 		t.Errorf("view = %+v", v)
 	}
 }
+
+// TestFleetSearchOutsideContract: --outside-contract lists the external
+// systems a local Terraform state read a resource of, none through an
+// offering, and fleet get prints the resource with its contract state.
+func TestFleetSearchOutsideContract(t *testing.T) {
+	root := writeExternalFixture(t)
+	state := filepath.Join("..", "..", "pkg", "managedres", "testdata", "state-v4.json")
+	out, _, err := execFleet(t, "fleet", "entities", "--outside-contract", "--local", root, "--tf-state", state)
+	if err != nil || !strings.Contains(out, "aws/rds") || strings.Contains(out, "stripe") {
+		t.Fatalf("outside contract: %v\n%s", err, out)
+	}
+	if out, _, _ = execFleet(t, "fleet", "entities", "--outside-contract", "--local", root); strings.Contains(out, "aws/rds") || strings.Contains(out, "stripe") {
+		t.Errorf("no state, yet:\n%s", out)
+	}
+	out, _, _ = execFleet(t, "fleet", "get", "external:aws/rds/123456789012/eu-west-1/orders-db", "--local", root, "--tf-state", state)
+	if !strings.Contains(out, "  resources  local terraform state-v4.json aws_db_instance aws_db_instance.orders  postgres 16.3  outside contract\n") ||
+		!strings.Contains(out, "into a contract: pacto claim aws/rds/123456789012/eu-west-1/orders-db --owner <team> --offering <offering>") {
+		t.Errorf("get:\n%s", out)
+	}
+}

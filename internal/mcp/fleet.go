@@ -596,6 +596,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"lifecycle":         {Type: "string", Description: "Offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is this", Enum: []string{fleet.LifecycleDeprecated, fleet.LifecycleSunset}},
 			"failed":            {Type: "boolean", Description: "With kind offering: offerings with at least one failed provisioning request"},
 			"class":             {Type: "string", Description: "External systems of this class (lists kind external when kind is empty)", Enum: fleet.ExternalClasses()},
+			"outside_contract":  {Type: "boolean", Description: "External systems with a managed resource no offering produced (lists kind external when kind is empty)"},
 			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":            {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -633,6 +634,7 @@ type fleetEntitiesArgs struct {
 	Lifecycle       string `json:"lifecycle"`
 	Failed          bool   `json:"failed"`
 	Class           string `json:"class"`
+	OutsideContract bool   `json:"outside_contract"`
 	Limit           int    `json:"limit"`
 	Offset          int    `json:"offset"`
 }
@@ -650,7 +652,7 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 			Template: a.Template, Declaration: a.Declaration, Group: a.Group, CreatedFrom: a.CreatedFrom,
 			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind, Lifecycle: a.Lifecycle, Failed: a.Failed,
 			Capability: a.Capability, Domain: a.Domain, Service: a.Service, Source: a.Source,
-			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth, Class: a.Class,
+			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth, Class: a.Class, OutsideContract: a.OutsideContract,
 		}
 		f.Kinds = fleet.ListKinds(a.Kind, f)
 		return productResult(link, productview.ToEntityList)(q.Entities(f))

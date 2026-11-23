@@ -92,7 +92,7 @@ func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error)
 	// would send it to pacto claim, which is this request. It takes none of
 	// a workload's arguments (ArgsRefused), and never an agent's folder.
 	if _, ok := a.Claim(); ok {
-		req.Service, req.Owner, req.Name = a.Service, a.Owner, a.Name
+		req.Service, req.Owner, req.Name, req.Offering = a.Service, a.Owner, a.Name, a.Offering
 		return req, nil
 	}
 	req.Namespace, req.Dir, req.Accept, req.MaxItems = a.Namespace, a.Dir, a.Accept, a.MaxItems
@@ -178,6 +178,11 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 		return nil, nil, errNobodyReviewed
 	}
 	req.Dynamic, req.Observed = who.own.Dynamic, r.observed(ctx, req)
+	if _, claim := a.Claim(); claim {
+		// An offering's providers are read from the caller's own view, never
+		// with this server's registry credentials.
+		req.Fleet = r.view(ctx).SnapshotForSerialization()
+	}
 	p, _, err := r.svc.PlanDeclare(ctx, req)
 	if p != nil {
 		if _, claim := a.Claim(); claim || !r.writes() || a.Registry != r.registry {

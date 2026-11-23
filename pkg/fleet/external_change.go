@@ -21,6 +21,12 @@ const ExternalOpenAPIMetadataKey = "run.pacto.external.openapi"
 // external system (see [ExternalEngineOf]).
 const ExternalEngineMetadataKey = "run.pacto.external.engine"
 
+// ExternalOfferingMetadataKey is the metadata key under which a claim of an
+// external system records the platform offering it is meant to join. It is
+// display-only: Build never reads it as ServiceRecord.Offering, so a claim
+// never lists the system as a provider of the offering.
+const ExternalOfferingMetadataKey = "run.pacto.external.offering"
+
 // AttentionExternalChanged is the code of the item raised while a checked
 // change of an external system's inferred contract is fresh.
 const AttentionExternalChanged = "EXTERNAL_CHANGED"

@@ -98,12 +98,10 @@ func fleetRows() []surfaceRow {
 	return slices.Concat(
 		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment", "cluster",
 			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
-			"declaration", "group", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
+			"declaration", "group", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class", "outside-contract"),
 		[]surfaceRow{
 			{"fleet entities --kind", "pacto_fleet_entities.kind", "GET /api/fleet/entities?kinds", "the route takes several kinds, the CLI and MCP one"},
 			{"fleet entities [text]", "pacto_fleet_entities.text", "GET /api/fleet/entities?text", ""},
-			// ponytail: 517-S7 P10 replaces this row with --outside-contract and pacto_fleet_entities.outsideContract.
-			{"", "", "GET /api/fleet/entities?outsideContract", "the externals list's Outside contract filter; the CLI and MCP name each resource's contract state in pacto fleet get external:<id>"},
 		},
 		alike("fleet attention", "pacto_fleet_attention", "GET /api/fleet/attention", "", "business-domain", "category", "limit", "offset", "owner", "owner-key", "service", "severity",
 			"key", "kind", "source", "stale-only", "status"),
@@ -424,6 +422,8 @@ func claimRows() []surfaceRow {
 			{"claim --owner", "pacto_declare.owner", plan + " body.owner", ""},
 			{"", "", accept + " body.owner", "the accept route carries out the plan with the owner it named"},
 			{"claim --name", "pacto_declare.name", plan + " body.name", ""},
+			// ponytail: 517-S7 P11 adds the claim panel's Offering field (body.offering) and fills this row's dashboard column.
+			{"claim --offering", "pacto_declare.offering", "", "the dashboard claim panel names no offering yet"},
 			{"", "", accept + " body.name", "the accept route carries out the plan with the name it named"},
 		},
 		alike("claim", "", "", why, "registry", "yes", "intent", "draft", "from-draft", "delivery-trust"),

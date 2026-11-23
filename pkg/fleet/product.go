@@ -80,7 +80,7 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 		return []EntityKind{KindTarget}
 	case f.SourceKind != "" || f.SourceHealth != "":
 		return []EntityKind{KindSource}
-	case f.Class != "":
+	case f.externalOnly():
 		return []EntityKind{KindExternal}
 	case f.Service != "" || f.Domain != "" || f.Source != "" || f.Cluster != "":
 		return nil
@@ -91,6 +91,10 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 	}
 	return out
 }
+
+// externalOnly reports whether f filters on a field only external systems
+// carry: their class or a managed resource outside contract.
+func (f EntityFilter) externalOnly() bool { return f.Class != "" || f.OutsideContract }
 
 // EntityKinds are every entity kind, in the order an entity detail lists them.
 func EntityKinds() []string {

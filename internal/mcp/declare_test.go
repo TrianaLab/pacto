@@ -535,3 +535,28 @@ func TestDeclareArgsCommandClaimCarriesOnlyClaimFlags(t *testing.T) {
 		t.Fatal(got)
 	}
 }
+
+// TestMCPDeclareClaimOffering: a claim's offering reaches the Declarer and
+// its command; a workload takes none, and OfferingInvalid is in the
+// refusal enum the Declarer's refusal maps to.
+func TestMCPDeclareClaimOffering(t *testing.T) {
+	var plans []DeclareArgs
+	out, _ := callDeclare(t, stubDeclarer{plans: &plans, service: "stripe"}, map[string]any{"service": "external:stripe", "owner": "team-platform", "offering": "postgresql",
+		"registry": "ghcr.io/acme", "dry_run": false, "on_behalf_of": "ana"})
+	if len(plans) != 1 || plans[0].Offering != "postgresql" || out.Refusal == nil ||
+		out.Refusal.CLI != "pacto claim stripe --owner team-platform --offering postgresql --registry ghcr.io/acme" {
+		t.Fatalf("%+v %+v", plans, out)
+	}
+	plans = nil
+	out, _ = callDeclare(t, stubDeclarer{plans: &plans}, map[string]any{"service": "invoices", "offering": "postgresql"})
+	if len(plans) != 0 || out.Refusal == nil || out.Refusal.Code != RefusalFieldNotAcceptable {
+		t.Fatalf("%+v", out)
+	}
+	if !slices.Contains(writeRefusals, RefusalOfferingInvalid) {
+		t.Fatal("OfferingInvalid is not in the refusal enum")
+	}
+	tool := listTools(t, mustNew("test", Authoring{Declare: stubDeclarer{}}, Modes{}))["pacto_declare"]
+	if schema, _ := json.Marshal(tool.InputSchema); !strings.Contains(string(schema), `"offering"`) {
+		t.Fatalf("%s", schema)
+	}
+}

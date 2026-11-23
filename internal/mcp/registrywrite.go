@@ -58,6 +58,7 @@ const (
 	RefusalExternalMismatch        WriteRefusal = "ExternalMismatch"
 	RefusalExternalUnknown         WriteRefusal = "ExternalUnknown"
 	RefusalClaimRepositoryInferred WriteRefusal = "ClaimRepositoryInferred"
+	RefusalOfferingInvalid         WriteRefusal = "OfferingInvalid"
 	// An HTTP server's draft write: the caller may not update the workload,
 	// writes on behalf of someone else or into another workload's
 	// repository (NotAllowed), or the review of the caller failed.
@@ -84,7 +85,7 @@ var writeRefusals = []WriteRefusal{
 	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalRepositoryUnknown, RefusalRepositoryUnconfirmed,
 	RefusalGitHostUnknown, RefusalGitTokenMissing, RefusalPullRequestFailed, RefusalPullRequestNeedsLocalToken, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
 	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
-	RefusalOwnerRequired, RefusalExternalMismatch, RefusalExternalUnknown, RefusalClaimRepositoryInferred,
+	RefusalOwnerRequired, RefusalExternalMismatch, RefusalExternalUnknown, RefusalClaimRepositoryInferred, RefusalOfferingInvalid,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }
 
@@ -188,10 +189,12 @@ type DeclareArgs struct {
 	Repository string `json:"repository"`
 	Folder     string `json:"folder"`
 	RepoMap    string `json:"repo_map"`
-	// Owner and Name are set only on a claim (service external:<identity>):
-	// the owning team and the service name the claim publishes under.
-	Owner string `json:"owner"`
-	Name  string `json:"name,omitempty"`
+	// Owner, Name and Offering are set only on a claim (service
+	// external:<identity>): the owning team, the service name the claim
+	// publishes under and the platform offering it intends to join.
+	Owner    string `json:"owner"`
+	Name     string `json:"name,omitempty"`
+	Offering string `json:"offering,omitempty"`
 }
 
 // Claim is the external system a claims and whether a is a claim.
@@ -210,25 +213,30 @@ func (a DeclareArgs) Verb() string {
 
 // ArgsRefused refuses, before any read, arguments a's subject does not
 // take: a claim takes owner, name, registry, draft and intent and names a
-// valid external identity; a workload takes no owner or name. Its command
+// valid external identity; a workload takes no owner, name or offering. Its command
 // carries only arguments the subject takes.
 func (a DeclareArgs) ArgsRefused() *Refused {
 	id, claim := a.Claim()
 	switch {
-	case claim && (a.Namespace != "" || a.Dir != "" || len(a.Accept) > 0 || a.MaxItems != 0 || a.CallWindow != "" ||
-		a.PR || a.Repository != "" || a.Folder != "" || a.RepoMap != ""):
-		return &Refused{Code: RefusalFieldNotAcceptable, Message: "pacto claim takes owner, name, registry, draft and intent: " +
+	case claim && a.workloadArgs():
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "pacto claim takes owner, name, offering, registry, draft and intent: " +
 			"call again without namespace, dir, accept, max_items, call_window, pr, repository, folder and repo_map", CLI: a.Command("")}
 	case claim:
 		if _, err := externalid.Parse(id); err != nil {
 			return &Refused{Code: RefusalExternalUnknown, Message: "service external:<identity> names no external identity: " +
 				"find its identity with pacto fleet search", CLI: "pacto claim <identity> --owner <team> --registry <registry>"}
 		}
-	case a.Owner != "" || a.Name != "":
-		return &Refused{Code: RefusalFieldNotAcceptable, Message: "owner and name are a claim's (service external:<identity>): " +
-			"a workload's owner and name come from its contract", CLI: a.Command("")}
+	case a.Owner != "" || a.Name != "" || a.Offering != "":
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "owner, name and offering are a claim's (service external:<identity>): " +
+			"a workload's owner, name and offering come from its contract", CLI: a.Command("")}
 	}
 	return nil
+}
+
+// workloadArgs reports whether a sets an argument only a workload takes.
+func (a DeclareArgs) workloadArgs() bool {
+	return a.Namespace != "" || a.Dir != "" || len(a.Accept) > 0 || a.MaxItems != 0 || a.CallWindow != "" ||
+		a.PR || a.Repository != "" || a.Folder != "" || a.RepoMap != ""
 }
 
 // Command is the pacto declare (pacto claim for a claim) a person runs for
@@ -241,6 +249,9 @@ func (a DeclareArgs) Command(intent string) string {
 		parts := []string{"pacto claim", id, "--owner", cmp.Or(a.Owner, "<team>")}
 		if a.Name != "" {
 			parts = append(parts, "--name", a.Name)
+		}
+		if a.Offering != "" {
+			parts = append(parts, "--offering", a.Offering)
 		}
 		parts = append(parts, "--registry", reg)
 		if intent != "" {

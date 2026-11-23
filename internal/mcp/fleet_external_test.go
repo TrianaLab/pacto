@@ -274,3 +274,22 @@ func TestFleetStatusDescriptionClaimsNoRank(t *testing.T) {
 		t.Errorf("description = %q", d)
 	}
 }
+
+// TestMCPEntitiesOutsideContract: outside_contract keeps the external
+// systems with a managed resource no offering produced and, like class,
+// lists externals when no kind is asked.
+func TestMCPEntitiesOutsideContract(t *testing.T) {
+	src := fleet.NewMemorySource("managed", fleet.SourceKindDetection, &fleet.Collection{ManagedResources: []fleet.RawManagedResource{{
+		Source: "crossplane", Identity: "aws/rds/123456789012/eu-west-1/orders-db", Type: "rds.aws.upbound.io/Instance", Name: "orders-db"}}})
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{Now: func() time.Time { return fixedNow }}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := listedKeys(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(fleet.NewQuery(snap), false), map[string]any{"outside_contract": true}))
+	if len(got) != 1 || got[0] != "external/aws/rds/123456789012/eu-west-1/orders-db" {
+		t.Errorf("outside_contract = %v", got)
+	}
+	if got := listedKeys(t, callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(externalFleet(t), false), map[string]any{"outside_contract": true})); len(got) != 0 {
+		t.Errorf("no managed resource, yet %v", got)
+	}
+}
