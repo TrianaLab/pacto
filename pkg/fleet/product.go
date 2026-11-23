@@ -1571,7 +1571,7 @@ func (q *Query) revisionAttention(r *ContractRevision) []AttentionItem {
 			Source: r.Source, NextStep: "Add a readiness assessment",
 		})
 	}
-	return out
+	return append(out, extensionAttention(r, ref)...)
 }
 
 // unresolvedAttention reports each unresolved declared dependency, and each one

@@ -132,17 +132,19 @@ func TestEveryAdoptionAttentionCodeSetsNextAction(t *testing.T) {
 // preAdoptionCodes are the attention codes on main before #508 that carry no
 // action, each with the reason. Edit codes are in editCodes.
 var preAdoptionCodes = map[string]string{
-	"NON_COMPLIANT":                   "a person reads the findings",
-	"STALE_EVIDENCE":                  "the evidence source is refreshed, never the contract",
-	"UNRESOLVED_DEPENDENCY":           "the dependency is published, which no contract edit does",
-	string(finding.CodeHealthFailing): "the workload is fixed, never the contract",
-	"DEPENDENCY_SERVICE_DEPRECATED":   "the move to a supported version is a code change",
-	"DEPENDENCY_SERVICE_SUNSET":       "the move to a supported version is a code change, unless the step widens a range (editCodes rule)",
-	codeProvisioningFailed:            "the provider fixes the resource",
-	codeProvisioningStale:             "the provider reports again",
-	codeCrossEnvironmentCall:          "a person finds out why the workload calls across environments; no contract edit stops the call",
-	codeCrossEnvironmentPreviewCall:   "a person finds out why the workload calls a preview; no contract edit stops the call",
-	CodeClusterIssuerDiffers:          "a person approves a group mapping with pacto cluster map-groups; no contract edit answers it",
+	"NON_COMPLIANT":                      "a person reads the findings",
+	"STALE_EVIDENCE":                     "the evidence source is refreshed, never the contract",
+	"UNRESOLVED_DEPENDENCY":              "the dependency is published, which no contract edit does",
+	string(finding.CodeHealthFailing):    "the workload is fixed, never the contract",
+	"DEPENDENCY_SERVICE_DEPRECATED":      "the move to a supported version is a code change",
+	"DEPENDENCY_SERVICE_SUNSET":          "the move to a supported version is a code change, unless the step widens a range (editCodes rule)",
+	codeProvisioningFailed:               "the provider fixes the resource",
+	codeProvisioningStale:                "the provider reports again",
+	codeCrossEnvironmentCall:             "a person finds out why the workload calls across environments; no contract edit stops the call",
+	codeCrossEnvironmentPreviewCall:      "a person finds out why the workload calls a preview; no contract edit stops the call",
+	CodeClusterIssuerDiffers:             "a person approves a group mapping with pacto cluster map-groups; no contract edit answers it",
+	string(finding.CodeCapabilityAbsent): "the producer that reports the extension absent is asked, or the capability fixed; no contract edit answers it",
+	codeExtensionUnreported:              "the producer reports again; no contract edit answers it",
 }
 
 // dynamicCodeProducers are the functions that set a computed code, each with
@@ -156,6 +158,7 @@ var dynamicCodeProducers = map[string]string{
 var selectorCodes = map[string]string{
 	"finding.CodeHealthFailing":        string(finding.CodeHealthFailing),
 	"finding.CodeDependencyUndeclared": string(finding.CodeDependencyUndeclared),
+	"finding.CodeCapabilityAbsent":     string(finding.CodeCapabilityAbsent),
 }
 
 // attentionCodes walks the production files of dir and returns every code

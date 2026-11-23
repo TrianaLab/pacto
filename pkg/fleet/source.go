@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -137,6 +138,9 @@ type Collection struct {
 	// Provisioning is provider-reported state of what a consumer's
 	// configuration reference or dependency asked for. It is never a target.
 	Provisioning []RawProvisioning
+	// Extensions are verified reports on a revision's extension capabilities;
+	// never a target.
+	Extensions []RawExtension
 	// Usage is provider-reported usage and cost of what a consumer's
 	// configuration reference or dependency asked for. It is never a target
 	// and never changes compliance.
@@ -226,6 +230,27 @@ type RawProvisioning struct {
 	ObservedAt                   time.Time
 	AcceptedAt                   *time.Time
 	Verified                     bool
+}
+
+// RawExtension is one producer's report on the extension capability Ref that
+// the consumer revision (Service, Domain, Digest) declares. Present and
+// Details are set only for an Observed outcome. Cluster is the cluster of the
+// Evidence Server that accepted it. Verified is true only for records accepted
+// through signed envelopes; [Build] drops every other one.
+type RawExtension struct {
+	Service       string          `json:"service"`
+	Domain        string          `json:"domain,omitempty"`
+	Digest        string          `json:"digest"`
+	Ref           string          `json:"ref"`
+	Present       *bool           `json:"present,omitempty"`
+	Details       json.RawMessage `json:"details,omitempty"`
+	Outcome       string          `json:"outcome"`
+	Producer      string          `json:"producer"`
+	ProducerKeyID string          `json:"producerKeyId,omitempty"`
+	ObservedAt    time.Time       `json:"observedAt"`
+	AcceptedAt    *time.Time      `json:"acceptedAt,omitempty"`
+	Cluster       *Cluster        `json:"cluster,omitempty"`
+	Verified      bool            `json:"verified,omitempty"`
 }
 
 // RawUsage is one provider report on how much of the resource a consumer

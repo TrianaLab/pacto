@@ -1154,6 +1154,10 @@ type ContractRevision struct {
 	// Provenance is the signature and referrers a registry source found attached
 	// to the bundle digest. Nil means no source that read it checks signatures.
 	Provenance *BundleProvenance `json:"provenance,omitempty"`
+	// Extensions is the check of each declared extension capability a trusted
+	// producer has a report on (see [ExtensionCheck]). An extension with no
+	// check is unverified.
+	Extensions []ExtensionCheck `json:"extensions,omitempty"`
 
 	// bundle carries the parsed bundle used during Build (to derive tools, skills,
 	// docs and validation) and afterwards as the read-only backing store for lazy
@@ -1773,6 +1777,13 @@ type FleetSnapshot struct {
 	// provisioningDropped counts, per consumer service, the reports dropped past
 	// MaxProvisioningRecords, so a restricted view reports only its own losses.
 	provisioningDropped map[ServiceKey]int
+	// extensionRecords are the verified extension reports Build matched to a
+	// revision, kept off the wire so a restricted view re-derives each
+	// revision's checks without the records of clusters its caller cannot read.
+	// ponytail: unbounded here; each evidence source already bounds its body
+	// (MaxTargetsBodyBytes), so the ceiling is the sum over configured
+	// sources. Add MaxProvisioningRecords-style truncation if that grows.
+	extensionRecords []extensionRecord
 	// usageDropped counts, per consumer service, the usage reports dropped
 	// past MaxUsageRecords.
 	usageDropped map[ServiceKey]int

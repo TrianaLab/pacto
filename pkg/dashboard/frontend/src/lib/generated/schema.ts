@@ -3161,6 +3161,8 @@ export interface components {
         };
         "Fleet.CapabilitySummary": {
             binding?: components["schemas"]["Fleet.CapabilityBindingSummary"];
+            /** @description What trusted producers report on this extension capability; absent when none has a report on it, so it stays unverified. */
+            check?: components["schemas"]["Fleet.ExtensionCheck"];
             ref?: string;
             type?: string;
         };
@@ -3332,6 +3334,7 @@ export interface components {
             docs?: components["schemas"]["Fleet.DocRef"][] | null;
             domain?: string;
             environments?: components["schemas"]["Fleet.EnvironmentResult"][] | null;
+            extensions?: components["schemas"]["Fleet.ExtensionCheck"][] | null;
             /** Format: date-time */
             fetchedAt?: string;
             inferred?: components["schemas"]["Contract.Inferred"][] | null;
@@ -3750,6 +3753,45 @@ export interface components {
             withEvidence: number;
             /** Format: int64 */
             withoutEvidence: number;
+        };
+        "Fleet.ExtensionCheck": {
+            /**
+             * Format: date-time
+             * @description When the producer observed what the report says.
+             */
+            asOf?: string;
+            /** @description The revision is one the service status reads: a revision a target runs, else the current one. */
+            countsTowardStatus?: boolean;
+            /** @description The producer's own free-form account in its newest current report; Pacto never interprets it. */
+            details?: unknown;
+            /** @description The producer whose report the check reads. */
+            producer?: string;
+            /** @description The key that producer signed the report with. */
+            producerKeyId?: string;
+            /** @description Every producer that reports the capability absent, sorted; set on a failing check. */
+            producers?: string[] | null;
+            /**
+             * @description Always observed: a check is read from signed reports.
+             * @enum {string}
+             */
+            provenance?: "observed";
+            /** @description Why the check reads failing or unknown. */
+            reason?: string;
+            /** @description The extension capability ref the check is about. */
+            ref: string;
+            /** @description The other revision the last report is about, when the reader can see it. */
+            revision?: components["schemas"]["Fleet.EntityRef"];
+            /** @description The evidence source the report came from. */
+            source?: string;
+            /** @description The kind of that source. */
+            sourceKind?: string;
+            /** @description The report is older than the freshness window. */
+            stale?: boolean;
+            /**
+             * @description covered: every current report says present. failing: a current report says absent. unknown: the reports are stale, did not answer or are about another revision.
+             * @enum {string}
+             */
+            state: "covered" | "failing" | "unknown";
         };
         "Fleet.ExternalCatalogMatch": {
             /** @description The digest of the catalog artifact */
@@ -4460,7 +4502,7 @@ export interface components {
             notDeployed: number;
             /**
              * Format: int64
-             * @description Services whose current revision declares an extension capability no evaluator verifies
+             * @description Services whose current revision declares an extension capability that no evaluator or trusted producer checks
              */
             unverifiedCapability: number;
         };
@@ -11135,7 +11177,7 @@ export interface operations {
                 status?: "Compliant" | "Invalid" | "NonCompliant" | "NotEvaluated" | "Reference" | "Unknown" | "Warning";
                 /** @description Declared-ownership filter for service entities; conflicting means owners disagree: targets run different owners, or one version declares two (an older version's owner is a handover, not a conflict); unidentified is every service with no single canonical owner (unowned, conflicting, unknown or contacts alone); unknown is a service with no owner claim whose contract Pacto cannot read */
                 ownership?: "consistent" | "conflicting" | "unowned" | "unidentified" | "unknown";
-                /** @description Knowledge-gap filter for service entities that are no golden path: the services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: declare an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge */
+                /** @description Knowledge-gap filter for service entities that are no golden path: the services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: declare an extension capability that no evaluator or trusted producer checks), or unknown for those whose knowledge Pacto cannot judge */
                 gap?: "no-summary" | "no-domain" | "no-interface-docs" | "no-readiness" | "not-deployed" | "unverified-capability" | "unknown";
                 /** @description Declared-readiness filter for contract revision entities */
                 readiness?: "passing" | "below-threshold" | "expired" | "not-declared";

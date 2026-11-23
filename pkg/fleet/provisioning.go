@@ -377,7 +377,13 @@ func (r *ProvisioningRecord) env() string    { return r.Environment }
 
 // staleReport reports whether r is older than the provisioning window.
 func (q *Query) staleReport(r *ProvisioningRecord) bool {
-	return q.snap.GeneratedAt.Sub(r.ObservedAt) > cmp.Or(q.snap.provisioningWindow, RecentEvidenceWindow)
+	return q.snap.reportStale(r.ObservedAt)
+}
+
+// reportStale reports whether a report observed at t is older than the
+// snapshot's freshness window (RecentEvidenceWindow when unset).
+func (snap *FleetSnapshot) reportStale(t time.Time) bool {
+	return snap.GeneratedAt.Sub(t) > cmp.Or(snap.provisioningWindow, RecentEvidenceWindow)
 }
 
 // provisioningStatus is one slot's status from its reports: the newest report

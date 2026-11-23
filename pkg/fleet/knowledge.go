@@ -77,7 +77,7 @@ type KnowledgeGaps struct {
 	NoInterfaceDocs      int `json:"noInterfaceDocs" doc:"Services whose current revision declares an interface with no document"`
 	NoReadiness          int `json:"noReadiness" doc:"Services whose current revision carries no readiness assessment"`
 	NotDeployed          int `json:"notDeployed" doc:"Services that run nowhere, counted only when at least one source reports operational targets and every such source is complete"`
-	UnverifiedCapability int `json:"unverifiedCapability" doc:"Services whose current revision declares an extension capability no evaluator verifies"`
+	UnverifiedCapability int `json:"unverifiedCapability" doc:"Services whose current revision declares an extension capability that no evaluator or trusted producer checks"`
 }
 
 // FleetCompleteness is the contract completeness of a set of services: the
@@ -221,20 +221,47 @@ func (c *EvaluationCoverage) add(t *TargetRecord) {
 // currentRevision is the service's current revision record: the newest in use,
 // else the newest known.
 func (q *Query) currentRevision(s *ServiceRecord) *ContractRevision {
+	return currentRevision(q.snap, s)
+}
+
+// currentRevision is s's current revision in snap: the newest in use, else
+// the newest known, nil when there is none. The status fold, the knowledge
+// gaps, attention and Explain all name this revision.
+func currentRevision(snap *FleetSnapshot, s *ServiceRecord) *ContractRevision {
+	return newestInUse(revisionsInUse(snap, s))
+}
+
+// statusRevisions is the revisions whose extension checks count toward s's
+// status: every revision a target runs, else the current one.
+func statusRevisions(snap *FleetSnapshot, s *ServiceRecord) []*ContractRevision {
+	active, all := revisionsInUse(snap, s)
+	if len(active) > 0 {
+		return active
+	}
+	if cur := newestInUse(nil, all); cur != nil {
+		return []*ContractRevision{cur}
+	}
+	return nil
+}
+
+// revisionsInUse is s's revisions a target in snap runs, and all of them. A
+// target the snapshot no longer holds (a restricted view hid it) runs none.
+func revisionsInUse(snap *FleetSnapshot, s *ServiceRecord) (active, all []*ContractRevision) {
 	inUse := map[RevisionKey]bool{}
 	for _, tk := range s.Targets {
-		inUse[q.snap.Targets[tk].ContractRevision] = true
+		if t := snap.Targets[tk]; t != nil {
+			inUse[t.ContractRevision] = true
+		}
 	}
-	var active, all []*ContractRevision
 	for _, rk := range s.Revisions {
-		if r := q.snap.Revisions[rk]; r != nil {
+		if r := snap.Revisions[rk]; r != nil {
 			all = append(all, r)
 			if inUse[rk] {
 				active = append(active, r)
 			}
 		}
 	}
-	return newestInUse(active, all)
+	return active, all
 }
 
 // notDeployed reports whether the service runs nowhere and whether Pacto can
@@ -290,7 +317,7 @@ func (q *Query) knowledgeFacts(s *ServiceRecord, cur *ContractRevision) map[stri
 		GapNoInterfaceDocs:      slices.ContainsFunc(cur.Contract.Interfaces, func(i contract.Interface) bool { return i.Ref == "" }),
 		GapNoReadiness:          cur.Readiness == nil,
 		GapNotDeployed:          runsNowhere,
-		GapUnverifiedCapability: slices.ContainsFunc(cur.Contract.Capabilities, func(c contract.Capability) bool { return c.Type == contract.CapabilityExtension }),
+		GapUnverifiedCapability: slices.ContainsFunc(cur.Contract.Capabilities, func(c contract.Capability) bool { return c.Type == contract.CapabilityExtension && !cur.checked(c.Ref) }),
 	}
 }
 
@@ -349,7 +376,7 @@ var gapSection = map[string]struct{ section, note string }{
 	GapNoInterfaceDocs:       {contract.SectionInterfaces, ""},
 	GapNoReadiness:           {contract.SectionReadiness, ""},
 	GapNotDeployed:           {contract.SectionRuntime, "runs nowhere: no source reports an operational target"},
-	GapUnverifiedCapability:  {contract.SectionRuntime, "declares an extension capability no evaluator verifies"},
+	GapUnverifiedCapability:  {contract.SectionRuntime, "declares an extension capability that no evaluator or trusted producer checks"},
 	causeInterfaceDocsUnread: {contract.SectionInterfaces, ""},
 	causeSummaryUnknown:      {contract.SectionSummary, ""},
 	causeDomainUnknown:       {contract.SectionDomain, ""},
@@ -453,7 +480,7 @@ var knowledgeItems = map[string]knowledgeItem{
 		"Point each interface's ref at its document in the bundle"},
 	GapNotDeployed: {"Runs nowhere", "no source reports an operational target of this service, and every source that reports targets is complete",
 		"Deploy the service, or retire its contract if it is gone"},
-	GapUnverifiedCapability: {"Extension capability Pacto cannot verify", "the current contract revision declares an extension capability that no evaluator checks, so it stays declared only",
+	GapUnverifiedCapability: {"Extension capability Pacto cannot verify", "the current contract revision declares an extension capability that no evaluator or trusted producer checks, so it stays declared only",
 		"Check the capability by other means; Pacto reports it unverified"},
 	causeContractUnreadable: {"Owner, domain and summary unknown: no contract of this service could be read",
 		"Pacto could not read any contract revision of this service, so it cannot tell whether an owner is declared",
