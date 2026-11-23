@@ -170,12 +170,12 @@ render could not look the cluster up, so it did not refuse a second Crossplane.
 {{- $recorderState := include "pacto-operator.recorderState" . }}
 {{- $recorderWhy := dict "off" "delivery.recorder.enabled is false (an upgrade with --reuse-values carries the false an earlier chart defaulted to); set it to null to let profile idp decide" "delivery-off" "profile hardened renders no Pacto delivery" }}
 {{- print "\n" }}
-{{- if not .Values.evidence.enabled }}
+{{- if include "pacto-operator.evidenceAuto" . }}
 Evidence Server: on when the registry serves OCI Referrers and Secret
 {{ include "pacto-operator.evidenceTrustSecret" . }} holds a public key; see pacto fleet providers.
 {{- end }}
 Recorder: {{ if eq $recorderState "on" }}on{{ else }}off: {{ get $recorderWhy $recorderState | default ((splitn ": " 2 (include "pacto-operator.recorderCheck" .))._1) }}{{ end }}.
-{{- if and (eq $recorderState "on") (kindIs "invalid" .Values.delivery.recorder.enabled) }}
+{{- if include "pacto-operator.recorderDefaulted" . }}
 Upgrade CLIs and promoters before the recorder signs records; set
 delivery.recorder.enabled=false to keep it off.
 {{- end }}

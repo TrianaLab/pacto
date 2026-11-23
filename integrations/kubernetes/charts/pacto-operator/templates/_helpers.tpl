@@ -968,6 +968,14 @@ trust Secret holds a public key (--evidence-server-auto).
 {{- end }}
 
 {{/*
+The Evidence Server the operator turns on by itself: managed under profile
+idp without evidence.enabled (--evidence-server-auto).
+*/}}
+{{- define "pacto-operator.evidenceAuto" -}}
+{{- if and (include "pacto-operator.evidenceManaged" .) (not .Values.evidence.enabled) }}true{{ end }}
+{{- end }}
+
+{{/*
 The Evidence Server's trust Secret: evidence.trust.existingSecret, else
 <fullname>-evidence-trust. Pacto never creates it or a key.
 */}}
@@ -985,7 +993,7 @@ refuses a trailing slash on registry, so the prefix never renders "//".
 */}}
 {{- define "pacto-operator.evidenceDefaultPrefix" -}}
 {{- $registry := toString (default "" .Values.registry) }}
-{{- if and (include "pacto-operator.evidenceManaged" .) (not .Values.evidence.enabled) (not .Values.evidence.registry.subjects) (not .Values.evidence.registry.subjectPrefixes) (contains "/" $registry) }}
+{{- if and (include "pacto-operator.evidenceAuto" .) (not .Values.evidence.registry.subjects) (not .Values.evidence.registry.subjectPrefixes) (contains "/" $registry) }}
 {{- printf "oci://%s/" $registry }}
 {{- end }}
 {{- end }}
@@ -1062,6 +1070,14 @@ delivery-off where delivery does not render, else the failed check's state.
 {{- else if eq (toString .Values.delivery.recorder.enabled) "false" }}off
 {{- else }}{{ include "pacto-operator.recorderCheck" . | splitList ":" | first }}
 {{- end }}
+{{- end }}
+
+{{/*
+Whether profile idp turned the recorder on: it renders and
+delivery.recorder.enabled is unset (null), not set to true by a person.
+*/}}
+{{- define "pacto-operator.recorderDefaulted" -}}
+{{- if and (include "pacto-operator.recorderEnabled" .) (kindIs "invalid" .Values.delivery.recorder.enabled) }}true{{ end }}
 {{- end }}
 
 {{/*
