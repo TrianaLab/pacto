@@ -240,3 +240,8 @@ func ValidTeamName(s string) bool { return teamNameRE.MatchString(s) }
 
 // ValidDRIName reports whether s is a name owner.dri accepts.
 func ValidDRIName(s string) bool { return driNameRE.MatchString(s) }
+
+// ValidSlug reports whether s is a DNS label, the form of a service name, a
+// business domain and an environment name: lowercase letters, digits and
+// inner hyphens, at most 63 characters.
+func ValidSlug(s string) bool { return len(s) <= 63 && serviceNameRE.MatchString(s) }

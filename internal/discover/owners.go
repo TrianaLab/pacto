@@ -3,7 +3,6 @@ package discover
 import (
 	"io/fs"
 	"path"
-	"regexp"
 	"slices"
 	"strings"
 
@@ -17,9 +16,6 @@ import (
 // codeownersPaths are where GitHub reads CODEOWNERS, in its order: the first
 // found is the only one read.
 var codeownersPaths = []string{".github/CODEOWNERS", "CODEOWNERS", "docs/CODEOWNERS"}
-
-// domainRE is the slug a domain or an environment name must be.
-var domainRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 // ownerField adds the service.owner entry the owner file p gives at line: a
 // team, or a person when dri. It is marked as read from an owner file, which
@@ -158,7 +154,8 @@ func (r *reader) catalog(p string, docs []*yaml.Node) {
 // user is a person.
 func (r *reader) catalogOwner(p string, n *yaml.Node) {
 	if o, ok := backstage.OwnerFromRef(n.Value); ok {
-		r.ownerField(p, p, n.Line, rankCatalog, o.Team+o.DRI, o.DRI != "")
+		k, _ := o.Key() // OwnerFromRef sets exactly one of Team and DRI
+		r.ownerField(p, p, n.Line, rankCatalog, k.Value, k.Kind == contract.OwnerKindDRI)
 	}
 }
 

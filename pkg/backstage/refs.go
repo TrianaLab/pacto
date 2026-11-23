@@ -1,14 +1,10 @@
 package backstage
 
 import (
-	"regexp"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
-
-// domainPattern is the slug a business domain must be.
-var domainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 // EntityRef splits the Backstage entity reference ref, [kind:][namespace/]name,
 // into its kind, lowercased, and its name, which keeps a namespace other than
@@ -40,7 +36,7 @@ func OwnerFromRef(ref string) (contract.Owner, bool) {
 func DomainFromRef(ref string) (string, bool) {
 	_, name := EntityRef(ref)
 	domain := contract.SanitizeName(name)
-	if !domainPattern.MatchString(domain) || len(domain) > maxName {
+	if !contract.ValidSlug(domain) {
 		return "", false
 	}
 	return domain, true
