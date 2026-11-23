@@ -386,9 +386,8 @@ func isExtensionReport(set evidence.EvidenceSet) bool {
 // and every observation names an extension capability c declares.
 // ValidateEvidenceSet already refused a ref named twice.
 func checkExtensionReport(c contract.Contract, set evidence.EvidenceSet, acceptedAt time.Time) error {
-	repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
-	rest, under := strings.CutPrefix(set.Subject.Name, repo+"/")
-	if !under || !hasInnerSegment(rest, "extension") {
+	if !extensionSubject(set) {
+		repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
 		return fmt.Errorf("extension subject %q must sit under the contract repository with an /extension/ segment, such as %s<environment>/extension/<name>", set.Subject.Name, repo+"/")
 	}
 	if set.ObservedAt.After(acceptedAt.Add(fleet.MaxProvisioningClockSkew)) {
@@ -402,6 +401,30 @@ func checkExtensionReport(c contract.Contract, set evidence.EvidenceSet, accepte
 		}
 	}
 	return nil
+}
+
+// extensionSubject reports whether set's subject sits under its contract
+// repository with an "extension" segment.
+func extensionSubject(set evidence.EvidenceSet) bool {
+	repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
+	rest, under := strings.CutPrefix(set.Subject.Name, repo+"/")
+	return under && hasInnerSegment(rest, "extension")
+}
+
+// extensionGranted re-applies the accept-time binding of an extension report
+// to a stored record: its subject passes the extension subject rule and the
+// signing key's current trust entry grants every ref it reports. A record
+// stored before extension grants existed, or after its grant was revoked,
+// never reads as a verdict.
+func (a *Acceptor) extensionGranted(rec Record) bool {
+	set := rec.Envelope.EvidenceSet
+	if a.trust == nil || !extensionSubject(set) {
+		return false
+	}
+	entry, ok := a.trust.Entry(rec.Envelope.Producer.KeyID)
+	return ok && !slices.ContainsFunc(set.Observations, func(o evidence.Observation) bool {
+		return !slices.Contains(entry.ExtensionRefs, o.Subject.Name)
+	})
 }
 
 // isResourceReport reports whether set carries provider-reported observations
@@ -961,12 +984,19 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 	// reports cannot grow the response past the bound targets alone respect.
 	budget := h.maxTargets
 	for _, rec := range res.Records {
-		// Only a record whose every observation is an extension one is an
-		// extension report; a record that mixed one with runtime kinds before
-		// extension grants existed stays a target.
-		if isExtensionReport(rec.Envelope.EvidenceSet) {
-			budget = appendExtensionReports(&out, rec, budget)
-			continue
+		// Only a record whose every observation is an extension one, under an
+		// extension subject, from a key granted each ref is an extension
+		// report. A record a runtime key stored before extension grants existed
+		// (mixed, or under a runtime subject) stays a target; one under an
+		// extension subject whose grant is gone is dropped.
+		if es := rec.Envelope.EvidenceSet; isExtensionReport(es) {
+			if h.acceptor.extensionGranted(rec) {
+				budget = appendExtensionReports(&out, rec, budget)
+				continue
+			}
+			if extensionSubject(es) {
+				continue
+			}
 		}
 		if isResourceReport(rec.Envelope.EvidenceSet) {
 			budget = appendResourceReports(&out, rec, budget)

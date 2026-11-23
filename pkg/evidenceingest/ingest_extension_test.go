@@ -170,6 +170,9 @@ func TestHasInnerSegment(t *testing.T) {
 	}
 }
 
+// extTrust grants extRecord's key both refs it reports.
+var extTrust = evidenceenvelope.MapTrustStore{"acme-backup-2026": {ProducerID: "acme-backup", ExtensionRefs: []string{backupRef, "x.acme.io/scan"}}}
+
 // extRecord is an accepted extension record about backupRef (with details) and
 // x.acme.io/scan (Failed), accepted in cluster.
 func extRecord(cluster string) Record {
@@ -215,7 +218,7 @@ func TestHandleTargetsProjectsExtensions(t *testing.T) {
 // TestHandleTargetsExtensionsShareBudget: the extension DTOs share the targets
 // budget and its truncation flag.
 func TestHandleTargetsExtensionsShareBudget(t *testing.T) {
-	h := NewHandler(NewAcceptor(nil, fakeResolver{}, healthStore{recs: []Record{extRecord(""), clusterRecord("payments", "")}, health: SourceHealth{Status: HealthReady}}, fixedNow), nil, nil)
+	h := NewHandler(NewAcceptor(extTrust, fakeResolver{}, healthStore{recs: []Record{extRecord(""), clusterRecord("payments", "")}, health: SourceHealth{Status: HealthReady}}, fixedNow), nil, nil)
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)
@@ -241,6 +244,48 @@ func TestHandleTargetsMixedRecordStaysTarget(t *testing.T) {
 	if strings.Contains(body, `"extensions"`) || !strings.Contains(body, `"schemaVersion":"`+TargetsSchemaVersion+`"`) ||
 		!strings.Contains(body, `"subject":"ghcr.io/a/orders/production/extension/backup"`) {
 		t.Errorf("a mixed record stays a v2 target: %s", body)
+	}
+}
+
+// TestHandleTargetsUngrantedExtensionRecord: a stored record of extension
+// observations reads as an extension report only under an extension subject
+// from a key the current trust entry grants every ref. A runtime key's record
+// stored before extension grants existed stays a target; one whose grant was
+// revoked is dropped.
+func TestHandleTargetsUngrantedExtensionRecord(t *testing.T) {
+	runtimeSubject := extRecord("")
+	runtimeSubject.Envelope.EvidenceSet.Subject.Name = "edge-eu"
+	ungranted := extRecord("")
+	ungranted.Envelope.Producer = evidenceenvelope.Producer{ID: "edge-1", KeyID: "edge-1"}
+	ungrantedRuntime := ungranted
+	ungrantedRuntime.Envelope.EvidenceSet.Subject.Name = "edge-eu"
+	partial := extRecord("")
+	partial.Envelope.Producer.KeyID = "acme-backup-scan-revoked"
+	trust := evidenceenvelope.MapTrustStore{
+		"acme-backup-2026":         extTrust["acme-backup-2026"],
+		"edge-1":                   {ProducerID: "edge-1", AllowedObservationKinds: []string{string(evidence.CapabilityObserved)}},
+		"acme-backup-scan-revoked": {ProducerID: "acme-backup", ExtensionRefs: []string{backupRef}},
+	}
+	for name, tc := range map[string]struct {
+		rec                 Record
+		extensions, targets int
+	}{
+		"granted":                            {extRecord(""), 2, 0},
+		"granted key, runtime subject":       {runtimeSubject, 0, 1},
+		"ungranted key, runtime subject":     {ungrantedRuntime, 0, 1},
+		"ungranted key, extension subject":   {ungranted, 0, 0},
+		"one ref revoked, extension subject": {partial, 0, 0},
+	} {
+		h := NewHandler(NewAcceptor(trust, fakeResolver{}, healthStore{recs: []Record{tc.rec}, health: SourceHealth{Status: HealthReady}}, fixedNow), nil, nil)
+		mux := http.NewServeMux()
+		h.Routes(mux)
+		srv := httptest.NewServer(mux)
+		var b TargetsResponse
+		getJSON(t, srv.URL+TargetsPath, &b)
+		srv.Close()
+		if len(b.Extensions) != tc.extensions || len(b.Targets) != tc.targets {
+			t.Errorf("%s: extensions %d targets %d, want %d and %d", name, len(b.Extensions), len(b.Targets), tc.extensions, tc.targets)
+		}
 	}
 }
 
