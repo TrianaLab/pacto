@@ -72,12 +72,15 @@ func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
 	return append([]Entity{c}, apis...)
 }
 
-// serviceFacts records on ann the offering s provides and, for a service
+// serviceFacts records on ann the offering s provides, its conformance and, for a service
 // only a producer's contribution describes, the producer, marking the
 // Component partial when that contribution is stale.
 func serviceFacts(s *fleet.ServiceRecord, ann map[string]string) {
 	if s.Offering != "" {
 		ann[AnnotationOffering] = s.Offering
+	}
+	if s.Status != "" {
+		ann[AnnotationConformance] = s.Status
 	}
 	if s.Contribution == nil {
 		return

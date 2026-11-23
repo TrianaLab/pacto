@@ -170,7 +170,7 @@ adds `pacto.trianalab.io/caller-ambiguous: "true"` and is `partial`.
 |---|---|
 | `pacto.trianalab.io/provenance` | How Pacto knows the entity: `declared`, `observed`, `declared+observed` or `inferred` |
 | `pacto.trianalab.io/as-of` | When the snapshot was built |
-| `pacto.trianalab.io/completeness` | `complete` or `partial` |
+| `pacto.trianalab.io/completeness` | `complete` or `partial`. A stale contribution (older than the freshness window, of unknown age, or with a newer version refused) reads `partial` on its Component |
 | `pacto.trianalab.io/service-key` | The full service key |
 | `pacto.trianalab.io/owner-provenance` | Where the owner comes from: `declared`, `declared-via-target`, `attested` or `inferred` |
 | `pacto.trianalab.io/owner` | The raw owner when it is not a valid Backstage name |
@@ -181,6 +181,10 @@ adds `pacto.trianalab.io/caller-ambiguous: "true"` and is `partial`.
 | `pacto.trianalab.io/name-source` | Where an inferred name came from |
 | `pacto.trianalab.io/relation-provenance` | Provenance of each `dependsOn` ref |
 | `pacto.trianalab.io/inferred-depends-on` | Edges Pacto only inferred |
+| `pacto.trianalab.io/dependency-ranges` | JSON: for each `dependsOn` ref, the ranges its contract accepts and whether the provider version Pacto sees satisfies each: `satisfied`, `unsatisfied` or `unknown`. A range Pacto could not evaluate reads `unknown`, never absent |
+| `pacto.trianalab.io/conformance` | Runtime conformance of the service in your view: `Compliant`, `Warning`, `Unknown`, `NonCompliant`, `Invalid`, `Reference` or `NotEvaluated` |
+| `pacto.trianalab.io/offering` | The platform offering the Component provides |
+| `pacto.trianalab.io/contributed-by` | The producer whose contribution alone describes an inferred Component |
 | `pacto.trianalab.io/hidden-relations` | How many relations your view hides |
 | `pacto.trianalab.io/unresolved-dependencies` | How many declared dependencies, configuration or policy references did not resolve |
 | `pacto.trianalab.io/external-key` | The external system's key |
@@ -210,6 +214,8 @@ metadata:
   annotations:
     pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
     pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/conformance: NotEvaluated
+    pacto.trianalab.io/dependency-ranges: '{"component:default/event-bus":[{"range":"^3.6.0","rangeStatus":"satisfied"}],"component:default/inventory-service":[{"range":"^2.1.0","rangeStatus":"unknown"}],"component:default/shipping-rates":[{"range":"^1.0.0","rangeStatus":"unknown"}]}'
     pacto.trianalab.io/owner-provenance: declared
     pacto.trianalab.io/provenance: declared
     pacto.trianalab.io/relation-provenance: component:default/event-bus=declared,component:default/inventory-service=declared,component:default/shipping-rates=declared

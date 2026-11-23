@@ -50,7 +50,15 @@ const (
 	AnnotationOffering = "pacto.trianalab.io/offering"
 	// AnnotationContributedBy names the producer whose contribution alone
 	// describes an inferred Component.
-	AnnotationContributedBy   = "pacto.trianalab.io/contributed-by"
+	AnnotationContributedBy = "pacto.trianalab.io/contributed-by"
+	// AnnotationDependencyRanges is JSON: for each spec.dependsOn ref, the
+	// distinct ranges in-use revisions declare with the fleet's range status
+	// (satisfied, unsatisfied or unknown) and reason. An empty status reads
+	// unknown, never absent.
+	AnnotationDependencyRanges = "pacto.trianalab.io/dependency-ranges"
+	// AnnotationConformance is the service's runtime conformance in the
+	// reader's view: one of the fleet's Status values.
+	AnnotationConformance     = "pacto.trianalab.io/conformance"
 	AnnotationCallerAmbiguous = "pacto.trianalab.io/caller-ambiguous"
 	// AnnotationSource says how Pacto learned an entity it did not read from
 	// a contract: workload on an inferred Component, the evidence kinds on a
