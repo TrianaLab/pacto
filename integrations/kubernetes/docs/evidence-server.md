@@ -227,8 +227,8 @@ longer trusted. The chart accepts only a `.yaml` or `.yml` key.
 
 The targets endpoint answers with schema `pacto.dev/evidence-source/v6` and an
 `extensions` list when it holds extension capability reports, and with
-`pacto.dev/evidence-source/v5` when it carries a cluster, which the operator passes, so upgrade older readers that
-accept only v2 to v4. Without a cluster it answers with
+`pacto.dev/evidence-source/v5` when it carries a cluster, which the operator
+passes, so upgrade older readers that accept only v2 to v5. Without a cluster it answers with
 `pacto.dev/evidence-source/v4` and a `usage` list when it holds usage reports, with
 `pacto.dev/evidence-source/v3` and a `provisioning` list when it holds only
 provisioning reports, and with `pacto.dev/evidence-source/v2` otherwise, so an
