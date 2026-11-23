@@ -74,11 +74,16 @@
   // cannot see, or nobody yet. Routing to the default approvers grants no right, so
   // the Claim button follows canDeclare and the plan's refusal, never the routing.
   const claim = $derived(rec.claim ?? null);
-  const claimable = $derived(canDeclare && rec.class !== 'other-egress' && !claim?.hidden);
+  // More than one claim: none counts, and only retracting settles it, so no Claim button.
+  const claimants = $derived(rec.claimants ?? 0);
+  const claimable = $derived(canDeclare && rec.class !== 'other-egress' && !claim?.hidden && claimants < 2);
   let claimToggled = $state(null);
   const claimOpen = $derived(claimToggled ?? !!declareQuery.open);
   const ROUTING = "Routed to the installation's default approvers (routing only; it grants no right)";
-  const claimTip = $derived(claim ? `Declared by ${claim.by || 'an unnamed person'}${claim.ref ? `; revision ${claim.ref}` : ''}` : '');
+  // The claim was established by one person at one version; the newest revision may be a later publish.
+  const claimTip = $derived(claim ? `Claim established by ${claim.by || 'an unnamed person'}${claim.declaredVersion ? ` at ${claim.declaredVersion}` : ''}${claim.ref ? `; newest revision ${claim.ref}` : ''}` : '');
+  // The owner as its canonical key names it: a DRI-only owner is dri:<name>, never team:<name>.
+  const claimOwner = $derived(claim?.owner ? (claim.ownerKey?.startsWith('dri:') ? { dri: claim.owner } : { team: claim.owner }) : null);
   const claimer = $derived(claim?.service ? serviceKeyName(claim.service) : '');
   const consumerUse = (c) => (c.provenance === 'observed' ? 'observed only' : c.provenance === 'inferred' ? 'inferred only' : c.required ? 'required' : 'optional');
 </script>
@@ -95,10 +100,12 @@
     <section class="xe-section" id="sec-owner" data-toc="Owner" aria-labelledby="xe-owner-h" data-testid="external-owner">
       <h2 id="xe-owner-h" class="t-section-title">Owner</h2>
       <div class="xe-owner">
-        {#if claim?.hidden}
+        {#if claimants > 1}
+          <p class="t-body-2" data-testid="external-owner-claimants">Claimed by {claimants} services, so no claim counts until all but one are retracted</p>
+        {:else if claim?.hidden}
           <p class="t-body-2" data-testid="external-owner-hidden">Claimed by a service you cannot see</p>
         {:else if claim}
-          <p class="t-body-2 xe-wrap" data-testid="external-owner-claimed">{#if claim.owner}<OwnerLink owner={{ team: claim.owner }} />{:else}No verified owner{/if}, claimed by <a href={fleetEntityUrl('service', claim.service)} title={claimer}><bdi>{claimer}</bdi></a> <bdi>{claim.version}</bdi> <ProvenanceMark label="About this claim" text={claimTip} /></p>
+          <p class="t-body-2 xe-wrap" data-testid="external-owner-claimed">{#if claimOwner}<OwnerLink owner={claimOwner} />{:else}No verified owner{/if}, claimed by <a href={fleetEntityUrl('service', claim.service)} title={claimer}><bdi>{claimer}</bdi></a> <bdi>{claim.version}</bdi> <ProvenanceMark label="About this claim" text={claimTip} /></p>
         {:else}
           <p class="t-body-2" data-testid="external-owner-unclaimed">Unclaimed <ProvenanceMark label="Who it is routed to" text={ROUTING} /></p>
         {/if}

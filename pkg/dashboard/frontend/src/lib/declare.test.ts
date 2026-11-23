@@ -88,12 +88,12 @@ describe('claims', () => {
     expect(claimId('default/k8s:shop/Deployment/cart')).toBe('');
   });
   it('requires an owner and checks the team and name patterns', () => {
-    expect(claimFieldError('', '')).toBe('Name the team that owns it');
-    expect(claimFieldError('team platform', '')).toMatch(/^A team uses/);
-    expect(claimFieldError('x'.repeat(254), '')).toMatch(/^A team uses/);
-    expect(claimFieldError('team-platform', 'Payments')).toMatch(/^A service name uses/);
-    expect(claimFieldError('team-platform', 'a'.repeat(64))).toMatch(/^A service name uses/);
-    expect(claimFieldError('org/team-platform', 'payments-stripe')).toBe('');
-    expect(claimFieldError('team-platform', '')).toBe('');
+    expect(claimFieldError('', '')).toEqual({ field: 'owner', message: 'Name the team that owns it' });
+    expect(claimFieldError('team platform', '').message).toMatch(/^A team uses/);
+    expect(claimFieldError('x'.repeat(254), '').field).toBe('owner');
+    expect(claimFieldError('team-platform', 'Payments')).toEqual({ field: 'name', message: expect.stringMatching(/^A service name uses/) });
+    expect(claimFieldError('team-platform', 'a'.repeat(64)).field).toBe('name');
+    expect(claimFieldError('org/team-platform', 'payments-stripe')).toEqual({ field: '', message: '' });
+    expect(claimFieldError('team-platform', '').message).toBe('');
   });
 });

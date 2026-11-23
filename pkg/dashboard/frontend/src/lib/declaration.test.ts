@@ -60,6 +60,11 @@ describe('declarationNote', () => {
     expect(note).toContain('The cluster read could not see 2 services and 3 callers.');
     expect(note).toContain('never clear a gate');
   });
+  it('says nothing of cluster facts for a claim of an external system, which reads no cluster', () => {
+    const note = declarationNote({ declaration: { state: 'declared', signatureChecked: true, signer, inferredFrom: 'external:aws/rds/eu-west-1/orders-db' } });
+    expect(note).toContain('Signed by ana@acme.com');
+    expect(note).not.toContain('Cluster facts');
+  });
   it('says the claimed subject only as a claim when the signature was not checked', () => {
     const note = declarationNote(unverified);
     expect(note).toContain('Claims mallory@evil.example; signature not checked or not by that signer.');

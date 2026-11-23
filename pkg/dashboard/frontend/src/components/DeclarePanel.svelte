@@ -161,7 +161,7 @@
   function planClaim(e) {
     e.preventDefault();
     claimTouched = true;
-    if (claimError || loading) return;
+    if (claimError.message || loading) return;
     reset();
     load({ fromDraft: draft || undefined });
   }
@@ -197,10 +197,10 @@
 <div class="dp" data-testid="declare">
   {#if claim}
     <form class="dp-claim" onsubmit={planClaim} novalidate data-testid="claim-fields">
-      <label class="dp-field"><span>Owner team</span><input class="input" bind:value={owner} required maxlength="253" autocomplete="off" aria-invalid={claimTouched && !!claimError ? 'true' : undefined} aria-describedby="dp-claim-error" data-testid="claim-owner" /></label>
-      <label class="dp-field"><span>Service name <span class="t-meta">(optional)</span></span><input class="input" bind:value={name} maxlength="63" autocomplete="off" placeholder={claimedName || claim.split('/').pop()} data-testid="claim-name" /></label>
+      <label class="dp-field"><span>Owner team</span><input class="input" bind:value={owner} required maxlength="253" autocomplete="off" aria-invalid={claimTouched && claimError.field === 'owner' ? 'true' : undefined} aria-describedby="dp-claim-error" data-testid="claim-owner" /></label>
+      <label class="dp-field"><span>Service name <span class="t-meta">(optional)</span></span><input class="input" bind:value={name} maxlength="63" autocomplete="off" placeholder={claimedName || claim.split('/').pop()} aria-invalid={claimTouched && claimError.field === 'name' ? 'true' : undefined} aria-describedby="dp-claim-error" data-testid="claim-name" /></label>
       <button type="submit" class="btn btn-sm" aria-disabled={loading ? 'true' : undefined} data-testid="claim-plan">Show the plan</button>
-      <p class="t-meta dp-p" id="dp-claim-error" role={claimTouched && claimError ? 'alert' : undefined}>{claimTouched ? claimError : ''}</p>
+      <p class="t-meta dp-p" id="dp-claim-error" role={claimTouched && claimError.message ? 'alert' : undefined}>{claimTouched ? claimError.message : ''}</p>
     </form>
   {/if}
   {#if loading && !answer}
@@ -253,6 +253,9 @@
           {/if}
           {#if writes && !draft && !answer.noDraft}
             <button type="button" class="btn btn-sm" aria-disabled={busy || loading ? 'true' : undefined} onclick={() => send('draft')} data-testid="declare-save-draft">Save draft</button>
+          {:else if answer.noDraft && !signHref && !(backSigned && writes)}
+            <!-- Why this host saves no draft, when nothing else here acts: the row is never silent. -->
+            <p class="t-meta dp-p" data-testid="declare-no-draft">{answer.noDraft}</p>
           {:else if !write.available}
             <p class="t-meta dp-p" data-testid="declare-no-write">{write.reason}</p>
           {/if}

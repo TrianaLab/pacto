@@ -208,13 +208,14 @@ describe('ExternalEntity owner', () => {
   });
 
   it('names the owner and the claiming service, with who declared it in the mark', () => {
-    const t = render({ claim: { service: 'payments-stripe', version: '0.2.0', owner: 'team-platform', by: 'ana@acme.com', ref: 'ghcr.io/acme/payments-stripe@sha256:abc' } }, { canDeclare: true });
+    const t = render({ claim: { service: 'payments-stripe', version: '0.2.0', declaredVersion: '0.1.0', owner: 'team-platform', ownerKey: 'team:team-platform', by: 'ana@acme.com', ref: 'ghcr.io/acme/payments-stripe@sha256:abc' } }, { canDeclare: true });
     const line = t.querySelector('[data-testid="external-owner-claimed"]');
     expect(line?.textContent?.replace(/\s+/g, ' ')).toContain('team-platform, claimed by payments-stripe 0.2.0');
     expect(line?.querySelector('a[href="#/owners/team%3Ateam-platform"]')).toBeTruthy();
     expect(line?.querySelector('a[href="#/fleet/services/payments-stripe"]')?.getAttribute('title')).toBe('payments-stripe');
     expect(tip(t as HTMLElement)).toBeTruthy();
-    expect(line?.innerHTML).toContain('Declared by ana@acme.com');
+    // The claim names the version it was established at, apart from the newest revision.
+    expect(line?.innerHTML).toContain('Claim established by ana@acme.com at 0.1.0; newest revision ghcr.io/acme/payments-stripe@sha256:abc');
     // A claim again opens the panel with the claimed name.
     (t.querySelector('[data-testid="external-claim"]') as HTMLButtonElement).click();
     flushSync();
@@ -224,7 +225,21 @@ describe('ExternalEntity owner', () => {
   it('says when the claiming service has no verified owner', () => {
     const t = render({ claim: { service: 'payments-stripe', version: '0.2.0' } });
     expect(t.querySelector('[data-testid="external-owner-claimed"]')?.textContent).toContain('No verified owner');
-    expect(t.querySelector('[data-testid="external-owner-claimed"]')?.innerHTML).toContain('Declared by an unnamed person');
+    expect(t.querySelector('[data-testid="external-owner-claimed"]')?.innerHTML).toContain('Claim established by an unnamed person');
+  });
+
+  it('links a DRI-only owner by its dri key', () => {
+    const t = render({ claim: { service: 'payments-stripe', version: '0.2.0', owner: 'alice', ownerKey: 'dri:alice' } });
+    const line = t.querySelector('[data-testid="external-owner-claimed"]');
+    expect(line?.querySelector('a[href="#/owners/dri%3Aalice"]')).toBeTruthy();
+    expect(line?.querySelector('a[href="#/owners/team%3Aalice"]')).toBeNull();
+  });
+
+  it('says more than one claim counts as none, with no Claim button', () => {
+    const t = render({ claimants: 2 }, { canDeclare: true });
+    expect(t.querySelector('[data-testid="external-owner-claimants"]')?.textContent).toBe('Claimed by 2 services, so no claim counts until all but one are retracted');
+    expect(t.querySelector('[data-testid="external-owner-unclaimed"]')).toBeNull();
+    expect(t.querySelector('[data-testid="external-claim"]')).toBeNull();
   });
 
   it('shows a claim the caller cannot see with no Claim button', () => {

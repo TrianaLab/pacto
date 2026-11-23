@@ -457,10 +457,13 @@ export function installScaleFixture(): void {
     }
     // 'external entity, claimed' (517-S5): the Owner block at its longest, a 63-character
     // owner and claiming service.
-    if (route === '/api/fleet/entities/external' && (window as unknown as { __externalClaimed?: boolean }).__externalClaimed) {
+    // 'external entity, claimed, no verified owner': the same claim with no owner.
+    const claimed = (window as unknown as { __externalClaimed?: boolean | 'ownerless' }).__externalClaimed;
+    if (route === '/api/fleet/entities/external' && claimed) {
       const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
       const name = `payments-${'stripe-gateway-'.repeat(5)}`.slice(0, 63).replace(/-+$/, '');
-      rec.claim = { service: name, version: '0.12.0', owner: `team-${'platform-'.repeat(8)}`.slice(0, 63).replace(/-+$/, ''),
+      const owner = `team-${'platform-'.repeat(8)}`.slice(0, 63).replace(/-+$/, '');
+      rec.claim = { service: name, version: '0.12.0', declaredVersion: '0.1.0', ...(claimed === 'ownerless' ? {} : { owner, ownerKey: `team:${owner}` }),
         by: `${longName('ana')}@acme.example`, ref: `ghcr.io/${longName('acme')}/${name}@sha256:${'c1'.repeat(32)}` };
     }
     // 'external entity, inferred contract' (517-S3): the provider block at its longest, a
@@ -1215,7 +1218,7 @@ export function installScaleFixture(): void {
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' | 'external'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1559,6 +1562,15 @@ export function installScaleFixture(): void {
     if (flags.__pactoClusterFacts === 'dropped') {
       Object.assign(rev, { inferred: [], inferredTotal: 0,
         declaration: { state: 'declared', signatureChecked: false, claimedSubject: `${'mallory'.repeat(10)}@unverified.example.com`, inferredFromHidden: true } });
+      return;
+    }
+    if (flags.__pactoClusterFacts === 'external') {
+      // 517-S5: a claim of an external system with a 200-character managed-cloud
+      // identity, so the linked 'from external <id>' line wraps; a claim reads no cluster.
+      const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+      Object.assign(rev, { inferred: [], inferredTotal: 0,
+        declaration: { state: 'declared', signatureChecked: true, signer: { subject: `${'ana'.repeat(25)}@acme.example.com`, issuer: 'https://accounts.google.com', class: 'human' },
+          inferredFrom: `external:${id}` } });
       return;
     }
     if (flags.__pactoClusterFacts === 'notAllowed') {
@@ -2704,6 +2716,17 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    // 517-S5: a revision declared by a claim of an external system, its 200-character
+    // identity linked to the External page. Reload: the flag is read per answer.
+    name: 'revision entity, external claim',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __pactoClusterFacts?: string }).__pactoClusterFacts = 'external'; });
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      await page.reload();
+      await expect(page.getByTestId('inferred-declaration').locator('a[href^="#/fleet/externals/aws"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
     // pacto ci raised the authored pactoVersion in memory: muted text, behind badge and
     // the provenance mark that ends the row. Reload: the init script runs on a new document.
     name: 'revision entity, migrated contract',
@@ -3247,6 +3270,7 @@ export const ROUTES: Route[] = [
   { name: 'sources, multi-cluster scope', list: true, open: openMultiCluster('#/fleet/sources', '[data-testid="source-clusters"]') },
   // 517-S5: the External page's Owner block claimed, unclaimed with its Claim button
   // (the demo plans claims), the Claim panel planned and refused.
+  { name: 'external entity, claimed, no verified owner', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalClaimed?: string }).__externalClaimed = 'ownerless'; }); await page.goto('/#/fleet/externals/stripe'); await page.reload(); await expect(page.getByTestId('external-owner-claimed')).toContainText('No verified owner', { timeout: 30_000 }); } },
   { name: 'external entity, claimed', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalClaimed?: boolean }).__externalClaimed = true; }); await page.goto('/#/fleet/externals/stripe'); await page.reload(); await expect(page.getByTestId('external-owner-claimed')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
   { name: 'external entity, unclaimed with claim', open: async (page) => { await page.goto('/#/fleet/externals/stripe'); await expect(page.getByTestId('external-claim')).toBeVisible({ timeout: 30_000 }); } },
   { name: 'external entity, claim panel', open: claimRoute('') },

@@ -359,6 +359,34 @@ describe('DeclarePanel claim', () => {
     expect(q('[data-testid="declare-ranges"]')).toBeNull();
   });
 
+  it('marks only the name invalid when the name is the bad field, and ties the error to both inputs', async () => {
+    planFn.mockResolvedValue(claimAnswer());
+    await open();
+    type('claim-owner', 'team-a');
+    type('claim-name', 'Stripe_X');
+    submit();
+    expect(planFn).not.toHaveBeenCalled();
+    const ownerEl = q('[data-testid="claim-owner"]') as HTMLInputElement;
+    const nameEl = q('[data-testid="claim-name"]') as HTMLInputElement;
+    expect(nameEl.getAttribute('aria-invalid')).toBe('true');
+    expect(ownerEl.getAttribute('aria-invalid')).toBeNull();
+    expect(nameEl.getAttribute('aria-describedby')).toBe('dp-claim-error');
+    expect(ownerEl.getAttribute('aria-describedby')).toBe('dp-claim-error');
+    type('claim-owner', '');
+    expect(ownerEl.getAttribute('aria-invalid')).toBe('true');
+    expect(nameEl.getAttribute('aria-invalid')).toBeNull();
+  });
+
+  it('says why no draft is saved when nothing else on the row acts', async () => {
+    planFn.mockResolvedValue(claimAnswer({ signing: { mode: 'none', reason: 'you signed in with a token' }, noDraft: 'a shared dashboard claims only with your own signature' }));
+    await open();
+    type('claim-owner', 'team-platform');
+    submit();
+    await vi.waitFor(() => expect(q('[data-testid="declare-signer"]')).toBeTruthy());
+    expect(text(q('[data-testid="declare-no-draft"]'))).toBe('a shared dashboard claims only with your own signature');
+    expect(q('[data-testid="declare-save-draft"]')).toBeNull();
+  });
+
   it('prefills the claimed name and offers only signing on a host that saves no claim draft', async () => {
     planFn.mockResolvedValue(claimAnswer({ ...FRESH, noDraft: 'a shared dashboard claims only with your own signature' }));
     await open({ claimedName: 'payments-stripe' });
@@ -367,6 +395,7 @@ describe('DeclarePanel claim', () => {
     submit();
     await vi.waitFor(() => expect(q('[data-testid="declare-sign"]')).toBeTruthy());
     expect(q('[data-testid="declare-save-draft"]')).toBeNull();
+    expect(q('[data-testid="declare-no-draft"]')).toBeNull();
     (q('[data-testid="declare-sign"]') as HTMLAnchorElement).click();
     expect(JSON.parse(sessionStorage.getItem('pacto-claim:sha256:i1') ?? 'null')).toEqual({ owner: 'team-platform', name: 'payments-stripe' });
   });

@@ -79,6 +79,11 @@ test.describe('claim an external system', () => {
     await expect(owner.getByTestId('external-owner-claimed')).toContainText('team-platform', { timeout: T });
     await expect(owner.getByTestId('external-owner-claimed')).toContainText('0.1.0');
 
+    // The claimed revision links back to the external system it claims.
+    await owner.getByTestId('external-owner-claimed').getByRole('link', { name: 'stripe', exact: true }).click();
+    await page.locator('a[href*="/fleet/revisions/"]').first().click();
+    await expect(page.getByTestId('inferred-declaration').getByRole('link')).toHaveAttribute('href', '#/fleet/externals/stripe', { timeout: T });
+
     // A claimed stripe is no longer routed.
     await page.goto('/#/fleet/attention?category=unowned');
     const routed = page.getByTestId('fleet-map-rail-item').filter({ hasText: 'External system has no owner' });

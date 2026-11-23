@@ -70,7 +70,8 @@ export function declarationNote(r: DeclaredRevision): string {
     d.inferredFromHidden ? `From ${HIDDEN}${left ? `; ${left}` : ''}.` : left ? `${left}: they name a service you may not read.` : '',
     claims && !d.signer ? `The record claims: ${claims}` : claims,
     seen.length ? `The cluster read could not see ${joinAnd(seen)}.` : '',
-    'Cluster facts are inferred and never clear a gate.',
+    // A claim of an external system reads no cluster, so it has no cluster facts.
+    d.inferredFrom?.startsWith(EXTERNAL) ? '' : 'Cluster facts are inferred and never clear a gate.',
   ];
   return parts.filter(Boolean).join(' ');
 }
