@@ -1,6 +1,7 @@
 package backstage
 
 import (
+	"cmp"
 	"slices"
 	"strconv"
 	"strings"
@@ -79,9 +80,9 @@ func serviceFacts(s *fleet.ServiceRecord, ann map[string]string) {
 	if s.Offering != "" {
 		ann[AnnotationOffering] = s.Offering
 	}
-	if s.Status != "" {
-		ann[AnnotationConformance] = s.Status
-	}
+	// A service inferred from a workload carries no computed status: it reads
+	// Unknown, never absent and never positive.
+	ann[AnnotationConformance] = cmp.Or(s.Status, fleet.StatusUnknown)
 	if s.Contribution == nil {
 		return
 	}

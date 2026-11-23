@@ -150,6 +150,14 @@ func TestConformanceNoTargetNeverCompliant(t *testing.T) {
 		t.Errorf("declared, no target: conformance = %q", got)
 	}
 	if got := byKey(t, es, ctbKey("legacy-billing")).Metadata.Annotations[AnnotationConformance]; got != fleet.StatusUnknown {
-		t.Errorf("inferred, no target: conformance = %q", got)
+		t.Errorf("contributed, no target: conformance = %q", got)
+	}
+	// A service inferred from a workload alone has no computed status.
+	inferred := inferredComponents(mapCols(t, &fleet.Collection{InferredServices: []fleet.RawInferredService{{Namespace: "shop", Kind: "Deployment", Name: "cart"}}}))
+	if len(inferred) != 1 {
+		t.Fatalf("%d inferred components, want 1", len(inferred))
+	}
+	if got := inferred[0].Metadata.Annotations[AnnotationConformance]; got != fleet.StatusUnknown {
+		t.Errorf("workload-inferred, no target: conformance = %q", got)
 	}
 }
