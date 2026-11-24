@@ -432,7 +432,9 @@ func TestManagedIncompleteRowLowersCompleteness(t *testing.T) {
 	m, _ = q.Map(MapQuery{})
 	v, _ = q.GetExternal(ordersDBID)
 	if m.Match.Completeness != CompletenessPartial || v.Meta.Completeness != CompletenessPartial ||
-		!slices.ContainsFunc(v.Meta.Limitations, func(l Limitation) bool { return l.Code == LimitationSourcePartial && strings.Contains(l.Message, "Managed resources is partial") }) {
+		!slices.ContainsFunc(v.Meta.Limitations, func(l Limitation) bool {
+			return l.Code == LimitationSourcePartial && strings.Contains(l.Message, "Managed resources is partial")
+		}) {
 		t.Fatalf("map %s external %+v", m.Match.Completeness, v.Meta)
 	}
 	if o := q.Overview().Summary.Match; o.Completeness != CompletenessPartial {
