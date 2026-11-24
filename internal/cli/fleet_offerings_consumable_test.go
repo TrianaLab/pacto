@@ -3,11 +3,16 @@ package cli
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 	"testing/fstest"
 
 	"github.com/spf13/cobra"
+	"k8s.io/client-go/rest"
+
+	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -22,7 +27,7 @@ const consumablePGSchema = `{"type":"object","additionalProperties":false,"requi
 // consumableQuery is a fleet of postgresql, a provider accepted under a
 // publisher rule with a closed schema, and redis, a provider no source
 // checked, so the consumable answer lists postgresql and is partial.
-func consumableQuery(t *testing.T) *fleet.Query {
+func consumableQuery(t *testing.T, extra ...fleet.Source) *fleet.Query {
 	t.Helper()
 	rev := func(name, version, offering string, prov *fleet.BundleProvenance) fleet.RawRevision {
 		c := &contract.Contract{PactoVersion: "2.4", Workload: contract.WorkloadService,
@@ -35,8 +40,9 @@ func consumableQuery(t *testing.T) *fleet.Query {
 	pg.Bundle.Contract.Configurations = []contract.Configuration{{Name: "db", Schema: "configuration/schema.json", Required: true}}
 	pg.Bundle.Contract.Interfaces = []contract.Interface{{Name: "sql", Type: "http", Guarantees: &contract.Guarantees{Timeout: "5s"}}}
 	pg.Bundle.FS = fstest.MapFS{"configuration/schema.json": {Data: []byte(consumablePGSchema)}}
-	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci",
-		&fleet.Collection{Revisions: []fleet.RawRevision{pg, rev("redis", "7.0.0", "redis", nil)}}))
+	srcs := append([]fleet.Source{fleet.NewMemorySource("oci", "oci",
+		&fleet.Collection{Revisions: []fleet.RawRevision{pg, rev("redis", "7.0.0", "redis", nil)}})}, extra...)
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, srcs...)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -131,4 +137,37 @@ func TestFleetOfferingsConsumablePartialSaysUnknown(t *testing.T) {
 	wantLines(t, got, "No consumable offerings read: the answer is partial, so whether there are any is unknown")
 	ans.Completeness = fleet.CompletenessComplete
 	wantLines(t, textOf(t, func(cmd *cobra.Command) error { return printFleetOfferings(cmd, ans, "consumable", "", "text") }), "No consumable offerings\n")
+}
+
+// TestMCPFleetViewConsumableHidesProviders: a signed-in HTTP MCP caller's
+// consumable answer comes from mcpFleetView's per-cluster review, so a
+// provider that runs only where the caller may not read is never named.
+func TestMCPFleetViewConsumableHidesProviders(t *testing.T) {
+	h := &hostClusters{allow: func(host, ns string) bool { return host == "https://eu" && ns == "prod" }}
+	d := readDeps(nil)
+	d.dynamicFor = h.dynamicFor
+	home := &rest.Config{Host: "https://eu"}
+	d.clusterConfig = func() (*rest.Config, error) { return home, nil }
+	entries := []app.K8sEntry{entry("eu-prod", "https://eu", "uid-eu"), entry("us-prod", "https://us", "uid-us")}
+	d.resolveK8s = func(*app.Service, context.Context, bool, []string) []app.K8sEntry { return entries }
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+	for k, val := range map[string]string{"transport": "http", "auth-issuer": "https://idp.example", "context": "eu-prod"} {
+		expect(t, cmd.Flags().Set(k, val) == nil, "flag %s", k)
+	}
+	view, _ := mcpFleetView(cmd, app.NewService(nil, nil), d)
+	us := fleet.NewMemorySource("us-prod", fleet.SourceKindKubernetes, &fleet.Collection{Cluster: &fleet.Cluster{ID: "uid-us", Name: "us-prod", NameSource: fleet.ClusterNameFromContext},
+		Targets: []fleet.RawTarget{{Scope: "prod", Kind: fleet.SourceKindKubernetes, Name: "pg-0", Service: "pg", Domain: "ghcr.io/acme", Digest: "sha256:" + strings.Repeat("4c", 32)}}})
+	q := consumableQuery(t, us)
+	// Without a view postgresql is consumable, so its absence below is the view's.
+	all, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Consumable: true})
+	expect(t, err == nil && len(all.Entities) == 1, "unrestricted: %v %+v", err, all)
+	aliceCtx := context.WithValue(context.Background(), reviewedKey{}, reviewed{person: authn.Person{User: "alice"}})
+	restricted, err := view(aliceCtx, nil, q)
+	expect(t, err == nil, "view: %v", err)
+	res, err := restricted.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Consumable: true})
+	expect(t, err == nil, "entities: %v", err)
+	out, _ := json.Marshal(res)
+	if len(res.Entities) != 0 || strings.Contains(string(out), "postgresql") || strings.Contains(string(out), `/pg"`) {
+		t.Errorf("a hidden provider is named:\n%s", out)
+	}
 }

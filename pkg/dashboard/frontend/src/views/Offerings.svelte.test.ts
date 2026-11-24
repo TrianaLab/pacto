@@ -331,6 +331,21 @@ describe('FleetOfferingsView', () => {
     done();
   });
 
+  it('consumable line names a sensitive or optional tunable field by path and never shows a value', async () => {
+    const p = provider('1.0.0', [], [['storageGB', 'tunable']]);
+    (p.parameters as Record<string, unknown>[]).push(
+      { configuration: 'provisioning', path: 'adminPassword', tier: 'tunable', required: false, sensitive: true, default: 'hunter2' },
+      { configuration: 'provisioning', path: 'replicas', tier: 'tunable', required: false, sensitive: false, default: 3 },
+    );
+    entitiesFn.mockResolvedValue(listResp([consumableRef('postgresql', [p])]));
+    const { target, done } = mountView({ consumable: '1' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-consumable"]')).not.toBeNull());
+    const line = target.querySelector('[data-testid="offering-consumable"]') as HTMLElement;
+    expect(line.textContent?.trim()).toBe('1.0.0 · tunable storageGB, adminPassword, replicas');
+    expect(line.getAttribute('title')).not.toContain('hunter2');
+    done();
+  });
+
   it('long consumable line is clipped with a title', async () => {
     const long = 'v'.repeat(200);
     entitiesFn.mockResolvedValue(listResp([consumableRef('postgresql', [provider(long, ['c'.repeat(80)], [['t'.repeat(90), 'tunable']])])]));
