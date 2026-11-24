@@ -80,7 +80,9 @@ claim or its full identity, and comes from the provider of the offering its
 consumer uses. An object or claim matches only a record whose environment
 places the consumer on the resource's cluster. Every other resource is
 **outside contract**, including one whose record is stale, unsigned or from
-another provider, so an unknown never counts as through an offering.
+another provider, so an unknown never counts as through an offering. The
+record's `provider` must be the offering provider's service name: an adapter
+slug such as `aws` or `crossplane` leaves the resource outside contract.
 
 When a source read any managed resource, the overview's `match` carries
 `resources`: `throughOfferings` over `discovered`, with `percent`, which the

@@ -12,6 +12,9 @@ import (
 
 // secretBearingKinds are managed kinds whose objects hold key material or
 // secret values: a list returns the whole object, so no rule may name them.
+// ASO sql.azure.com/Server and storage.azure.com/StorageAccount stay listable:
+// spec.operatorSpec.secrets names the Secret ASO writes credentials to, never
+// a value, and that Secret is refused like every other.
 var secretBearingKinds = map[string][]string{
 	"iam.cnrm.cloud.google.com":           {"iamserviceaccountkeys"},
 	"secretmanager.cnrm.cloud.google.com": {"secretmanagersecretversions"},
