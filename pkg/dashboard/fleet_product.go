@@ -113,7 +113,7 @@ type fleetEntitiesInput struct {
 	Source          string   `query:"source"`
 	Service         string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
 	Template        string   `query:"template" enum:"only,exclude" doc:"Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template"`
-	Declaration     string   `query:"declaration" enum:"declared,inferred" doc:"Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; with kinds=offering it lists only the inferred offerings producers contribute, as service rows carrying inferredOffering, never consumable; declared leaves them out. Absent lists every service, inferred ones marked"`
+	Declaration     string   `query:"declaration" enum:"declared,inferred" doc:"Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; with kinds=offering it lists only the inferred offerings producers contribute, as service rows carrying inferredOffering, never consumable; declared leaves them out. Absent lists every service, inferred ones marked; with template only, inferred lists the golden paths a catalog holds (inferredTemplates) and declared leaves them out"`
 	Group           string   `query:"group" maxLength:"1024" doc:"Group filter for inferred service entities: the workload.group.key of an inferred service; with no kinds it lists services only"`
 	CreatedFrom     string   `query:"createdFrom" doc:"Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities); (none) keeps those that declare no origin and (unresolved) those whose origin resolves to no golden path. A hidden, absent or non-golden-path key answers an empty list"`
 	HasNonCompliant bool     `query:"hasNonCompliant" doc:"Keeps the owners and domains with at least one non-compliant service, counted as each row counts it (owner and domain entities)"`
@@ -521,6 +521,8 @@ func (schemaDeclarer) AcceptOffer(*http.Request, string) AcceptExecuteOffer {
 func (schemaDeclarer) AcceptRanges(*http.Request, AcceptTarget, AcceptExecuteInput) (*AcceptExecuteAnswer, error) {
 	return nil, errors.New("schema export only")
 }
+
+func (schemaDeclarer) MayDeclareTemplate(context.Context) bool { return false }
 
 func parseViews(s string) []fleet.KnowledgeView {
 	if s == "" {

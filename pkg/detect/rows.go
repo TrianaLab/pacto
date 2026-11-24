@@ -47,7 +47,7 @@ var usedFor = map[string]string{
 	"crossplane":          "provisioning engine; profile idp offers its XRDs once accepted",
 	"evidence":            "Evidence Server for provisioning reports (profile idp)",
 	"recorder":            "signed delivery records (profile idp)",
-	"backstage":           "inferred owners, domains and dependencies, read by the dashboard; nothing is turned on",
+	"backstage":           "inferred owners, domains, dependencies and golden paths, read by the dashboard; nothing is turned on",
 }
 
 // egressSentence is what an egress reader's row is used for.
@@ -79,7 +79,7 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 		asOf, cluster := res.AsOf, cmp.Or(res.ClusterName, res.Cluster)
 		p := fleet.Provider{
 			ID: e.Kind, Name: rowName(e.Kind), Evidence: evidence(e, source, cluster),
-			UsedFor: rowUsedFor(e.Kind), Status: status(e.Completeness, now.Sub(asOf)),
+			UsedFor: rowUsedFor(e), Status: status(e.Completeness, now.Sub(asOf)),
 			Provenance: fleet.ProvenanceInferred, AsOf: &asOf, Hint: e.Hint, Details: slices.Clone(e.Details),
 			Scope: e.Scope, Cluster: cluster, ClusterID: res.Cluster,
 		}
@@ -101,9 +101,18 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 	return rows
 }
 
-// rowUsedFor is the UsedFor of a row of kind: its sentence, then
-// [fleet.UseExternalEgress] for an egress kind.
-func rowUsedFor(kind string) []string {
+// backstageNotDetectedUse is what a Backstage row that found no catalog is
+// used for: nothing is read until a URL is set.
+const backstageNotDetectedUse = "set dashboard.backstage.url to read its owners and golden paths; nothing is read"
+
+// rowUsedFor is the UsedFor of entry e's row: its kind's sentence, then
+// [fleet.UseExternalEgress] for an egress kind. A Backstage catalog that
+// was not detected reads nothing, so its row says how to read one.
+func rowUsedFor(e Entry) []string {
+	kind := e.Kind
+	if kind == "backstage" && e.Value == NotDetected {
+		return []string{backstageNotDetectedUse}
+	}
 	out := []string{cmp.Or(usedFor[kind], "proposal; nothing is turned on")}
 	if slices.Contains(EgressKinds, kind) {
 		out = append(out, fleet.UseExternalEgress)

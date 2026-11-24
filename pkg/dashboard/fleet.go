@@ -37,6 +37,8 @@ type capabilitiesOutput struct {
 		MiraURL  string         `json:"miraURL,omitempty" doc:"Mira's address, to link health-check citations and open a service in Mira"`
 		Stats    bool           `json:"stats" doc:"The Metrics page has a stats repository to read"`
 		Declare  bool           `json:"declare" doc:"This caller can plan declaring an inferred service: the host declares and knows who the caller is"`
+		// DeclareTemplate is Declare for a golden path a catalog holds.
+		DeclareTemplate bool `json:"declareTemplate" doc:"This caller may accept a golden path a catalog holds: on a shared host, update pactos in the installation namespace"`
 		// Installation is the one answer pacto_capabilities gives too.
 		Installation fleet.Installation `json:"installation" doc:"How this installation runs: its profile, registry, delivery, provisioning engine, clusters and MCP endpoint, each with where Pacto learned it and when"`
 	}
@@ -96,6 +98,7 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	out.Body.Stats = s.opts.Stats != nil
 	// A sign-in link session is refused by every declare route.
 	out.Body.Declare = s.opts.Declare != nil && s.declares(ctx) && !s.authState(ctx).FleetOnly
+	out.Body.DeclareTemplate = out.Body.Declare && s.opts.Declare.MayDeclareTemplate(ctx)
 	out.Body.Installation = q.Installation(in)
 	return out, nil
 }

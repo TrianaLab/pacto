@@ -260,8 +260,14 @@ function parseFleet(path: string, query: string): Route {
       if (v) params[k] = v;
     }
     // Only the offerings list narrows by lifecycle, by a failed request and to the
-    // offerings the viewer may consume, and switches to the inferred offerings.
-    for (const k of rest === 'offerings' ? ['lifecycle', 'failed', 'inferred', 'consumable'] : []) {
+    // offerings the viewer may consume, and switches to the inferred offerings; only
+    // the golden paths list by declaration, with the inferred path whose Declare panel
+    // is open (declare) and the intent a signing login came back with (signed).
+    const own: Record<string, string[]> = {
+      offerings: ['lifecycle', 'failed', 'inferred', 'consumable'],
+      'golden-paths': ['declaration', 'declare', 'signed'],
+    };
+    for (const k of own[rest] ?? []) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -571,10 +577,15 @@ export function fleetExternalsUrl(opts: { text?: string; class?: string } & List
 }
 
 // fleetGoldenPathsUrl builds the Golden paths list route: services whose contract
-// declares service.template and that run nowhere.
-export function fleetGoldenPathsUrl(opts: { text?: string } & ListPaging = {}): string {
+// declares service.template and that run nowhere. declaration narrows it to the
+// declared or the inferred ones; declare opens the Declare panel of an inferred one
+// (template:<namespace>/<name>) and signed is the intent a signing login came back with.
+export function fleetGoldenPathsUrl(opts: { text?: string; declaration?: string; declare?: string; signed?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
+  if (opts.declaration) qs.set('declaration', opts.declaration);
+  if (opts.declare) qs.set('declare', opts.declare);
+  if (opts.signed) qs.set('signed', opts.signed);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/golden-paths?${str}` : '#/fleet/golden-paths';
@@ -639,6 +650,12 @@ export function serviceChangesUrl(key: string, opts: { changesKind?: string; cha
 // ride on the login's ticket.
 export function serviceDeclareUrl(key: string, opts: { signed?: string } = {}): string {
   return pagedHash(fleetEntityUrl('service', key), { declare: '1', signed: opts.signed });
+}
+
+// goldenPathDeclareUrl is the Golden paths list with the Declare panel of an inferred
+// golden path (template:<namespace>/<name>) open, where its signing login comes back.
+export function goldenPathDeclareUrl(key: string, opts: { signed?: string } = {}): string {
+  return fleetGoldenPathsUrl({ declare: key, signed: opts.signed });
 }
 
 // serviceAcceptSignedUrl is a service page a signing login for its accept plan comes

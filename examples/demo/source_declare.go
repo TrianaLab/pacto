@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
@@ -63,6 +64,10 @@ func newDemoDeclarer(who func(*http.Request) string) *demoDeclarer {
 // CanWrite implements dashboard.Declarer: the demo saves drafts in the tab.
 func (*demoDeclarer) CanWrite() bool { return true }
 
+// MayDeclareTemplate implements dashboard.Declarer: every demo visitor may
+// accept a golden path the demo catalog holds.
+func (*demoDeclarer) MayDeclareTemplate(context.Context) bool { return true }
+
 func demoSigning() dashboard.DeclareSigning {
 	return dashboard.DeclareSigning{Mode: "none", Reason: demoNoSignIn}
 }
@@ -94,13 +99,17 @@ func (d *demoDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in das
 	ans.Plan = demoPlan(w, accept, d.who(r), from)
 	ans.Drafts, ans.DraftsTotal = d.views(w), len(d.drafts[w.Key])
 	ans.Command = demoCommand(w, accept, ans.Plan.IntentDigest)
-	ans.PRCLI = demoCommand(w, accept, "") + " --pr"
+	if w.Template == nil {
+		ans.PRCLI = demoCommand(w, accept, "") + " --pr"
+	}
 	if from != nil {
-		ans.Command = "pacto declare " + w.Name + " --namespace " + w.Namespace + " --registry " + demoDeclareRegistry + " --from-draft " + from.tag
+		ans.Command = demoCommand(w, nil, "") + " --from-draft " + from.tag
 		for _, a := range accept {
 			ans.Command += " --accept " + a
 		}
-		ans.PRCLI = ans.Command + " --pr"
+		if w.Template == nil {
+			ans.PRCLI = ans.Command + " --pr"
+		}
 	}
 	return ans, nil
 }
@@ -147,8 +156,12 @@ func (d *demoDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload, in d
 
 func draftAnswer(w dashboard.DeclareWorkload, dr demoDraft) *dashboard.DeclareAcceptAnswer {
 	repo := demoDeclareRegistry + "/" + w.Name
+	subject := w.Name
+	if w.Template != nil {
+		subject = w.Key + " --backstage-url " + demoBackstageBase
+	}
 	return &dashboard.DeclareAcceptAnswer{Published: repo + "@" + dr.digest, Tag: dr.tag, Draft: true,
-		Command: "pacto declare " + w.Name + " --registry " + demoDeclareRegistry + " --from-draft " + dr.tag}
+		Command: "pacto declare " + subject + " --registry " + demoDeclareRegistry + " --from-draft " + dr.tag}
 }
 
 // AcceptOffer implements dashboard.Declarer: the demo plans no
@@ -210,9 +223,14 @@ func requested(accept []string, props []demoProposal) []string {
 	return out
 }
 
-// demoCommand is the pacto declare a person runs for w with accept and intent.
+// demoCommand is the pacto declare a person runs for w with accept and
+// intent: a golden path by its template:<namespace>/<name> subject.
 func demoCommand(w dashboard.DeclareWorkload, accept []string, intent string) string {
 	cmd := "pacto declare " + w.Name + " --namespace " + w.Namespace + " --registry " + demoDeclareRegistry
+	if w.Template != nil {
+		// A template is read from the catalog: the real CLI needs its URL.
+		cmd = "pacto declare " + w.Key + " --backstage-url " + demoBackstageBase + " --registry " + demoDeclareRegistry
+	}
 	for _, a := range accept {
 		cmd += " --accept " + a
 	}
@@ -231,6 +249,9 @@ func digestOf(s string) string {
 // who: version 0.1.0 with no deploy artifact, one range per proposal, and
 // from's digest folded into the intent when a draft is being accepted.
 func demoPlan(w dashboard.DeclareWorkload, accept []string, who string, from *demoDraft) *dashboard.DeclarePlan {
+	if w.Template != nil {
+		return demoTemplatePlan(w, who)
+	}
 	props := demoProposals[w.Name]
 	var b strings.Builder
 	fmt.Fprintf(&b, "pactoVersion: \"2.5\"\nservice:\n  name: %s\n  version: 0.1.0\n", w.Name)
@@ -275,5 +296,29 @@ func demoPlan(w dashboard.DeclareWorkload, accept []string, who string, from *de
 	}
 	plan.ClusterAsOf = rec.Inputs.Cluster.AsOf
 	plan.IntentDigest = digestOf(intent)
+	return plan
+}
+
+// demoTemplatePlan is what accepting the golden path w names would publish,
+// as a draft for who: a contract-only 2.5 golden path at version 0.1.0 that
+// infers nothing and reads no cluster.
+func demoTemplatePlan(w dashboard.DeclareWorkload, who string) *dashboard.DeclarePlan {
+	t := w.Template
+	text := fmt.Sprintf("pactoVersion: \"2.5\"\nservice:\n  name: %s\n  version: 0.1.0\n", t.Name)
+	if t.Summary != "" {
+		text += fmt.Sprintf("  summary: %q\n", t.Summary)
+	}
+	text += "  template: {}\n"
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: "4.6.0"}, Fields: []contract.Inferred{},
+		Declaration: &contract.InferredDeclaration{State: contract.DeclarationDraft, Asker: unsignedAsker, OnBehalfOf: who}}
+	plan := &dashboard.DeclarePlan{Service: t.Name, Version: "0.1.0", BundleRepo: demoDeclareRegistry + "/" + t.Name, State: contract.DeclarationDraft,
+		Deploy: "none", Ranges: []dashboard.DeclareRange{}, Signer: dashboard.DeclareSigner{Class: contract.SignerClassAgent, Source: "none", Why: demoNoSignIn},
+		Notes: []string{"drafted from " + t.Entity + " in " + t.From,
+			"the golden path holds the contract only: Backstage keeps the template's steps and skeleton; open it there to scaffold code"}}
+	if t.OwnerKey != "" {
+		plan.Notes = append(plan.Notes, "Backstage names "+t.OwnerKey+" as owner: declare service.owner in a later version")
+	}
+	plan.Contract, plan.Record = dashboard.NewDeclareText([]byte(text)), dashboard.NewDeclareText(rec.Marshal())
+	plan.IntentDigest = digestOf(plan.Contract.Text + plan.Record.Text)
 	return plan
 }

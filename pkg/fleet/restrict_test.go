@@ -990,3 +990,39 @@ func checkRestrictedExternals(t *testing.T, r *Query) {
 		t.Errorf("restricted snapshot names hidden evidence: %s", b)
 	}
 }
+
+func TestRestrictKeepsInferredTemplates(t *testing.T) {
+	q := shopFleet(t, tmplCatalog(tmpl("springboot-service")))
+	r := noSecret(q)
+	if r == q {
+		t.Fatal("the view hides nothing")
+	}
+	want, got := q.InferredTemplates(""), r.InferredTemplates("")
+	if got == nil || !slices.Equal(got.Items, want.Items) || got.Completeness != want.Completeness {
+		t.Fatalf("restricted list %+v, want %+v", got, want)
+	}
+}
+
+// TestRestrictRemarksInferredTemplates: a template named like a service the
+// view hides reads as free there, so the view never learns the hidden name
+// exists; one named like a visible service stays taken.
+func TestRestrictRemarksInferredTemplates(t *testing.T) {
+	q := shopFleet(t, tmplCatalog(tmpl("vault"), tmpl("orders")))
+	if full := q.InferredTemplates(""); len(full.Items) != 2 || !full.Items[0].NameTaken || !full.Items[1].NameTaken {
+		t.Fatalf("unrestricted %+v", full.Items)
+	}
+	r := noSecret(q)
+	l := r.InferredTemplates("")
+	if len(l.Items) != 2 || !l.Items[0].NameTaken || l.Items[1].NameTaken || l.Items[1].DeclaredAs != "" {
+		t.Fatalf("restricted %+v", l.Items)
+	}
+	if it, known := r.InferredTemplate("template:default/vault"); it == nil || it.NameTaken || !known {
+		t.Fatalf("lookup %+v %v", it, known)
+	}
+	if it, _ := r.InferredTemplate("template:default/orders"); it == nil || !it.NameTaken {
+		t.Fatalf("visible holder lost %+v", it)
+	}
+	if it, _ := r.InferredTemplate("template:default/none"); it != nil {
+		t.Fatalf("unlisted %+v", it)
+	}
+}

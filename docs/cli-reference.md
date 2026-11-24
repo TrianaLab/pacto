@@ -268,7 +268,7 @@ pacto ci [root] [flags]
 **Flags:**
 
 ```
-      --backstage-url string               base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
+      --backstage-url string               base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values and whose software templates are listed as inferred golden paths a person can accept; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]                 include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray                kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string              the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
@@ -587,7 +587,7 @@ pacto dashboard [sources...] [flags]
 
 ```
       --allow-anonymous[=true|false]      serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)
-      --backstage-url string              base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN (also PACTO_DASHBOARD_BACKSTAGE_URL)
+      --backstage-url string              base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values and whose software templates are listed as inferred golden paths a person can accept; the reader token comes from PACTO_BACKSTAGE_TOKEN (also PACTO_DASHBOARD_BACKSTAGE_URL)
       --context stringArray               kubeconfig context to read live Pacto CRs from (repeatable, each cluster read once); outside a pod the named contexts replace the current one and people sign in against the first (also PACTO_DASHBOARD_CONTEXT)
       --cors-origin string                explicit cross-origin allowed to call the API (default: same-origin only)
       --declare-registry-config string    a Docker config.json with push access to --registry: a shared dashboard writes declarations and drafts only with this credential of its own, never with the credentials it reads registries with (also PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG)
@@ -674,6 +674,13 @@ the signed target snapshots in &lt;registry&gt;/pacto-targets, verified with
 --delivery-trust. An owner read from the workload's team label stays in
 pacto.inferred.yaml as inferred.
 
+A golden path a Backstage catalog holds is accepted as
+template:&lt;namespace&gt;/&lt;name&gt;: the template is read from --backstage-url (the
+reader token comes from PACTO_BACKSTAGE_TOKEN) and the plan drafts a
+contract-only golden path at &lt;registry&gt;/&lt;name&gt; that declares service.template.
+Backstage keeps the template's steps and skeleton. Only a repository that holds
+no version yet is accepted into.
+
 ```
 pacto declare <service> [flags]
 ```
@@ -689,12 +696,16 @@ pacto declare <service> [flags]
 
   # Accept a draft an agent wrote
   pacto declare invoices --registry ghcr.io/acme --from-draft draft-3 --yes
+
+  # What accepting a Backstage template as a golden path would publish
+  pacto declare template:default/springboot-service --registry ghcr.io/acme/paths --backstage-url https://catalog.acme.io
 ```
 
 **Flags:**
 
 ```
       --accept strings              a dependency whose proposed range you accept as declared; repeat it for more
+      --backstage-url string        base URL of the Backstage catalog a template:<namespace>/<name> subject is read from; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --call-window duration        how far back a call counts as a dependency (at least 1m, default 24h)
       --contribution-trust string   with offering:<name>, a contribution trust config (pacto.dev/evidence-trust/v1) whose grant to a third-party producer verifies --from
       --delivery-trust string       the trust config the target snapshots that carry the owner policy are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
@@ -1601,7 +1612,7 @@ pacto export backstage [flags]
 
 ```
       --allow-partial[=true|false]    write the file even when the fleet is partial or empty
-      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values and whose software templates are listed as inferred golden paths a person can accept; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
@@ -1638,7 +1649,7 @@ pacto fleet [flags]
 **Flags:**
 
 ```
-      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values and whose software templates are listed as inferred golden paths a person can accept; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
@@ -1705,7 +1716,7 @@ pacto fleet entities [text] [flags]
       --cluster string                   entities in this cluster, by its UID as meta.clusters lists it: targets, services with a target or an inferred workload there and revisions a target there runs; other kinds ignore it
       --consumes string                  services that depend on or reference a provider of this platform offering
       --created-from string              services created from this golden path, by key; (none) for no declared origin or (unresolved) for an origin that resolves to no golden path
-      --declaration string               inferred keeps only the services Pacto infers from workloads no contract describes; declared leaves them out
+      --declaration string               inferred keeps only the services Pacto infers from workloads no contract describes; declared leaves them out; with --template, inferred lists the golden paths a catalog holds and declared leaves them out
       --domain string                    exact registry path, the domain part of a service key
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
@@ -1730,7 +1741,7 @@ pacto fleet entities [text] [flags]
       --source-health string             sources by health (available, partial, stale, unavailable, or incomplete for any of the last three)
       --source-kind string               sources of this exact kind only (oci, kubernetes, evidence-http, ...)
       --status string                    canonical compliance status
-      --template string[="only"]         golden paths only, or exclude to leave them out
+      --template string[="only"]         golden paths only (with the inferred ones a catalog holds listed apart), or exclude to leave them out
 ```
 
 ### `pacto fleet entity`
@@ -2142,7 +2153,7 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
 **Flags:**
 
 ```
-      --backstage-url string            base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
+      --backstage-url string            base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values and whose software templates are listed as inferred golden paths a person can accept; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
       --changed string                  what a change of this external system (external:<identity>) does to every service that uses it; each consumer needs attention
       --context stringArray             kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
@@ -2439,7 +2450,7 @@ When a bundle reference (local directory or oci:// ref) is given, the server als
 
 With --root, the server exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so the session keeps its startup view even when a registry tag moves. Roots that fail to resolve stay visible as partial knowledge. The catalog grants no authorization and executes nothing.
 
-With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --mira-source, --backstage-url, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
+With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --mira-source, --backstage-url, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only, except --backstage-url: pacto_declare also reads it in any mode to accept a template:&lt;namespace&gt;/&lt;name&gt; subject, a software template that catalog lists, as a golden path.
 
 With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, the dashboard's delivery views (caller, inbox, environments, autonomy, published and refusals, scoped by --namespace like the dashboard's), plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
@@ -2484,7 +2495,7 @@ pacto mcp [bundle-ref] [flags]
       --audience string                  with --auth-issuer: the audience incoming tokens must carry (default --resource)
       --auth stringArray                 credential for a security scheme as name=value (repeatable)
       --auth-issuer string               OpenID issuer whose bearer tokens every HTTP request must carry
-      --backstage-url string             base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
+      --backstage-url string             base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values and whose software templates are listed as inferred golden paths a person can accept; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --base-url string                  base URL for live invocation (overrides the OpenAPI servers[] URL)
       --cache[=true|false]               include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray              kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
@@ -2872,7 +2883,7 @@ pacto stats [flags]
 **Flags:**
 
 ```
-      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values and whose software templates are listed as inferred golden paths a person can accept; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --by string                     group the numbers by service, owner, domain, repository, environment
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
@@ -2942,7 +2953,7 @@ pacto tui [flags]
 **Flags:**
 
 ```
-      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values and whose software templates are listed as inferred golden paths a person can accept; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)

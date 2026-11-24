@@ -102,7 +102,7 @@ func TestDeclareRefusalEnumCarriesClaimCodes(t *testing.T) {
 	if !slices.Contains(app, "ClaimRepositoryInferred") {
 		t.Fatalf("read no claim code from internal/app: %v", app)
 	}
-	own := []string{"IdentityRequired", "SignInLinkReadsFleet", "ReviewFailed", "ClusterNotReviewable", "NotAllowed", "DraftNotOffered"}
+	own := []string{"IdentityRequired", "SignInLinkReadsFleet", "ReviewFailed", "ClusterNotReviewable", "NotAllowed", "DraftNotOffered", "TemplateSourceUnverified"}
 	f2, _ := reflect.TypeFor[DeclareRefusal]().FieldByName("Code")
 	enum := strings.Split(f2.Tag.Get("enum"), ",")
 	for _, c := range slices.Concat(app, own, delivery.OwnerRightCodes) {

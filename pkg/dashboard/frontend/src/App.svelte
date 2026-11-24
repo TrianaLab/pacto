@@ -510,7 +510,9 @@
   {:else if route.view === 'fleet-golden-paths'}
     <LazyView load={loadFleetGoldenPathsView} text={route.params.text || ''} offset={route.params.offset || ''}
       limit={route.params.limit || ''}
-      sort={route.params.sort || ''} {refreshTick} />
+      sort={route.params.sort || ''} declaration={route.params.declaration || ''} declare={route.params.declare || ''}
+      signed={route.params.signed || ''} canAccept={capabilities?.declareTemplate === true}
+      declares={capabilities ? capabilities.declare === true : null} {refreshTick} />
   {:else if route.view === 'metrics'}
     <LazyView load={loadFleetMetricsView} {capabilities} window={route.params.window || ''}
       metric={route.params.metric || ''} environment={route.params.environment || ''}

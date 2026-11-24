@@ -26,6 +26,7 @@ import (
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/inferredcontract"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -99,6 +100,7 @@ func newDashboardDeclarer(v *viper.Viper, svc *app.Service, id *dashboardIdentit
 	s.TimestampURL, s.TrustedRoot = v.GetString("dashboard.timestamp-url"), v.GetString("dashboard.trusted-root")
 	s.OIDCIssuer = v.GetString("dashboard.oidc-issuer-url")
 	d.base.DeliveryTrust = v.GetString("dashboard.delivery-trust")
+	d.base.BackstageURL = v.GetString("dashboard.backstage-url")
 	if l := id.signing.login(); l != nil {
 		d.ticket, d.take, d.accepted, d.live = l.Ticket, l.Take, l.Accepted, l.Live
 	}
@@ -145,6 +147,15 @@ func (d *dashboardDeclarer) request(r *http.Request, w dashboard.DeclareWorkload
 	cfg := d.clusterConfig(r.Context(), w.Cluster)
 	if w.Offering != "" {
 		return d.offeringRequest(r, req, w, cmp.Or(off, &dashboard.OfferingInput{}), cfg)
+	}
+	if t := w.Template; t != nil {
+		// A golden path reads no workload: the one cluster, when there is
+		// one, gives the installation signer policy.
+		req.Service, req.Template, req.TemplateSubject, req.Observed = t.Name, t, w.Key, nil
+		if cfg != nil {
+			req.Dynamic, _ = d.client(r, cfg)
+		}
+		return req, nil
 	}
 	if id, ok := claimOf(w); ok {
 		req.Service, req.Owner, req.Name = fleet.ExternalSubjectPrefix+id, claim.Owner, cmp.Or(claim.Name, claimerName(w.View, id))
@@ -244,6 +255,10 @@ func (d *dashboardDeclarer) offer(r *http.Request, w dashboard.DeclareWorkload) 
 // Plan implements dashboard.Declarer.
 func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in dashboard.DeclareInput) (*dashboard.DeclareAnswer, error) {
 	ans := d.offer(r, w)
+	if refusal, err := d.templateGate(r.Context(), w); err != nil || refusal != nil {
+		ans.Refusal = refusal
+		return ans, err
+	}
 	fresh := ans.Signing.Mode == signModeFreshLogin
 	if fresh && d.signedIn(r, in.IntentDigest) {
 		// Back from a live signing login: the plan is the one the login was
@@ -285,15 +300,22 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 	ans.Plan, ans.Drafts = planView(p, decl), draftViews(p.Drafts)
 	ans.DraftsTotal = p.DraftsTotal - (listed - len(p.Drafts))
 	ans.Command = declareCommand(req, p.IntentDigest)
-	if w.Offering == "" {
-		// The pull request runs only where the person's Git token is (513 D7);
-		// a --pr plan binds its target into a new intent, so none is replayed.
-		ans.PRCLI = declareCommand(req, "") + " --pr"
-	}
+	ans.PRCLI = prCommand(w, req)
 	if fresh && p.Unchanged == "" {
 		ans.SignTicket = d.ticket(r, p.IntentDigest, in.Accept)
 	}
 	return ans, nil
+}
+
+// prCommand is the pacto declare that opens w's repository pull request:
+// only where the person's Git token is (513 D7), and since a --pr plan binds
+// its target into a new intent, none is replayed. A golden path and an
+// offering acceptance name no source repository to open one in.
+func prCommand(w dashboard.DeclareWorkload, req app.DeclareRequest) string {
+	if w.Template != nil || w.Offering != "" {
+		return ""
+	}
+	return declareCommand(req, "") + " --pr"
 }
 
 // ownView keeps p to what w's own bundle repository says about w: that
@@ -320,8 +342,11 @@ func claimOf(w dashboard.DeclareWorkload) (string, bool) {
 }
 
 // selfFrom is the inferredFrom a declaration of w records: the external
-// system a claim names, else the workload.
+// system a claim names, nothing for a golden path, else the workload.
 func selfFrom(w dashboard.DeclareWorkload) string {
+	if w.Template != nil {
+		return ""
+	}
 	if id, ok := claimOf(w); ok {
 		return contract.ExternalInferredFrom(id)
 	}
@@ -336,11 +361,21 @@ func selfFrom(w dashboard.DeclareWorkload) string {
 // claimRedacted is the one refusal a claim or an offering acceptance of w
 // answers when the repository it writes to holds what the viewer's
 // restricted view hides: it names no service, version, inferredFrom or tag.
-// Nil for a workload, or when the viewer may read everything there.
+// A golden path's baseline refusal is redacted the same way. Nil for a
+// workload, or when the viewer may read everything there.
 func claimRedacted(w dashboard.DeclareWorkload, req app.DeclareRequest, p *app.DeclarePlan, err error) *dashboard.DeclareRefusal {
 	if offer, ok := strings.CutPrefix(req.Service, fleet.OfferingSubjectPrefix); ok {
 		if offeringHidden(w.View, req.Registry, offer, p, err) {
 			return refused(string(pactomcp.RefusalNotAllowed), offeringHiddenMessage, declareCommand(req, ""))
+		}
+		return nil
+	}
+	if t := w.Template; t != nil {
+		// The registry holds a name the person's view does not show: the
+		// refusal names nothing it holds.
+		if baselineRefusal(err) && !showsService(w.View, t.Name) {
+			refusal, _ := dashRefusal(hiddenRefusal(t.Name, err))
+			return refusal
 		}
 		return nil
 	}
@@ -381,6 +416,9 @@ func declareCommand(req app.DeclareRequest, intent string) string {
 		return req.Command(intent)
 	}
 	cmd := "pacto declare " + req.Service + " --namespace " + req.Namespace + " --registry " + req.Registry
+	if req.TemplateSubject != "" {
+		cmd = "pacto declare " + req.TemplateSubject + " --backstage-url " + cmp.Or(req.BackstageURL, "<backstage-url>") + " --registry " + req.Registry
+	}
 	if id, ok := fleet.ParseExternalSubject(req.Service); ok {
 		cmd = "pacto claim " + string(id)
 		if req.Owner != "" || req.FromDraft == "" {
@@ -460,6 +498,9 @@ func draftViews(in []app.DraftView) []dashboard.DeclareDraft {
 // write.
 func (d *dashboardDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload, in dashboard.DeclareAcceptInput) (*dashboard.DeclareAcceptAnswer, error) {
 	ctx := r.Context()
+	if refusal, err := d.templateGate(ctx, w); err != nil || refusal != nil {
+		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, err
+	}
 	if refusal := d.mayAccept(ctx, w, in); refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
 	}
@@ -555,12 +596,84 @@ func (d *dashboardDeclarer) mayAccept(ctx context.Context, w dashboard.DeclareWo
 	}
 	id, ok := claimOf(w)
 	switch {
+	case w.Template != nil:
+		return nil // templateGate asked
 	case !ok:
 		return d.mayUpdate(ctx, w, "declaring "+w.Name)
 	case in.Mode == "draft" && !d.id.auth.Local():
 		return refused("DraftNotOffered", noClaimDraft, "pacto claim "+id+" --owner "+cmp.Or(in.Owner, "<team>")+" --draft")
 	}
 	return nil
+}
+
+// noTemplateSource is why a template a detected catalog lists is never
+// accepted: anyone could have created the Service it was read from.
+const noTemplateSource = "the template was read from a detected catalog: set dashboard.backstage.url to accept templates from this catalog"
+
+// templateGate is, for a golden path a catalog holds, the checks before
+// any plan, draft or accept: on a shared host update pactos in the
+// installation namespace (a 403 that writes nothing), then a catalog the
+// installation configured and a name no service holds. Nil for any other
+// subject.
+func (d *dashboardDeclarer) templateGate(ctx context.Context, w dashboard.DeclareWorkload) (*dashboard.DeclareRefusal, error) {
+	t := w.Template
+	if t == nil {
+		return nil, nil
+	}
+	if err := d.mayDeclareTemplate(ctx); err != nil {
+		return nil, err
+	}
+	return templateRefusal(t, w.Key), nil
+}
+
+// templateRefusal refuses a template t a person may not accept: one a
+// detected catalog lists, or one whose name a golden path or another service
+// the person's view shows already holds.
+func templateRefusal(t *fleet.InferredTemplate, subject string) *dashboard.DeclareRefusal {
+	switch {
+	case !t.Acceptable:
+		return refused(string(pactomcp.RefusalTemplateSourceUnverified), noTemplateSource, "")
+	case t.DeclaredAs != "":
+		return refused(string(pactomcp.RefusalTemplateNameTaken), "the golden path "+t.DeclaredAs+" already holds the name "+t.Name+": "+subject+" is its link, never accepted again", "")
+	case t.NameTaken:
+		return refused(string(pactomcp.RefusalTemplateNameTaken), "a service already holds the name "+t.Name+": "+subject+" is never accepted under it", "")
+	}
+	return nil
+}
+
+// installNamespace is the namespace Pacto is installed in, as the
+// dashboard knows it: the one its delivery identity policy is read from.
+func (d *dashboardDeclarer) installNamespace() string {
+	return cmp.Or(d.id.policyNS, delivery.PolicyNamespace)
+}
+
+// mayDeclareTemplate asks, on a shared host, whether the person may update
+// pactos in the installation namespace (Decision 17: a template has no
+// cluster object of its own); a 403 when not, or when nobody can tell. A
+// local host acts with the person's own kubeconfig.
+func (d *dashboardDeclarer) mayDeclareTemplate(ctx context.Context) error {
+	if d.id.auth.Local() {
+		return nil
+	}
+	ns := d.installNamespace()
+	if d.id.viewer == nil {
+		return dashboard.Refuse(http.StatusForbidden, "NotAllowed", "this dashboard reviews nobody, so it accepts no golden path: run pacto declare")
+	}
+	ok, err := d.id.viewer.MayUpdatePactos(ctx, d.id.state(ctx).Person, ns)
+	switch {
+	case errors.Is(err, authn.ErrClusterNotReviewable):
+		return dashboard.Refuse(http.StatusForbidden, "ClusterNotReviewable", "Pacto cannot review you in the cluster it is installed in, so it accepts no golden path")
+	case err != nil:
+		return dashboard.Refuse(http.StatusForbidden, "ReviewFailed", "asking whether you may update pactos in "+ns+" failed: "+err.Error())
+	case !ok:
+		return dashboard.Refuse(http.StatusForbidden, "NotAllowed", "accepting a golden path needs update pactos in "+ns)
+	}
+	return nil
+}
+
+// MayDeclareTemplate implements dashboard.Declarer.
+func (d *dashboardDeclarer) MayDeclareTemplate(ctx context.Context) bool {
+	return d.mayDeclareTemplate(ctx) == nil
 }
 
 // mayUpdate asks, on a shared host, whether the person may update the

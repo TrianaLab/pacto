@@ -62,6 +62,11 @@ const MaxExternalChangeAge = 7 * 24 * time.Hour
 // (LimitationInferredServicesCapped). Raise it here if a real cluster hits it.
 const MaxInferredServices = 5000
 
+// MaxInferredTemplates caps the inferred golden paths a snapshot lists
+// (those a declared golden path holds the name of are not counted). Past it
+// the rest are left out with LimitationInferredTemplatesCapped.
+const MaxInferredTemplates = 200
+
 // MaxInferredImageRunes and MaxInferredPathRunes bound the image and probe
 // path of an inferred service: anyone who may create a workload writes them
 // and the apiserver bounds neither, so a longer value is dropped.

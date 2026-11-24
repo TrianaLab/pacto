@@ -447,3 +447,64 @@ func TestDemoClaimEdges(t *testing.T) {
 		t.Fatalf("a fleet that cannot refold: %v", err)
 	}
 }
+
+// springWorkload is a golden path the demo catalog holds.
+func springWorkload() dashboard.DeclareWorkload {
+	return dashboard.DeclareWorkload{Key: "template:default/springboot-service", Name: "springboot-service",
+		Template: &fleet.InferredTemplate{Name: "springboot-service", Entity: "template:default/springboot-service", Summary: "A Spring Boot service",
+			From: "Backstage (backstage.acme.example)", OwnerKey: "group:default/platform-team", Acceptable: true}}
+}
+
+// TestDemoDeclareTemplatePlan: a golden path the demo catalog holds plans a
+// contract-only golden path that infers nothing, under its template:
+// subject.
+func TestDemoDeclareTemplatePlan(t *testing.T) {
+	d := newDemoDeclarer(func(*http.Request) string { return "alice@example.com" })
+	w := springWorkload()
+	r := httptest.NewRequest(http.MethodPost, "/api/fleet/declare", nil)
+	a, err := d.Plan(r, w, dashboard.DeclareInput{ServiceKey: w.Key})
+	if err != nil || a.Refusal != nil || !d.MayDeclareTemplate(r.Context()) {
+		t.Fatalf("%v %+v", err, a)
+	}
+	p := a.Plan
+	doc, _, err := contract.ParseDocument([]byte(p.Contract.Text))
+	if err != nil || doc.Service.Template == nil || doc.Service.Summary != "A Spring Boot service" {
+		t.Fatalf("pacto.yaml: %v\n%s", err, p.Contract.Text)
+	}
+	rec, err := contract.ParseInferredRecord([]byte(p.Record.Text))
+	if err != nil || rec.Inputs.Cluster != nil || rec.Declaration.InferredFrom != "" || p.InferredFrom != "" || len(p.Notes) != 3 || a.PRCLI != "" {
+		t.Fatalf("%v %+v %+v", err, rec, p)
+	}
+	if a.Command != "pacto declare template:default/springboot-service --backstage-url https://backstage.acme.example --registry demo.pacto.local --intent "+p.IntentDigest {
+		t.Fatalf("command %q", a.Command)
+	}
+}
+
+// TestDemoDeclareTemplateBare: a template the catalog names no owner or
+// description of plans no owner note and no summary.
+func TestDemoDeclareTemplateBare(t *testing.T) {
+	w := springWorkload()
+	w.Template.OwnerKey, w.Template.Summary = "", ""
+	if p := demoTemplatePlan(w, "alice@example.com"); len(p.Notes) != 2 || strings.Contains(p.Contract.Text, "summary") {
+		t.Fatalf("%+v", p)
+	}
+}
+
+// TestDemoDeclareTemplateDraft: Save draft writes draft-1 under the
+// template: subject, and accepting it names that subject again.
+func TestDemoDeclareTemplateDraft(t *testing.T) {
+	d := newDemoDeclarer(func(*http.Request) string { return "alice@example.com" })
+	w := springWorkload()
+	r := httptest.NewRequest(http.MethodPost, "/api/fleet/declare", nil)
+	a, _ := d.Plan(r, w, dashboard.DeclareInput{ServiceKey: w.Key})
+	out, err := d.Accept(r, w, dashboard.DeclareAcceptInput{ServiceKey: w.Key, IntentDigest: a.Plan.IntentDigest, Mode: "draft"})
+	const accept = "pacto declare template:default/springboot-service --backstage-url https://backstage.acme.example --registry demo.pacto.local --from-draft draft-1"
+	if err != nil || out.Tag != "draft-1" || out.Command != accept {
+		t.Fatalf("%v %+v", err, out)
+	}
+	_, digest, _ := strings.Cut(out.Published, "@")
+	a, _ = d.Plan(r, w, dashboard.DeclareInput{ServiceKey: w.Key, FromDraft: &dashboard.DraftRef{Tag: "draft-1", Digest: digest}})
+	if a.Command != accept || a.PRCLI != "" {
+		t.Fatalf("from draft %q %q", a.Command, a.PRCLI)
+	}
+}

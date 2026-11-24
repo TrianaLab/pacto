@@ -237,7 +237,7 @@ func TestRemoteDeclareOfferingExecuteWritesNothing(t *testing.T) {
 func TestDashboardMCPVerifiesOfferingsWithItsDetection(t *testing.T) {
 	v := viper.New()
 	v.Set("dashboard.detected", "k8s:pacto-system/pacto-operator-detected")
-	rd, ok := dashboardAuthoring(v, app.NewService(nil, nil), nil, nil).Declare.(remoteDeclarer)
+	rd, ok := dashboardAuthoring(v, app.NewService(nil, nil), nil, nil, "").Declare.(remoteDeclarer)
 	if !ok || rd.detected != "k8s:pacto-system/pacto-operator-detected" {
 		t.Fatalf("declarer = %+v", rd)
 	}
