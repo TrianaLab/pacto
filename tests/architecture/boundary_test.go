@@ -319,6 +319,7 @@ var clusterViewSymbols = []string{"ClusterSummary", "ClusterRecord", "ClusterNoA
 // other check still applies to them.
 var joinListReaders = map[string]string{
 	"pkg/delivery/clustercandidates.go": "matches the hub's candidate clusters to its join list by stated UID; it reads no fleet view",
+	"pkg/delivery/members.go":           "counts the join list's pending clusters for gates; it reads no fleet view",
 }
 
 // clusterAttribution are the impact files that name where a consumer runs:

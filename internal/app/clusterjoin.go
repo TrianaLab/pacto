@@ -550,7 +550,9 @@ func selfSigned(bundle []byte, uid string, j delivery.SnapshotJoin) bool {
 // clusterJoinSources are the sources of the members this hub approved, read
 // through r, the build's one snapshot reader, each verified only under its
 // approved key scoped to its UID. A member r already read is skipped. A list
-// read partly adds one partial source that says what was not read.
+// read partly adds one partial source that says what was not read. Once a
+// person approved or removed a member, pending clusters add one count for
+// gates ([delivery.UnreadClusters]), never a source state.
 func (s *Service) clusterJoinSources(ctx context.Context, r *snapshotReader, opts JoinOptions) []fleet.Source {
 	list := s.ClusterJoins(ctx, membersOnly(opts))
 	var out []fleet.Source
@@ -558,6 +560,9 @@ func (s *Service) clusterJoinSources(ctx context.Context, r *snapshotReader, opt
 		id := r.claim(clusterJoinsID)
 		out = append(out, fleet.NewMemorySource(id, fleet.SourceKindTargetSnapshot, &fleet.Collection{
 			State: &fleet.SourceState{Status: fleet.SourcePartial}, Limitations: withSource(id, list.Limitations)}))
+	}
+	if unread := delivery.UnreadClusters(list); unread != nil { // a count for gates, never a source state
+		out = append(out, unread)
 	}
 	m := *r // shares used, read and names: one reader per build
 	m.trust = delivery.JoinTrust(list.Clusters)

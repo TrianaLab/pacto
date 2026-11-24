@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -38,6 +39,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -638,38 +640,178 @@ func TestJoinsAndTargetSnapshotShareOneReader(t *testing.T) {
 	}
 }
 
-func TestImpactUnchangedByPendingMember(t *testing.T) {
+// TestPendingMemberOnlyAddsUnreadCount: with a member approved, a pending
+// cluster adds one count for gates and nothing else: no source, target,
+// service or completeness change.
+func TestPendingMemberOnlyAddsUnreadCount(t *testing.T) {
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	a := newMember(memberA, "eu-prod")
 	e.publish(t, a, a.key, snapNow)
 	e.decide(t, a, delivery.JoinApprove)
 	before := e.build(t)
-	p := newMember(memberB, "eu-prod")
+	p := newMember(memberB, "us-west")
 	e.publish(t, p, p.key, snapNow)
 	after := e.build(t)
-	if after.SnapshotID != before.SnapshotID || len(after.Targets) != len(before.Targets) || len(after.Services) != len(before.Services) {
-		t.Fatalf("a pending member changed the fleet: %d/%d targets", len(after.Targets), len(before.Targets))
+	bm, am := fleet.NewQuery(before).ProductMeta(), fleet.NewQuery(after).ProductMeta()
+	if len(after.Sources) != len(before.Sources) || len(after.Targets) != len(before.Targets) || len(after.Services) != len(before.Services) ||
+		after.Completeness != before.Completeness || !reflect.DeepEqual(am.SourceCounts, bm.SourceCounts) || !reflect.DeepEqual(am.Clusters, bm.Clusters) {
+		t.Fatalf("a pending member changed the fleet: %d/%d sources, %d/%d targets, %+v/%+v", len(after.Sources), len(before.Sources),
+			len(after.Targets), len(before.Targets), am.SourceCounts, bm.SourceCounts)
+	}
+	if before.UnreadClusters != 0 || after.UnreadClusters != 1 || !hasLimitation(after.Limitations, fleet.LimitationClustersUnread, delivery.UnreadClustersSourceID) {
+		t.Fatalf("unread %d -> %d, %+v", before.UnreadClusters, after.UnreadClusters, after.Limitations)
+	}
+}
+
+// TestNoHubRoleNoUnreadCount: clusters that share the repository while no
+// person ever approved or removed one leave the answer as it was.
+func TestNoHubRoleNoUnreadCount(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-west")
+	e.publish(t, a, a.key, snapNow)
+	e.publish(t, b, b.key, snapNow)
+	base, err := e.svc.Fleet(t.Context(), FleetOptions{Now: func() time.Time { return snapNow }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := e.build(t)
+	gj, _ := json.Marshal(got)
+	bj, _ := json.Marshal(base)
+	if got.UnreadClusters != 0 || !bytes.Equal(gj, bj) {
+		t.Fatalf("pending clusters with no hub role changed the answer:\n%s\n%s", gj, bj)
+	}
+}
+
+// TestRemovedMemberNotCounted: a removed cluster is a person's decision, so
+// it is neither read nor counted; it still makes this installation a hub.
+func TestRemovedMemberNotCounted(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	a := newMember(memberA, "eu-prod")
+	e.publish(t, a, a.key, snapNow)
+	e.decide(t, a, delivery.JoinApprove)
+	e.decide(t, a, delivery.JoinRemove)
+	if snap := e.build(t); snap.UnreadClusters != 0 || len(snap.Targets) != 0 || hasLimitation(snap.Limitations, fleet.LimitationClustersUnread, delivery.UnreadClustersSourceID) {
+		t.Fatalf("a removed member is counted or read: %d unread, %d targets", snap.UnreadClusters, len(snap.Targets))
+	}
+	p := newMember(memberB, "us-west")
+	e.publish(t, p, p.key, snapNow)
+	if snap := e.build(t); snap.UnreadClusters != 1 {
+		t.Fatalf("a removal is no hub role: %d unread", snap.UnreadClusters)
+	}
+}
+
+// TestUnreadCountNamesNoCluster: the count's limitation names neither the
+// pending cluster's UID nor its name.
+func TestUnreadCountNamesNoCluster(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	a, p := newMember(memberA, "eu-prod"), newMember(memberB, "us-west")
+	e.publish(t, a, a.key, snapNow)
+	e.decide(t, a, delivery.JoinApprove)
+	e.publish(t, p, p.key, snapNow)
+	snap := e.build(t)
+	n := 0
+	for _, l := range snap.Limitations {
+		if l.Code != fleet.LimitationClustersUnread {
+			continue
+		}
+		n++
+		if strings.Contains(l.Message, p.uid) || strings.Contains(l.Message, p.name) || l.Source != delivery.UnreadClustersSourceID {
+			t.Fatalf("%+v", l)
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d unread limitations", n)
+	}
+}
+
+// publishSnap signs s, m's snapshot carrying m's join block, and tags it.
+func (e *joinEnv) publishSnap(t *testing.T, m member, s delivery.TargetSnapshot) {
+	t.Helper()
+	s.Join = m.join()
+	pushAt(t, e.repo, m.key, m.uid, s)
+}
+
+// joinImpact is the impact of orders 1.0.0 -> 2.0.0 (BREAKING) over e's
+// hub fleet.
+func (e *joinEnv) joinImpact(t *testing.T) *impact.Result {
+	t.Helper()
+	svc := ordersService(t)
+	svc.sys.now = e.svc.sys.now
+	e.svc = svc
+	host := strings.TrimSuffix(e.repo, "/acme/"+delivery.TargetSnapshotRepository)
+	o := e.fleetOpts()
+	o.Index = IndexNone
+	res, err := svc.Impact(t.Context(), ImpactOptions{OldPath: "oci://" + host + "/acme/orders:1.0.0", NewPath: "oci://" + host + "/acme/orders:2.0.0", Fleet: o})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// TestImpactBlocksOnMemberConsumer: a consumer in an approved member whose
+// range refuses the change blocks it, attributed to the member's cluster.
+func TestImpactBlocksOnMemberConsumer(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-west")
+	host := strings.TrimSuffix(e.repo, "/acme/"+delivery.TargetSnapshotRepository)
+	e.publishSnap(t, a, webappSnapshot(a.uid, host, "^1", snapNow))
+	e.publish(t, b, b.key, snapNow)
+	e.decide(t, a, delivery.JoinApprove)
+	e.decide(t, b, delivery.JoinApprove)
+	res := e.joinImpact(t)
+	i := slices.IndexFunc(res.Consumers, func(c impact.AffectedConsumer) bool { return c.Service == "webapp" })
+	if res.Gate != impact.GateBlocked || i < 0 || !slices.Equal(res.Consumers[i].Clusters, []string{a.uid}) || len(res.Clusters) != 2 || res.UnreadClusters != 0 {
+		t.Fatalf("gate %s (%s), consumers %+v, clusters %+v", res.Gate, res.GateReason, res.Consumers, res.Clusters)
+	}
+}
+
+// TestImpactUnverifiedWithPendingMember: a BREAKING change with no consumer
+// read is unverified while a cluster that publishes to the hub is not a
+// member.
+func TestImpactUnverifiedWithPendingMember(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	a, p := newMember(memberA, "eu-prod"), newMember(memberB, "us-west")
+	e.publish(t, a, a.key, snapNow)
+	e.decide(t, a, delivery.JoinApprove)
+	e.publish(t, p, p.key, snapNow)
+	res := e.joinImpact(t)
+	if res.Gate != impact.GateUnverified || res.GateCode() != impact.GateCodeClustersUnread || res.UnreadClusters != 1 {
+		t.Fatalf("gate %s %s (%s), unread %d %+v", res.Gate, res.GateCode(), res.GateReason, res.UnreadClusters, res.Limitations)
 	}
 }
 
 // TestNoGateReadsJoinState: no gate, impact or plan code names a join type,
-// so a pending member or an inferred environment never clears a gate.
+// so a pending member or an inferred environment never clears a gate. The
+// one allowed reader, pkg/delivery/members.go, names only the list, its
+// states and the three state values: never an advertised environment, a
+// snapshot join block, a candidate or a verified record.
 func TestNoGateReadsJoinState(t *testing.T) {
 	banned := map[string]bool{"SnapshotJoin": true, "AdvertisedEnvironment": true, "ClusterJoinState": true, "JoinState": true,
 		"ClusterJoinList": true, "JoinCandidate": true, "VerifiedJoin": true}
+	allowed := map[string]bool{"ClusterJoinList": true, "ClusterJoinState": true, "JoinApproved": true, "JoinPending": true, "JoinRemoved": true}
 	files, _ := filepath.Glob("../../pkg/impact/*.go")
 	plans, _ := filepath.Glob("../../pkg/delivery/plan*.go")
 	files = append(files, plans...)
 	if len(files) < 2 || len(plans) == 0 {
 		t.Fatalf("found %d files", len(files))
 	}
-	for _, path := range files {
+	for _, path := range append(files, "../../pkg/delivery/members.go") {
 		f, err := parser.ParseFile(token.NewFileSet(), path, nil, 0)
 		if err != nil {
 			t.Fatal(err)
 		}
+		reader := strings.HasSuffix(path, "/members.go")
 		ast.Inspect(f, func(n ast.Node) bool {
-			if id, ok := n.(*ast.Ident); ok && banned[id.Name] {
+			if sel, ok := n.(*ast.SelectorExpr); ok && reader {
+				x, _ := sel.X.(*ast.Ident)
+				return x == nil || x.Name != "fleet" // fleet names no join type
+			}
+			id, ok := n.(*ast.Ident)
+			switch {
+			case !ok:
+			case reader && (banned[id.Name] || strings.Contains(id.Name, "Join")) && !allowed[id.Name]:
+				t.Errorf("%s names %s", path, id.Name)
+			case !reader && banned[id.Name]:
 				t.Errorf("%s names %s", path, id.Name)
 			}
 			return true

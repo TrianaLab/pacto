@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -355,6 +356,7 @@ func printImpactResult(cmd *cobra.Command, result *impact.Result, format string)
 		} else {
 			printChangeHeader(w, result)
 		}
+		printClustersRead(w, result)
 		printTargetSnapshots(w, result)
 		printImpactConsumers(w, result)
 		if len(result.ConsumerTallies.ByOutcome) > 0 && len(result.Consumers) > 0 {
@@ -582,6 +584,9 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 	_, _ = fmt.Fprintf(w, "  %-28s %-10s confidence=%-12s %-19s owner=%s\n",
 		c.Service, scope, c.Confidence, verdict, orDash(c.Owner))
 	_, _ = fmt.Fprintf(w, "    path: %s  provenance: %s  via: %s\n", strings.Join(c.Path, " > "), orDash(c.Provenance), orDash(strings.Join(c.Via, ",")))
+	if len(c.Clusters) > 0 {
+		_, _ = fmt.Fprintf(w, "    clusters: %s\n", consumerClusterWords(result, c.Clusters))
+	}
 	if b := c.Break; b != nil {
 		_, _ = fmt.Fprintf(w, "    break: %s\n", b.Text(c.Service))
 	}
@@ -604,6 +609,68 @@ func printImpactConsumer(w io.Writer, result *impact.Result, c impact.AffectedCo
 	if c.Note != "" {
 		_, _ = fmt.Fprintf(w, "    note: %s\n", c.Note)
 	}
+}
+
+// printClustersRead writes the clusters an answer over more than one cluster
+// read, with their status, and how many clusters are not members yet.
+func printClustersRead(w io.Writer, result *impact.Result) {
+	var parts []string
+	if len(result.Clusters) > 0 {
+		words := make([]string, len(result.Clusters))
+		for i, c := range result.Clusters {
+			words[i] = c.Name + " (" + clusterAgeWords(result.AsOf, c) + ")"
+		}
+		parts = append(parts, strings.Join(words, ", "))
+	}
+	if n := result.UnreadClusters; n > 0 {
+		parts = append(parts, fmt.Sprintf("%d %s yet", n, map[bool]string{true: "cluster is not a member", false: "clusters are not members"}[n == 1]))
+	}
+	if len(parts) > 0 {
+		_, _ = fmt.Fprintf(w, "Clusters read: %s\n", strings.Join(parts, "; "))
+	}
+}
+
+// consumerClusterWords names the clusters ids a consumer runs in by their
+// display names from the answer's clusters, with the status of any that is
+// not complete. An id outside the answer's bounded list is counted, never
+// printed.
+func consumerClusterWords(result *impact.Result, ids []string) string {
+	var words []string
+	more := 0
+	for _, id := range ids {
+		i := slices.IndexFunc(result.Clusters, func(c fleet.ClusterSummary) bool { return c.ID == id })
+		if i < 0 {
+			more++
+			continue
+		}
+		c := result.Clusters[i]
+		if c.Status != fleet.SourceAvailable {
+			words = append(words, c.Name+" ("+clusterAgeWords(result.AsOf, c)+")")
+			continue
+		}
+		words = append(words, c.Name)
+	}
+	if more > 0 {
+		words = append(words, fmt.Sprintf("%d more %s", more, map[bool]string{true: "cluster", false: "clusters"}[more == 1]))
+	}
+	return strings.Join(words, ", ")
+}
+
+// clusterAgeWords is a cluster's status word (clusterWords), with the age of
+// its oldest read at asOf when it is stale.
+func clusterAgeWords(asOf time.Time, c fleet.ClusterSummary) string {
+	word := clusterWords[cmp.Or(c.Access, string(c.Status))]
+	if c.Status != fleet.SourceStale || c.AsOf == nil {
+		return word
+	}
+	d := max(asOf.Sub(*c.AsOf), 0)
+	switch {
+	case d < time.Hour:
+		return fmt.Sprintf("%s %dm", word, int(d/time.Minute))
+	case d < 48*time.Hour:
+		return fmt.Sprintf("%s %dh", word, int(d/time.Hour))
+	}
+	return fmt.Sprintf("%s %dd", word, int(d/(24*time.Hour)))
 }
 
 // evidenceDetail says how old a target or an observed call was at asOf, or
