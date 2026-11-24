@@ -475,7 +475,7 @@ out="$(reg "$LADDER_BIN" -root "$WORK/ladder-root.json" -view "$WORK/view.json" 
 SIGNERS="$(jq -nc --arg i "$LADDER_ISSUER" --rawfile r "$WORK/ladder-root.json" '[{issuer: $i, usernamePrefix: "oidc:", subjects: "[^@]+@acme\\.test", trustedRoot: $r}]')"
 helm upgrade pacto "$PACTO_CHART" -n "$NS" --reuse-values --set-json "delivery.identities.signers=$SIGNERS" --wait --timeout 300s >/dev/null \
   || fail "the promoter did not take alice's approver signer"
-preview_confirmed() { view | jq -e '[.confirmed[]? | select(.name == "preview")] | length == 1 and .confirmedBy == "oidc:alice@acme.test"' >/dev/null 2>&1; }
+preview_confirmed() { view | jq -e '([.confirmed[]? | select(.name == "preview")] | length == 1) and .confirmedBy == "oidc:alice@acme.test"' >/dev/null 2>&1; }
 eventually 60 preview_confirmed || fail "the installation ladder does not hold preview confirmed by oidc:alice@acme.test: $(view | jq -c '{confirmed, confirmedBy, notes}')"
 eventually 60 has_stage preview payments-preview || fail "no Stage preview/payments-preview appeared: $(row payments preview)"
 stage_json preview payments-preview | jq -e '.spec.candidates.registry != null and .spec.candidates.upstreamStage == null' >/dev/null \
