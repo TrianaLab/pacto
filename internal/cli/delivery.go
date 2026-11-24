@@ -111,7 +111,7 @@ func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.
 		return nil, "", err
 	}
 	return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now}, ns, nil
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, ServedVersions: servedVersions(d)}, ns, nil
 }
 
 func newDeliveryTypesCommand(v *viper.Viper) *cobra.Command {

@@ -89,8 +89,8 @@ the same command as any other:
 
 --8<-- "integrations/kubernetes/docs/generated/_upgrade-command.md"
 
-The API version stays `v1alpha1` across the major bump and the stored version is
-unchanged. Every existing `Pacto` resource therefore remains stored and readable
+Up to v6 the API and stored versions stay `v1alpha1`
+([v7 moves to `v1`](#upgrading-to-v7)). Every existing `Pacto` resource therefore remains stored and readable
 under the new CRD, with no conversion webhook and no decode error, and the upgraded
 operator reconciles it in place. That holds because **`spec` is additive**: v5 adds
 `spec.target.configBindings` and `spec.target.interfaceBindings` and removes

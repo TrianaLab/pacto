@@ -2,6 +2,7 @@ package architecture
 
 import (
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"maps"
@@ -56,7 +57,7 @@ func compareVersions(crd map[string]any) []string {
 		return append(out, fmt.Sprintf("versions %v, %v, want v1 then v1alpha1", v1["name"], old["name"]))
 	}
 	want := map[string]map[string]bool{
-		"v1":       {"served": true, "storage": true},
+		"v1":       {"served": true, "storage": true, "deprecated": false},
 		"v1alpha1": {"served": true, "storage": false, "deprecated": true},
 	}
 	for _, v := range []map[string]any{v1, old} {
@@ -213,6 +214,7 @@ func TestV1APICompareDetectsDrift(t *testing.T) {
 	}
 	for _, tc := range []struct{ file, want string }{
 		{"version-flag-flipped.yaml", "v1alpha1: served is false"},
+		{"version-v1-deprecated.yaml", "v1: deprecated is true"},
 		{"version-schema-diverged.yaml", "schema differs between v1 and v1alpha1"},
 	} {
 		assertFindings(t, tc.file, compareVersions(readCRD(t, filepath.Join(dir, tc.file))), tc.want)
@@ -299,7 +301,9 @@ func TestNothingAddressesV1alpha1(t *testing.T) {
 		`integrations/kubernetes/v[0-9]+/api/(delivery/)?` + old + `"`,
 	}, "|")
 	out, err := exec.Command("git", "-C", repoRoot(t), "grep", "-I", "-l", "-E", pattern).Output()
-	if err != nil && len(out) != 0 {
+	// git grep exits 1 when nothing matches; anything else is a failed run.
+	var exit *exec.ExitError
+	if err != nil && (!errors.As(err, &exit) || exit.ExitCode() != 1) {
 		t.Fatalf("git grep: %v", err)
 	}
 	used := map[string]bool{}

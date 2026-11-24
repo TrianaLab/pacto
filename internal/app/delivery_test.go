@@ -169,6 +169,9 @@ func deliveryFixtureAt(t *testing.T, version, user string, groups []string, extr
 // and the Pactos and creates its Operation there.
 func TestDeliveryAddressesTheServedVersion(t *testing.T) {
 	d, c, _ := deliveryFixtureAt(t, "v1alpha1", "alice", nil, nil)
+	// The CLI resolves the version on first use rather than at construction.
+	versions := d.Versions
+	d.Versions, d.ServedVersions = nil, func() map[string]string { return versions }
 	ctx := context.Background()
 	if stages, err := d.Stages(ctx, ""); err != nil || len(stages) != 2 {
 		t.Fatalf("stages %+v: %v", stages, err)

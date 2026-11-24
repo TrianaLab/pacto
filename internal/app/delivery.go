@@ -91,11 +91,18 @@ type Delivery struct {
 	// version the cluster serves; a group it leaves out is addressed at v1.
 	// A chart-6 cluster serves only v1alpha1.
 	Versions map[string]string
+	// ServedVersions answers Versions on first use when Versions is nil, so
+	// a client that never reaches the cluster never asks discovery.
+	ServedVersions func() map[string]string
 }
 
 // gvr is resource of group at the version the cluster serves (Versions).
 func (d *Delivery) gvr(group, resource string) schema.GroupVersionResource {
-	return schema.GroupVersionResource{Group: group, Version: cmp.Or(d.Versions[group], "v1"), Resource: resource}
+	versions := d.Versions
+	if versions == nil && d.ServedVersions != nil {
+		versions = d.ServedVersions()
+	}
+	return schema.GroupVersionResource{Group: group, Version: cmp.Or(versions[group], "v1"), Resource: resource}
 }
 
 // Caller is who the apiserver says is calling, and when they last logged in.

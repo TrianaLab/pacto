@@ -13,11 +13,11 @@
 // and through the Registry interface. The package also holds the gate
 // providers that call out over HTTP (http, mira and eval, in gate.go, mira.go
 // and eval.go); they run only where the promoter is configured with them, and
-// CheckTimeout bounds each check. The wire types below are
-// embedded verbatim by the delivery CRDs (delivery.pacto.trianalab.io/v1 and
-// the deprecated v1alpha1 in integrations/kubernetes), so a client decoding a Stage or an Operation reads
-// exactly the struct the controller wrote, and the intent digest a client
-// computes is byte-for-byte the one the controller recomputes.
+// CheckTimeout bounds each check. The wire types below are embedded verbatim
+// by the delivery CRDs (delivery.pacto.trianalab.io/v1 and the deprecated
+// v1alpha1 in integrations/kubernetes), so a client decoding a Stage or an
+// Operation reads exactly the struct the controller wrote, and the intent
+// digest a client computes is byte-for-byte the one the controller recomputes.
 package delivery
 
 import "encoding/json"

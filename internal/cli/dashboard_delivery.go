@@ -152,7 +152,38 @@ func (id *dashboardIdentity) versions() map[string]string {
 	if id.version == "" || id.probeErr != nil {
 		return nil
 	}
-	return map[string]string{deliveryGroup: id.version, k8sclient.PactoGroup: id.version}
+	return pactoVersions(id.version)
+}
+
+// pactoVersions maps both Pacto groups to v: one chart serves both at the
+// same version.
+func pactoVersions(v string) map[string]string {
+	return map[string]string{deliveryGroup: v, k8sclient.PactoGroup: v}
+}
+
+// servedVersions is app.Delivery.ServedVersions for the CLI: it asks d's
+// cluster once, on first use, which version it serves the Pacto groups at
+// (servedVersion). nil, so the client addresses v1, without a cluster config
+// or when discovery fails or serves neither.
+// ponytail: the answer is kept for the process; a long-lived server started
+// on a chart-6 cluster keeps v1alpha1, which chart 7 still serves.
+func servedVersions(d deps) func() map[string]string {
+	return sync.OnceValue(func() map[string]string {
+		if d.clusterConfig == nil {
+			return nil
+		}
+		cfg, err := d.clusterConfig()
+		if err != nil {
+			return nil
+		}
+		cfg = rest.CopyConfig(cfg)
+		cfg.Timeout = discoveryTimeout
+		v, err := servedVersion(d.served, cfg)
+		if err != nil || v == "" {
+			return nil
+		}
+		return pactoVersions(v)
+	})
 }
 
 // deliveryCheckedAt is when deliveryInstalled last asked discovery.

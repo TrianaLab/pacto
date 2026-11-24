@@ -70,6 +70,7 @@ func u(apiVersion, kind, name string, fields map[string]any) *unstructured.Unstr
 func deliveryDeps(user string, dynErr error) deps {
 	d := defaultDeps()
 	d.newDeliveryRegistry = func(...string) app.DeliveryRegistry { return cliRegistry{} }
+	d.served = func(*rest.Config, string) (bool, error) { return true, nil }
 	d.newDynamic = func() (dynamic.Interface, error) {
 		lists := map[schema.GroupVersionResource]string{
 			{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}:     "OperationList",
@@ -139,6 +140,36 @@ func approveDeps(user string, dynErr error) deps {
 		return d.newDynamic()
 	}
 	return d
+}
+
+// TestDeliveryClientFollowsTheServedVersion: against a chart-6 cluster, which
+// serves the Pacto groups at v1alpha1 only, the CLI's delivery clients ask
+// discovery once, on first use, and address that version; without a cluster
+// or an answer they address v1.
+func TestDeliveryClientFollowsTheServedVersion(t *testing.T) {
+	d := deliveryDeps("alice", nil)
+	var asked []string
+	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k8s"}, nil }
+	d.served = func(cfg *rest.Config, gv string) (bool, error) {
+		asked = append(asked, fmt.Sprint(gv, " ", cfg.Timeout))
+		return gv == deliveryGroup+"/v1alpha1", nil
+	}
+	versions := deliveryClientsFor(nil, "", d)(nil).ServedVersions
+	want := map[string]string{deliveryGroup: "v1alpha1", "pacto.trianalab.io": "v1alpha1"}
+	for range 2 {
+		expect(t, fmt.Sprint(versions()) == fmt.Sprint(want), "versions %v", versions())
+	}
+	expect(t, strings.Join(asked, ",") == deliveryGroup+"/v1 5s,"+deliveryGroup+"/v1alpha1 5s", "asked once, with a timeout: %v", asked)
+
+	none := deps{}
+	expect(t, servedVersions(none)() == nil, "no cluster config")
+	none.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
+	expect(t, servedVersions(none)() == nil, "no kubeconfig")
+	none.clusterConfig = d.clusterConfig
+	none.served = func(*rest.Config, string) (bool, error) { return false, errors.New("down") }
+	expect(t, servedVersions(none)() == nil, "discovery failed")
+	none.served = func(*rest.Config, string) (bool, error) { return false, nil }
+	expect(t, servedVersions(none)() == nil, "served at neither")
 }
 
 func runDelivery(t *testing.T, d deps, format string, args ...string) (string, error) {

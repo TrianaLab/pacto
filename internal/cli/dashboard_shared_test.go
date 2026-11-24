@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -91,6 +92,32 @@ func newSharedWorld(t *testing.T) *sharedWorld {
 		}
 	}
 	return w
+}
+
+// TestSharedReadsWatchTheServedVersion: on a chart-6 cluster, which serves
+// the delivery group at v1alpha1 only, the shared informers list and watch
+// that version and still key their cache by the v1 resource.
+func TestSharedReadsWatchTheServedVersion(t *testing.T) {
+	old := func(gvr schema.GroupVersionResource) schema.GroupVersionResource {
+		gvr.Version = "v1alpha1"
+		return gvr
+	}
+	stage := deliveryObj("Stage", "a", "s1", nil)
+	stage.SetAPIVersion(deliveryGroup + "/v1alpha1")
+	sa := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+		old(gvrTestStages): "StageList", old(gvrTestOps): "OperationList"}, stage)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s := newSharedReads(ctx, sa, "v1alpha1", func(string) bool { return false })
+	for _, inf := range s.informers {
+		if !cache.WaitForCacheSync(ctx.Done(), inf.HasSynced) {
+			t.Fatal("the informers never synced")
+		}
+	}
+	expect(t, fmt.Sprint(s.informers[sharedStages].GetStore().ListKeys()) == "[a/s1]", "stages %v", s.informers[sharedStages].GetStore().ListKeys())
+	for _, a := range sa.Actions() {
+		expect(t, a.GetResource().Version == "v1alpha1", "%s %s at %s", a.GetVerb(), a.GetResource().Resource, a.GetResource().Version)
+	}
 }
 
 // person is a person's own client: the apiserver names them user and holds
