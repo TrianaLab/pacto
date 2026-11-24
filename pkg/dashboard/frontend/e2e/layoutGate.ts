@@ -176,7 +176,7 @@ export function installScaleFixture(): void {
       });
       const ag = doc.aggregate as Record<string, unknown> | undefined;
       // Only the bare failed list is the figure's: a failed list narrowed further keeps the engine's answer.
-      if (q.get('failed') && !q.get('lifecycle') && !q.get('text')) {
+      if (q.get('failed') && !q.get('lifecycle') && !q.get('text') && !q.get('consumable')) {
         const n = FAILED_OFFERINGS.length + FAILED_BEYOND;
         // The figure's failed offerings are made up, so the engine lists none of them:
         // stand-ins fill the page and the total is what the Failed station lists.
@@ -194,8 +194,8 @@ export function installScaleFixture(): void {
       }
     }
     // 515-S9: consumable offering rows at their longest, a 200-character version, long
-    // classes, tunable fields and publisher, and more providers than the row lists. The
-    // demo may consume none, so stand-ins fill an empty page. A consumable row is never
+    // classes, tunable fields and publisher, and more providers than the row lists. Stand-ins
+    // fill an empty page. A consumable row is never
     // past sunset and lists only the providers you may see.
     if (route === '/api/fleet/entities' && q.get('kinds') === 'offering' && q.get('consumable')) {
       let ents = doc.entities as Record<string, unknown>[];
