@@ -455,3 +455,63 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: "dashboard.repositories is deprecated"
+
+  - it: upgrade note while v1alpha1 is stored
+    kubernetesProvider:
+      scheme:
+        "apiextensions.k8s.io/v1/CustomResourceDefinition":
+          gvr: {group: apiextensions.k8s.io, version: v1, resource: customresourcedefinitions}
+          namespaced: false
+      objects:
+        - kind: CustomResourceDefinition
+          apiVersion: apiextensions.k8s.io/v1
+          metadata: {name: pactos.pacto.trianalab.io}
+          status: {storedVersions: [v1alpha1, v1]}
+    asserts:
+      - matchRegexRaw:
+          pattern: "The operator rewrites stored Pacto\\nobjects as v1 when it starts"
+      - matchRegexRaw:
+          pattern: "kubectl logs -n pacto-operator-system deploy/pacto-operator \\| grep 'storage migration'"
+      - matchRegexRaw:
+          pattern: "kubectl get crd pactos.pacto.trianalab.io -o jsonpath='\\{.status.storedVersions\\}'"
+      - matchRegexRaw:
+          pattern: "chart 8.0"
+      - matchRegexRaw:
+          pattern: "controller.watchNamespaces"
+
+  - it: no note once storage is v1
+    kubernetesProvider:
+      scheme:
+        "apiextensions.k8s.io/v1/CustomResourceDefinition":
+          gvr: {group: apiextensions.k8s.io, version: v1, resource: customresourcedefinitions}
+          namespaced: false
+      objects:
+        - kind: CustomResourceDefinition
+          apiVersion: apiextensions.k8s.io/v1
+          metadata: {name: pactos.pacto.trianalab.io}
+          status: {storedVersions: [v1]}
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "storage migration"
+---
+suite: notes on install
+templates:
+  - templates/NOTES.txt
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+tests:
+  - it: no note on install
+    kubernetesProvider:
+      scheme:
+        "apiextensions.k8s.io/v1/CustomResourceDefinition":
+          gvr: {group: apiextensions.k8s.io, version: v1, resource: customresourcedefinitions}
+          namespaced: false
+      objects:
+        - kind: CustomResourceDefinition
+          apiVersion: apiextensions.k8s.io/v1
+          metadata: {name: pactos.pacto.trianalab.io}
+          status: {storedVersions: [v1alpha1, v1]}
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "storage migration"

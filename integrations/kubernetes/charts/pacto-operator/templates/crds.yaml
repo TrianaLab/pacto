@@ -4,11 +4,25 @@ takes from config/crd/bases. As a template, helm upgrade updates a CRD, which
 it never does for the crds/ directory. resource-policy keep leaves the CRDs,
 and every resource they hold, in place on helm uninstall. The delivery CRDs
 (group delivery.pacto.trianalab.io) follow delivery.enabled.
+A CRD that no longer lists a version the cluster still stores fails the
+render: the apiserver keeps those objects as that version until the operator
+rewrites them. The lookup is empty under helm template and in template-based
+GitOps renders, so only helm install and helm upgrade run this check. For the
+others the apiserver refuses a CRD update that drops a version listed in
+status.storedVersions.
 */}}
 {{- if .Values.crds.install }}
 {{- range $path, $_ := .Files.Glob "files/crds/*.yaml" }}
 {{- if or (include "pacto-operator.deliveryEnabled" $) (not (hasPrefix "delivery." (base $path))) }}
 {{- $crd := $.Files.Get $path | fromYaml }}
+{{- $served := list }}
+{{- range $crd.spec.versions }}{{ $served = append $served .name }}{{ end }}
+{{- $live := lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" $crd.metadata.name }}
+{{- range (dig "status" "storedVersions" (list) $live) }}
+{{- if not (has . $served) }}
+{{- fail (printf "%[1]s still stores objects as %[2]s, which this chart no longer serves. Upgrade to the latest chart of the previous major first and wait until kubectl get crd %[1]s -o jsonpath='{.status.storedVersions}' prints [\"v1\"]. See MIGRATION.md." $crd.metadata.name .) }}
+{{- end }}
+{{- end }}
 {{- $_ := set $crd.metadata "labels" (merge (include "pacto-operator.labels" $ | fromYaml) ($crd.metadata.labels | default dict)) }}
 {{- $_ := set $crd.metadata "annotations" (merge (dict "helm.sh/resource-policy" "keep") ($crd.metadata.annotations | default dict)) }}
 ---

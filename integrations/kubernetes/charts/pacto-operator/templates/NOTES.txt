@@ -23,6 +23,24 @@ Pacto Operator has been installed.
 3. Check contract status:
 
    kubectl get pactos
+{{- /* Chart 7 stores the Pacto CRDs as v1; the operator migrates what an
+earlier chart stored as v1alpha1. */}}
+{{- if .Release.IsUpgrade }}
+{{- $pactoCRD := lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" "pactos.pacto.trianalab.io" }}
+{{- if has "v1alpha1" (dig "status" "storedVersions" (list) $pactoCRD) }}
+
+The Pacto CRDs now store objects as v1. The operator rewrites stored Pacto
+objects as v1 when it starts and retries until the new CRDs are served, so no
+restart is needed. Check its progress:
+
+   kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "pacto-operator.fullname" . }} | grep 'storage migration'
+   kubectl get crd pactos.pacto.trianalab.io -o jsonpath='{.status.storedVersions}'
+
+The migration is done when the second command prints ["v1"]. v1alpha1 stays
+served until chart 8.0. With controller.watchNamespaces set, follow "Upgrading
+from 6.x" in https://pacto.run/latest/integrations/kubernetes/installation/
+{{- end }}
+{{- end }}
 
 {{- if include "pacto-operator.dashboardEnabled" . }}
 {{- if include "pacto-operator.dashboardTokenSignIn" . }}
