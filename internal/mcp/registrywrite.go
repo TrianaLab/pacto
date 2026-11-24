@@ -67,7 +67,7 @@ const (
 	RefusalOfferingSourceUnverified WriteRefusal = "OfferingSourceUnverified"
 	RefusalOfferingMismatch         WriteRefusal = "OfferingMismatch"
 	RefusalVersionRequired          WriteRefusal = "VersionRequired"
-	RefusalOfferingInvalid         WriteRefusal = "OfferingInvalid"
+	RefusalOfferingInvalid          WriteRefusal = "OfferingInvalid"
 	// An HTTP server's draft write: the caller may not update the workload,
 	// writes on behalf of someone else or into another workload's
 	// repository (NotAllowed), or the review of the caller failed.

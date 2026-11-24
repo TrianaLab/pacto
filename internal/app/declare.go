@@ -324,7 +324,7 @@ const (
 	codeOfferingSourceUnverified = "OfferingSourceUnverified"
 	codeOfferingMismatch         = "OfferingMismatch"
 	codeVersionRequired          = "VersionRequired"
-	codeOfferingInvalid         = "OfferingInvalid"
+	codeOfferingInvalid          = "OfferingInvalid"
 	// The pacto accept codes.
 	codeAcceptNothingProposed    = "AcceptNothingProposed"
 	codeFieldNotAcceptable       = "FieldNotAcceptable"
