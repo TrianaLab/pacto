@@ -350,6 +350,37 @@ describe('ExternalEntity resources (517-S7)', () => {
     expect(t.querySelector('[data-testid="external-resources-hidden"]')?.querySelector('bdi')).toBeNull();
   });
 
+  it('every resource hidden says how many, never zero then more', () => {
+    const t = render({ hiddenResources: 7 });
+    expect(cards(t)).toHaveLength(0);
+    const caption = words(t.querySelector('[data-testid="external-resources-caption"]'));
+    expect(caption).toBe('7 managed resources read for it, none of which you can see.');
+    expect(caption).not.toContain('0 managed');
+    expect(caption).not.toContain('more');
+  });
+
+  it('an offering the viewer cannot see is named as such', () => {
+    const t = render({ resources: [tf({ offering: undefined, evidence: '' })], resourcesTotal: 1 });
+    expect(words(t.querySelector('[data-testid="external-resource-contract"]'))).toBe('Through an offering you cannot see');
+  });
+
+  it('the Claim toggle reopens the panel without the card\'s focus request', () => {
+    const t = render({ resources: [xp()], resourcesTotal: 1 }, { canDeclare: true });
+    (t.querySelector('[data-testid="resource-claim-propose"]') as HTMLButtonElement).click();
+    flushSync();
+    const toggle = t.querySelector('[data-testid="external-claim"]') as HTMLButtonElement;
+    toggle.click();
+    flushSync();
+    expect(t.querySelector('[data-testid="claim-offering"]')).toBeNull();
+    toggle.focus();
+    toggle.click();
+    flushSync();
+    const field = t.querySelector('[data-testid="claim-offering"]') as HTMLInputElement;
+    expect(field).toBeTruthy();
+    expect(document.activeElement).toBe(toggle);
+    expect(field.placeholder).not.toBe('A new offering name');
+  });
+
   it('requested engine is muted', () => {
     const t = render({ resources: [xp({ engine: '', engineRequested: 'postgres 16' })], resourcesTotal: 1 });
     const eng = t.querySelector('[data-testid="external-resource-engine"]')!;

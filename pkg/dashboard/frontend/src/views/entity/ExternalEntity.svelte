@@ -148,7 +148,7 @@
           <p class="t-body-2" data-testid="external-owner-unclaimed">Unclaimed <ProvenanceMark label="Who it is routed to" text={ROUTING} /></p>
         {/if}
         {#if claimable}
-          <button type="button" class="btn btn-sm xe-claim" aria-expanded={claimOpen} aria-controls="xe-claim-panel" onclick={() => (claimToggled = !claimOpen)} data-testid="external-claim">Claim</button>
+          <button type="button" class="btn btn-sm xe-claim" aria-expanded={claimOpen} aria-controls="xe-claim-panel" onclick={() => { offeringFocus = ''; claimToggled = !claimOpen; }} data-testid="external-claim">Claim</button>
         {/if}
       </div>
       {#if claimable && claimOpen}
@@ -185,7 +185,8 @@
   {#if resources.length || hiddenResources}
     <section class="xe-section" id="sec-resources" data-toc="Resources" aria-labelledby="xe-resources-h">
       <h2 id="xe-resources-h" class="t-section-title">Resources</h2>
-      <p class="t-meta xe-caption" data-testid="external-resources-caption">{plural(resourcesTotal, 'managed resource', 'managed resources')} read for it{#if resources.length}; {formatCount(outsideShown)}{resources.length < resourcesTotal ? ` of the first ${formatCount(resources.length)}` : ''} outside the contract{/if}.{#if hiddenResources}{' '}<span data-testid="external-resources-hidden">{plural(hiddenResources, 'more resource', 'more resources')} you cannot see.</span>{/if}</p>
+      <!-- Every resource hidden: say how many, never "0 read ... 7 more". -->
+      <p class="t-meta xe-caption" data-testid="external-resources-caption">{#if resources.length}{plural(resourcesTotal, 'managed resource', 'managed resources')} read for it; {formatCount(outsideShown)}{resources.length < resourcesTotal ? ` of the first ${formatCount(resources.length)}` : ''} outside the contract.{#if hiddenResources}{' '}<span data-testid="external-resources-hidden">{plural(hiddenResources, 'more resource', 'more resources')} you cannot see.</span>{/if}{:else}<span data-testid="external-resources-hidden">{plural(hiddenResources, 'managed resource', 'managed resources')} read for it, none of which you can see.</span>{/if}</p>
       {#each resourceGroups as [group, list] (group)}
         <div class="xe-res-group" data-testid="external-resource-group">
           <h3 class="t-label">{group}</h3>
@@ -203,7 +204,7 @@
                 {#if outside}
                   <p class="t-meta" data-testid="external-resource-contract">Outside contract</p>
                 {:else}
-                  <p class="xe-wrap" data-testid="external-resource-contract">Through offering {#if r.offering}<a href={fleetEntityUrl('offering', r.offering.key)}><bdi>{r.offering.label || r.offering.key}</bdi></a>{/if}</p>
+                  <p class="xe-wrap" data-testid="external-resource-contract">{#if r.offering}Through offering <a href={fleetEntityUrl('offering', r.offering.key)}><bdi>{r.offering.label || r.offering.key}</bdi></a>{:else}Through an offering you cannot see{/if}</p>
                 {/if}
                 {#if outside && claimable}
                   <div class="xe-res-actions">

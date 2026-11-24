@@ -512,7 +512,15 @@ export function installScaleFixture(): void {
     // block at its longest, 20 cards (the answer's cap) of 500, 7 hidden, every one outside
     // the contract with both claim actions, names, addresses, clusters and engines at 200
     // characters, across the three reader groups.
-    if (route === '/api/fleet/entities/external' && (window as unknown as { __managedResources?: boolean }).__managedResources) {
+    // 'external entity resources, every one hidden': a declared source keeps the record while
+    // every resource sits where the viewer cannot read, so the answer carries none and only
+    // the hidden count (resourcesTotal counts the visible ones, so it is omitted).
+    const managed = (window as unknown as { __managedResources?: boolean | 'hidden' }).__managedResources;
+    if (route === '/api/fleet/entities/external' && managed === 'hidden') {
+      const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
+      delete rec.resources; delete rec.resourcesTotal;
+      rec.hiddenResources = 7;
+    } else if (route === '/api/fleet/entities/external' && managed) {
       const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
       const long = (seed: string) => `${seed}-${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
       const sources = ['crossplane', 'terraform', 'aws-resource-explorer'];
@@ -3169,6 +3177,17 @@ export const ROUTES: Route[] = [
       await expect(page.getByTestId('external-resources-more')).toHaveText('and 480 more');
       await expect(page.getByTestId('resource-claim-join')).toHaveCount(20);
       await expect(page.getByTestId('resource-claim-propose')).toHaveCount(20);
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  {
+    name: 'external entity resources, every one hidden',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __managedResources?: boolean | 'hidden' }).__managedResources = 'hidden'; });
+      await page.goto('/#/fleet/externals/aws/rds/123456789012/eu-west-1/orders-db');
+      await page.reload(); // the init script only runs on a new document
+      await expect(page.getByTestId('external-resources-caption')).toHaveText('7 managed resources read for it, none of which you can see.', { timeout: 30_000 });
+      await expect(page.getByTestId('external-resource')).toHaveCount(0);
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },

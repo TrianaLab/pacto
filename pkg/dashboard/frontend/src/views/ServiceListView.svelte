@@ -11,8 +11,9 @@
 
   let { services = [], sourcesInfo = [], discovering = false, initialLoading = false, loadError = null, onRetry = null } = $props();
 
-  let enabledSources = $derived(sourcesInfo.filter((s) => s.enabled && !s.egress));
-  let disabledSources = $derived(sourcesInfo.filter((s) => !s.enabled && !s.egress));
+  // Egress and managed-resource rows are no data sources (as in Navbar).
+  let enabledSources = $derived(sourcesInfo.filter((s) => s.enabled && !s.egress && !s.resources));
+  let disabledSources = $derived(sourcesInfo.filter((s) => !s.enabled && !s.egress && !s.resources));
 
   // The visible set is driven entirely by the shared filter store, so the summary
   // (computed from `filtered`) and the table stay in sync with the URL.

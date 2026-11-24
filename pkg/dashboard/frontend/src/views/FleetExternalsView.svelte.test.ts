@@ -78,9 +78,13 @@ describe('FleetExternalsView', () => {
     await vi.waitFor(() => expect(target.querySelector('[data-testid="external-list"]')).not.toBeNull());
     expect(entitiesFn).toHaveBeenLastCalledWith(expect.not.objectContaining({ outsideContract: true }));
     const chip = target.querySelector('[data-testid="external-outside-contract"]')!;
-    // One chip after the class chips, in the same row, keeping the class.
-    expect(chip.parentElement?.getAttribute('data-testid')).toBe('external-class-filter');
-    expect(chip.previousElementSibling?.getAttribute('data-class')).toBe('other-egress');
+    // One chip after the class chips, in the same row, in its own navigation (it is no
+    // class), keeping the class.
+    const nav = chip.parentElement!;
+    expect(nav.getAttribute('data-testid')).toBe('external-contract-filter');
+    expect(nav.getAttribute('aria-label')).toBe('Filter by contract');
+    expect(nav.previousElementSibling?.getAttribute('data-testid')).toBe('external-class-filter');
+    expect(target.querySelector('[data-testid="external-class-filter"] [data-testid="external-outside-contract"]')).toBeNull();
     expect(chip.textContent).toBe('Outside contract');
     expect(chip.getAttribute('href')).toBe('#/fleet/externals?class=managed-cloud&outsideContract=1');
     expect(chip.getAttribute('aria-current')).toBeNull();
@@ -89,6 +93,11 @@ describe('FleetExternalsView', () => {
     await vi.waitFor(() => expect(entitiesFn).toHaveBeenLastCalledWith(expect.objectContaining({ kinds: ['external'], class: 'managed-cloud', outsideContract: true })));
     const active = on.target.querySelector('[data-testid="external-outside-contract"]')!;
     expect(active.getAttribute('aria-current')).toBe('true');
+    // The class navigation announces one current item, and the filter is listed and removable on its own.
+    expect(on.target.querySelectorAll('[data-testid="external-class-filter"] [aria-current="true"]')).toHaveLength(1);
+    const remove = on.target.querySelector('button[aria-label="Remove Contract filter"]') as HTMLButtonElement;
+    remove.click();
+    expect(location.hash).toBe('#/fleet/externals?class=managed-cloud');
     // Pressed again it clears the filter; a class chip keeps it.
     expect(active.getAttribute('href')).toBe('#/fleet/externals?class=managed-cloud');
     expect(on.target.querySelector('[data-class="vendor-api"]')?.getAttribute('href')).toBe('#/fleet/externals?class=vendor-api&outsideContract=1');
