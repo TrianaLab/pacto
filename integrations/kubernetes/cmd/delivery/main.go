@@ -41,7 +41,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/runstats"

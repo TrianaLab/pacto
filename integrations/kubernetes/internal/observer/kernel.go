@@ -26,7 +26,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"

@@ -3,7 +3,7 @@
 ## The operator resolves the full dependency graph from this contract.
 ## PactoRevisions are created automatically for each resolved version.
 ##
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: pacto-demo
@@ -21,7 +21,7 @@ spec:
 ##
 
 ## frontend — public web UI, depends on api-gateway
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: frontend
@@ -39,7 +39,7 @@ spec:
       kind: Deployment
 ---
 ## api-gateway — public edge proxy, routes to domain services
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: api-gateway
@@ -57,7 +57,7 @@ spec:
       kind: Deployment
 ---
 ## auth-service — identity and access management
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: auth-service
@@ -75,7 +75,7 @@ spec:
       kind: Deployment
 ---
 ## orders-service — order lifecycle management
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: orders-service
@@ -98,7 +98,7 @@ spec:
 ## breaking change from v1.x charges API), but the deployment still runs
 ## the old image. This is the demo's primary failure: contract drift.
 ##
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: payments-service
@@ -116,7 +116,7 @@ spec:
       kind: Deployment
 ---
 ## fraud-service — real-time fraud scoring
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: fraud-service
@@ -134,7 +134,7 @@ spec:
       kind: Deployment
 ---
 ## postgresql — primary relational database
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: postgresql
@@ -152,7 +152,7 @@ spec:
       kind: StatefulSet
 ---
 ## redis — in-memory cache and session store
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: redis
@@ -170,7 +170,7 @@ spec:
       kind: StatefulSet
 ---
 ## notification-worker — scheduled batch processor (CronJob, no Service)
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: notification-worker
@@ -187,7 +187,7 @@ spec:
       kind: CronJob
 ---
 ## External services — definition-only, no workloads, no targets
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: stripe-api
@@ -199,7 +199,7 @@ spec:
   contractRef:
     oci: ghcr.io/trianalab/pacto/stripe-api
 ---
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: email-provider

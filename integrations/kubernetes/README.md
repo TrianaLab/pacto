@@ -40,7 +40,7 @@ helm install pacto-operator oci://ghcr.io/trianalab/pacto/charts/pacto-operator 
 Bind a contract to a workload:
 
 ```yaml
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: my-service
@@ -254,7 +254,7 @@ kubectl create secret generic ghcr-creds \
 **Example Pacto CR:**
 
 ```yaml
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: my-service

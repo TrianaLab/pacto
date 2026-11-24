@@ -14,7 +14,7 @@ import (
 	authorizationv1 "k8s.io/api/authorization/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 

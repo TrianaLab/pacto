@@ -13,17 +13,17 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 )
 
 // An inline contract that does not declare its name never reaches the observers:
 // the loader refuses it and ContractValid is False with reason ContractUndeclared.
 func TestReconcile_UndeclaredInlineContract(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "nameless", Namespace: "default"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: "pactoVersion: \"2.5\"\nservice:\n  version: 1.0.0\n"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: "pactoVersion: \"2.5\"\nservice:\n  version: 1.0.0\n"},
 		},
 	}
 	r := newReconciler(pacto)
@@ -32,11 +32,11 @@ func TestReconcile_UndeclaredInlineContract(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := getPacto(t, r, "nameless", "default")
-	cond := findCondition(got.Status.Conditions, pactov1alpha1.ConditionContractValid)
-	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != pactov1alpha1.ReasonContractUndeclared {
+	cond := findCondition(got.Status.Conditions, pactov1.ConditionContractValid)
+	if cond == nil || cond.Status != metav1.ConditionFalse || cond.Reason != pactov1.ReasonContractUndeclared {
 		t.Fatalf("ContractValid = %+v, want False/ContractUndeclared", cond)
 	}
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+	if got.Status.ContractStatus != pactov1.ContractStatusInvalid {
 		t.Fatalf("contract status %s", got.Status.ContractStatus)
 	}
 }

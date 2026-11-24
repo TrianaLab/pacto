@@ -10,7 +10,7 @@
 ---
 # product-catalog — hybrid state: serves requests statelessly but maintains
 # a local cache for performance. Cache loss degrades speed but doesn't break.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: product-catalog
@@ -71,7 +71,7 @@ spec:
 # notification-worker — event consumer that processes messages from RabbitMQ.
 # Has an event interface (consumed topics) and an HTTP admin interface for
 # health and metrics.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: notification-worker
@@ -145,7 +145,7 @@ spec:
 ---
 # report-generator — scheduled job that runs daily at 2 AM.
 # Workload type "scheduled" means it runs on a cron schedule and exits.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: report-generator

@@ -14,7 +14,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/metrics"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/readiness"
@@ -32,7 +32,7 @@ var readinessClock = time.Now
 // wasUnmet reflects the prior ReadinessSatisfied condition (captured before the
 // status was reset) so the warning/recovery events fire only on a gate transition
 // rather than on every reconciliation.
-func (r *PactoReconciler) reconcileReadiness(pacto *pactov1alpha1.Pacto, c *contract.Contract, wasUnmet bool) {
+func (r *PactoReconciler) reconcileReadiness(pacto *pactov1.Pacto, c *contract.Contract, wasUnmet bool) {
 	status, reason, msg, declared := r.setReadiness(pacto, c)
 	if !declared {
 		return
@@ -41,16 +41,16 @@ func (r *PactoReconciler) reconcileReadiness(pacto *pactov1alpha1.Pacto, c *cont
 
 	switch {
 	case status == metav1.ConditionFalse && !wasUnmet:
-		r.Recorder.Event(pacto, corev1.EventTypeWarning, pactov1alpha1.EventReadinessGateUnmet, msg)
+		r.Recorder.Event(pacto, corev1.EventTypeWarning, pactov1.EventReadinessGateUnmet, msg)
 	case status == metav1.ConditionTrue && wasUnmet:
-		r.Recorder.Event(pacto, corev1.EventTypeNormal, pactov1alpha1.EventReadinessRecovered, msg)
+		r.Recorder.Event(pacto, corev1.EventTypeNormal, pactov1.EventReadinessRecovered, msg)
 	}
 }
 
 // setReadiness records the readiness assessment and the ReadinessSatisfied condition on the status
 // and returns that condition; declared is false, and nothing is recorded, when the contract declares
 // no readiness.
-func (r *PactoReconciler) setReadiness(pacto *pactov1alpha1.Pacto, c *contract.Contract) (status metav1.ConditionStatus, reason, msg string, declared bool) {
+func (r *PactoReconciler) setReadiness(pacto *pactov1.Pacto, c *contract.Contract) (status metav1.ConditionStatus, reason, msg string, declared bool) {
 	eval := readiness.Evaluate(c.Readiness, readinessClock())
 	if eval == nil {
 		// No readiness declared: omit the status and the condition entirely.
@@ -58,7 +58,7 @@ func (r *PactoReconciler) setReadiness(pacto *pactov1alpha1.Pacto, c *contract.C
 	}
 	pacto.Status.Readiness = buildReadinessStatus(eval, c.Readiness)
 	status, reason, msg = readinessCondition(eval)
-	r.setCondition(pacto, pactov1alpha1.ConditionReadinessSatisfied, status, reason, msg)
+	r.setCondition(pacto, pactov1.ConditionReadinessSatisfied, status, reason, msg)
 	return status, reason, msg, true
 }
 
@@ -67,22 +67,22 @@ func (r *PactoReconciler) setReadiness(pacto *pactov1alpha1.Pacto, c *contract.C
 // an expired assessment is surfaced distinctly from a plain below-threshold score.
 func readinessCondition(eval *readiness.Result) (metav1.ConditionStatus, string, string) {
 	if eval.Passing {
-		return metav1.ConditionTrue, pactov1alpha1.ReasonReadinessSatisfied,
+		return metav1.ConditionTrue, pactov1.ReasonReadinessSatisfied,
 			fmt.Sprintf("readiness score %d meets minScore %d", eval.Score, eval.MinScore)
 	}
 	if eval.Expired {
-		return metav1.ConditionFalse, pactov1alpha1.ReasonReadinessExpired,
+		return metav1.ConditionFalse, pactov1.ReasonReadinessExpired,
 			fmt.Sprintf("readiness assessment expired (expires %s); score %d below minScore %d", eval.Expires, eval.Score, eval.MinScore)
 	}
-	return metav1.ConditionFalse, pactov1alpha1.ReasonReadinessBelowMinScore,
+	return metav1.ConditionFalse, pactov1.ReasonReadinessBelowMinScore,
 		fmt.Sprintf("readiness score %d below minScore %d (%d done, %d partial, %d not-done, %d deferred)",
 			eval.Score, eval.MinScore, eval.DoneCount, eval.PartialCount, eval.NotDoneCount, eval.DeferredCount)
 }
 
 // buildReadinessStatus maps the pure evaluation result to the CRD status type.
 // The revision history lives on the declared contract (decl), not the evaluation.
-func buildReadinessStatus(eval *readiness.Result, decl *contract.Readiness) *pactov1alpha1.ReadinessStatus {
-	rs := &pactov1alpha1.ReadinessStatus{
+func buildReadinessStatus(eval *readiness.Result, decl *contract.Readiness) *pactov1.ReadinessStatus {
+	rs := &pactov1.ReadinessStatus{
 		Score:         int32(eval.Score),
 		MinScore:      int32(eval.MinScore),
 		Passing:       eval.Passing,
@@ -94,14 +94,14 @@ func buildReadinessStatus(eval *readiness.Result, decl *contract.Readiness) *pac
 		PartialCount:  int32(eval.PartialCount),
 		NotDoneCount:  int32(eval.NotDoneCount),
 		DeferredCount: int32(eval.DeferredCount),
-		Claims:        make([]pactov1alpha1.ClaimStatus, 0, len(eval.Checks)),
+		Claims:        make([]pactov1.ClaimStatus, 0, len(eval.Checks)),
 	}
 	if eval.DaysRemaining != nil {
 		d := int32(*eval.DaysRemaining)
 		rs.DaysRemaining = &d
 	}
 	for _, ch := range eval.Checks {
-		rs.Claims = append(rs.Claims, pactov1alpha1.ClaimStatus{
+		rs.Claims = append(rs.Claims, pactov1.ClaimStatus{
 			ID:           ch.ID,
 			Type:         ch.Type,
 			Category:     ch.Category,
@@ -115,7 +115,7 @@ func buildReadinessStatus(eval *readiness.Result, decl *contract.Readiness) *pac
 	}
 	if decl != nil {
 		for _, rev := range decl.History {
-			rs.Revisions = append(rs.Revisions, pactov1alpha1.ReadinessRevisionStatus{
+			rs.Revisions = append(rs.Revisions, pactov1.ReadinessRevisionStatus{
 				Date:        rev.Date,
 				Version:     rev.Version,
 				Author:      rev.Author,

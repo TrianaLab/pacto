@@ -21,7 +21,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -32,17 +32,17 @@ import (
 // coverage from an older evaluation over: here the agent left no data, so the
 // earlier complete coverage turns unavailable.
 func TestReconcile_ObservedCallersCoverage(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "pay", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef:          pactov1alpha1.ContractRef{OCI: "oci://r/pactos/payments@" + evaluatedDigest},
-			Target:               pactov1alpha1.TargetRef{ServiceName: "pay"},
+		Spec: pactov1.PactoSpec{
+			ContractRef:          pactov1.ContractRef{OCI: "oci://r/pactos/payments@" + evaluatedDigest},
+			Target:               pactov1.TargetRef{ServiceName: "pay"},
 			CheckIntervalSeconds: 60,
 		},
-		Status: pactov1alpha1.PactoStatus{ObservedCallersCoverage: &pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageComplete}},
+		Status: pactov1.PactoStatus{ObservedCallersCoverage: &pactov1.CallerCoverage{State: pactov1.CallerCoverageComplete}},
 	}
 	cl := fake.NewClientBuilder().WithScheme(newSchemeWithApps()).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).WithObjects(pacto).Build()
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).WithObjects(pacto).Build()
 	r := &PactoReconciler{Client: cl, Scheme: cl.Scheme(), Recorder: record.NewFakeRecorder(20),
 		KernelEvidence: true, KernelEvidenceNamespace: "pacto-system",
 		Loader: &mockLoader{loadFn: func(context.Context, string, string) (*loader.LoadResult, error) {
@@ -57,7 +57,7 @@ func TestReconcile_ObservedCallersCoverage(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := getPacto(t, r, "pay", "default").Status
-	if c := got.ObservedCallersCoverage; c == nil || c.State != pactov1alpha1.CallerCoverageUnavailable || c.RefreshSeconds != 60 {
+	if c := got.ObservedCallersCoverage; c == nil || c.State != pactov1.CallerCoverageUnavailable || c.RefreshSeconds != 60 {
 		t.Fatalf("coverage = %+v, want unavailable with a 60s refresh", c)
 	}
 	if got.ObservedCallers != nil {
@@ -69,11 +69,11 @@ func TestReconcile_ObservedCallersCoverage(t *testing.T) {
 // spec names, their coverage with the refresh interval and the catalog digest,
 // in the current status format.
 func TestStatusCarriesExternalsAndFormat3(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "pay", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef:          pactov1alpha1.ContractRef{OCI: "oci://r/pactos/payments@" + evaluatedDigest},
-			Target:               pactov1alpha1.TargetRef{ServiceName: "pay", WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "pay", Kind: "Deployment"}},
+		Spec: pactov1.PactoSpec{
+			ContractRef:          pactov1.ContractRef{OCI: "oci://r/pactos/payments@" + evaluatedDigest},
+			Target:               pactov1.TargetRef{ServiceName: "pay", WorkloadRef: &pactov1.WorkloadRef{Name: "pay", Kind: "Deployment"}},
 			CheckIntervalSeconds: 60,
 		},
 	}
@@ -84,7 +84,7 @@ func TestStatusCarriesExternalsAndFormat3(t *testing.T) {
 		}}}}},
 	}
 	cl := fake.NewClientBuilder().WithScheme(newSchemeWithApps()).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).WithObjects(pacto, dep).Build()
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).WithObjects(pacto, dep).Build()
 	r := &PactoReconciler{Client: cl, Scheme: cl.Scheme(), Recorder: record.NewFakeRecorder(20),
 		Loader: &mockLoader{loadFn: func(context.Context, string, string) (*loader.LoadResult, error) {
 			return &loader.LoadResult{
@@ -98,7 +98,7 @@ func TestStatusCarriesExternalsAndFormat3(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := getPacto(t, r, "pay", "default").Status
-	if got.StatusFormat != pactov1alpha1.PactoStatusFormat {
+	if got.StatusFormat != pactov1.PactoStatusFormat {
 		t.Fatalf("statusFormat = %d", got.StatusFormat)
 	}
 	if len(got.Externals) != 1 || got.Externals[0].Identity != "stripe" || got.Externals[0].Host != "api.stripe.com" {
@@ -116,11 +116,11 @@ func TestStatusCarriesExternalsAndFormat3(t *testing.T) {
 // saw the target's pods call, with their coverage, node counts and the refresh
 // interval, in status format 4.
 func TestEvaluateRuntimeWritesObservedEgress(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "pay", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef:          pactov1alpha1.ContractRef{OCI: "oci://r/pactos/payments@" + evaluatedDigest},
-			Target:               pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "pay", Kind: "Deployment"}},
+		Spec: pactov1.PactoSpec{
+			ContractRef:          pactov1.ContractRef{OCI: "oci://r/pactos/payments@" + evaluatedDigest},
+			Target:               pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "pay", Kind: "Deployment"}},
 			CheckIntervalSeconds: 60,
 		},
 	}
@@ -136,13 +136,13 @@ func TestEvaluateRuntimeWritesObservedEgress(t *testing.T) {
 		Spec:       corev1.PodSpec{NodeName: "node-a"},
 		Status:     corev1.PodStatus{Phase: corev1.PodRunning, PodIP: "10.0.0.5", StartTime: &metav1.Time{Time: now.Add(-time.Hour)}},
 	}
-	nro := &pactov1alpha1.NodeRuntimeObservation{
+	nro := &pactov1.NodeRuntimeObservation{
 		ObjectMeta: metav1.ObjectMeta{Name: "node-a", Namespace: "pacto-system", Labels: nodeagent.Labels()},
-		Status: pactov1alpha1.NodeRuntimeObservationStatus{
+		Status: pactov1.NodeRuntimeObservationStatus{
 			NodeName: "node-a", PublishIntervalSeconds: 30, LastPublished: &now,
-			Collection: pactov1alpha1.RuntimeCollection{State: pactov1alpha1.CollectionRunning},
-			DNS:        pactov1alpha1.RuntimeDNS{State: pactov1alpha1.CollectionRunning},
-			Pods: []pactov1alpha1.PodRuntimeObservation{{UID: "pod-1", Connections: []pactov1alpha1.RuntimeConnection{{
+			Collection: pactov1.RuntimeCollection{State: pactov1.CollectionRunning},
+			DNS:        pactov1.RuntimeDNS{State: pactov1.CollectionRunning},
+			Pods: []pactov1.PodRuntimeObservation{{UID: "pod-1", Connections: []pactov1.RuntimeConnection{{
 				Address: "54.1.1.1", Host: "api.stripe.com", Port: 443, Successes: 1, LastSuccessAt: &now,
 			}}}},
 		},
@@ -151,7 +151,7 @@ func TestEvaluateRuntimeWritesObservedEgress(t *testing.T) {
 	_ = coordinationv1.AddToScheme(s)
 	_ = discoveryv1.AddToScheme(s)
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).WithObjects(pacto, dep, pod, nro).Build()
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).WithObjects(pacto, dep, pod, nro).Build()
 	r := &PactoReconciler{Client: cl, Scheme: cl.Scheme(), Recorder: record.NewFakeRecorder(20),
 		KernelEvidence: true, KernelEvidenceNamespace: "pacto-system",
 		Loader: &mockLoader{loadFn: func(context.Context, string, string) (*loader.LoadResult, error) {
@@ -169,11 +169,11 @@ func TestEvaluateRuntimeWritesObservedEgress(t *testing.T) {
 	if got.StatusFormat != 4 {
 		t.Fatalf("statusFormat = %d", got.StatusFormat)
 	}
-	if len(got.ObservedEgress) != 1 || got.ObservedEgress[0].Identity != "stripe" || got.ObservedEgress[0].Source != pactov1alpha1.EgressSourceKernel {
+	if len(got.ObservedEgress) != 1 || got.ObservedEgress[0].Identity != "stripe" || got.ObservedEgress[0].Source != pactov1.EgressSourceKernel {
 		t.Fatalf("egress = %+v", got.ObservedEgress)
 	}
 	c := got.ObservedEgressCoverage
-	if c == nil || c.State != pactov1alpha1.CallerCoverageComplete || c.RefreshSeconds != 60 || c.Nodes != 1 || c.NodesWithAgent != 1 {
+	if c == nil || c.State != pactov1.CallerCoverageComplete || c.RefreshSeconds != 60 || c.Nodes != 1 || c.NodesWithAgent != 1 {
 		t.Fatalf("coverage = %+v", c)
 	}
 }

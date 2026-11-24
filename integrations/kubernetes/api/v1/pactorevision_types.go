@@ -5,7 +5,7 @@ Licensed under the MIT License.
 See LICENSE file in the project root for full license text.
 */
 
-package v1alpha1
+package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -70,6 +70,7 @@ type PactoRevisionStatus struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.spec.version`
 // +kubebuilder:printcolumn:name="Pacto",type=string,JSONPath=`.spec.pactoRef`

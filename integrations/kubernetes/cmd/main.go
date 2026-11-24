@@ -45,7 +45,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
@@ -91,7 +91,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(pactov1alpha1.AddToScheme(scheme))
+	utilruntime.Must(pactov1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 

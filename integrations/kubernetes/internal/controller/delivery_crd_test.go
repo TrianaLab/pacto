@@ -27,7 +27,7 @@ var _ = Describe("Stage candidates", func() {
 				"applyRef": map[string]any{"name": "payments"}, "candidates": candidates,
 			},
 		}}
-		u.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "Stage"})
+		u.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1", Kind: "Stage"})
 		return u
 	}
 	oci := map[string]any{"name": "payments-candidates"}
@@ -68,14 +68,14 @@ var _ = Describe("Operation selectable fields", func() {
 			"spec": map[string]any{"type": "delivery.pacto.trianalab.io/promote", "stage": stage, "facet": "pointer",
 				"actor": map[string]any{"user": "bot"}},
 		}}
-		u.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "Operation"})
+		u.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1", Kind: "Operation"})
 		return u
 	}
 	It("selects by spec.stage and status.outcome", func() {
 		Expect(k8sClient.Create(ctx, op("sel-a", "payments-prod"))).To(Succeed())
 		Expect(k8sClient.Create(ctx, op("sel-b", "ledger-prod"))).To(Succeed())
 		list := &unstructured.UnstructuredList{}
-		list.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "OperationList"})
+		list.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1", Kind: "OperationList"})
 		Expect(k8sClient.List(ctx, list, client.InNamespace("default"),
 			client.MatchingFieldsSelector{Selector: fields.OneTermEqualSelector("spec.stage", "payments-prod")})).To(Succeed())
 		Expect(list.Items).To(HaveLen(1))

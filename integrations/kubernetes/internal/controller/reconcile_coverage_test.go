@@ -13,7 +13,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -23,7 +23,7 @@ import (
 // and other reconcile helper functions to drive coverage to 100%.
 
 func TestPopulateContractStatus_FullContract(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "full", Namespace: "default"},
 	}
 
@@ -198,7 +198,7 @@ func TestPopulateContractStatus_FullContract(t *testing.T) {
 }
 
 func TestPopulateContractStatus_MinimalContract(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "minimal", Namespace: "default"},
 	}
 
@@ -239,7 +239,7 @@ func TestPopulateContractStatus_MinimalContract(t *testing.T) {
 }
 
 func TestPopulateContractStatus_ConfigurationWithSchema(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "cfg-schema", Namespace: "default"},
 	}
 

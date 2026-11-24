@@ -33,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 )
 
@@ -43,7 +43,7 @@ func newReconciler(cfg Config, funcs interceptor.Funcs, objs ...client.Object) *
 	_ = appsv1.AddToScheme(s)
 	_ = rbacv1.AddToScheme(s)
 	_ = coordinationv1.AddToScheme(s)
-	_ = pactov1alpha1.AddToScheme(s)
+	_ = pactov1.AddToScheme(s)
 	c := fake.NewClientBuilder().WithScheme(s).WithInterceptorFuncs(funcs).WithObjects(objs...).Build()
 	// The fake client is uncached, so it doubles as the APIReader that
 	// cmd/main.go wires to mgr.GetAPIReader() in production.
@@ -58,8 +58,8 @@ func namespace(enforce string) *corev1.Namespace {
 	return ns
 }
 
-func observation(name string, labels map[string]string) *pactov1alpha1.NodeRuntimeObservation {
-	return &pactov1alpha1.NodeRuntimeObservation{
+func observation(name string, labels map[string]string) *pactov1.NodeRuntimeObservation {
+	return &pactov1.NodeRuntimeObservation{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "test-ns", Labels: labels},
 	}
 }
@@ -88,7 +88,7 @@ func legacy() []client.Object {
 	return []client.Object{
 		&appsv1.DaemonSet{ObjectMeta: om}, &rbacv1.RoleBinding{ObjectMeta: om},
 		&rbacv1.Role{ObjectMeta: om}, &corev1.ServiceAccount{ObjectMeta: om},
-		&pactov1alpha1.NodeRuntimeObservation{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Namespace: "op-ns", Labels: Labels()}},
+		&pactov1.NodeRuntimeObservation{ObjectMeta: metav1.ObjectMeta{Name: "node-a", Namespace: "op-ns", Labels: Labels()}},
 	}
 }
 
@@ -214,7 +214,7 @@ func TestSync_DisabledAfterEnabled_RemovesEverythingOwned(t *testing.T) {
 			t.Errorf("%s should be gone, got %v", kind, err)
 		}
 	}
-	if got := names(t, r, &pactov1alpha1.NodeRuntimeObservationList{}); got != "hand-written" {
+	if got := names(t, r, &pactov1.NodeRuntimeObservationList{}); got != "hand-written" {
 		t.Errorf("only the unlabelled observation survives, got %q", got)
 	}
 	if got := names(t, r, &coordinationv1.LeaseList{}); got != "hand-written" {
@@ -376,7 +376,7 @@ func TestSync_Enabled_PrunesObservationsOfRemovedNodes(t *testing.T) {
 	if err := r.Sync(captureLogs(&logs)); err != nil {
 		t.Fatalf("Sync: %v", err)
 	}
-	if got := names(t, r, &pactov1alpha1.NodeRuntimeObservationList{}); got != "gone-but-foreign,node-a" {
+	if got := names(t, r, &pactov1.NodeRuntimeObservationList{}); got != "gone-but-foreign,node-a" {
 		t.Errorf("observation survivors = %q, want the live node's and the foreign object", got)
 	}
 	if got := names(t, r, &coordinationv1.LeaseList{}); got != "gone-but-foreign,node-a" {

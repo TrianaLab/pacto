@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 )
 
@@ -157,7 +157,7 @@ type transportKind struct {
 // transportKinds returns fresh lists of the observations and the heartbeat Leases.
 func transportKinds() []transportKind {
 	return []transportKind{
-		{"NodeRuntimeObservation", &pactov1alpha1.NodeRuntimeObservationList{}},
+		{"NodeRuntimeObservation", &pactov1.NodeRuntimeObservationList{}},
 		{"Lease", &coordinationv1.LeaseList{}},
 	}
 }

@@ -359,7 +359,7 @@ dashboard the operator just deployed publishes its own contract, so you can bind
 a real one without pushing anything. Save this as `pacto-dashboard.yaml`:
 
 ```yaml
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: pacto-dashboard

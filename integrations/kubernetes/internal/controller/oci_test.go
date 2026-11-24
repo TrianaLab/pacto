@@ -14,7 +14,7 @@ import (
 	"testing"
 	"time"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	corev1 "k8s.io/api/core/v1"
@@ -28,7 +28,7 @@ import (
 // ---------- syncAllRevisions ----------
 
 func TestSyncAllRevisions_ListTagsError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -53,7 +53,7 @@ func TestSyncAllRevisions_ListTagsError(t *testing.T) {
 }
 
 func TestSyncAllRevisions_TagAlreadyHasRevision_NoDigest(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -61,19 +61,19 @@ func TestSyncAllRevisions_TagAlreadyHasRevision_NoDigest(t *testing.T) {
 		},
 	}
 
-	existingRev := &pactov1alpha1.PactoRevision{
+	existingRev := &pactov1.PactoRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto-1-0-0-abc",
 			Namespace: "default",
 			Labels: map[string]string{
-				pactov1alpha1.LabelPactoName:       "my-pacto",
-				pactov1alpha1.LabelRevisionVersion: "1.0.0",
+				pactov1.LabelPactoName:       "my-pacto",
+				pactov1.LabelRevisionVersion: "1.0.0",
 			},
 		},
-		Spec: pactov1alpha1.PactoRevisionSpec{
+		Spec: pactov1.PactoRevisionSpec{
 			Version:  "1.0.0",
 			PactoRef: "my-pacto",
-			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0"},
+			Source:   pactov1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0"},
 		},
 	}
 
@@ -96,22 +96,22 @@ func TestSyncAllRevisions_TagAlreadyHasRevision_NoDigest(t *testing.T) {
 // finding 46's fix: a force-push leaves two revisions on the SAME ref, and the drift check
 // must compare against the newest, or TagOverwritten re-fires on every reconcile forever.
 func TestSyncAllRevisions_ForcePushedTwice_ComparesNewestRevision(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-pacto", Namespace: "default", UID: "test-uid"},
 	}
 
-	rev := func(name, digest string, ageMinutes int) *pactov1alpha1.PactoRevision {
-		return &pactov1alpha1.PactoRevision{
+	rev := func(name, digest string, ageMinutes int) *pactov1.PactoRevision {
+		return &pactov1.PactoRevision{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:              name,
 				Namespace:         "default",
 				CreationTimestamp: metav1.NewTime(time.Now().Add(-time.Duration(ageMinutes) * time.Minute)),
-				Labels:            map[string]string{pactov1alpha1.LabelPactoName: "my-pacto"},
+				Labels:            map[string]string{pactov1.LabelPactoName: "my-pacto"},
 			},
-			Spec: pactov1alpha1.PactoRevisionSpec{
+			Spec: pactov1.PactoRevisionSpec{
 				Version:  "1.0.0",
 				PactoRef: "my-pacto",
-				Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: digest},
+				Source:   pactov1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: digest},
 			},
 		}
 	}
@@ -149,7 +149,7 @@ func TestSyncAllRevisions_ForcePushedTwice_ComparesNewestRevision(t *testing.T) 
 }
 
 func TestSyncAllRevisions_TagAlreadyHasRevision_DigestMatches(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -157,19 +157,19 @@ func TestSyncAllRevisions_TagAlreadyHasRevision_DigestMatches(t *testing.T) {
 		},
 	}
 
-	existingRev := &pactov1alpha1.PactoRevision{
+	existingRev := &pactov1.PactoRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto-1-0-0-abc",
 			Namespace: "default",
 			Labels: map[string]string{
-				pactov1alpha1.LabelPactoName:       "my-pacto",
-				pactov1alpha1.LabelRevisionVersion: "1.0.0",
+				pactov1.LabelPactoName:       "my-pacto",
+				pactov1.LabelRevisionVersion: "1.0.0",
 			},
 		},
-		Spec: pactov1alpha1.PactoRevisionSpec{
+		Spec: pactov1.PactoRevisionSpec{
 			Version:  "1.0.0",
 			PactoRef: "my-pacto",
-			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:matchingdigest"},
+			Source:   pactov1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:matchingdigest"},
 		},
 	}
 
@@ -201,7 +201,7 @@ func TestSyncAllRevisions_TagAlreadyHasRevision_DigestMatches(t *testing.T) {
 }
 
 func TestSyncAllRevisions_ForcePushDetected(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -209,19 +209,19 @@ func TestSyncAllRevisions_ForcePushDetected(t *testing.T) {
 		},
 	}
 
-	existingRev := &pactov1alpha1.PactoRevision{
+	existingRev := &pactov1.PactoRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto-1-0-0-abc",
 			Namespace: "default",
 			Labels: map[string]string{
-				pactov1alpha1.LabelPactoName:       "my-pacto",
-				pactov1alpha1.LabelRevisionVersion: "1.0.0",
+				pactov1.LabelPactoName:       "my-pacto",
+				pactov1.LabelRevisionVersion: "1.0.0",
 			},
 		},
-		Spec: pactov1alpha1.PactoRevisionSpec{
+		Spec: pactov1.PactoRevisionSpec{
 			Version:  "1.0.0",
 			PactoRef: "my-pacto",
-			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:olddigest000"},
+			Source:   pactov1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:olddigest000"},
 		},
 	}
 
@@ -259,7 +259,7 @@ func TestSyncAllRevisions_ForcePushDetected(t *testing.T) {
 }
 
 func TestSyncAllRevisions_ForcePush_LoadError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -267,19 +267,19 @@ func TestSyncAllRevisions_ForcePush_LoadError(t *testing.T) {
 		},
 	}
 
-	existingRev := &pactov1alpha1.PactoRevision{
+	existingRev := &pactov1.PactoRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto-1-0-0-abc",
 			Namespace: "default",
 			Labels: map[string]string{
-				pactov1alpha1.LabelPactoName:       "my-pacto",
-				pactov1alpha1.LabelRevisionVersion: "1.0.0",
+				pactov1.LabelPactoName:       "my-pacto",
+				pactov1.LabelRevisionVersion: "1.0.0",
 			},
 		},
-		Spec: pactov1alpha1.PactoRevisionSpec{
+		Spec: pactov1.PactoRevisionSpec{
 			Version:  "1.0.0",
 			PactoRef: "my-pacto",
-			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:olddigest000"},
+			Source:   pactov1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:olddigest000"},
 		},
 	}
 
@@ -300,7 +300,7 @@ func TestSyncAllRevisions_ForcePush_LoadError(t *testing.T) {
 }
 
 func TestSyncAllRevisions_LoadError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -327,7 +327,7 @@ func TestSyncAllRevisions_LoadError(t *testing.T) {
 // TestSyncAllRevisions_OneBadTagDoesNotStopTheRest pins the shape of the reporting
 // change: a failing tag is surfaced, but the pass still mirrors every other tag.
 func TestSyncAllRevisions_OneBadTagDoesNotStopTheRest(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-pacto", Namespace: "default", UID: "test-uid"},
 	}
 
@@ -356,7 +356,7 @@ func TestSyncAllRevisions_OneBadTagDoesNotStopTheRest(t *testing.T) {
 		t.Fatalf("the good tag must not be reported as a failure: %v", err)
 	}
 
-	revList := &pactov1alpha1.PactoRevisionList{}
+	revList := &pactov1.PactoRevisionList{}
 	if err := r.List(context.Background(), revList, client.InNamespace("default")); err != nil {
 		t.Fatalf("failed to list revisions: %v", err)
 	}
@@ -366,7 +366,7 @@ func TestSyncAllRevisions_OneBadTagDoesNotStopTheRest(t *testing.T) {
 }
 
 func TestSyncAllRevisions_Success(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -395,7 +395,7 @@ func TestSyncAllRevisions_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	revList := &pactov1alpha1.PactoRevisionList{}
+	revList := &pactov1.PactoRevisionList{}
 	if err := r.List(context.Background(), revList, client.InNamespace("default")); err != nil {
 		t.Fatalf("failed to list revisions: %v", err)
 	}
@@ -405,7 +405,7 @@ func TestSyncAllRevisions_Success(t *testing.T) {
 }
 
 func TestSyncAllRevisions_TagWithColon(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -441,7 +441,7 @@ func TestSyncAllRevisions_TagWithColon(t *testing.T) {
 }
 
 func TestSyncAllRevisions_BaseRefWithExistingTag(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -480,7 +480,7 @@ func TestSyncAllRevisions_BaseRefWithExistingTag(t *testing.T) {
 }
 
 func TestSyncAllRevisions_RevisionListError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -493,7 +493,7 @@ func TestSyncAllRevisions_RevisionListError(t *testing.T) {
 		Client: fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).
 			WithInterceptorFuncs(interceptor.Funcs{
 				List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-					if _, ok := list.(*pactov1alpha1.PactoRevisionList); ok {
+					if _, ok := list.(*pactov1.PactoRevisionList); ok {
 						return fmt.Errorf("simulated list error")
 					}
 					return c.List(ctx, list, opts...)
@@ -517,7 +517,7 @@ func TestSyncAllRevisions_RevisionListError(t *testing.T) {
 }
 
 func TestSyncAllRevisions_EnsureRevisionError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto",
 			Namespace: "default",
@@ -545,7 +545,7 @@ func TestSyncAllRevisions_EnsureRevisionError(t *testing.T) {
 	r.Client = fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-				if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+				if _, ok := obj.(*pactov1.PactoRevision); ok {
 					return fmt.Errorf("simulated create error")
 				}
 				return c.Create(ctx, obj, opts...)
@@ -649,23 +649,23 @@ func TestResolveOCIAuth_InvalidKeys(t *testing.T) {
 // ("v1.2.0") and the contract's service.version ("1.2.0") are different strings, so a
 // lookup keyed on the version label misses and the drift check never runs.
 func TestSyncAllRevisions_ForcePushDetected_VPrefixedTag(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "my-pacto", Namespace: "default", UID: "test-uid"},
 	}
 
-	existingRev := &pactov1alpha1.PactoRevision{
+	existingRev := &pactov1.PactoRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "my-pacto-1-2-0-abc",
 			Namespace: "default",
 			Labels: map[string]string{
-				pactov1alpha1.LabelPactoName:       "my-pacto",
-				pactov1alpha1.LabelRevisionVersion: "1.2.0",
+				pactov1.LabelPactoName:       "my-pacto",
+				pactov1.LabelRevisionVersion: "1.2.0",
 			},
 		},
-		Spec: pactov1alpha1.PactoRevisionSpec{
+		Spec: pactov1.PactoRevisionSpec{
 			Version:  "1.2.0",
 			PactoRef: "my-pacto",
-			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:v1.2.0", Digest: "sha256:olddigest000"},
+			Source:   pactov1.RevisionSource{OCI: "ghcr.io/org/svc:v1.2.0", Digest: "sha256:olddigest000"},
 		},
 	}
 

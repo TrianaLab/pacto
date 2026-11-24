@@ -732,7 +732,7 @@ def gen_contract_bindings(k8s: str) -> str:
     )
     out.append(
         "```yaml\n"
-        "apiVersion: pacto.trianalab.io/v1alpha1\n"
+        "apiVersion: pacto.trianalab.io/v1\n"
         "kind: Pacto\n"
         "metadata:\n"
         "  name: orders-api\n"
@@ -839,7 +839,7 @@ def gen_runtime_observations(repo_root: str, k8s: str) -> str:
     # Collector names stamped into observation provenance and finding evidenceRefs.
     collectors = engine["collectors"]
 
-    out = [banner("internal/observer/runtime.go, pkg/evidence, pkg/finding, pkg/runtimefacts, api/v1alpha1")]
+    out = [banner("internal/observer/runtime.go, pkg/evidence, pkg/finding, pkg/runtimefacts, api/v1")]
     out.append("# Runtime observations\n")
     out.append(
         "What the operator looks at in your cluster, and every status and finding it can report. "

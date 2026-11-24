@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -36,11 +36,11 @@ func TestRevisionMirror_IsRunnable(t *testing.T) {
 	}
 }
 
-func mirrorPacto(name, ociRef, pullSecret string) *pactov1alpha1.Pacto {
-	return &pactov1alpha1.Pacto{
+func mirrorPacto(name, ociRef, pullSecret string) *pactov1.Pacto {
+	return &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: types.UID("u-" + name)},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{OCI: ociRef, PullSecretRef: pullSecret},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{OCI: ociRef, PullSecretRef: pullSecret},
 		},
 	}
 }
@@ -79,7 +79,7 @@ func TestRevisionMirror_Sync_MirrorsOnlyTagShapedRefs(t *testing.T) {
 		t.Fatalf("expected only the tag-shaped ref to reach the registry, got %v", listed)
 	}
 
-	revList := &pactov1alpha1.PactoRevisionList{}
+	revList := &pactov1.PactoRevisionList{}
 	if err := r.List(context.Background(), revList, client.InNamespace("default")); err != nil {
 		t.Fatalf("failed to list revisions: %v", err)
 	}
@@ -121,12 +121,12 @@ func TestRevisionMirror_FailuresBecomeEvents(t *testing.T) {
 		{
 			name:       "transient obtain failure",
 			listErr:    &oci.RegistryUnreachableError{Ref: "ghcr.io/org/svc:1.0.0", Err: fmt.Errorf("dial tcp: no route to host")},
-			wantReason: pactov1alpha1.EventContractUnavailable,
+			wantReason: pactov1.EventContractUnavailable,
 		},
 		{
 			name:       "anything else",
 			listErr:    fmt.Errorf("malformed reference"),
-			wantReason: pactov1alpha1.EventContractInvalid,
+			wantReason: pactov1.EventContractInvalid,
 		},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -194,7 +194,7 @@ func TestRevisionMirror_UsesThePullSecret(t *testing.T) {
 	if err := (&RevisionMirror{Reconciler: r}).Sync(context.Background()); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	revList := &pactov1alpha1.PactoRevisionList{}
+	revList := &pactov1.PactoRevisionList{}
 	if err := r.List(context.Background(), revList, client.InNamespace("default")); err != nil {
 		t.Fatalf("failed to list revisions: %v", err)
 	}

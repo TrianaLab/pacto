@@ -5,7 +5,7 @@
 
 Reference for [Pacto delivery](delivery.md). To pactify a service end to end,
 follow [Pactify a service](../../pactify.md) instead. The API group is
-`delivery.pacto.trianalab.io/v1alpha1` (alpha).
+`delivery.pacto.trianalab.io/v1` (alpha).
 Plans, approvals and who may do what are in
 [Delivery reference: plan, propose and approve](delivery-operations.md).
 
@@ -358,7 +358,7 @@ in the operation's `status.message`. A downstream Stage takes only what its upst
 there, never one let through on an accepted unknown.
 
 ```yaml
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments, namespace: prod}
 spec:

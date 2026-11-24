@@ -15,7 +15,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
@@ -56,9 +56,9 @@ func reconcileReq(name, ns string) ctrl.Request {
 	return ctrl.Request{NamespacedName: client.ObjectKey{Name: name, Namespace: ns}}
 }
 
-func getPacto(t *testing.T, r *PactoReconciler, name, ns string) *pactov1alpha1.Pacto {
+func getPacto(t *testing.T, r *PactoReconciler, name, ns string) *pactov1.Pacto {
 	t.Helper()
-	p := &pactov1alpha1.Pacto{}
+	p := &pactov1.Pacto{}
 	if err := r.Get(context.Background(), client.ObjectKey{Name: name, Namespace: ns}, p); err != nil {
 		t.Fatalf("failed to get pacto: %v", err)
 	}
@@ -69,10 +69,10 @@ func getPacto(t *testing.T, r *PactoReconciler, name, ns string) *pactov1alpha1.
 
 // Missing pull secret -> resolveOCIAuth errors -> failReconciliation.
 func TestReconcile_PullSecretMissing(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "ps-missing", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc", PullSecretRef: "missing"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{OCI: "ghcr.io/org/svc", PullSecretRef: "missing"},
 		},
 	}
 	r := newReconciler(pacto)
@@ -82,7 +82,7 @@ func TestReconcile_PullSecretMissing(t *testing.T) {
 	}
 	got := getPacto(t, r, "ps-missing", "default")
 	// Spec section 9.8: pull-secret read failed -> transient/credentials -> Unknown
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusUnknown {
+	if got.Status.ContractStatus != pactov1.ContractStatusUnknown {
 		t.Errorf("expected Unknown, got %s", got.Status.ContractStatus)
 	}
 	// Transient failure: the contract was never loaded, so status.validation must stay nil rather than
@@ -100,10 +100,10 @@ func TestReconcile_PullSecretSuccess(t *testing.T) {
 		Type:       corev1.SecretTypeDockerConfigJson,
 		Data:       map[string][]byte{corev1.DockerConfigJsonKey: []byte(dockerCfg)},
 	}
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "ps-ok", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc@sha256:abc", PullSecretRef: "docker-secret"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{OCI: "ghcr.io/org/svc@sha256:abc", PullSecretRef: "docker-secret"},
 		},
 	}
 	r := newReconciler(pacto, secret)
@@ -120,7 +120,7 @@ func TestReconcile_PullSecretSuccess(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "ps-ok", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusReference {
+	if got.Status.ContractStatus != pactov1.ContractStatusReference {
 		t.Errorf("expected Reference, got %s", got.Status.ContractStatus)
 	}
 }
@@ -129,12 +129,12 @@ func TestReconcile_PullSecretSuccess(t *testing.T) {
 
 // Overrides referencing a nonexistent configuration -> applyConfigurationOverrides error -> fail.
 func TestReconcile_OverrideError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "ov-err", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-			Overrides: &pactov1alpha1.ContractOverrides{
-				Configurations: []pactov1alpha1.ConfigurationOverride{
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: validContract},
+			Overrides: &pactov1.ContractOverrides{
+				Configurations: []pactov1.ConfigurationOverride{
 					{Name: "nonexistent", Values: map[string]string{"k": "v"}},
 				},
 			},
@@ -155,7 +155,7 @@ func TestReconcile_OverrideError(t *testing.T) {
 	}
 	got := getPacto(t, r, "ov-err", "default")
 	// Spec section 9.8: override error -> effective contract cannot be constructed -> Invalid
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+	if got.Status.ContractStatus != pactov1.ContractStatusInvalid {
 		t.Errorf("expected Invalid, got %s", got.Status.ContractStatus)
 	}
 }
@@ -226,12 +226,12 @@ configurations:
 
 // Valid overrides matching a configuration -> overridden keys marked in status (153-156).
 func TestReconcile_OverrideSuccessMarksKeys(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "ov-ok", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-			Overrides: &pactov1alpha1.ContractOverrides{
-				Configurations: []pactov1alpha1.ConfigurationOverride{
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: validContract},
+			Overrides: &pactov1.ContractOverrides{
+				Configurations: []pactov1.ConfigurationOverride{
 					{Name: "default", Values: map[string]string{"db_host": "prod"}},
 				},
 			},
@@ -272,12 +272,12 @@ func TestReconcile_OverrideSuccessMarksKeys(t *testing.T) {
 // An override that violates a policy must be caught: validation layers 1 and 3 read the
 // contract BYTES, so the merged contract has to be re-serialized before enforcement.
 func TestReconcile_OverrideViolatingPolicyIsInvalid(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "ov-pol", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: policyContract},
-			Overrides: &pactov1alpha1.ContractOverrides{
-				Configurations: []pactov1alpha1.ConfigurationOverride{
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: policyContract},
+			Overrides: &pactov1.ContractOverrides{
+				Configurations: []pactov1.ConfigurationOverride{
 					{Name: "app", Values: map[string]string{"logLevel": "debug"}},
 				},
 			},
@@ -302,7 +302,7 @@ func TestReconcile_OverrideViolatingPolicyIsInvalid(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "ov-pol", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+	if got.Status.ContractStatus != pactov1.ContractStatusInvalid {
 		t.Fatalf("override violating a const policy must be Invalid, got %s (validation=%+v)",
 			got.Status.ContractStatus, got.Status.Validation)
 	}
@@ -327,23 +327,23 @@ func TestReconcile_OverrideNeverHidesAStructuralViolation(t *testing.T) {
 
 	for _, tc := range []struct {
 		name      string
-		overrides *pactov1alpha1.ContractOverrides
+		overrides *pactov1.ContractOverrides
 	}{
 		// The control. If this ever stops being Invalid the fixture has drifted and
 		// the two cases below prove nothing.
 		{"no overrides at all", nil},
-		{"an empty overrides block", &pactov1alpha1.ContractOverrides{}},
-		{"an override of the OTHER scope", &pactov1alpha1.ContractOverrides{
-			Configurations: []pactov1alpha1.ConfigurationOverride{
+		{"an empty overrides block", &pactov1.ContractOverrides{}},
+		{"an override of the OTHER scope", &pactov1.ContractOverrides{
+			Configurations: []pactov1.ConfigurationOverride{
 				{Name: "app", Values: map[string]string{"logLevel": "debug"}},
 			},
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pacto := &pactov1alpha1.Pacto{
+			pacto := &pactov1.Pacto{
 				ObjectMeta: metav1.ObjectMeta{Name: "ov-struct", Namespace: "default", UID: "u"},
-				Spec: pactov1alpha1.PactoSpec{
-					ContractRef: pactov1alpha1.ContractRef{Inline: emptyValuesContract},
+				Spec: pactov1.PactoSpec{
+					ContractRef: pactov1.ContractRef{Inline: emptyValuesContract},
 					Overrides:   tc.overrides,
 				},
 			}
@@ -355,7 +355,7 @@ func TestReconcile_OverrideNeverHidesAStructuralViolation(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			got := getPacto(t, r, "ov-struct", "default")
-			if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+			if got.Status.ContractStatus != pactov1.ContractStatusInvalid {
 				t.Fatalf("a ref+values scope is structurally invalid, got %s (validation=%+v)",
 					got.Status.ContractStatus, got.Status.Validation)
 			}
@@ -366,12 +366,12 @@ func TestReconcile_OverrideNeverHidesAStructuralViolation(t *testing.T) {
 // An override naming a scope the contract document does not carry is an error, not
 // a quiet fall back to the unpatched bytes -- unpatched bytes are the fail-open.
 func TestReconcile_OverrideOfAbsentScopeIsInvalid(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "ov-absent", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: policyContract},
-			Overrides: &pactov1alpha1.ContractOverrides{
-				Configurations: []pactov1alpha1.ConfigurationOverride{
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: policyContract},
+			Overrides: &pactov1.ContractOverrides{
+				Configurations: []pactov1.ConfigurationOverride{
 					{Name: "nope", Values: map[string]string{"logLevel": "debug"}},
 				},
 			},
@@ -389,7 +389,7 @@ func TestReconcile_OverrideOfAbsentScopeIsInvalid(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "ov-absent", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+	if got.Status.ContractStatus != pactov1.ContractStatusInvalid {
 		t.Fatalf("an override of an absent scope must be Invalid, got %s", got.Status.ContractStatus)
 	}
 }
@@ -400,12 +400,12 @@ func TestReconcile_OverrideOfAbsentScopeIsInvalid(t *testing.T) {
 // The reconcile must fail closed rather than validate the original bytes and report a
 // verdict the override never reached.
 func TestReconcile_OverrideWithNoContractDocumentIsInvalid(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "ov-nodoc", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: configContract},
-			Overrides: &pactov1alpha1.ContractOverrides{
-				Configurations: []pactov1alpha1.ConfigurationOverride{
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: configContract},
+			Overrides: &pactov1.ContractOverrides{
+				Configurations: []pactov1.ConfigurationOverride{
 					{Name: "default", Values: map[string]string{"db_host": "remote"}},
 				},
 			},
@@ -423,7 +423,7 @@ func TestReconcile_OverrideWithNoContractDocumentIsInvalid(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "ov-nodoc", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+	if got.Status.ContractStatus != pactov1.ContractStatusInvalid {
 		t.Fatalf("an override with no document to patch must be Invalid, got %s", got.Status.ContractStatus)
 	}
 }
@@ -432,10 +432,10 @@ func TestReconcile_OverrideWithNoContractDocumentIsInvalid(t *testing.T) {
 
 // A contract that parses but fails structural validation -> failReconciliation (137-140).
 func TestReconcile_ContractValidationError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "val-err", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: "bad"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: "bad"},
 		},
 	}
 	r := newReconciler(pacto)
@@ -453,7 +453,7 @@ func TestReconcile_ContractValidationError(t *testing.T) {
 	}
 	got := getPacto(t, r, "val-err", "default")
 	// Spec section 9.8: structural/crossfield errors -> contract malformed -> Invalid
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+	if got.Status.ContractStatus != pactov1.ContractStatusInvalid {
 		t.Errorf("expected Invalid, got %s", got.Status.ContractStatus)
 	}
 	if got.Status.Validation == nil || len(got.Status.Validation.Errors) == 0 {
@@ -464,17 +464,17 @@ func TestReconcile_ContractValidationError(t *testing.T) {
 // ---------- Reconcile: ensureRevision error branch (165-167) ----------
 
 func TestReconcile_EnsureRevisionError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "rev-err", Namespace: "default", UID: "u"},
-		Spec:       pactov1alpha1.PactoSpec{ContractRef: pactov1alpha1.ContractRef{Inline: validContract}},
+		Spec:       pactov1.PactoSpec{ContractRef: pactov1.ContractRef{Inline: validContract}},
 	}
 	s := newSchemeWithApps()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-				if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+				if _, ok := obj.(*pactov1.PactoRevision); ok {
 					return fmt.Errorf("create failed")
 				}
 				return c.Create(ctx, obj, opts...)
@@ -508,10 +508,10 @@ func TestReconcile_EnsureRevisionError(t *testing.T) {
 // Service, Deployment, StatefulSet, ReplicaSet, Job and CronJob, so a ListTags here
 // is one registry round trip (plus a Load per tag) per workload write.
 func TestReconcile_DoesNotMirrorTags(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "no-fanout", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc:1.0.0"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{OCI: "ghcr.io/org/svc:1.0.0"},
 		},
 	}
 	r := newReconciler(pacto)
@@ -532,7 +532,7 @@ func TestReconcile_DoesNotMirrorTags(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "no-fanout", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusReference {
+	if got.Status.ContractStatus != pactov1.ContractStatusReference {
 		t.Errorf("expected Reference, got %s", got.Status.ContractStatus)
 	}
 }
@@ -540,16 +540,16 @@ func TestReconcile_DoesNotMirrorTags(t *testing.T) {
 // ---------- Reconcile: workload GET error -> per-dimension Outcome=Failed -> COLLECTION_FAILED finding ----------
 
 func TestReconcile_CollectForTargetError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "collect-err", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "svc"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: validContract},
+			Target:      pactov1.TargetRef{ServiceName: "svc"},
 		},
 	}
 	s := newSchemeWithApps()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -575,7 +575,7 @@ func TestReconcile_CollectForTargetError(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "collect-err", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusUnknown {
+	if got.Status.ContractStatus != pactov1.ContractStatusUnknown {
 		t.Errorf("expected Unknown, got %s", got.Status.ContractStatus)
 	}
 	// Workload GET errored (non-NotFound) -> observeWorkloadDim produces Outcome=Failed observation
@@ -602,11 +602,11 @@ func TestReconcile_CollectForTargetError(t *testing.T) {
 // loop, error counting, NonCompliant status, workload-only Resources init, and the
 // finishReconciliation ValidationFailed event.
 func TestReconcile_DriftFindingsWarning(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "drift", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: driftRawYAML},
-			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "drift-job", Kind: "Job"}},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: driftRawYAML},
+			Target:      pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "drift-job", Kind: "Job"}},
 		},
 	}
 	job := &batchv1.Job{
@@ -615,7 +615,7 @@ func TestReconcile_DriftFindingsWarning(t *testing.T) {
 	}
 	s := newSchemeWithApps()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto, job).Build()
 	recorder := record.NewFakeRecorder(20)
 	r := &PactoReconciler{
@@ -640,7 +640,7 @@ func TestReconcile_DriftFindingsWarning(t *testing.T) {
 	got := getPacto(t, r, "drift", "default")
 	// Workload + persistence are required assertions (workload != "", durability=persistent).
 	// Contradicted required assertions -> SeverityError (spec section 4.2) -> NonCompliant.
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusNonCompliant {
+	if got.Status.ContractStatus != pactov1.ContractStatusNonCompliant {
 		t.Errorf("expected NonCompliant, got %s", got.Status.ContractStatus)
 	}
 	if got.Status.Summary == nil || got.Status.Summary.ErrorCount == 0 {
@@ -675,17 +675,17 @@ func TestReconcile_DriftFindingsWarning(t *testing.T) {
 // ---------- failReconciliation: status update error (342-345) ----------
 
 func TestReconcile_FailReconciliationStatusUpdateError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "fail-su", Namespace: "default", UID: "u"},
-		Spec:       pactov1alpha1.PactoSpec{ContractRef: pactov1alpha1.ContractRef{Inline: validContract}},
+		Spec:       pactov1.PactoSpec{ContractRef: pactov1.ContractRef{Inline: validContract}},
 	}
 	s := newScheme()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-				if _, ok := obj.(*pactov1alpha1.Pacto); ok {
+				if _, ok := obj.(*pactov1.Pacto); ok {
 					return fmt.Errorf("status update failed")
 				}
 				return c.SubResource(subResourceName).Update(ctx, obj, opts...)
@@ -725,7 +725,7 @@ func TestSummarizeFindings(t *testing.T) {
 		t.Errorf("expected 1/1/1/1 counts, got %+v", summary)
 	}
 
-	if got := summarizeFindings(nil); got != (pactov1alpha1.Summary{}) {
+	if got := summarizeFindings(nil); got != (pactov1.Summary{}) {
 		t.Errorf("expected zero counts, got %+v", got)
 	}
 }
@@ -734,11 +734,11 @@ func TestSummarizeFindings(t *testing.T) {
 // pass every finding in scope, structural ones included, or a contract `pacto validate`
 // warns about would report Compliant.
 func TestReconcile_StructuralWarningRanksAsWarning(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "warn", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: policyRefContract},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "svc"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: policyRefContract},
+			Target:      pactov1.TargetRef{ServiceName: "svc"},
 		},
 	}
 	r := newReconciler(pacto)
@@ -754,7 +754,7 @@ func TestReconcile_StructuralWarningRanksAsWarning(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "warn", "default")
-	if got.Status.ContractStatus != pactov1alpha1.ContractStatusWarning {
+	if got.Status.ContractStatus != pactov1.ContractStatusWarning {
 		t.Fatalf("expected Warning from the structural warning, got %s (findings=%+v)",
 			got.Status.ContractStatus, got.Status.Findings)
 	}
@@ -770,7 +770,7 @@ func TestApplyConfigurationOverrides_NilAndEmpty(t *testing.T) {
 		t.Errorf("nil overrides: expected (c, nil, nil), got (%v, %v, %v)", got, keys, err)
 	}
 
-	got, keys, err = applyConfigurationOverrides(c, &pactov1alpha1.ContractOverrides{})
+	got, keys, err = applyConfigurationOverrides(c, &pactov1.ContractOverrides{})
 	if err != nil || got != c || keys != nil {
 		t.Errorf("empty overrides: expected (c, nil, nil), got (%v, %v, %v)", got, keys, err)
 	}
@@ -789,7 +789,7 @@ func ensureRevisionReconciler(t *testing.T, objs ...client.Object) *PactoReconci
 	t.Helper()
 	s := newScheme()
 	cb := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{})
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{})
 	if len(objs) > 0 {
 		cb = cb.WithObjects(objs...)
 	}
@@ -798,7 +798,7 @@ func ensureRevisionReconciler(t *testing.T, objs ...client.Object) *PactoReconci
 
 // Empty contract version -> revision name uses "unknown" (654-656).
 func TestEnsureRevision_EmptyVersion(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "ev", Namespace: "default", UID: "u"}}
+	pacto := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "ev", Namespace: "default", UID: "u"}}
 	r := ensureRevisionReconciler(t, pacto)
 	lr := &loader.LoadResult{
 		Contract: &contract.Contract{Service: contract.Service{Name: "svc"}},
@@ -816,7 +816,7 @@ func TestEnsureRevision_EmptyVersion(t *testing.T) {
 // Very long pacto name -> revision name truncated to 253 chars (660-662).
 func TestEnsureRevision_NameTruncated(t *testing.T) {
 	longName := strings.Repeat("a", 300)
-	pacto := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: longName, Namespace: "default", UID: "u"}}
+	pacto := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: longName, Namespace: "default", UID: "u"}}
 	r := ensureRevisionReconciler(t, pacto)
 	lr := &loader.LoadResult{
 		Contract: &contract.Contract{Service: contract.Service{Name: "svc", Version: "1.0.0"}},
@@ -839,19 +839,19 @@ func TestEnsureRevision_BackfillStatusUpdateError(t *testing.T) {
 	shortHash := hash[:7]
 	revName := fmt.Sprintf("%s-1-0-0-%s", pactoName, shortHash)
 
-	pacto := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: pactoName, Namespace: "default", UID: "u"}}
-	existing := &pactov1alpha1.PactoRevision{
+	pacto := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: pactoName, Namespace: "default", UID: "u"}}
+	existing := &pactov1.PactoRevision{
 		ObjectMeta: metav1.ObjectMeta{Name: revName, Namespace: "default"},
 		// Status left empty: ContractHash == "" and CreatedAt == nil -> triggers backfill.
 	}
 
 	s := newScheme()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto, existing).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-				if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+				if _, ok := obj.(*pactov1.PactoRevision); ok {
 					return fmt.Errorf("backfill status update failed")
 				}
 				return c.SubResource(subResourceName).Update(ctx, obj, opts...)
@@ -874,9 +874,9 @@ func TestEnsureRevision_BackfillStatusUpdateError(t *testing.T) {
 
 // ResolvedRef empty but spec OCI set -> source.OCI from spec (688-691).
 func TestEnsureRevision_SourceFromSpecOCI(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "spec-oci", Namespace: "default", UID: "u"},
-		Spec:       pactov1alpha1.PactoSpec{ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc:1.0.0"}},
+		Spec:       pactov1.PactoSpec{ContractRef: pactov1.ContractRef{OCI: "ghcr.io/org/svc:1.0.0"}},
 	}
 	r := ensureRevisionReconciler(t, pacto)
 	lr := &loader.LoadResult{
@@ -889,7 +889,7 @@ func TestEnsureRevision_SourceFromSpecOCI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	rev := &pactov1alpha1.PactoRevision{}
+	rev := &pactov1.PactoRevision{}
 	if err := r.Get(context.Background(), client.ObjectKey{Name: name, Namespace: "default"}, rev); err != nil {
 		t.Fatalf("failed to get created revision: %v", err)
 	}
@@ -902,13 +902,13 @@ func TestEnsureRevision_SourceFromSpecOCI(t *testing.T) {
 func TestEnsureRevision_SetOwnerReferenceError(t *testing.T) {
 	// Scheme registers PactoRevision but intentionally NOT Pacto.
 	s := runtime.NewScheme()
-	s.AddKnownTypes(pactov1alpha1.GroupVersion, &pactov1alpha1.PactoRevision{}, &pactov1alpha1.PactoRevisionList{})
-	metav1.AddToGroupVersion(s, pactov1alpha1.GroupVersion)
+	s.AddKnownTypes(pactov1.GroupVersion, &pactov1.PactoRevision{}, &pactov1.PactoRevisionList{})
+	metav1.AddToGroupVersion(s, pactov1.GroupVersion)
 
 	cl := fake.NewClientBuilder().WithScheme(s).Build()
 	r := &PactoReconciler{Client: cl, Scheme: s, Recorder: record.NewFakeRecorder(20), Loader: &mockLoader{}}
 
-	pacto := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "no-gvk", Namespace: "default", UID: "u"}}
+	pacto := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "no-gvk", Namespace: "default", UID: "u"}}
 	lr := &loader.LoadResult{
 		Contract: &contract.Contract{Service: contract.Service{Name: "svc", Version: "1.0.0"}},
 		RawYAML:  []byte("yaml"),
@@ -924,14 +924,14 @@ func TestEnsureRevision_SetOwnerReferenceError(t *testing.T) {
 
 // Create returns AlreadyExists -> ensureRevision returns the name without error (718-720).
 func TestEnsureRevision_CreateAlreadyExists(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "ae", Namespace: "default", UID: "u"}}
+	pacto := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "ae", Namespace: "default", UID: "u"}}
 	s := newScheme()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-				if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+				if _, ok := obj.(*pactov1.PactoRevision); ok {
 					return apierrors.NewAlreadyExists(schema.GroupResource{Group: "pacto.trianalab.io", Resource: "pactorevisions"}, obj.GetName())
 				}
 				return c.Create(ctx, obj, opts...)
@@ -954,14 +954,14 @@ func TestEnsureRevision_CreateAlreadyExists(t *testing.T) {
 
 // Create succeeds but the post-create status update fails -> logged, no error (729-731).
 func TestEnsureRevision_PostCreateStatusUpdateError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "pcsu", Namespace: "default", UID: "u"}}
+	pacto := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "pcsu", Namespace: "default", UID: "u"}}
 	s := newScheme()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceUpdate: func(ctx context.Context, c client.Client, subResourceName string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-				if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+				if _, ok := obj.(*pactov1.PactoRevision); ok {
 					return fmt.Errorf("post-create status update failed")
 				}
 				return c.SubResource(subResourceName).Update(ctx, obj, opts...)
@@ -985,32 +985,32 @@ func TestEnsureRevision_PostCreateStatusUpdateError(t *testing.T) {
 // ---------- syncAllRevisions: force-push + ensureRevision error (795-797) ----------
 
 func TestSyncAllRevisions_ForcePush_EnsureRevisionError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "fp-rev-err", Namespace: "default", UID: "u"},
 	}
-	existingRev := &pactov1alpha1.PactoRevision{
+	existingRev := &pactov1.PactoRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "fp-rev-err-1-0-0-abc",
 			Namespace: "default",
 			Labels: map[string]string{
-				pactov1alpha1.LabelPactoName:       "fp-rev-err",
-				pactov1alpha1.LabelRevisionVersion: "1.0.0",
+				pactov1.LabelPactoName:       "fp-rev-err",
+				pactov1.LabelRevisionVersion: "1.0.0",
 			},
 		},
-		Spec: pactov1alpha1.PactoRevisionSpec{
+		Spec: pactov1.PactoRevisionSpec{
 			Version:  "1.0.0",
 			PactoRef: "fp-rev-err",
-			Source:   pactov1alpha1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:olddigest000"},
+			Source:   pactov1.RevisionSource{OCI: "ghcr.io/org/svc:1.0.0", Digest: "sha256:olddigest000"},
 		},
 	}
 
 	s := newScheme()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto, existingRev).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-				if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+				if _, ok := obj.(*pactov1.PactoRevision); ok {
 					return fmt.Errorf("create failed")
 				}
 				return c.Create(ctx, obj, opts...)
@@ -1041,17 +1041,17 @@ func TestSyncAllRevisions_ForcePush_EnsureRevisionError(t *testing.T) {
 // Sanity: setCondition helper reachable via a non-reference reconcile is exercised
 // by the drift test above; this assert guards the meta helper wiring.
 func TestReconcile_DriftSetsRuntimeObservedCondition(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "drift2", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "svc2"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: validContract},
+			Target:      pactov1.TargetRef{ServiceName: "svc2"},
 		},
 	}
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "svc2", Namespace: "default"}}
 	s := newSchemeWithApps()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto, svc).Build()
 	r := &PactoReconciler{
 		Client:   cl,
@@ -1068,24 +1068,24 @@ func TestReconcile_DriftSetsRuntimeObservedCondition(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "drift2", "default")
-	cond := meta.FindStatusCondition(got.Status.Conditions, pactov1alpha1.ConditionRuntimeObserved)
+	cond := meta.FindStatusCondition(got.Status.Conditions, pactov1.ConditionRuntimeObserved)
 	if cond == nil {
 		t.Error("expected RuntimeObserved condition")
 	}
 }
 
 func TestReconcile_RuntimeObservationErrorSetsRuntimeObservedFalse(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "obsfail", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "svc-obs"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: validContract},
+			Target:      pactov1.TargetRef{ServiceName: "svc-obs"},
 		},
 	}
 	svc := &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "svc-obs", Namespace: "default"}}
 	s := newSchemeWithApps()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto, svc).
 		WithInterceptorFuncs(interceptor.Funcs{
 			Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -1111,14 +1111,14 @@ func TestReconcile_RuntimeObservationErrorSetsRuntimeObservedFalse(t *testing.T)
 		t.Fatalf("unexpected error: %v", err)
 	}
 	got := getPacto(t, r, "obsfail", "default")
-	cond := meta.FindStatusCondition(got.Status.Conditions, pactov1alpha1.ConditionRuntimeObserved)
+	cond := meta.FindStatusCondition(got.Status.Conditions, pactov1.ConditionRuntimeObserved)
 	if cond == nil {
 		t.Fatal("expected RuntimeObserved condition")
 	}
 	if cond.Status != metav1.ConditionFalse {
 		t.Errorf("expected RuntimeObserved=False on observation error, got %s", cond.Status)
 	}
-	if cond.Reason != pactov1alpha1.ReasonObservationFailed {
-		t.Errorf("expected reason %q, got %q", pactov1alpha1.ReasonObservationFailed, cond.Reason)
+	if cond.Reason != pactov1.ReasonObservationFailed {
+		t.Errorf("expected reason %q, got %q", pactov1.ReasonObservationFailed, cond.Reason)
 	}
 }

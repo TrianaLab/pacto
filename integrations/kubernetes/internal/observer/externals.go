@@ -19,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/schemax"

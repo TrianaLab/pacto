@@ -17,7 +17,7 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 )
 
@@ -73,7 +73,7 @@ func roleAC(cfg Config) *rbacv1ac.RoleApplyConfiguration {
 		WithLabels(Labels()).
 		WithRules(
 			rbacv1ac.PolicyRule().
-				WithAPIGroups(pactov1alpha1.GroupVersion.Group).
+				WithAPIGroups(pactov1.GroupVersion.Group).
 				WithResources("noderuntimeobservations", "noderuntimeobservations/status").
 				WithVerbs(agentVerbs...),
 			rbacv1ac.PolicyRule().

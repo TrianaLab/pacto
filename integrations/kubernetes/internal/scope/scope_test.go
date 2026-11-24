@@ -12,7 +12,7 @@ import (
 	"slices"
 	"testing"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 )
@@ -66,7 +66,7 @@ func TestCacheOptionsKernelNamespaceKept(t *testing.T) {
 	var kinds int
 	for obj, bo := range opts.ByObject {
 		switch obj.(type) {
-		case *pactov1alpha1.NodeRuntimeObservation, *coordinationv1.Lease:
+		case *pactov1.NodeRuntimeObservation, *coordinationv1.Lease:
 			kinds++
 			if got := slices.Collect(maps.Keys(bo.Namespaces)); !slices.Equal(got, []string{"pacto-agent"}) {
 				t.Fatalf("%T namespaces = %v, want [pacto-agent]", obj, got)

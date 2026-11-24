@@ -56,9 +56,9 @@ var deadCodeAllowlist = map[string]string{
 		"code, and deleting the table to satisfy this gate would delete the coverage proof " +
 		"with it",
 
-	"integrations/kubernetes/api/v1alpha1.MaxRuntimePodsPerNode":       runtimeBoundsV6,
-	"integrations/kubernetes/api/v1alpha1.MaxRuntimeListenersPerPod":   runtimeBoundsV6,
-	"integrations/kubernetes/api/v1alpha1.MaxRuntimeConnectionsPerPod": runtimeBoundsV6,
+	"integrations/kubernetes/api/v1.MaxRuntimePodsPerNode":       runtimeBoundsV6,
+	"integrations/kubernetes/api/v1.MaxRuntimeListenersPerPod":   runtimeBoundsV6,
+	"integrations/kubernetes/api/v1.MaxRuntimeConnectionsPerPod": runtimeBoundsV6,
 
 	"pkg/signing.GetHashAlgorithm":    sigstoreKeypair,
 	"pkg/signing.GetKeyAlgorithm":     sigstoreKeypair,
@@ -92,12 +92,12 @@ var deadCodeAllowlist = map[string]string{
 	"pkg/contract.EvidenceTypeURL":          schemaVocabulary,
 
 	"pkg/delivery.DeepCopyInto": "the delivery CRDs embed the pkg/delivery wire types, and the only caller " +
-		"is the controller-gen deepcopy of integrations/kubernetes/api/delivery/v1alpha1, a generated file " +
+		"is the controller-gen deepcopy of integrations/kubernetes/api/delivery/v1, a generated file " +
 		"this gate does not read",
 
-	"integrations/kubernetes/api/v1alpha1.CollectionRunning":  crdVocabulary,
-	"integrations/kubernetes/api/v1alpha1.CollectionDegraded": crdVocabulary,
-	"integrations/kubernetes/api/v1alpha1.CollectionFailed":   crdVocabulary,
+	"integrations/kubernetes/api/v1.CollectionRunning":  crdVocabulary,
+	"integrations/kubernetes/api/v1.CollectionDegraded": crdVocabulary,
+	"integrations/kubernetes/api/v1.CollectionFailed":   crdVocabulary,
 }
 
 // crdVocabulary is the operator's counterpart of schemaVocabulary: the values

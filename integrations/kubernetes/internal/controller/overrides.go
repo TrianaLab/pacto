@@ -16,7 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/validation"
@@ -30,7 +30,7 @@ import (
 // override.Apply (which operates on raw YAML with index-based --set paths). Name-based matching
 // is more appropriate for a declarative CRD where array ordering should not affect behavior.
 // The merge semantics (override values win) are aligned with the CLI model.
-func applyConfigurationOverrides(c *contract.Contract, overrides *pactov1alpha1.ContractOverrides) (*contract.Contract, map[string][]string, error) {
+func applyConfigurationOverrides(c *contract.Contract, overrides *pactov1.ContractOverrides) (*contract.Contract, map[string][]string, error) {
 	if overrides == nil || len(overrides.Configurations) == 0 {
 		return c, nil, nil
 	}
@@ -94,7 +94,7 @@ func applyConfigurationOverrides(c *contract.Contract, overrides *pactov1alpha1.
 // and RawYAML from the bundle FS, and can leave the bytes empty entirely. Merging only
 // the struct is what let an override reach the status while validation still read the
 // original document.
-func applyOverrides(loadResult *loader.LoadResult, overrides *pactov1alpha1.ContractOverrides) (loader.LoadResult, map[string][]string, error) {
+func applyOverrides(loadResult *loader.LoadResult, overrides *pactov1.ContractOverrides) (loader.LoadResult, map[string][]string, error) {
 	effective := *loadResult
 	if overrides == nil || len(overrides.Configurations) == 0 {
 		return effective, nil, nil
@@ -128,7 +128,7 @@ func applyOverrides(loadResult *loader.LoadResult, overrides *pactov1alpha1.Cont
 //
 // Every failure here is an error, never a fall back to the unpatched bytes: bytes
 // that do not carry the override are exactly the state the audit reported.
-func patchConfigurationValues(raw []byte, overrides *pactov1alpha1.ContractOverrides) ([]byte, error) {
+func patchConfigurationValues(raw []byte, overrides *pactov1.ContractOverrides) ([]byte, error) {
 	var doc yaml.Node
 	if err := yaml.Unmarshal(raw, &doc); err != nil {
 		return nil, fmt.Errorf("re-reading the contract document: %w", err)

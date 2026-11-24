@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/linker"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -96,12 +96,12 @@ func TestLinkedWorkloadEvaluatedWithoutPacto(t *testing.T) {
 			time.Sleep(10 * time.Millisecond)
 		}
 	}
-	var st *pactov1alpha1.PactoStatus
+	var st *pactov1.PactoStatus
 	for _, v := range l.Current().Targets {
 		if v.Metadata.Name == "Deployment/payments" {
-			st = &pactov1alpha1.PactoStatus{}
+			st = &pactov1.PactoStatus{}
 			for _, f := range v.Status.Findings {
-				st.Findings = append(st.Findings, pactov1alpha1.FindingStatus{Code: f.Code, Subject: f.Subject})
+				st.Findings = append(st.Findings, pactov1.FindingStatus{Code: f.Code, Subject: f.Subject})
 			}
 		}
 	}
@@ -114,7 +114,7 @@ func TestLinkedWorkloadEvaluatedWithoutPacto(t *testing.T) {
 	if !hasFinding(st, finding.CodeObservationUnsupported, "api") || hasFinding(st, finding.CodeInterfaceAbsent, "api") {
 		t.Errorf("an unbound interface must read OBSERVATION_UNSUPPORTED; findings %v", findingCodes(st))
 	}
-	var pactos pactov1alpha1.PactoList
+	var pactos pactov1.PactoList
 	if err := cl.List(context.Background(), &pactos); err != nil || len(pactos.Items) != 0 {
 		t.Fatalf("Pacto objects: %d (%v); want none", len(pactos.Items), err)
 	}

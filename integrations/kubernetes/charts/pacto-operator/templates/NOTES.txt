@@ -9,7 +9,7 @@ Pacto Operator has been installed.
 2. Install a Pacto contract:
 
    kubectl apply -f - <<EOF
-   apiVersion: pacto.trianalab.io/v1alpha1
+   apiVersion: pacto.trianalab.io/v1
    kind: Pacto
    metadata:
      name: my-service

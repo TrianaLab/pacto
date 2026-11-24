@@ -27,16 +27,16 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
 )
 
-func pullSecretPacto(name string) *pactov1alpha1.Pacto {
-	return &pactov1alpha1.Pacto{
+func pullSecretPacto(name string) *pactov1.Pacto {
+	return &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "payments", UID: types.UID("u-" + name)},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{OCI: "ghcr.io/org/svc:1.0.0", PullSecretRef: "regcred"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{OCI: "ghcr.io/org/svc:1.0.0", PullSecretRef: "regcred"},
 		},
 	}
 }
@@ -62,14 +62,14 @@ var _ = Describe("TestPullSecretForbiddenSetsPullSecretNotGranted", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(loaded).To(BeFalse())
 
-		p := &pactov1alpha1.Pacto{}
+		p := &pactov1.Pacto{}
 		Expect(r.Get(ctx, client.ObjectKeyFromObject(pacto), p)).To(Succeed())
-		Expect(p.Status.ContractStatus).To(Equal(pactov1alpha1.ContractStatusUnknown))
+		Expect(p.Status.ContractStatus).To(Equal(pactov1.ContractStatusUnknown))
 		Expect(p.Status.Validation).To(BeNil(), "the contract was never read, so it is never Invalid")
-		cond := meta.FindStatusCondition(p.Status.Conditions, pactov1alpha1.ConditionContractValid)
+		cond := meta.FindStatusCondition(p.Status.Conditions, pactov1.ConditionContractValid)
 		Expect(cond).NotTo(BeNil())
 		Expect(cond.Status).To(Equal(metav1.ConditionUnknown))
-		Expect(cond.Reason).To(Equal(pactov1alpha1.ReasonPullSecretNotGranted))
+		Expect(cond.Reason).To(Equal(pactov1.ReasonPullSecretNotGranted))
 		Expect(cond.Message).To(Equal("the operator may not read Secret payments/regcred: list payments/regcred in controller.secretGrants"))
 	})
 })
@@ -93,9 +93,9 @@ func TestPullSecretForbiddenScopedNamesWatchNamespaces(t *testing.T) {
 	if _, err := r.Reconcile(context.Background(), reconcileReq(pacto.Name, pacto.Namespace)); err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	cond := meta.FindStatusCondition(getPacto(t, r, pacto.Name, pacto.Namespace).Status.Conditions, pactov1alpha1.ConditionContractValid)
+	cond := meta.FindStatusCondition(getPacto(t, r, pacto.Name, pacto.Namespace).Status.Conditions, pactov1.ConditionContractValid)
 	want := "the operator may not read Secret payments/regcred although it watches payments: check the chart's watch Role and RoleBinding in payments or list payments/regcred in controller.secretGrants"
-	if cond == nil || cond.Reason != pactov1alpha1.ReasonPullSecretNotGranted || cond.Message != want {
+	if cond == nil || cond.Reason != pactov1.ReasonPullSecretNotGranted || cond.Message != want {
 		t.Fatalf("condition = %+v, want reason PullSecretNotGranted and message %q", cond, want)
 	}
 }
@@ -175,7 +175,7 @@ func TestRevisionMirrorSkipsNotGrantedPullSecret(t *testing.T) {
 func TestBuildCollectInputCarriesScoped(t *testing.T) {
 	for _, scoped := range []bool{false, true} {
 		r := &PactoReconciler{Scoped: scoped}
-		in := r.buildCollectInput(&pactov1alpha1.Pacto{}, &effectiveContract{loaded: &loader.LoadResult{}}, observer.Setting{}, observer.Setting{})
+		in := r.buildCollectInput(&pactov1.Pacto{}, &effectiveContract{loaded: &loader.LoadResult{}}, observer.Setting{}, observer.Setting{})
 		if in.Scoped != scoped {
 			t.Errorf("Scoped = %v, want %v", in.Scoped, scoped)
 		}

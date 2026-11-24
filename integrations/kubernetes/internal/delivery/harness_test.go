@@ -11,6 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -32,7 +33,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
@@ -54,7 +55,7 @@ const (
 var (
 	gvkOCI   = schema.GroupVersionKind{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "OCIRepository"}
 	gvkKs    = schema.GroupVersionKind{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "Kustomization"}
-	gvkPacto = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1alpha1", Kind: "Pacto"}
+	gvkPacto = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1", Kind: "Pacto"}
 	// gvkGitRepository is a Flux GitRepository, which a Kustomization's
 	// sourceRef names.
 	gvkGitRepository = schema.GroupVersionKind{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "GitRepository"}
@@ -181,7 +182,11 @@ func kindOf(obj runtime.Object) string {
 	if u, ok := obj.(interface{ GetKind() string }); ok && u.GetKind() != "" {
 		return strings.TrimSuffix(u.GetKind(), "List")
 	}
-	return strings.TrimSuffix(strings.TrimPrefix(fmt.Sprintf("%T", obj), "*v1alpha1."), "List")
+	name := fmt.Sprintf("%T", obj)
+	if reflect.TypeOf(obj).Elem().PkgPath() == reflect.TypeFor[dv1.Stage]().PkgPath() {
+		name = strings.TrimPrefix(name, "*v1.")
+	}
+	return strings.TrimSuffix(name, "List")
 }
 
 func newEnv(t *testing.T, objs ...client.Object) *env {

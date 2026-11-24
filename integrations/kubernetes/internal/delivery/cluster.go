@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
@@ -42,7 +42,7 @@ import (
 var (
 	gvkOCIRepository = schema.GroupVersionKind{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "OCIRepository"}
 	gvkKustomization = schema.GroupVersionKind{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "KustomizationList"}
-	gvkPactoList     = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1alpha1", Kind: "PactoList"}
+	gvkPactoList     = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1", Kind: "PactoList"}
 	gvkApplication   = schema.GroupVersionKind{Group: "argoproj.io", Version: "v1alpha1", Kind: "Application"}
 )
 

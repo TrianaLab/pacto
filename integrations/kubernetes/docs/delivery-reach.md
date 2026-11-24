@@ -91,7 +91,7 @@ spec:
   serviceAccountName: payments-deployer
   chartRef: {kind: OCIRepository, name: payments-chart}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments, namespace: prod}
 spec:
@@ -172,7 +172,7 @@ spec:
   destination: {server: https://kubernetes.default.svc, namespace: prod}
   syncPolicy: {automated: {}}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments, namespace: prod}
 spec:
@@ -236,7 +236,7 @@ You need:
    holds its records. The stream is the upstream Stage's `status.stream.id`.
 
    ```yaml
-   apiVersion: delivery.pacto.trianalab.io/v1alpha1
+   apiVersion: delivery.pacto.trianalab.io/v1
    kind: Stage
    metadata: {name: payments, namespace: prod}
    spec:

@@ -9,7 +9,7 @@
 # No Service or Deployment can be observed, so the operator reports
 # EVIDENCE_MISSING and contractStatus=Unknown (a missing target is not proof of
 # a violation).
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: ghost-service
@@ -45,7 +45,7 @@ spec:
 # bad-contract — malformed version string; everything else is valid.
 # Validation fails with INVALID_SEMVER, so the operator sets
 # contractStatus=Invalid with ContractValid=False.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: bad-contract
@@ -64,7 +64,7 @@ spec:
 # port-mismatch — the binding points the interface at Service port 9999, but the
 # frontend Service only exposes 3000. The port cannot be mapped, so the operator
 # reports EVIDENCE_INSUFFICIENT on http-api and contractStatus=Unknown.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: port-mismatch

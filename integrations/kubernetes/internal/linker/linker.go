@@ -31,7 +31,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/detection"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
@@ -70,7 +70,7 @@ type Linker struct {
 	// Evaluate judges a transient Pacto with the operator's credentials;
 	// EvaluateAnonymous with none, for an annotation naming a repository the
 	// organization index does not hold.
-	Evaluate, EvaluateAnonymous func(context.Context, *pactov1alpha1.Pacto)
+	Evaluate, EvaluateAnonymous func(context.Context, *pactov1.Pacto)
 	Index                       *Index
 	// Tags lists the tags of <registry>/pacto-index and Registry reads its
 	// entries and the images records; both nil without a registry, which
@@ -87,7 +87,7 @@ type Linker struct {
 	owner   *metav1ac.OwnerReferenceApplyConfiguration
 	seeded  bool
 	since   map[sinceKey]time.Time
-	windows map[Key][]pactov1alpha1.ObservationWindow
+	windows map[Key][]pactov1.ObservationWindow
 	last    atomic.Pointer[cycle]
 	// maxBytes overrides core.MaxLinkedBytes and maxPods detect.MaxPods
 	// (tests).
@@ -209,7 +209,7 @@ func (l *Linker) link(ctx context.Context) *cycle {
 	out.Limitations = append(out.Limitations, lims...)
 	poolPartial := slices.ContainsFunc(lims, func(lim fleet.Limitation) bool { return lim.Code == LimitationIndexPartial })
 	c := &cycle{}
-	since, windows := map[sinceKey]time.Time{}, map[Key][]pactov1alpha1.ObservationWindow{}
+	since, windows := map[sinceKey]time.Time{}, map[Key][]pactov1.ObservationWindow{}
 	for _, wk := range w.workloads {
 		link, lim := Match(wk, byDigest)
 		if lim.Code != "" {
@@ -274,7 +274,7 @@ func (l *Linker) linkedBefore(key Key) bool {
 // that did not load is no evidence the link ended, so the next good cycle
 // records no new link for it. A complete cycle drops them.
 // ponytail: kept while cycles stay partial; a TTL if a scope fails for good.
-func (l *Linker) carry(since map[sinceKey]time.Time, windows map[Key][]pactov1alpha1.ObservationWindow) {
+func (l *Linker) carry(since map[sinceKey]time.Time, windows map[Key][]pactov1.ObservationWindow) {
 	linked := map[Key]bool{}
 	for sk := range since {
 		linked[sk.Key] = true
@@ -294,14 +294,14 @@ func (l *Linker) carry(since map[sinceKey]time.Time, windows map[Key][]pactov1al
 // judge evaluates wk against link's contract on a Pacto that is never
 // stored, with the observation windows of the previous cycle. An annotation
 // naming a repository outside the organization index is loaded anonymously.
-func (l *Linker) judge(ctx context.Context, wk Workload, link Link, service string) *pactov1alpha1.Pacto {
-	p := &pactov1alpha1.Pacto{
+func (l *Linker) judge(ctx context.Context, wk Workload, link Link, service string) *pactov1.Pacto {
+	p := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Namespace: wk.Namespace, Name: wk.Name},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{OCI: link.Ref},
-			Target:      pactov1alpha1.TargetRef{ServiceName: service, WorkloadRef: &pactov1alpha1.WorkloadRef{Kind: wk.Kind, Name: wk.Name}},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{OCI: link.Ref},
+			Target:      pactov1.TargetRef{ServiceName: service, WorkloadRef: &pactov1.WorkloadRef{Kind: wk.Kind, Name: wk.Name}},
 		},
-		Status: pactov1alpha1.PactoStatus{ObservationWindows: l.windows[Key{wk.Namespace, wk.Kind, wk.Name}]},
+		Status: pactov1.PactoStatus{ObservationWindows: l.windows[Key{wk.Namespace, wk.Kind, wk.Name}]},
 	}
 	evaluate := l.Evaluate
 	if link.Signal == fleet.LinkSignalAnnotation && !l.Index.Indexed(refRepository(link.Ref)) {
@@ -314,7 +314,7 @@ func (l *Linker) judge(ctx context.Context, wk Workload, link Link, service stri
 // refuse is why a judged link is not written: its contract did not load, or
 // the bundle a digest linked to speaks for another service than its index
 // entry claims.
-func (l *Linker) refuse(wk Workload, link Link, p *pactov1alpha1.Pacto) fleet.Limitation {
+func (l *Linker) refuse(wk Workload, link Link, p *pactov1.Pacto) fleet.Limitation {
 	c := p.Status.Contract
 	switch {
 	case c == nil && link.Signal == fleet.LinkSignalAnnotation:
@@ -333,7 +333,7 @@ func (l *Linker) refuse(wk Workload, link Link, p *pactov1alpha1.Pacto) fleet.Li
 
 // view is the linked target of p: a Pacto view named <Kind>/<name> whose
 // link rides in its labels.
-func view(p *pactov1alpha1.Pacto, wk Workload, link fleet.ObservedLink) core.PactoView {
+func view(p *pactov1.Pacto, wk Workload, link fleet.ObservedLink) core.PactoView {
 	var v core.PactoView
 	b, _ := json.Marshal(p) // plain data
 	_ = json.Unmarshal(b, &v)
@@ -427,7 +427,7 @@ func (l *Linker) read(ctx context.Context) world {
 // readScope adds the workloads and Services of namespace ns ("" all) to w.
 func (l *Linker) readScope(ctx context.Context, ns string, w *world) error {
 	var (
-		pactos pactov1alpha1.PactoList
+		pactos pactov1.PactoList
 		deps   appsv1.DeploymentList
 		sts    appsv1.StatefulSetList
 		crons  batchv1.CronJobList

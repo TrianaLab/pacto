@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
 )
 
@@ -77,9 +77,9 @@ func createPodEndpointSlice(t *testing.T, ns, svcName string, port int32, podUID
 }
 
 // publishNode writes the node agent's view of kernelNode for the pods given.
-func publishNode(t *testing.T, ns string, published time.Time, state pactov1alpha1.CollectionState, pods ...pactov1alpha1.PodRuntimeObservation) {
+func publishNode(t *testing.T, ns string, published time.Time, state pactov1.CollectionState, pods ...pactov1.PodRuntimeObservation) {
 	t.Helper()
-	nro := &pactov1alpha1.NodeRuntimeObservation{ObjectMeta: metav1.ObjectMeta{Name: kernelNode, Namespace: ns, Labels: nodeagent.Labels()}}
+	nro := &pactov1.NodeRuntimeObservation{ObjectMeta: metav1.ObjectMeta{Name: kernelNode, Namespace: ns, Labels: nodeagent.Labels()}}
 	if err := k8sClient.Create(testCtx, nro); err != nil {
 		t.Fatalf("create node runtime observation: %v", err)
 	}
@@ -89,11 +89,11 @@ func publishNode(t *testing.T, ns string, published time.Time, state pactov1alph
 			pods[i].BaselineAt = &baseline
 		}
 	}
-	nro.Status = pactov1alpha1.NodeRuntimeObservationStatus{
+	nro.Status = pactov1.NodeRuntimeObservationStatus{
 		NodeName:               kernelNode,
 		PublishIntervalSeconds: 30,
 		LastPublished:          &metav1.Time{Time: published},
-		Collection:             pactov1alpha1.RuntimeCollection{State: state, Reason: reasonFor(state)},
+		Collection:             pactov1.RuntimeCollection{State: state, Reason: reasonFor(state)},
 		Pods:                   pods,
 	}
 	if err := k8sClient.Status().Update(testCtx, nro); err != nil {
@@ -101,15 +101,15 @@ func publishNode(t *testing.T, ns string, published time.Time, state pactov1alph
 	}
 }
 
-func reasonFor(state pactov1alpha1.CollectionState) string {
-	if state == pactov1alpha1.CollectionFailed {
+func reasonFor(state pactov1.CollectionState) string {
+	if state == pactov1.CollectionFailed {
 		return "AttachFailed"
 	}
 	return ""
 }
 
 // requireCollector asserts the finding's evidence reference names the collector.
-func requireCollector(t *testing.T, p *pactov1alpha1.Pacto, code, collector string) {
+func requireCollector(t *testing.T, p *pactov1.Pacto, code, collector string) {
 	t.Helper()
 	f := findFinding(p, code)
 	if f == nil || len(f.EvidenceRefs) == 0 || f.EvidenceRefs[0].Collector != collector || f.EvidenceRefs[0].DetectedAt == "" {
@@ -128,8 +128,8 @@ func clusterIP(t *testing.T, ns, name string) string {
 
 func TestKernelEvidence(t *testing.T) {
 	ifaceContract := buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})
-	ifaceTarget := pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
-	running := pactov1alpha1.CollectionRunning
+	ifaceTarget := pactov1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
+	running := pactov1.CollectionRunning
 
 	// ifaceCase is a ready Service whose one ready endpoint is a Running, Ready pod of the svc Deployment.
 	ifaceCase := func(t *testing.T) (string, string) {
@@ -138,7 +138,7 @@ func TestKernelEvidence(t *testing.T) {
 		createDeployment(t, ns, "svc", deployOpts{})
 		uid := createRunningPod(t, ns, "svc", port)
 		createPodEndpointSlice(t, ns, "svc", port, uid)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{ContractRef: pactov1alpha1.ContractRef{Inline: ifaceContract}, Target: ifaceTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{ContractRef: pactov1.ContractRef{Inline: ifaceContract}, Target: ifaceTarget})
 		return ns, uid
 	}
 
@@ -151,22 +151,22 @@ func TestKernelEvidence(t *testing.T) {
 		deaf := createRunningPod(t, ns, "svc", port)
 		canary := createRunningPod(t, ns, "canary", port)
 		createPodEndpointSlice(t, ns, "svc", port, canary)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{ContractRef: pactov1alpha1.ContractRef{Inline: ifaceContract}, Target: ifaceTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{ContractRef: pactov1.ContractRef{Inline: ifaceContract}, Target: ifaceTarget})
 		publishNode(t, ns, time.Now(), running,
-			pactov1alpha1.PodRuntimeObservation{UID: deaf},
-			pactov1alpha1.PodRuntimeObservation{UID: canary, Listeners: []pactov1alpha1.RuntimeListener{{Port: port, Family: "IPv4", Address: "0.0.0.0"}}})
+			pactov1.PodRuntimeObservation{UID: deaf},
+			pactov1.PodRuntimeObservation{UID: canary, Listeners: []pactov1.RuntimeListener{{Port: port, Family: "IPv4", Address: "0.0.0.0"}}})
 		p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireNoFinding(t, p, "INTERFACE_ABSENT")
 	})
 
 	t.Run("listener_present_compliant", func(t *testing.T) {
 		ns, uid := ifaceCase(t)
-		publishNode(t, ns, time.Now(), running, pactov1alpha1.PodRuntimeObservation{
-			UID: uid, Listeners: []pactov1alpha1.RuntimeListener{{Port: port, Family: "IPv4", Address: "0.0.0.0"}},
+		publishNode(t, ns, time.Now(), running, pactov1.PodRuntimeObservation{
+			UID: uid, Listeners: []pactov1.RuntimeListener{{Port: port, Family: "IPv4", Address: "0.0.0.0"}},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
 	})
 
@@ -174,29 +174,29 @@ func TestKernelEvidence(t *testing.T) {
 	// nothing on the target port (a loopback-only listener does not count).
 	t.Run("listener_absent_noncompliant_INTERFACE_ABSENT", func(t *testing.T) {
 		ns, uid := ifaceCase(t)
-		publishNode(t, ns, time.Now(), running, pactov1alpha1.PodRuntimeObservation{
-			UID: uid, Listeners: []pactov1alpha1.RuntimeListener{{Port: port, Family: "IPv4", Address: "127.0.0.1"}},
+		publishNode(t, ns, time.Now(), running, pactov1.PodRuntimeObservation{
+			UID: uid, Listeners: []pactov1.RuntimeListener{{Port: port, Family: "IPv4", Address: "127.0.0.1"}},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 		backdateWindows(t, "p", ns)
 		p = reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "INTERFACE_ABSENT")
 		requireCollector(t, p, "INTERFACE_ABSENT", "k8s-observer+ebpf")
 		requireNoIP(t, p)
 
 		// The same cluster without kernel evidence reads the endpoints alone: Compliant.
 		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 	})
 
 	t.Run("stale_node_unknown_EVIDENCE_STALE", func(t *testing.T) {
 		ns, uid := ifaceCase(t)
-		publishNode(t, ns, time.Now().Add(-time.Hour), running, pactov1alpha1.PodRuntimeObservation{UID: uid})
+		publishNode(t, ns, time.Now().Add(-time.Hour), running, pactov1.PodRuntimeObservation{UID: uid})
 		p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_STALE")
 		requireNoFinding(t, p, "INTERFACE_ABSENT")
 	})
@@ -205,8 +205,8 @@ func TestKernelEvidence(t *testing.T) {
 	// an hour-old observation with a fresh Lease is fresh: the Lease is the heartbeat.
 	t.Run("old_observation_fresh_lease_compliant", func(t *testing.T) {
 		ns, uid := ifaceCase(t)
-		publishNode(t, ns, time.Now().Add(-time.Hour), running, pactov1alpha1.PodRuntimeObservation{
-			UID: uid, Listeners: []pactov1alpha1.RuntimeListener{{Port: port, Family: "IPv4", Address: "0.0.0.0"}},
+		publishNode(t, ns, time.Now().Add(-time.Hour), running, pactov1.PodRuntimeObservation{
+			UID: uid, Listeners: []pactov1.RuntimeListener{{Port: port, Family: "IPv4", Address: "0.0.0.0"}},
 		})
 		renewed := metav1.NewMicroTime(time.Now())
 		lease := &coordinationv1.Lease{
@@ -217,15 +217,15 @@ func TestKernelEvidence(t *testing.T) {
 			t.Fatalf("create lease: %v", err)
 		}
 		p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireNoFinding(t, p, "EVIDENCE_STALE")
 	})
 
 	t.Run("failed_collection_unknown_COLLECTION_FAILED", func(t *testing.T) {
 		ns, uid := ifaceCase(t)
-		publishNode(t, ns, time.Now(), pactov1alpha1.CollectionFailed, pactov1alpha1.PodRuntimeObservation{UID: uid})
+		publishNode(t, ns, time.Now(), pactov1.CollectionFailed, pactov1.PodRuntimeObservation{UID: uid})
 		p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "COLLECTION_FAILED")
 		requireCollector(t, p, "COLLECTION_FAILED", "k8s-observer+ebpf")
 	})
@@ -244,33 +244,33 @@ func TestKernelEvidence(t *testing.T) {
 		createEndpointSlice(t, ns, "pay-svc", port, 1)
 		createDeployment(t, ns, "main-svc", deployOpts{})
 		uid := createRunningPod(t, ns, "main-svc", port)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: payContract(ns)},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "main-svc"},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: payContract(ns)},
+			Target:      pactov1.TargetRef{ServiceName: "main-svc"},
 		})
 		return ns, uid, clusterIP(t, ns, "pay-svc")
 	}
 	t.Run("dependency_reachable_via_kernel_compliant", func(t *testing.T) {
 		ns, uid, ip := depCase(t)
-		publishNode(t, ns, time.Now(), running, pactov1alpha1.PodRuntimeObservation{
-			UID: uid, Connections: []pactov1alpha1.RuntimeConnection{{Address: ip, Port: port, Successes: 3, LastSuccessAt: &metav1.Time{Time: time.Now()}}},
+		publishNode(t, ns, time.Now(), running, pactov1.PodRuntimeObservation{
+			UID: uid, Connections: []pactov1.RuntimeConnection{{Address: ip, Port: port, Successes: 3, LastSuccessAt: &metav1.Time{Time: time.Now()}}},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
 	})
 
 	// Endpoints say ready, but every connection the consumer made to the provider was refused.
 	t.Run("dependency_refused_noncompliant_DEPENDENCY_UNREACHABLE", func(t *testing.T) {
 		ns, uid, _ := depCase(t)
-		publishNode(t, ns, time.Now(), running, pactov1alpha1.PodRuntimeObservation{
-			UID: uid, Connections: []pactov1alpha1.RuntimeConnection{{Address: "10.244.0.1", Port: port, Failures: 5, LastFailureAt: &metav1.Time{Time: time.Now()}}},
+		publishNode(t, ns, time.Now(), running, pactov1.PodRuntimeObservation{
+			UID: uid, Connections: []pactov1.RuntimeConnection{{Address: "10.244.0.1", Port: port, Failures: 5, LastFailureAt: &metav1.Time{Time: time.Now()}}},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		backdateWindows(t, "p", ns)
 		p = reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "DEPENDENCY_UNREACHABLE")
 		requireCollector(t, p, "DEPENDENCY_UNREACHABLE", "k8s-observer+ebpf")
 		requireNoIP(t, p)
@@ -281,11 +281,11 @@ func TestKernelEvidence(t *testing.T) {
 		ns, uid, _ := depCase(t)
 		createSiblingPacto(t, ns, "ledger", "ledger-svc", "ghcr.io/e2e/"+ns+"-ledger:2.0.0", "2.0.0")
 		createService(t, ns, "ledger-svc", 5432)
-		publishNode(t, ns, time.Now(), running, pactov1alpha1.PodRuntimeObservation{
-			UID: uid, Connections: []pactov1alpha1.RuntimeConnection{{Address: clusterIP(t, ns, "ledger-svc"), Port: 5432, Successes: 1, LastSuccessAt: &metav1.Time{Time: time.Now()}}},
+		publishNode(t, ns, time.Now(), running, pactov1.PodRuntimeObservation{
+			UID: uid, Connections: []pactov1.RuntimeConnection{{Address: clusterIP(t, ns, "ledger-svc"), Port: 5432, Successes: 1, LastSuccessAt: &metav1.Time{Time: time.Now()}}},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusWarning)
+		requireStatus(t, p, pactov1.ContractStatusWarning)
 		requireFinding(t, p, "DEPENDENCY_UNDECLARED")
 		requireCollector(t, p, "DEPENDENCY_UNDECLARED", "ebpf")
 		requireNoIP(t, p)
@@ -300,30 +300,30 @@ func TestKernelEgress(t *testing.T) {
 	createDeployment(t, ns, "svc", deployOpts{})
 	uid := createRunningPod(t, ns, "svc", port)
 	createPodEndpointSlice(t, ns, "svc", port, uid)
-	createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
-		Target:      pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")},
+	createPacto(t, "p", ns, pactov1.PactoSpec{
+		ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+		Target:      pactov1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")},
 	})
-	publishNode(t, ns, time.Now(), pactov1alpha1.CollectionRunning, pactov1alpha1.PodRuntimeObservation{
-		UID: uid, Connections: []pactov1alpha1.RuntimeConnection{{
+	publishNode(t, ns, time.Now(), pactov1.CollectionRunning, pactov1.PodRuntimeObservation{
+		UID: uid, Connections: []pactov1.RuntimeConnection{{
 			Address: "203.0.113.10", Host: "api.stripe.com", Port: 443, Successes: 1, LastSuccessAt: &metav1.Time{Time: time.Now()},
 		}},
 	})
-	nro := &pactov1alpha1.NodeRuntimeObservation{}
+	nro := &pactov1.NodeRuntimeObservation{}
 	if err := k8sClient.Get(testCtx, client.ObjectKey{Namespace: ns, Name: kernelNode}, nro); err != nil {
 		t.Fatalf("get node runtime observation: %v", err)
 	}
-	nro.Status.DNS = pactov1alpha1.RuntimeDNS{State: pactov1alpha1.CollectionRunning}
+	nro.Status.DNS = pactov1.RuntimeDNS{State: pactov1.CollectionRunning}
 	if err := k8sClient.Status().Update(testCtx, nro); err != nil {
 		t.Fatalf("publish dns state: %v", err)
 	}
 	p := reconcile(t, "p", ns, reconcileOpts{kernelNamespace: ns}).pacto
-	if p.Status.StatusFormat != pactov1alpha1.PactoStatusFormat {
+	if p.Status.StatusFormat != pactov1.PactoStatusFormat {
 		t.Fatalf("statusFormat = %d", p.Status.StatusFormat)
 	}
 	got := p.Status.ObservedEgress
 	if len(got) != 1 || got[0].Identity != "stripe" || got[0].Class != "vendor-api" || got[0].Host != "api.stripe.com" ||
-		got[0].Port != 443 || got[0].Source != pactov1alpha1.EgressSourceKernel || got[0].FirstSeen.IsZero() {
+		got[0].Port != 443 || got[0].Source != pactov1.EgressSourceKernel || got[0].FirstSeen.IsZero() {
 		t.Fatalf("observedEgress = %+v", got)
 	}
 	// Other cases share the cluster, so only what this namespace's agent object decides is asserted.
@@ -359,12 +359,12 @@ func TestObserverRegressions(t *testing.T) {
 		if err := k8sClient.Create(testCtx, slice); err != nil {
 			t.Fatalf("create endpointslice: %v", err)
 		}
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: []pactov1alpha1.InterfaceBinding{{Interface: "api", ServicePort: intstr.FromInt32(80)}}},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+			Target:      pactov1.TargetRef{ServiceName: "svc", InterfaceBindings: []pactov1.InterfaceBinding{{Interface: "api", ServicePort: intstr.FromInt32(80)}}},
 		})
 		got := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, got, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, got, pactov1.ContractStatusCompliant)
 		requireNoFinding(t, got, "INTERFACE_ABSENT")
 	})
 
@@ -374,14 +374,14 @@ func TestObserverRegressions(t *testing.T) {
 		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.4.0", "1.4.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 1)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", deps: []depSpec{{
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", deps: []depSpec{{
 				name: "payments", ref: "oci://ghcr.io/e2e/" + ns + "-payments", required: true, compat: "^1.0.0",
 			}}})},
-			Target: pactov1alpha1.TargetRef{ServiceName: "main-svc"},
+			Target: pactov1.TargetRef{ServiceName: "main-svc"},
 		})
 		got := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, got, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, got, pactov1.ContractStatusCompliant)
 		requireNoFinding(t, got, "OBSERVATION_UNSUPPORTED")
 	})
 }

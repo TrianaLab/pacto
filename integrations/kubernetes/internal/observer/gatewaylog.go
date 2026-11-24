@@ -23,7 +23,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
 
-	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/runtimefacts"
 )

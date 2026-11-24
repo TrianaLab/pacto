@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/types"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 

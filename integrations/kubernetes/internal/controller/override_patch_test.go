@@ -11,13 +11,13 @@ import (
 	"strings"
 	"testing"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 )
 
 // overrideOf is the one-scope override these tests keep reaching for.
-func overrideOf(name string, kv map[string]string) *pactov1alpha1.ContractOverrides {
-	return &pactov1alpha1.ContractOverrides{
-		Configurations: []pactov1alpha1.ConfigurationOverride{{Name: name, Values: kv}},
+func overrideOf(name string, kv map[string]string) *pactov1.ContractOverrides {
+	return &pactov1.ContractOverrides{
+		Configurations: []pactov1.ConfigurationOverride{{Name: name, Values: kv}},
 	}
 }
 

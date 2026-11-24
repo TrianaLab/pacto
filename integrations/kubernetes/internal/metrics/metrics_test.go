@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
 )
 
 func TestMust_PanicsOnError(t *testing.T) {
@@ -20,23 +20,23 @@ func TestMust_PanicsOnError(t *testing.T) {
 // RecordValidation is kept for backward compat but not called in v2 flow.
 
 func TestRecordContractStatus_Compliant(t *testing.T) {
-	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusCompliant)
+	RecordContractStatus("default", "my-pacto", pactov1.ContractStatusCompliant)
 }
 
 func TestRecordContractStatus_Warning(t *testing.T) {
-	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusWarning)
+	RecordContractStatus("default", "my-pacto", pactov1.ContractStatusWarning)
 }
 
 func TestRecordContractStatus_NonCompliant(t *testing.T) {
-	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusNonCompliant)
+	RecordContractStatus("default", "my-pacto", pactov1.ContractStatusNonCompliant)
 }
 
 func TestRecordContractStatus_Reference(t *testing.T) {
-	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusReference)
+	RecordContractStatus("default", "my-pacto", pactov1.ContractStatusReference)
 }
 
 func TestRecordContractStatus_Unknown(t *testing.T) {
-	RecordContractStatus("default", "my-pacto", pactov1alpha1.ContractStatusUnknown)
+	RecordContractStatus("default", "my-pacto", pactov1.ContractStatusUnknown)
 }
 
 func TestRecordReadiness_Nil(t *testing.T) {
@@ -44,36 +44,36 @@ func TestRecordReadiness_Nil(t *testing.T) {
 }
 
 func TestRecordReadiness_Passing(t *testing.T) {
-	rs := &pactov1alpha1.ReadinessStatus{
+	rs := &pactov1.ReadinessStatus{
 		Score: 100, Passing: true, DoneCount: 3,
 	}
-	RecordReadiness("default", "my-pacto", rs, pactov1alpha1.ReasonReadinessSatisfied)
+	RecordReadiness("default", "my-pacto", rs, pactov1.ReasonReadinessSatisfied)
 }
 
 func TestRecordReadiness_BelowMinScore(t *testing.T) {
-	rs := &pactov1alpha1.ReadinessStatus{
+	rs := &pactov1.ReadinessStatus{
 		Score: 60, Passing: false, DoneCount: 1, PartialCount: 1, NotDoneCount: 1, DeferredCount: 1,
 	}
-	RecordReadiness("test-ns", "below-min", rs, pactov1alpha1.ReasonReadinessBelowMinScore)
+	RecordReadiness("test-ns", "below-min", rs, pactov1.ReasonReadinessBelowMinScore)
 }
 
 func TestRecordReadiness_Expired(t *testing.T) {
-	rs := &pactov1alpha1.ReadinessStatus{
+	rs := &pactov1.ReadinessStatus{
 		Score: 0, Passing: false, NotDoneCount: 2, Expired: true,
 	}
-	RecordReadiness("test-ns", "expired", rs, pactov1alpha1.ReasonReadinessExpired)
+	RecordReadiness("test-ns", "expired", rs, pactov1.ReasonReadinessExpired)
 }
 
 func TestRecordReadiness_AllZeros(t *testing.T) {
-	rs := &pactov1alpha1.ReadinessStatus{
+	rs := &pactov1.ReadinessStatus{
 		Score: 0, Passing: false, DoneCount: 0, PartialCount: 0, NotDoneCount: 0, DeferredCount: 0,
 	}
-	RecordReadiness("test-ns", "zero", rs, pactov1alpha1.ReasonReadinessExpired)
+	RecordReadiness("test-ns", "zero", rs, pactov1.ReasonReadinessExpired)
 }
 
 func TestRecordReadiness_Mixed(t *testing.T) {
-	rs := &pactov1alpha1.ReadinessStatus{
+	rs := &pactov1.ReadinessStatus{
 		Score: 75, Passing: false, DoneCount: 2, PartialCount: 1, NotDoneCount: 1, DeferredCount: 0,
 	}
-	RecordReadiness("test-ns", "mixed", rs, pactov1alpha1.ReasonReadinessBelowMinScore)
+	RecordReadiness("test-ns", "mixed", rs, pactov1.ReasonReadinessBelowMinScore)
 }
