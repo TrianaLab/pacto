@@ -300,9 +300,9 @@ jobs:
           target: ci-static
           golangci-lint: 'true'
 
-  # Two shards (ENGINE_SHARD in ci.mk): internal/app's unit tests alone, about
-  # 15 minutes under -race, and everything else. Run as one job they were a
-  # serial 24-minute leg. Each shard gates its own coverage profile at 100% and,
+  # Two shards (ENGINE_SHARD in ci.mk): internal/app's unit tests alone (about
+  # 15 minutes under -race while they ran serially; most now run in parallel)
+  # and everything else. Run as one job they were a serial 24-minute leg. Each shard gates its own coverage profile at 100% and,
   # on push, uploads it; Codecov merges the two.
   ci-engine:
     needs: changes
