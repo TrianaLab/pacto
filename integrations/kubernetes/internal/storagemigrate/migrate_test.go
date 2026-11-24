@@ -351,7 +351,23 @@ func TestMigrateInvalidObjectContinuesAndLeavesStoredVersions(t *testing.T) {
 	if got := writes(c); len(got) != 3 || !strings.HasPrefix(got[2], "pactos b/three") {
 		t.Fatalf("writes %q", got)
 	}
-	if !logged(lines, "storage migration: "+pactosCRD+" could not rewrite 1 objects ([a/legacy]); see MIGRATION.md") {
+	if !logged(lines, "storage migration: "+pactosCRD+" could not rewrite 1 objects ([a/legacy: Invalid]); see MIGRATION.md") {
+		t.Fatalf("log %q", *lines)
+	}
+}
+
+// TestMigrateNamesTheReason: a throttled write is named with its reason, so
+// the reader tells it apart from an object that needs an edit.
+func TestMigrateNamesTheReason(t *testing.T) {
+	c := newCluster(t, crd("v1", "v1alpha1", "v1"))
+	c.pages = [][]unstructured.Unstructured{{obj("team-a", "orders", "11")}}
+	c.patch = func(clienttesting.PatchAction) error { return apierrors.NewTooManyRequests("slow down", 1) }
+	m := migrator(c)
+	lines := capture(m)
+	if m.migrateCRD(context.Background(), PactoTargets()[0]) {
+		t.Fatal("a throttled write marked the target done")
+	}
+	if !logged(lines, "could not rewrite 1 objects ([team-a/orders: TooManyRequests])") {
 		t.Fatalf("log %q", *lines)
 	}
 }
@@ -369,7 +385,7 @@ func TestMigrateNamesAtMostTwentyFailures(t *testing.T) {
 	m := migrator(c)
 	lines := capture(m)
 	m.migrateCRD(context.Background(), PactoTargets()[0])
-	if !logged(lines, "could not rewrite 25 objects") || logged(lines, "a/o20") || !logged(lines, "a/o19]") {
+	if !logged(lines, "could not rewrite 25 objects") || logged(lines, "a/o20") || !logged(lines, "a/o19: Forbidden]") {
 		t.Fatalf("log %q", *lines)
 	}
 }

@@ -195,7 +195,8 @@ func storageHash(group, version, kind string) string {
 }
 
 // rewriteAll rewrites every object of t in every namespace and returns how
-// many it rewrote and the namespace/name of each it could not. A list error
+// many it rewrote and "namespace/name: reason" of each it could not, so a
+// transient Conflict or timeout reads apart from an Invalid object. A list error
 // aborts the pass.
 func (m *Migrator) rewriteAll(ctx context.Context, t Target) (int, []string, error) {
 	res := m.Client.Resource(t.Resource)
@@ -210,7 +211,7 @@ func (m *Migrator) rewriteAll(ctx context.Context, t Target) (int, []string, err
 			obj := &list.Items[i]
 			done, err := rewrite(ctx, res.Namespace(obj.GetNamespace()), t.Subresource, obj)
 			if err != nil {
-				failed = append(failed, obj.GetNamespace()+"/"+obj.GetName())
+				failed = append(failed, obj.GetNamespace()+"/"+obj.GetName()+": "+string(apierrors.ReasonForError(err)))
 			} else if done {
 				n++
 			}
