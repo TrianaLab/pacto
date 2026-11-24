@@ -262,7 +262,7 @@ describe('FleetOfferingsView', () => {
     ...offeringRef(name, total, 0), consumable: { providers, providersTotal: total, providersTruncated: total > providers.length },
   });
   const provider = (version: string, classes: string[], params: [string, string][], publisher = 'https://github.com/acme/pg/.github/workflows/publish.yml@refs/heads/main') => ({
-    version, classes, publisher, acceptance: 'publisher', digest: 'sha256:4c1e5a', lifecycle: 'supported',
+    service: { kind: 'service', key: 'ghcr.io%2Facme/pg', label: 'pg' }, version, classes, publisher, acceptance: 'publisher', digest: 'sha256:4c1e5a', lifecycle: 'supported',
     parameters: params.map(([path, tier]) => ({ configuration: 'provisioning', path, tier, required: true, sensitive: false })),
     parametersTotal: params.length, parametersTruncated: false, guarantees: [], schemaPaths: [],
   });
@@ -321,7 +321,9 @@ describe('FleetOfferingsView', () => {
     const [pg, rd] = Array.from(target.querySelectorAll('[data-testid="offering-list"] tbody tr'));
     const line = pg.querySelector('[data-testid="offering-consumable"]') as HTMLElement;
     expect(line.classList.contains('t-meta')).toBe(true);
-    expect(line.textContent?.trim()).toBe('17.0.0 · classes small, large · tunable storageGB, backupRetentionDays · +2 more providers');
+    expect(line.textContent?.trim()).toBe('pg 17.0.0 · classes small, large · tunable storageGB, backupRetentionDays · +2 more providers');
+    // The count says how many of the providers you may consume, never the total alone.
+    expect(pg.querySelector('[data-testid="offering-providers"]')?.textContent).toBe('3 of 3 providers you may consume');
     const title = line.getAttribute('title') ?? '';
     expect(title).toContain('publisher https://github.com/acme/pg/.github/workflows/publish.yml@refs/heads/main');
     expect(title).toContain(`as of ${formatDateTime(meta.asOf)}`);
@@ -341,7 +343,7 @@ describe('FleetOfferingsView', () => {
     const { target, done } = mountView({ consumable: '1' });
     await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-consumable"]')).not.toBeNull());
     const line = target.querySelector('[data-testid="offering-consumable"]') as HTMLElement;
-    expect(line.textContent?.trim()).toBe('1.0.0 · tunable storageGB, adminPassword, replicas');
+    expect(line.textContent?.trim()).toBe('pg 1.0.0 · tunable storageGB, adminPassword, replicas');
     expect(line.getAttribute('title')).not.toContain('hunter2');
     done();
   });
@@ -355,6 +357,28 @@ describe('FleetOfferingsView', () => {
     expect(line.classList.contains('cell-clip')).toBe(true);
     expect(line.getAttribute('title')).toContain(line.textContent!.trim());
     expect(line.getAttribute('title')).toContain(long);
+    done();
+  });
+
+  it('consumable line says a cut parameter or class list is cut and counts only consumable providers', async () => {
+    const p = { ...provider('1.0.0', ['small', 'large'], [['size', 'tunable']]), parametersTotal: 60, parametersTruncated: true, classesTotal: 52, classesTruncated: true };
+    entitiesFn.mockResolvedValue(listResp([{ ...consumableRef('postgresql', [p]), services: 2 }]));
+    const { target, done } = mountView({ consumable: '1' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-consumable"]')).not.toBeNull());
+    const line = target.querySelector('[data-testid="offering-consumable"]') as HTMLElement;
+    expect(line.textContent?.trim()).toBe('pg 1.0.0 · classes small, large +50 more · tunable size · +59 more fields');
+    expect(target.querySelector('[data-testid="offering-providers"]')?.textContent).toBe('1 of 2 providers you may consume');
+    done();
+  });
+
+  it('a complete consumable answer names the providers it left out', async () => {
+    const msg = 'Not consumable, not accepted: 1 provider of an offering you may see (redis); fix';
+    entitiesFn.mockResolvedValue(listResp([], { ...meta, limitations: [{ code: 'OFFERING_NOT_CONSUMABLE', message: msg }] }));
+    const { target, done } = mountView({ consumable: '1' });
+    await vi.waitFor(() => expect(target.textContent).toContain('No matching offerings you may consume'));
+    const left = target.querySelector('[data-testid="offering-consumable-left-out"]') as HTMLElement;
+    expect(left.textContent).toBe(msg);
+    expect(left.getAttribute('title')).toBe(msg);
     done();
   });
 

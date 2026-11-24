@@ -100,22 +100,33 @@
   // Consumable and inferred exclude each other: checking one clears the other.
   const INFERRED_ON = { inferred: true, failed: false, lifecycle: '', consumable: false };
   const CONSUMABLE_ON = { consumable: true, inferred: false };
-  // The consumable row's muted line: the first provider's version, classes and tunable
-  // fields, then how many more providers; the title adds the publisher and the asOf.
-  const consumableLine = (c) => {
+  // The consumable row's muted line: the first provider's name and version, classes and
+  // tunable fields (a cut list says how many more), then how many more providers you may
+  // consume; the title adds the publisher and the asOf. `count` replaces the provider
+  // count, so a provider left out never reads as one you may consume.
+  const consumableLine = (c, services) => {
     const p = c.providers?.[0];
     if (!p) return null;
     const tunable = [...new Set((p.parameters ?? []).filter((x) => x.tier === 'tunable').map((x) => x.path))];
+    const moreFields = p.parametersTruncated ? (p.parametersTotal ?? 0) - (p.parameters?.length ?? 0) : 0;
+    const moreClasses = p.classesTruncated ? (p.classesTotal ?? 0) - (p.classes?.length ?? 0) : 0;
     const more = (c.providersTotal ?? 0) - 1;
     const line = [
-      p.version,
-      p.classes?.length ? `classes ${p.classes.join(', ')}` : '',
+      [p.service?.label, p.version].filter(Boolean).join(' '),
+      p.classes?.length ? `classes ${p.classes.join(', ')}${moreClasses > 0 ? ` +${formatCount(moreClasses)} more` : ''}` : '',
       tunable.length ? `tunable ${tunable.join(', ')}` : '',
+      moreFields > 0 ? `+${plural(moreFields, 'more field', 'more fields')}` : '',
       more > 0 ? `+${plural(more, 'more provider', 'more providers')}` : '',
     ].filter(Boolean).join(' · ');
     const asOf = list?.meta?.asOf ? `, as of ${formatDateTime(list.meta.asOf)}` : '';
-    return { line, title: `${line}; publisher ${p.publisher}${asOf}` };
+    const total = c.providersTotal ?? 0;
+    return { line, title: `${line}; publisher ${p.publisher}${asOf}`, count: `${formatCount(total)} of ${plural(services, 'provider', 'providers')} you may consume` };
   };
+  // A complete consumable answer still names the providers it left out and why
+  // (OFFERING_NOT_CONSUMABLE), in one muted line: an exclusion is never silent.
+  const leftOut = $derived(onlyConsumable
+    ? (list?.meta?.limitations ?? []).filter((l) => l.code === 'OFFERING_NOT_CONSUMABLE').map((l) => l.message).join(' · ')
+    : '');
   const inferredHref = $derived(urlWith(INFERRED_ON));
   // The inferred row's tip: who produced it, from which source object and when.
   const inferredTip = (f) => [
@@ -187,6 +198,9 @@
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
     <KnowledgeBanner {knowledge} noun="list" />
   {/if}
+  {#if leftOut && (state.kind === 'ready' || state.kind === 'filtered-empty')}
+    <p class="t-meta cell-clip ot-left-out" title={leftOut} data-testid="offering-consumable-left-out"><bdi>{leftOut}</bdi></p>
+  {/if}
 
   {#if refreshError}
     <StaleRefreshNotice noun="offering list" onRetry={load} />
@@ -236,7 +250,7 @@
             {@const hidden = ref.hiddenConsumers ?? 0}
             {@const hiddenP = ref.hiddenProviders ?? 0}
             {@const f = ref.inferredOffering}
-            {@const cl = ref.consumable ? consumableLine(ref.consumable) : null}
+            {@const cl = ref.consumable ? consumableLine(ref.consumable, ref.services ?? 0) : null}
             <tr class:ot-inferred={!!f} animate:flip={{ duration: dur(MOTION.row) }}>
               {#if f}
               <th scope="row">
@@ -245,7 +259,7 @@
               <td colspan="6" data-label="Inferred"><span class="ot-note" title={inferredLine(f) + (f.acceptedAs ? ` ${f.acceptedAs.label}` : '')}><bdi>{inferredLine(f)}</bdi>{#if f.acceptedAs}{' '}<span data-testid="offering-inferred-accepted"><EntityLink ref={f.acceptedAs} showStatus={false} showKind={false} /></span>{/if}</span></td>
               {:else}
               <th scope="row">
-                <span class="cell-stack"><EntityLink {ref} showStatus={false} showKind={false} /><span class="t-meta">{plural(ref.services ?? 0, 'provider', 'providers')}</span>{#if cl}<span class="t-meta cell-clip" title={cl.title} data-testid="offering-consumable"><bdi data-format="consumable">{cl.line}</bdi></span>{/if}{#if hiddenP}<span class="t-meta" data-testid="offering-hidden-providers">+{plural(hiddenP, 'provider', 'providers')} you may not see</span>{/if}</span>
+                <span class="cell-stack"><EntityLink {ref} showStatus={false} showKind={false} /><span class="t-meta" data-testid="offering-providers">{cl ? cl.count : plural(ref.services ?? 0, 'provider', 'providers')}</span>{#if cl}<span class="t-meta cell-clip" title={cl.title} data-testid="offering-consumable"><bdi data-format="consumable">{cl.line}</bdi></span>{/if}{#if hiddenP}<span class="t-meta" data-testid="offering-hidden-providers">+{plural(hiddenP, 'provider', 'providers')} you may not see</span>{/if}</span>
               </th>
               <td data-label="Owners">{#if ref.owner}<span class="cell-clip" title={ref.owner}><bdi>{ref.owner}</bdi></span>{:else}<span class="t-meta">none declared</span>{/if}</td>
               <td data-label="Lifecycle"><span class="badge badge-{lc[1]}">{lc[0]}</span></td>
@@ -283,6 +297,7 @@
   .ot-sort:hover, .ot-sort:focus-visible { text-decoration: underline; }
   /* The words beside a hidden count stay visible: a title is unreachable on touch. */
   .ot-note { display: block; overflow-wrap: anywhere; }
+  .ot-left-out { margin: 0; }
   /* An inferred row is muted through the AA-safe text token, never a fade (axe fails faded text). */
   .ot-inferred, .ot-inferred :global(.ei-label), .ot-inferred :global(.ei-context) { color: var(--c-text-3); }
   .ot-inferred-name { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; overflow-wrap: anywhere; }

@@ -211,7 +211,7 @@ export function installScaleFixture(): void {
         for (const k of ['hiddenConsumers', 'hiddenProviders', 'targetsUnknown']) delete r[k];
         const version = `17.0.0-${'rc.'.repeat(70)}`.slice(0, 200);
         r.consumable = { providersTotal: 14, providersTruncated: true, providers: [{
-          version, digest: `sha256:${'4c1e5a'.repeat(11)}`, acceptance: 'publisher', lifecycle: r.lifecycle,
+          service: { kind: 'service', key: `load-provider-${i}`, label: longName(`load-provider-${i}`) }, version, digest: `sha256:${'4c1e5a'.repeat(11)}`, acceptance: 'publisher', lifecycle: r.lifecycle,
           publisher: `${signer.subject}-${i}`,
           classes: Array.from({ length: 6 }, (_, j) => longName(`class-${i}-${j}`).slice(0, 63)),
           parameters: Array.from({ length: 8 }, (_, j) => ({ configuration: 'provisioning', path: longName(`spec.parameters.tunable-field-${j}`), tier: j % 2 ? 'contract' : 'tunable', required: true, sensitive: false })),

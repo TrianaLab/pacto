@@ -108,12 +108,15 @@ test.describe('WASM demo — platform offerings', () => {
     const rows = page.getByTestId('offering-list').locator('tbody tr');
     await expect(rows).toHaveCount(2, { timeout: T });
     const pg = rows.filter({ has: page.locator(PG_ROW) });
-    await expect(pg.getByTestId('offering-consumable')).toHaveText('17.0.0');
-    await expect(pg.getByTestId('offering-consumable')).toHaveAttribute('title', /^17\.0\.0; publisher https:\/\/github\.com\/trianalab\/postgresql\/\.github\/workflows\/publish\.yml@refs\/heads\/main, as of /);
+    // The line names the provider it speaks for, and the count leaves postgresql-ha
+    // (acceptance unknown) out of the providers you may consume.
+    await expect(pg.getByTestId('offering-consumable')).toHaveText('postgresql 17.0.0');
+    await expect(pg.getByTestId('offering-providers')).toHaveText('1 of 2 providers you may consume');
+    await expect(pg.getByTestId('offering-consumable')).toHaveAttribute('title', /^postgresql 17\.0\.0; publisher https:\/\/github\.com\/trianalab\/postgresql\/\.github\/workflows\/publish\.yml@refs\/heads\/main, as of /);
     const os = rows.filter({ has: page.locator('a.entity-link[href$="/fleet/offerings/objectstore"]') });
     const line = os.getByTestId('offering-consumable');
-    await expect(line).toHaveText('1.0.0 · classes archive, standard');
-    await expect(line).toHaveAttribute('title', /^1\.0\.0 · classes archive, standard; publisher dana@acme\.example, as of /);
+    await expect(line).toHaveText('objectstore 1.0.0 · classes archive, standard');
+    await expect(line).toHaveAttribute('title', /^objectstore 1\.0\.0 · classes archive, standard; publisher dana@acme\.example, as of /);
     await expect(page.locator('.knowledge').first()).toBeVisible();
     await audit(page, 'consumable offerings');
     expect(await noSideScroll(page)).toBe(true);
