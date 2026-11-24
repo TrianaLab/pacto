@@ -1638,7 +1638,8 @@ type ExternalRecord struct {
 	Claimants int `json:"claimants,omitempty" doc:"How many services claim it when more than one does: no claim counts until all but one are retracted; absent otherwise"`
 	// Resources are the managed resources sources read for it, a cluster
 	// object, a Terraform state entry or a cloud inventory item each.
-	// ResourcesTotal counts them before an answer bounds them.
+	// ResourcesTotal counts them before an answer bounds them: in a
+	// restricted view the visible ones alone, HiddenResources the rest.
 	Resources       []ManagedResource `json:"resources,omitempty" doc:"The managed resources sources read for it: a cluster object, a Terraform state entry or a cloud inventory item; at most 20"`
 	ResourcesTotal  int               `json:"resourcesTotal,omitempty" doc:"How many managed resources were read for it"`
 	HiddenResources int               `json:"hiddenResources,omitempty" doc:"How many of its managed resources the caller's permissions hide"`

@@ -982,13 +982,25 @@ func TestPrintExternalResourcesHiddenCount(t *testing.T) {
 	rec.ResourcesTotal, rec.HiddenResources = 30, 7
 	var b strings.Builder
 	printExternal(&b, rec, "", fleet.ExternalEvidence{})
-	if !strings.Contains(b.String(), "             and 20 more\n             7 hidden\n") {
+	// ResourcesTotal counts the visible resources alone (finalizeExternal).
+	if !strings.Contains(b.String(), "             and 27 more\n             7 hidden\n") {
 		t.Errorf("%s", b.String())
 	}
 	rec.Resources = nil
 	b.Reset()
 	printExternal(&b, rec, "", fleet.ExternalEvidence{})
-	if !strings.Contains(b.String(), "  resources  and 23 more\n             7 hidden\n") || strings.Contains(b.String(), "into a contract") {
+	if !strings.Contains(b.String(), "  resources  and 30 more\n             7 hidden\n") || strings.Contains(b.String(), "into a contract") {
+		t.Errorf("%s", b.String())
+	}
+}
+
+// The folded other-egress node is no system to claim: no claim hint.
+func TestPrintExternalResourcesOtherEgressNoClaim(t *testing.T) {
+	rec := managedRecord()
+	rec.Key = fleet.OtherEgress
+	var b strings.Builder
+	printExternalResources(&b, rec)
+	if strings.Contains(b.String(), "into a contract") {
 		t.Errorf("%s", b.String())
 	}
 }

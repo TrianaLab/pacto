@@ -345,14 +345,14 @@ func printExternalResources(w io.Writer, rec fleet.ExternalRecord) {
 		_, _ = fmt.Fprintf(w, "  %-9s  %s\n", label, managedResourceLine(r))
 		label, outside = "", outside || r.Contract != fleet.ContractOffering
 	}
-	if more := rec.ResourcesTotal - rec.HiddenResources - len(rec.Resources); more > 0 {
+	if more := rec.ResourcesTotal - len(rec.Resources); more > 0 {
 		_, _ = fmt.Fprintf(w, "  %-9s  and %d more\n", label, more)
 		label = ""
 	}
 	if rec.HiddenResources > 0 {
 		_, _ = fmt.Fprintf(w, "  %-9s  %d hidden\n", label, rec.HiddenResources)
 	}
-	if outside && rec.Claim == nil && rec.Claimants == 0 {
+	if outside && rec.Claim == nil && rec.Claimants == 0 && rec.Key != fleet.OtherEgress {
 		_, _ = fmt.Fprintf(w, "  into a contract: pacto claim %s --owner <team> --offering <offering>\n", rec.Key)
 	}
 }
