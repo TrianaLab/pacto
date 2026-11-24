@@ -13,6 +13,7 @@ import (
 )
 
 func TestObservedFromEdges_DomainScopedAndUnresolved(t *testing.T) {
+	t.Parallel()
 	// "payments" exists in both eu and us (globally ambiguous); "web" is unique.
 	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{
 		fleet.NewServiceKeyDomain("eu", "web"):      {Name: "web"},
@@ -44,6 +45,7 @@ func TestObservedFromEdges_DomainScopedAndUnresolved(t *testing.T) {
 }
 
 func TestDeclaredFromSnapshot_SkipsNonDependencyAndFallsBack(t *testing.T) {
+	t.Parallel()
 	snap := &fleet.FleetSnapshot{Relationships: []fleet.Relationship{
 		{Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceDeclared, FromService: "web", To: "payments", ToService: "payments-svc", Required: true},
 		{Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceDeclared, FromService: "web", To: "cache"},        // unresolved -> fall back to To
@@ -65,6 +67,7 @@ func TestDeclaredFromSnapshot_SkipsNonDependencyAndFallsBack(t *testing.T) {
 // an observed edge into it makes reconciliation report a shadow dependency as a
 // healthy match (review section S2).
 func TestDeclaredFromSnapshot_ExcludesObservedProvenance(t *testing.T) {
+	t.Parallel()
 	snap := &fleet.FleetSnapshot{Relationships: []fleet.Relationship{
 		{Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceDeclared, FromService: "eu/a", ToService: "eu/b"},
 		{Type: fleet.RelationshipDependency, Provenance: fleet.ProvenanceObserved, FromService: "eu/a", ToService: "eu/b"},
@@ -104,6 +107,7 @@ const reconcileTrace = `{"resourceSpans":[{"resource":{"attributes":[{"key":"ser
 // --traces file becomes an observation source whose edges Build folds into the
 // snapshot as domain-qualified observed relationships.
 func TestFleet_TraceFilesFoldObserved(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalBundleWithDeps(t, filepath.Join(root, "web"), "web")
 	writeLocalBundleWithDeps(t, filepath.Join(root, "payments"), "payments")
@@ -175,6 +179,7 @@ func observationFailureSnapshot(t *testing.T) *fleet.FleetSnapshot {
 // that quietly contributes nothing. A readable OLD export is a healthy source —
 // evidence age is a property of the edge, not of source health.
 func TestFleet_ObservationSourceFailureIsKnowledge(t *testing.T) {
+	t.Parallel()
 	snap := observationFailureSnapshot(t)
 
 	status := map[string]fleet.SourceStatus{}
@@ -207,6 +212,7 @@ func TestFleet_ObservationSourceFailureIsKnowledge(t *testing.T) {
 // configuration declared (never a path, a basename or a list position), and the
 // old export keeps its old window instead of being read as current truth.
 func TestFleet_ObservedEdgeNamesItsConfiguredSource(t *testing.T) {
+	t.Parallel()
 	snap := observationFailureSnapshot(t)
 
 	var edge *fleet.Relationship
@@ -235,6 +241,7 @@ func TestFleet_ObservedEdgeNamesItsConfiguredSource(t *testing.T) {
 }
 
 func TestService_Reconcile(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalBundleWithDeps(t, filepath.Join(root, "web"), "web", "payments", "cache")
 
@@ -272,6 +279,7 @@ const reconcileTraceABC = `{"resourceSpans":[{"resource":{"attributes":[{"key":"
 // contract-declared edge (a->b) as declared, so the observed-only edge a->c is
 // reported observed-not-declared, never a match.
 func TestService_Reconcile_ObservedInSnapshotStaysUndeclared(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalBundleWithDeps(t, filepath.Join(root, "a"), "a", "b") // a declares only b
 	writeLocalBundleWithDeps(t, filepath.Join(root, "b"), "b")
@@ -299,6 +307,7 @@ func TestService_Reconcile_ObservedInSnapshotStaysUndeclared(t *testing.T) {
 }
 
 func TestService_Reconcile_BadTraces(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	if _, err := svc.Reconcile(context.Background(), ReconcileOptions{Traces: []byte("{bad")}); err == nil {
 		t.Fatal("expected parse error")
@@ -306,6 +315,7 @@ func TestService_Reconcile_BadTraces(t *testing.T) {
 }
 
 func TestService_Reconcile_FleetError(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.Reconcile(context.Background(), ReconcileOptions{
 		Traces: []byte(`{"resourceSpans":[]}`),
@@ -322,6 +332,7 @@ func TestService_Reconcile_FleetError(t *testing.T) {
 // A trace callee the catalog names matches the external a contract declares
 // under the same key.
 func TestReconcileExternalCalleeMatchesDeclared(t *testing.T) {
+	t.Parallel()
 	web := fleet.NewServiceKeyDomain("eu", "web")
 	snap := &fleet.FleetSnapshot{
 		Services: map[fleet.ServiceKey]*fleet.ServiceRecord{web: {Name: "web"}},
@@ -343,6 +354,7 @@ func TestReconcileExternalCalleeMatchesDeclared(t *testing.T) {
 // A callee that is a fleet service in another domain stays that service's
 // name, never an external, as the snapshot's fold resolves it.
 func TestReconcileCalleeServiceInOtherDomainNotExternal(t *testing.T) {
+	t.Parallel()
 	web, other := fleet.NewServiceKeyDomain("eu", "web"), fleet.NewServiceKeyDomain("us", "api.stripe.com")
 	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{web: {Name: "web"}, other: {Name: "api.stripe.com"}}}
 	observed, _ := observedFromEdges(snap, []otelobserver.Edge{{From: "web", To: "api.stripe.com", Count: 1}})
@@ -355,6 +367,7 @@ func TestReconcileCalleeServiceInOtherDomainNotExternal(t *testing.T) {
 // api.stripe.com becomes an observed edge to stripe, with no unresolved
 // limitation naming it.
 func TestFleet_TraceFileExternalCallee(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalBundleWithDeps(t, filepath.Join(root, "payments-service"), "payments-service")
 	snap, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{
@@ -375,6 +388,7 @@ func TestFleet_TraceFileExternalCallee(t *testing.T) {
 }
 
 func TestReconcileInferredCallerUnresolved(t *testing.T) {
+	t.Parallel()
 	cart := fleet.K8sCaller("", "shop", "Deployment", "cart")
 	snap := &fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{
 		fleet.NewServiceKey("payments"): {Name: "payments"},

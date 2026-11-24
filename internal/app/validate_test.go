@@ -18,6 +18,7 @@ import (
 )
 
 func TestValidate_LocalValid(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir})
@@ -30,6 +31,7 @@ func TestValidate_LocalValid(t *testing.T) {
 }
 
 func TestValidate_LocalInvalid(t *testing.T) {
+	t.Parallel()
 	dir := writeInvalidBundle(t)
 	svc := NewService(nil, nil)
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir})
@@ -42,6 +44,7 @@ func TestValidate_LocalInvalid(t *testing.T) {
 }
 
 func TestValidate_ReadinessValid(t *testing.T) {
+	t.Parallel()
 	dir := writeReadinessBundle(t)
 	svc := NewService(nil, nil)
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir})
@@ -54,6 +57,7 @@ func TestValidate_ReadinessValid(t *testing.T) {
 }
 
 func TestValidate_ReadinessDuplicateID(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := []byte(`pactoVersion: "2.0"
 service:
@@ -96,6 +100,7 @@ readiness:
 }
 
 func TestValidate_ReadinessGate_FailsWhenStale(t *testing.T) {
+	t.Parallel()
 	dir := writeReadinessBundle(t)
 	svc := pinnedService(time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)) // security-review (2026-01-15) expired
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir, Readiness: true})
@@ -117,6 +122,7 @@ func TestValidate_ReadinessGate_FailsWhenStale(t *testing.T) {
 }
 
 func TestValidate_ReadinessGate_MessageShape(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	// Scores 50 (one done w=50, one not-done w=30, one deferred w=20 excluded):
 	// earned 50 of total 80 -> 63, below default minScore 100. Far-future expiry
@@ -172,6 +178,7 @@ readiness:
 }
 
 func TestValidate_ReadinessGate_PassesWhenCurrent(t *testing.T) {
+	t.Parallel()
 	dir := writeReadinessBundle(t)
 	svc := pinnedService(time.Date(2026, 1, 1, 12, 0, 0, 0, time.UTC)) // both checks still current
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir, Readiness: true})
@@ -184,6 +191,7 @@ func TestValidate_ReadinessGate_PassesWhenCurrent(t *testing.T) {
 }
 
 func TestValidate_ReadinessGate_OffByDefault(t *testing.T) {
+	t.Parallel()
 	dir := writeReadinessBundle(t)
 	svc := pinnedService(time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)) // stale, but gate not requested
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir})
@@ -196,6 +204,7 @@ func TestValidate_ReadinessGate_OffByDefault(t *testing.T) {
 }
 
 func TestValidate_ReadinessGate_NoReadinessDeclared(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t) // no readiness section
 	svc := NewService(nil, nil)
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: dir, Readiness: true})
@@ -208,6 +217,7 @@ func TestValidate_ReadinessGate_NoReadinessDeclared(t *testing.T) {
 }
 
 func TestValidate_DefaultPath(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: ""})
 	if err != nil {
@@ -218,6 +228,7 @@ func TestValidate_DefaultPath(t *testing.T) {
 }
 
 func TestValidate_FileNotFound(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: "/nonexistent/dir"})
 	if err != nil {
@@ -233,6 +244,7 @@ func TestValidate_FileNotFound(t *testing.T) {
 }
 
 func TestValidate_OCIRef(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: "oci://ghcr.io/acme/svc:1.0.0"})
@@ -245,6 +257,7 @@ func TestValidate_OCIRef(t *testing.T) {
 }
 
 func TestValidate_OCIRef_MissingPactoYAML(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			b := testBundle()
@@ -261,6 +274,7 @@ func TestValidate_OCIRef_MissingPactoYAML(t *testing.T) {
 }
 
 func TestValidate_NoRawYAMLNoFS(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			b := testBundle()
@@ -277,6 +291,7 @@ func TestValidate_NoRawYAMLNoFS(t *testing.T) {
 }
 
 func TestValidate_OCIRef_NilStore(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	result, err := svc.Validate(context.Background(), ValidateOptions{Path: "oci://ghcr.io/acme/svc:1.0.0"})
 	if err != nil {
@@ -288,6 +303,7 @@ func TestValidate_OCIRef_NilStore(t *testing.T) {
 }
 
 func TestBundleResolverAdapter(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	adapter := &bundleResolverAdapter{svc: svc}
@@ -303,6 +319,7 @@ func TestBundleResolverAdapter(t *testing.T) {
 // TestPolicyResolver_RootBase pins the two answers rootBase can give, through
 // the constructor the validate path actually calls.
 func TestPolicyResolver_RootBase(t *testing.T) {
+	t.Parallel()
 	svc := NewService(&mockBundleStore{}, nil)
 
 	dir := testutil.WriteTestBundle(t)
@@ -328,6 +345,7 @@ func TestPolicyResolver_RootBase(t *testing.T) {
 // a relative ref means "next to the contract that declared it", and a contract
 // that came out of a registry may not name a local directory at all.
 func TestBundleResolverAdapter_ResolveBundleFrom(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	root := t.TempDir()
 	dir := filepath.Join(root, "policy-bundle")
@@ -389,6 +407,7 @@ func TestBundleResolverAdapter_ResolveBundleFrom(t *testing.T) {
 // TestValidationReport carries Validate's verdict, and its hard error, to the
 // pacto_check port unchanged.
 func TestValidationReport(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			b := testBundle()
@@ -428,6 +447,7 @@ func writeConfigRefPair(t *testing.T, ref, values string) string {
 }
 
 func TestValidate_ConfigRefValues(t *testing.T) {
+	t.Parallel()
 	svc := NewService(&mockBundleStore{}, nil)
 	r, err := svc.Validate(context.Background(), ValidateOptions{Path: writeConfigRefPair(t, "../pg", "{size: huge}")})
 	if err != nil {
@@ -445,6 +465,7 @@ func TestValidate_ConfigRefValues(t *testing.T) {
 
 // With no bundle store nothing can fetch the ref, and validate fails closed.
 func TestValidate_ConfigRefUnresolvable(t *testing.T) {
+	t.Parallel()
 	r, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: writeConfigRefPair(t, "oci://ghcr.io/acme/pg:16.1.0", "{size: small}")})
 	if err != nil {
 		t.Fatal(err)
@@ -455,6 +476,7 @@ func TestValidate_ConfigRefUnresolvable(t *testing.T) {
 }
 
 func TestValidateReportsInferred(t *testing.T) {
+	t.Parallel()
 	dir := emptyChartDir(t, "")
 	result, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: dir})
 	if err != nil {
@@ -479,6 +501,7 @@ func TestValidateReportsInferred(t *testing.T) {
 // A contract that fails to load says nothing about its version: the field is
 // absent, not a false that reads as "not declared".
 func TestValidateLoadFailureOmitsVersionDeclared(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service: {name: a, version: 1.0.0}\nbogus: 1\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -496,6 +519,7 @@ func TestValidateLoadFailureOmitsVersionDeclared(t *testing.T) {
 }
 
 func TestValidateReportsContractCompleteness(t *testing.T) {
+	t.Parallel()
 	result, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: writeTestBundle(t)})
 	if err != nil {
 		t.Fatal(err)
@@ -519,6 +543,7 @@ func TestValidateReportsContractCompleteness(t *testing.T) {
 
 // An unreadable record is reported by validation; completeness reads no record.
 func TestValidateCompletenessIgnoresUnreadableRecord(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	if err := os.WriteFile(filepath.Join(dir, contract.InferredRecordFile), []byte("fields: [\n"), 0o644); err != nil {
 		t.Fatal(err)

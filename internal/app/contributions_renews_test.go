@@ -8,6 +8,7 @@ import (
 )
 
 func TestRenewsReadsOnlyADigest(t *testing.T) {
+	t.Parallel()
 	d := "sha256:" + strings.Repeat("a", 64)
 	for ann, want := range map[string]string{d: d, "not-a-digest": "", "": ""} {
 		if got := renews(map[string]string{contract.AnnotationRenews: ann}); got != want {

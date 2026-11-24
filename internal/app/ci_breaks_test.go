@@ -11,6 +11,7 @@ import (
 // TestCIBreakNotes: each consumer a break names gets one note saying where
 // the break stands and where its expiry comes from.
 func TestCIBreakNotes(t *testing.T) {
+	t.Parallel()
 	rec := acceptRecordOf(contract.Inferred{Field: "breaks[1].expires", Value: "2026-12-14", Source: "commit:0123456789ab +30d", Confidence: contract.ConfidenceLikely})
 	b := &contract.Bundle{FS: contract.WithInferredRecord(nil, rec.Marshal()), Contract: &contract.Contract{Breaks: []contract.Break{
 		{Consumers: []string{"web"}, Expires: "2027-01-01"}, {Consumers: []string{"reports"}}, {Consumers: []string{"api"}}}}}

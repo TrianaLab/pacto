@@ -169,6 +169,7 @@ func TestFleetGappedHistoryIsUnverified(t *testing.T) {
 // read, a keyless CI publish is accepted by the inferred rule (status
 // unknown) and keeps its pacto.yaml owner, like an unsigned push.
 func TestFleetInferredCIPublishKeepsOwner(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ci := "https://github.com/acme/app/.github/workflows/ci.yml@refs/heads/main"
 	revs := []fleet.ContractRevision{passRev("1.0.0", "payments", "", ci, false), passRev("2.0.0", "billing", "", ci, false)}
@@ -259,6 +260,7 @@ func TestOwnerRightsUnchangedDeclarationUnreadHistory(t *testing.T) {
 }
 
 func TestOwnerRightsUnsignedPlainPushUnchecked(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	revs := []fleet.ContractRevision{passRev("1.0.0", "billing", "", "", false), passRev("2.0.0", "payments", "", "", false)}
 	revs[1].Provenance = nil
@@ -270,6 +272,7 @@ func TestOwnerRightsUnsignedPlainPushUnchecked(t *testing.T) {
 }
 
 func TestOwnerRightCheckEnumMatchesDeliveryCodes(t *testing.T) {
+	t.Parallel()
 	want := strings.Join(delivery.OwnerRightCodes, ",")
 	for name, typ := range map[string]reflect.Type{"fleet.OwnerRightCheck": reflect.TypeFor[fleet.OwnerRightCheck](), "delivery.OwnerRight": reflect.TypeFor[delivery.OwnerRight]()} {
 		f, _ := typ.FieldByName("Code")
@@ -280,6 +283,7 @@ func TestOwnerRightCheckEnumMatchesDeliveryCodes(t *testing.T) {
 }
 
 func TestFleetOwnerPolicyReadsTheMount(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "policy.json")
 	if err := os.WriteFile(path, []byte(`{"emailIssuers":["https://idp.example"]}`), 0o600); err != nil {
 		t.Fatal(err)

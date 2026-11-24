@@ -14,7 +14,6 @@ import (
 	"go/parser"
 	"go/token"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -74,11 +73,9 @@ type joinEnv struct {
 
 func newJoinEnv(t *testing.T, mode capabilities.ReferrersMode) *joinEnv {
 	t.Helper()
-	t.Setenv(TrustEnv, "")
-	freshProbes(t)
 	e := &joinEnv{mode: mode, ss: sigtest.New(t), clock: snapNow, allow: map[string]bool{"oidc:alice@acme.com": true}}
 	inner := testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: mode == capabilities.ReferrersWriteOnceTags, TagsLink: true})
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case e.deny.Load() && strings.HasSuffix(r.URL.Path, "/tags/list"):
 			http.Error(w, `{"errors":[{"code":"DENIED"}]}`, http.StatusForbidden)
@@ -225,6 +222,7 @@ func clustersOf(snap *fleet.FleetSnapshot) map[string]bool {
 var bothModes = []capabilities.ReferrersMode{capabilities.ReferrersNative, capabilities.ReferrersWriteOnceTags}
 
 func TestPendingMemberIsNoSource(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -240,6 +238,7 @@ func TestPendingMemberIsNoSource(t *testing.T) {
 }
 
 func TestApprovedMemberIsVerifiedScopedSource(t *testing.T) {
+	t.Parallel()
 	for _, mode := range bothModes {
 		t.Run(string(mode), func(t *testing.T) {
 			e := newJoinEnv(t, mode)
@@ -266,6 +265,7 @@ func TestApprovedMemberIsVerifiedScopedSource(t *testing.T) {
 }
 
 func TestRemovedMemberDisappearsNextBuild(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -283,6 +283,7 @@ func TestRemovedMemberDisappearsNextBuild(t *testing.T) {
 }
 
 func TestRotatedKeyReadsPending(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.decide(t, m, delivery.JoinApprove)
@@ -299,6 +300,7 @@ func TestRotatedKeyReadsPending(t *testing.T) {
 }
 
 func TestRebuiltClusterMayReplace(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	old, rebuilt := newMember(memberA, "eu-prod"), newMember(memberB, "eu-prod")
 	e.publish(t, old, old.key, snapNow)
@@ -323,6 +325,7 @@ func (e *joinEnv) approvedBy(t *testing.T, email, issuer, approver string) deliv
 }
 
 func TestJoinApproverIssuerBound(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	st := e.approvedBy(t, "alice@acme.com", "https://other-idp.example", "oidc:alice@acme.com")
 	if st.State != delivery.JoinPending || !strings.Contains(st.Reason, "not signed by a certificate from "+joinIssuer) {
@@ -331,6 +334,7 @@ func TestJoinApproverIssuerBound(t *testing.T) {
 }
 
 func TestJoinApproverMachineIdentityRefused(t *testing.T) {
+	t.Parallel()
 	for _, sa := range []string{"deployer@acme.iam.gserviceaccount.com", "ns.svc.id.goog@acme.com"} {
 		e := newJoinEnv(t, capabilities.ReferrersNative)
 		e.allow["oidc:"+sa] = true
@@ -342,6 +346,7 @@ func TestJoinApproverMachineIdentityRefused(t *testing.T) {
 }
 
 func TestApprovalByUserWhoMayNotApproveNotCounted(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	st := e.approvedBy(t, "bob@acme.com", joinIssuer, "oidc:bob@acme.com")
 	if st.State != delivery.JoinPending || !strings.Contains(st.Reason, "an approval by oidc:bob@acme.com was not counted: oidc:bob@acme.com may not approve clusterjoins") {
@@ -350,6 +355,7 @@ func TestApprovalByUserWhoMayNotApproveNotCounted(t *testing.T) {
 }
 
 func TestApprovalClaimingAnotherUserNotCounted(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	st := e.approvedBy(t, "bob@acme.com", joinIssuer, "oidc:alice@acme.com")
 	if st.State != delivery.JoinPending || !strings.Contains(st.Reason, "claiming approver oidc:alice@acme.com is signed as oidc:bob@acme.com") {
@@ -358,6 +364,7 @@ func TestApprovalClaimingAnotherUserNotCounted(t *testing.T) {
 }
 
 func TestApprovalForAnotherHubIgnored(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -371,6 +378,7 @@ func TestApprovalForAnotherHubIgnored(t *testing.T) {
 }
 
 func TestSelfSignatureMismatchNeverApprovable(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	_, other, _ := ed25519.GenerateKey(rand.Reader)
@@ -386,6 +394,7 @@ func TestSelfSignatureMismatchNeverApprovable(t *testing.T) {
 }
 
 func TestNoSignersConfiguredKeepsPending(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	e.policy = delivery.ClassPolicy{}
 	m := newMember(memberA, "eu-prod")
@@ -398,6 +407,7 @@ func TestNoSignersConfiguredKeepsPending(t *testing.T) {
 }
 
 func TestSignerPolicyFailureKeepsPending(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -411,6 +421,7 @@ func TestSignerPolicyFailureKeepsPending(t *testing.T) {
 }
 
 func TestReviewErrorKeepsPendingNotCached(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -431,6 +442,7 @@ func TestReviewErrorKeepsPendingNotCached(t *testing.T) {
 }
 
 func TestRevokedGrantTurnsApprovalPending(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -450,6 +462,7 @@ func TestRevokedGrantTurnsApprovalPending(t *testing.T) {
 }
 
 func TestRecordListingFailureIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -466,6 +479,7 @@ func TestRecordListingFailureIsPartial(t *testing.T) {
 }
 
 func TestJoinRecordsCutKeepsPending(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -483,6 +497,7 @@ func TestJoinRecordsCutKeepsPending(t *testing.T) {
 }
 
 func TestJoinRecordFloodKeepsPending(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersWriteOnceTags)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -498,6 +513,7 @@ func TestJoinRecordFloodKeepsPending(t *testing.T) {
 }
 
 func TestRejectedRecordsStopTakingTheBound(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -512,6 +528,7 @@ func TestRejectedRecordsStopTakingTheBound(t *testing.T) {
 }
 
 func TestJoinListTruncatedIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	for i := range 12 {
 		m := newMember(fmt.Sprintf("cccc%04d", i), "c")
@@ -525,6 +542,7 @@ func TestJoinListTruncatedIsPartial(t *testing.T) {
 }
 
 func TestTagSquattingNeverEvictsApprovedMember(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	for i := range 40 {
 		m := newMember(fmt.Sprintf("0000%04d", i), "squat")
@@ -546,6 +564,7 @@ func TestTagSquattingNeverEvictsApprovedMember(t *testing.T) {
 }
 
 func TestJoinListUnauthorizedNamesCredential(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	e.deny.Store(true)
 	l := e.svc.ClusterJoins(t.Context(), e.opts())
@@ -561,6 +580,7 @@ func TestJoinListUnauthorizedNamesCredential(t *testing.T) {
 }
 
 func TestUnreadableSnapshotIsPendingWithWhy(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	stale, wrong, bad := newMember(memberA, "eu-prod"), newMember(memberB, "us-west"), newMember("dddd0000", "bad")
 	e.publish(t, stale, stale.key, snapNow.Add(-time.Hour))
@@ -598,6 +618,7 @@ func (e *joinEnv) failSnapshot(t *testing.T, uid string) {
 }
 
 func TestFleetWithoutJoinOptionsUnchanged(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -611,6 +632,7 @@ func TestFleetWithoutJoinOptionsUnchanged(t *testing.T) {
 }
 
 func TestJoinsAndTargetSnapshotShareOneReader(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-west")
 	e.publish(t, a, a.key, snapNow)
@@ -639,6 +661,7 @@ func TestJoinsAndTargetSnapshotShareOneReader(t *testing.T) {
 }
 
 func TestImpactUnchangedByPendingMember(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	a := newMember(memberA, "eu-prod")
 	e.publish(t, a, a.key, snapNow)
@@ -655,6 +678,7 @@ func TestImpactUnchangedByPendingMember(t *testing.T) {
 // TestNoGateReadsJoinState: no gate, impact or plan code names a join type,
 // so a pending member or an inferred environment never clears a gate.
 func TestNoGateReadsJoinState(t *testing.T) {
+	t.Parallel()
 	banned := map[string]bool{"SnapshotJoin": true, "AdvertisedEnvironment": true, "ClusterJoinState": true, "JoinState": true,
 		"ClusterJoinList": true, "JoinCandidate": true, "VerifiedJoin": true}
 	files, _ := filepath.Glob("../../pkg/impact/*.go")
@@ -680,6 +704,7 @@ func TestNoGateReadsJoinState(t *testing.T) {
 // TestMovedJoinTagIsALimitation: a join tag moved onto another record is no
 // record, and the list names it.
 func TestMovedJoinTagIsALimitation(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersWriteOnceTags)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -714,6 +739,7 @@ func (e *joinEnv) personSigner(t *testing.T) delivery.Signer {
 // TestWriteClusterJoinApprovesAndRemoves: in either form a written approval
 // makes the member approved, and a written removal removes it.
 func TestWriteClusterJoinApprovesAndRemoves(t *testing.T) {
+	t.Parallel()
 	for _, mode := range bothModes {
 		t.Run(string(mode), func(t *testing.T) {
 			e := newJoinEnv(t, mode)
@@ -742,6 +768,7 @@ func TestWriteClusterJoinApprovesAndRemoves(t *testing.T) {
 // cluster, carries no join block or names another key, and a signer that
 // fails get nothing written.
 func TestWriteClusterJoinRefuses(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-west")
 	e.publish(t, m, m.key, snapNow)
@@ -827,6 +854,7 @@ func TestAdvertisedTargets(t *testing.T) {
 }
 
 func TestDeliveryClassPolicy(t *testing.T) {
+	t.Parallel()
 	want := delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: joinIssuer}}}
 	if got, err := (&Delivery{Policy: want}).ClassPolicy(t.Context()); err != nil || len(got.Signers) != 1 {
 		t.Fatalf("%+v %v", got, err)
@@ -844,6 +872,7 @@ func (e *joinEnv) decideAs(t *testing.T, m member, dec delivery.JoinDecision, em
 // TestNewerUncheckedRemovalKeepsPending: a newer removal whose review fails
 // never lets an older approval decide (R2-1).
 func TestNewerUncheckedRemovalKeepsPending(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	e.allow["oidc:bob@acme.com"] = true
 	m := newMember(memberA, "eu-prod")
@@ -866,6 +895,7 @@ func TestNewerUncheckedRemovalKeepsPending(t *testing.T) {
 // TestRevokedRemoverKeepsPending: a removal whose signer may no longer
 // approve keeps the older approval from deciding (R2-2).
 func TestRevokedRemoverKeepsPending(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -887,6 +917,7 @@ func TestRevokedRemoverKeepsPending(t *testing.T) {
 // record bound settle on the newest decision, as superseded records stop
 // taking the bound (R4-1).
 func TestApprovalHistoryNeverLocksOut(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -909,6 +940,7 @@ func TestApprovalHistoryNeverLocksOut(t *testing.T) {
 // TestApprovedMemberUnreadableSnapshotIsPartial: an approved member whose
 // snapshot cannot be read makes the list and the fleet partial (R2-3).
 func TestApprovedMemberUnreadableSnapshotIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -929,6 +961,7 @@ func TestApprovedMemberUnreadableSnapshotIsPartial(t *testing.T) {
 // name one or an approver, so a reader who may not approve learns neither
 // (R1-1).
 func TestJoinLimitationsNameNoCluster(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersWriteOnceTags)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -946,6 +979,7 @@ func TestJoinLimitationsNameNoCluster(t *testing.T) {
 // TestReviewForbiddenNamesTheGrant: a reader whose credentials may not
 // review approvers is told which grant it lacks (R3-4).
 func TestReviewForbiddenNamesTheGrant(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -961,6 +995,7 @@ func TestReviewForbiddenNamesTheGrant(t *testing.T) {
 // TestNoSignersKeepsTheSnapshotReason: with no signers, a forged snapshot
 // still says it is forged (R2-4).
 func TestNoSignersKeepsTheSnapshotReason(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	e.policy = delivery.ClassPolicy{}
 	m := newMember(memberA, "eu-prod")
@@ -976,6 +1011,7 @@ func TestNoSignersKeepsTheSnapshotReason(t *testing.T) {
 // read past the pending bound, and without a tag when it has records
 // (R3-2, R4-4, R4-2).
 func TestIncludedClusterReadPastTheBound(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	for i := range delivery.MaxTargetSnapshots {
 		m := newMember(fmt.Sprintf("0000%04d", i), "squat")
@@ -1002,6 +1038,7 @@ func TestIncludedClusterReadPastTheBound(t *testing.T) {
 // TestRemovalNeedsNoSnapshot: a member that stopped publishing a join block
 // can still be removed (R4-2).
 func TestRemovalNeedsNoSnapshot(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -1019,6 +1056,7 @@ func TestRemovalNeedsNoSnapshot(t *testing.T) {
 // TestResolvedJoinOptions: a reader that resolves its options per read says
 // why it could not, and reads nothing from a hub without a registry (R3-3).
 func TestResolvedJoinOptions(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -1043,6 +1081,7 @@ func TestResolvedJoinOptions(t *testing.T) {
 }
 
 func TestPluralCountsClusters(t *testing.T) {
+	t.Parallel()
 	if plural(1, "cluster") != "1 cluster" || plural(2, "cluster") != "2 clusters" {
 		t.Fatal(plural(2, "cluster"))
 	}
@@ -1052,6 +1091,7 @@ func TestPluralCountsClusters(t *testing.T) {
 // read are matched to its members; a failed read leaves the candidates
 // partial and says why, and the members' completeness is untouched.
 func TestClusterJoinsMatchesCandidates(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -1078,6 +1118,7 @@ func TestClusterJoinsMatchesCandidates(t *testing.T) {
 // shows the candidates its operator wrote, and one whose options could not be
 // resolved says the candidates were not read rather than showing none.
 func TestUnresolvedJoinsKeepCandidates(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	var err error
 	o := JoinOptions{Resolve: func(context.Context) (JoinOptions, error) {
@@ -1101,6 +1142,7 @@ func TestUnresolvedJoinsKeepCandidates(t *testing.T) {
 // TestFleetReadsNoCandidates: the fleet's join read never reads candidates,
 // however its options resolve, so none reaches a source or a gate.
 func TestFleetReadsNoCandidates(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -1118,6 +1160,7 @@ func TestFleetReadsNoCandidates(t *testing.T) {
 }
 
 func TestAdvertisedChartVersion(t *testing.T) {
+	t.Parallel()
 	now := func() time.Time { return detectedNow }
 	read := func(cm *unstructured.Unstructured) (string, error) {
 		return AdvertisedChartVersion(t.Context(), dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), cm), "k8s:pacto/det", now)

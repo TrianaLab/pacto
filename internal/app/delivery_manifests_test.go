@@ -39,6 +39,7 @@ func inspectorPolicy() runtime.Object {
 }
 
 func TestDeliveryPlanInspectsManifests(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
 	d, _, reg := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"pacto:agents"}, nil, inspectorPolicy())
@@ -66,6 +67,7 @@ func TestDeliveryPlanInspectsManifests(t *testing.T) {
 // cannot read leaves whether the promoter inspects unknown, so the plan asks
 // a person instead of planning as if the inspector were off.
 func TestDeliveryPlanUnreadablePolicyAsksAboutTheInspector(t *testing.T) {
+	t.Parallel()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
 	d, _, reg := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"pacto:agents"}, nil)
 	d.PolicyNamespace = "pacto-delivery"
@@ -81,6 +83,7 @@ func TestDeliveryPlanUnreadablePolicyAsksAboutTheInspector(t *testing.T) {
 // call infrastructure is refused under the published refuseRawInfra (profile
 // idp), and asks a person without it.
 func TestDeliveryPlanRefusesRawInfraUnderIDP(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
 	claim := "apiVersion: platform.example.org/v1\nkind: PostgresClaim\nmetadata:\n  name: db\n"
@@ -117,6 +120,7 @@ func hasVerdict(vs []delivery.Verdict, gate string, r delivery.Result) bool {
 // shaped like the promoter's (the applier object, the Kustomizations, the
 // apply repository and the same scope) does.
 func TestPlanSourcesAgreeOnInspection(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	ks := obj("kustomize.toolkit.fluxcd.io/v1", "Kustomization", "prod", "payments", map[string]any{
 		"spec": map[string]any{"sourceRef": map[string]any{"kind": "OCIRepository", "name": "payments"}, "postBuild": map[string]any{}}})
@@ -151,6 +155,7 @@ func TestPlanSourcesAgreeOnInspection(t *testing.T) {
 }
 
 func TestDiscoveryScopeFallsBackToBuiltin(t *testing.T) {
+	t.Parallel()
 	builtin := reflect.ValueOf(delivery.ScopeFunc(delivery.BuiltinScope)).Pointer()
 	for name, cfg := range map[string]*rest.Config{
 		"none":    nil,

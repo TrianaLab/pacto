@@ -3,7 +3,6 @@ package app
 import (
 	"context"
 	"errors"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -97,6 +96,7 @@ func wantCalls(t *testing.T, r *buildRun, err error, want ...string) {
 }
 
 func TestDeriveKoArgs(t *testing.T) {
+	t.Parallel()
 	r := &buildRun{}
 	out, programs, err := buildWith(t, r, discover.BuildPlan{Tool: discover.ToolKo, Main: "./cmd/api"}, "1700000000")
 	wantCalls(t, r, err, "ko build --push=false --bare --sbom=none --oci-layout-path="+out+" ./cmd/api")
@@ -107,6 +107,7 @@ func TestDeriveKoArgs(t *testing.T) {
 }
 
 func TestDeriveJibMavenArgs(t *testing.T) {
+	t.Parallel()
 	r := &buildRun{}
 	out, programs, err := buildWith(t, r, discover.BuildPlan{Tool: discover.ToolJib, Wrapper: "./mvnw"}, "")
 	wantCalls(t, r, err, "./mvnw -q compile jib:buildTar -Dimage=r.io/acme/pay:1.2.3 -Djib.outputPaths.tar="+filepath.Join(out, "image.tar"))
@@ -116,12 +117,14 @@ func TestDeriveJibMavenArgs(t *testing.T) {
 }
 
 func TestDeriveJibGradleArgs(t *testing.T) {
+	t.Parallel()
 	r := &buildRun{}
 	out, _, err := buildWith(t, r, discover.BuildPlan{Tool: discover.ToolJib, Wrapper: "gradle"}, "")
 	wantCalls(t, r, err, "gradle jibBuildTar -Dimage=r.io/acme/pay:1.2.3 -Djib.outputPaths.tar="+filepath.Join(out, "image.tar"))
 }
 
 func TestDeriveBuildpacksArgs(t *testing.T) {
+	t.Parallel()
 	r := &buildRun{}
 	out, programs, err := buildWith(t, r, discover.BuildPlan{Tool: discover.ToolBuildpacks}, "")
 	wantCalls(t, r, err, "pack build r.io/acme/pay:pacto-0123456789ab --path .",
@@ -136,6 +139,7 @@ func TestDeriveBuildpacksArgs(t *testing.T) {
 }
 
 func TestDeriveSkaffoldArgs(t *testing.T) {
+	t.Parallel()
 	r := &buildRun{skaffold: skaffoldBuilt}
 	out, programs, err := buildWith(t, r, discover.BuildPlan{Tool: discover.ToolSkaffold}, "")
 	wantCalls(t, r, err, "skaffold build --push=false --file-output="+filepath.Join(out, "build.json")+" --tag=pacto-0123456789ab",
@@ -156,6 +160,7 @@ func TestDeriveSkaffoldArgs(t *testing.T) {
 }
 
 func TestDeriveDockerfileArgsRewriteTimestamp(t *testing.T) {
+	t.Parallel()
 	r := &buildRun{}
 	out, programs, err := buildWith(t, r, discover.BuildPlan{Tool: discover.ToolDockerfile, ToolSource: "build/api.Dockerfile:1"}, "1700000000")
 	wantCalls(t, r, err, "docker buildx build --output type=oci,dest="+out+",tar=false,rewrite-timestamp=true --label "+publish.AnnotationVersion+"=1.2.3 --label "+
@@ -171,6 +176,7 @@ func TestDeriveDockerfileArgsRewriteTimestamp(t *testing.T) {
 
 // TestBuildersRunNoShell: no derived builder runs a shell.
 func TestBuildersRunNoShell(t *testing.T) {
+	t.Parallel()
 	r := &buildRun{skaffold: skaffoldBuilt}
 	for _, bp := range []discover.BuildPlan{{Tool: discover.ToolSkaffold}, {Tool: discover.ToolKo, Main: "."}, {Tool: discover.ToolJib, Wrapper: "mvn"},
 		{Tool: discover.ToolJib, Wrapper: "./gradlew"}, {Tool: discover.ToolBuildpacks}, {Tool: discover.ToolDockerfile, ToolSource: "Dockerfile:1"}} {
@@ -186,6 +192,7 @@ func TestBuildersRunNoShell(t *testing.T) {
 }
 
 func TestCommitEpoch(t *testing.T) {
+	t.Parallel()
 	env := func(k string) string { return map[string]string{"SOURCE_DATE_EPOCH": "42"}[k] }
 	gitSays := func(out string, err error) runner {
 		return func(context.Context, string, []string, string, ...string) ([]byte, error) { return []byte(out), err }
@@ -246,6 +253,7 @@ const digest64 = "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
 // TestPublishDerivedBuildsWithTheTool: a section-less folder with a ko
 // config publishes its image built by ko, the commit time unknown named.
 func TestPublishDerivedBuildsWithTheTool(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := sectionless(t, "1.0.0", "", map[string]string{".ko.yaml": "builds:\n  - main: ./cmd/api\n", "k8s/deploy.yaml": deployment(host + "/acme/payments:1.0")})
 	r := &buildRun{}
@@ -267,6 +275,7 @@ func (s *Service) withRun(r *buildRun) *Service {
 }
 
 func TestPublishImageFlagNeedsDigest(t *testing.T) {
+	t.Parallel()
 	_, err := (&Service{}).Publish(t.Context(), PublishOptions{Image: "r.io/x:1"})
 	if err == nil || err.Error() != "--image needs a digest: a tag can move" {
 		t.Fatal(err)
@@ -274,6 +283,7 @@ func TestPublishImageFlagNeedsDigest(t *testing.T) {
 }
 
 func TestPublishImageFlagSkipsBuild(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := sectionless(t, "1.0.0", "", map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deploy.yaml": deployment("r.io/x:1")})
 	r := &buildRun{}
@@ -286,6 +296,7 @@ func TestPublishImageFlagSkipsBuild(t *testing.T) {
 }
 
 func TestPublishPinnedImageSkipsBuild(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	pinned := host + "/acme/payments@" + digest64
 	dir := sectionless(t, "1.0.0", "", map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deploy.yaml": deployment(pinned)})
@@ -301,6 +312,7 @@ func TestPublishPinnedImageSkipsBuild(t *testing.T) {
 }
 
 func TestPublishNoToolNoImageRefuses(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	for _, version := range []string{"1.0.0", ""} { // declared, derived
 		dir := sectionless(t, version, "", map[string]string{"k8s/deploy.yaml": deployment("r.io/x:1")})
@@ -342,6 +354,7 @@ func (r *refRegistry) Referrers(ctx context.Context, repo, digest, at string) ([
 // signed or copied, and the record says it was supplied; the version is
 // derived for the derived bundle repository.
 func TestPublishImageFlagSignsNoExternalImage(t *testing.T) {
+	t.Parallel()
 	host, inner := publishRegistry(t)
 	reg := &refRegistry{Registry: inner}
 	dir := sectionless(t, "", "", map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deploy.yaml": deployment("r.io/x:1")})
@@ -436,6 +449,7 @@ func TestPublishSignKeyWithoutWorkingDirectory(t *testing.T) {
 }
 
 func TestPublishDerivedWithSignKey(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := sectionless(t, "1.0.0", "", nil)
 	keys := t.TempDir()
@@ -468,8 +482,8 @@ func TestPublishDerivedWithSignKey(t *testing.T) {
 // TestKeepRefusalDerivedSection: a refusal of a section-less contract is
 // kept, signed, in the derived bundle repository.
 func TestKeepRefusalDerivedSection(t *testing.T) {
-	freshProbes(t)
-	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
+	t.Parallel()
+	srv := probedServer(t, testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 	reg := publish.NewClient(anonymous, host)
@@ -489,6 +503,7 @@ func TestKeepRefusalDerivedSection(t *testing.T) {
 
 // TestDeriveSectionRefusals: what keeps Pacto from deriving a section.
 func TestDeriveSectionRefusals(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	behind := sectionless(t, "1.0.0", "", nil)
 	writeFiles(t, behind, map[string]string{"pacto.yaml": "pactoVersion: \"2.4\"\nservice:\n  name: payments\n  version: 1.0.0\n"})

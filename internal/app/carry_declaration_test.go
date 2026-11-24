@@ -44,7 +44,6 @@ func (e *declCIEnv) service(name string) {
 
 func newDeclCIEnv(t *testing.T) *declCIEnv {
 	t.Helper()
-	noAmbient(t)
 	noPublicGood(t)
 	e := &declCIEnv{ciPubEnv: newCIPub(t), ss: testutil.New(t)}
 	e.de = &declareEnv{host: e.host, reg: e.inner, ss: e.ss}
@@ -630,6 +629,7 @@ func declaringLedger(version string) *declarationCarry {
 // revision a CI version citing the declaration published, or on the
 // declaration itself, outranks it.
 func TestCarryAcceptanceAtOrAboveDeclarationWins(t *testing.T) {
+	t.Parallel()
 	for _, at := range []string{"0.2.0", "0.1.0"} {
 		dc := declaringLedger("0.1.0")
 		js := []delivery.JudgedAcceptance{accepting(at, "^2.5.0")}
@@ -647,6 +647,7 @@ func TestCarryAcceptanceAtOrAboveDeclarationWins(t *testing.T) {
 // TestCarryDeclarationNewerThanAcceptanceWins: a declaration on a newer
 // revision than the acceptance outranks it, whatever was signed last.
 func TestCarryDeclarationNewerThanAcceptanceWins(t *testing.T) {
+	t.Parallel()
 	dc := declaringLedger("0.2.0")
 	js := []delivery.JudgedAcceptance{accepting("0.1.0", "^2.5.0")}
 	cands := dc.outranking(js)
@@ -665,6 +666,7 @@ func TestCarryDeclarationNewerThanAcceptanceWins(t *testing.T) {
 }
 
 func TestCarryInferredOwnerDiffersNote(t *testing.T) {
+	t.Parallel()
 	o := contract.Owner{Contacts: []contract.OwnerContact{{Type: "email", Value: "ana@acme.com"}}}
 	cands := []carryCandidate{{Field: "service.owner", Value: carriedOwner(o), Kind: carriedKindDeclared, owner: &o}}
 	rec := &contract.InferredRecord{Fields: []contract.Inferred{{Field: "service.owner", Value: "payments", Source: "repository:CODEOWNERS:7"}}}
@@ -677,6 +679,7 @@ func TestCarryInferredOwnerDiffersNote(t *testing.T) {
 }
 
 func TestMergeCarryUnwritable(t *testing.T) {
+	t.Parallel()
 	o := contract.Owner{Team: "billing"}
 	cands := []carryCandidate{{Field: "service.owner", Value: "billing", owner: &o},
 		{Field: "dependencies[ledger].compatibility", Value: "^2", entry: &contract.Dependency{Name: "ledger", Compatibility: "^2"}}}
@@ -689,6 +692,7 @@ func TestMergeCarryUnwritable(t *testing.T) {
 }
 
 func TestDeclarationCandidatesSkipsNonRange(t *testing.T) {
+	t.Parallel()
 	d := &registryDeclaration{Ref: "r", Version: "0.1.0", Bundle: bundleOf(t, map[string]string{"pacto.yaml": "service:\n  name: invoices\n"}),
 		Record: &contract.InferredRecord{Declaration: &contract.InferredDeclaration{Accepted: []contract.InferredAcceptance{{Field: "service.owner", Range: "^1"}}}}}
 	if got := declarationCandidates(d, ownerVerdict{}, acceptNow); len(got) != 0 {

@@ -52,6 +52,7 @@ func (e *acceptEnv) proposedOpts() AcceptOptions {
 }
 
 func TestWriteAcceptanceNativeReferrer(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, true)
 	bundle := []byte(`{"not":"verified here"}`)
 	ref, err := e.svc.writeAcceptance(t.Context(), nil, e.repo, e.digest, bundle)
@@ -67,6 +68,7 @@ func TestWriteAcceptanceNativeReferrer(t *testing.T) {
 }
 
 func TestWriteAcceptanceWriteOnceTag(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	ref, err := e.svc.writeAcceptance(t.Context(), nil, e.repo, e.digest, []byte(`{}`))
 	if err != nil {
@@ -81,6 +83,7 @@ func TestWriteAcceptanceWriteOnceTag(t *testing.T) {
 }
 
 func TestWriteAcceptanceIdempotent(t *testing.T) {
+	t.Parallel()
 	for _, referrers := range []bool{true, false} {
 		e := newAcceptEnv(t, referrers)
 		first, err1 := e.svc.writeAcceptance(t.Context(), nil, e.repo, e.digest, []byte(`{}`))
@@ -92,6 +95,7 @@ func TestWriteAcceptanceIdempotent(t *testing.T) {
 }
 
 func TestWriteAcceptanceFailures(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	if _, err := e.svc.writeAcceptance(t.Context(), nil, e.repo, "sha256:"+strings.Repeat("0", 64), nil); err == nil {
 		t.Fatal("a missing subject was written to")
@@ -121,6 +125,7 @@ func TestWriteAcceptanceProbeFails(t *testing.T) {
 }
 
 func TestWriteAcceptanceDraftNumbering(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
 	first, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, d, nil)
@@ -154,6 +159,7 @@ func TestWriteAcceptanceDraftNumbering(t *testing.T) {
 }
 
 func TestWriteAcceptanceDraftRepeatedReusesNewest(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
 	for range 2 {
@@ -178,6 +184,7 @@ func TestWriteAcceptanceDraftRepeatedReusesNewest(t *testing.T) {
 }
 
 func TestReadAcceptanceDraft(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
 	tag, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, d, nil)
@@ -210,6 +217,7 @@ func TestReadAcceptanceDraft(t *testing.T) {
 
 // A registry or credential failure while reading a draft is an error, never a missing draft.
 func TestReadAcceptanceDraftTransportFailures(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: "ana"}
 	tag, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, d, nil)
@@ -230,6 +238,7 @@ func TestReadAcceptanceDraftTransportFailures(t *testing.T) {
 }
 
 func TestWriteAcceptanceDraftLosesTwice(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	d := delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject}
 	seen := 0
@@ -259,6 +268,7 @@ func TestWriteAcceptanceDraftLosesTwice(t *testing.T) {
 }
 
 func TestAcceptSignsAsPerson(t *testing.T) {
+	t.Parallel()
 	for _, referrers := range []bool{true, false} {
 		e := newAcceptEnv(t, referrers)
 		calls := e.login(personToken("ana@acme.com"))
@@ -276,6 +286,7 @@ func TestAcceptSignsAsPerson(t *testing.T) {
 }
 
 func TestAcceptByNonOwnerIsRouted(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.login(personToken("bob@acme.com"))
 	res := e.accept(t, e.proposedOpts())
@@ -285,6 +296,7 @@ func TestAcceptByNonOwnerIsRouted(t *testing.T) {
 }
 
 func TestAcceptSignerNotAllowed(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.login(testutil.TokenWith(map[string]string{"sub": "ana@acme.com", "email": "ana@acme.com", "email_verified": "true", "iss": "https://other.example"}))
 	_, err := e.svc.Accept(t.Context(), e.proposedOpts())
@@ -295,6 +307,7 @@ func TestAcceptSignerNotAllowed(t *testing.T) {
 }
 
 func TestAcceptCertIdentityMismatchStopsBeforeTag(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.login(testutil.TokenWith(map[string]string{"sub": "mallory@acme.com", "email": "ana@acme.com", "email_verified": "true", "iss": personIssuer}))
 	_, err := e.svc.Accept(t.Context(), e.proposedOpts())
@@ -305,6 +318,7 @@ func TestAcceptCertIdentityMismatchStopsBeforeTag(t *testing.T) {
 }
 
 func TestAcceptPlanStale(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	calls := e.login(personToken("ana@acme.com"))
 	opts := e.proposedOpts()
@@ -336,6 +350,7 @@ func TestAcceptWithAmbientTokenWritesDraft(t *testing.T) {
 }
 
 func TestAcceptUnsignedDraftAndFailures(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	p := e.plan(t, e.proposedOpts())
 	res := &AcceptResult{Plan: p}
@@ -363,6 +378,7 @@ func TestAcceptUnsignedDraftAndFailures(t *testing.T) {
 }
 
 func TestInstallationSigners(t *testing.T) {
+	t.Parallel()
 	if installationSigners(t.Context(), nil) != nil ||
 		installationSigners(t.Context(), func(context.Context) (Installation, error) { return Installation{}, errors.New("x") }) != nil {
 		t.Fatal("no policy read refuses nobody")
@@ -378,6 +394,7 @@ func (e *acceptEnv) reader(t *testing.T, snap *fleet.FleetSnapshot) *acceptanceR
 }
 
 func TestAcceptanceReaderLookupSet(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personToken("ana@acme.com"), tag: true})
 	key := fleet.ServiceKey(e.key("reports"))
@@ -424,6 +441,7 @@ func TestAcceptanceReaderLookupSet(t *testing.T) {
 // contract names another service's repository in publish.bundle never
 // reads that service's acceptances as its own.
 func TestAcceptanceReaderSkipsAnotherServicesBundle(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	billing := fleet.ServiceKey(e.key("billing"))
 	c := &contract.Contract{Service: contract.Service{Name: "billing", Version: "1.0.0"}, Publish: &contract.Publish{Bundle: "oci://" + e.repo}}
@@ -439,6 +457,7 @@ func TestAcceptanceReaderSkipsAnotherServicesBundle(t *testing.T) {
 }
 
 func TestAcceptSigningFailures(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.login(personToken("ana@acme.com"))
 	opts := e.proposedOpts()

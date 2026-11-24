@@ -95,6 +95,7 @@ func settledRef(t *testing.T, s *Service, opts FleetOptions) fleet.ExternalCatal
 }
 
 func TestDefaultNotCheckedWithoutRegistry(t *testing.T) {
+	t.Parallel()
 	ref := defaultRef(t, NewService(nil, nil), FleetOptions{LocalRoots: []string{t.TempDir()}, Provenance: NewProvenanceChecker()})
 	if ref.Copy != externalcatalog.CopyEmbedded || ref.Signature != fleet.SignatureUnknown || !strings.Contains(ref.Reason, "ghcr.io") || ref.Digest != externalcatalog.DefaultDigest() {
 		t.Fatalf("ref = %+v", ref)
@@ -102,6 +103,7 @@ func TestDefaultNotCheckedWithoutRegistry(t *testing.T) {
 }
 
 func TestDefaultNotCheckedForPrivateRegistryOnly(t *testing.T) {
+	t.Parallel()
 	reg := &ghcrRegistry{Client: publish.NewClient(anonymous), host: "unused.invalid"}
 	s := NewService(nil, nil)
 	opts := FleetOptions{OCIRefs: []string{"oci://r.example/acme/orders:1.0.0"}, CatalogRoots: []string{"oci://r.example/acme/pay:1.0.0", "./local"}, Provenance: newProvenanceChecker(reg)}
@@ -113,6 +115,7 @@ func TestDefaultNotCheckedForPrivateRegistryOnly(t *testing.T) {
 }
 
 func TestReadsGHCR(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		opts FleetOptions
 		want bool
@@ -202,6 +205,7 @@ func checking(s *Service) bool {
 // does not hold cannot be probed, so its signature is unknown, never
 // unsigned or verified, and the embedded copy stays.
 func TestDefaultUnsignedKeepsEmbedded(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := settledRef(t, NewService(nil, nil), ghcrOptions(newProvenanceChecker(&ghcrRegistry{Client: reg.client, host: reg.host})))
 	if ref.Copy != externalcatalog.CopyEmbedded || ref.Signature != fleet.SignatureUnknown || ref.Reason == "" {
@@ -210,6 +214,7 @@ func TestDefaultUnsignedKeepsEmbedded(t *testing.T) {
 }
 
 func TestDefaultCheckDoesNotDelayBuild(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	fake := &ghcrRegistry{Client: reg.client, host: reg.host, release: make(chan struct{})}
 	t.Cleanup(func() { close(fake.release) })
@@ -224,6 +229,7 @@ func TestDefaultCheckDoesNotDelayBuild(t *testing.T) {
 }
 
 func TestDefaultNotCheckedByOneShotCommand(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	fake := &ghcrRegistry{Client: reg.client, host: reg.host}
 	s := NewService(nil, nil)
@@ -236,6 +242,7 @@ func TestDefaultNotCheckedByOneShotCommand(t *testing.T) {
 }
 
 func TestExtensionCancelledPullNotRemembered(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := pushOrgCatalog(t, reg, orgCatalog)
 	s := NewService(nil, nil)
@@ -250,6 +257,7 @@ func TestExtensionCancelledPullNotRemembered(t *testing.T) {
 }
 
 func TestDefaultNilProvenanceIsUnknown(t *testing.T) {
+	t.Parallel()
 	ref := defaultRef(t, NewService(nil, nil), ghcrOptions(nil))
 	if ref.Copy != externalcatalog.CopyEmbedded || ref.Signature != fleet.SignatureUnknown || !strings.Contains(ref.Reason, "No provenance checker") {
 		t.Fatalf("ref = %+v", ref)
@@ -257,6 +265,7 @@ func TestDefaultNilProvenanceIsUnknown(t *testing.T) {
 }
 
 func TestDefaultRegistryErrorKeepsEmbedded(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	reg.failWhen(func(*http.Request) bool { return true })
 	ref := settledRef(t, NewService(nil, nil), ghcrOptions(newProvenanceChecker(&ghcrRegistry{Client: reg.client, host: reg.host})))
@@ -300,6 +309,7 @@ func orgRef(t *testing.T, snap *fleet.FleetSnapshot) fleet.ExternalCatalogRef {
 }
 
 func TestExtensionRefNeedsDigest(t *testing.T) {
+	t.Parallel()
 	for _, ref := range []string{"oci://r.example/c:1", "r.example/c", "oci://r.example/c@sha256:short", "oci://r.example/c@md5:" + strings.Repeat("a", 32)} {
 		_, err := NewService(nil, nil).Fleet(t.Context(), FleetOptions{ExternalCatalogRef: ref})
 		if err == nil || !strings.Contains(err.Error(), "@sha256:") {
@@ -315,6 +325,7 @@ func TestExtensionRefNeedsDigest(t *testing.T) {
 }
 
 func TestExtensionMergedOverDefault(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := pushOrgCatalog(t, reg, orgCatalog)
 	snap, err := NewService(nil, nil).Fleet(t.Context(), FleetOptions{LocalRoots: []string{legacyConsumer(t)}, ExternalCatalogRef: ref})
@@ -352,6 +363,7 @@ func wantCatalogUnavailable(t *testing.T, snap *fleet.FleetSnapshot, err error, 
 }
 
 func TestExtensionPullFailurePartial(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := pushOrgCatalog(t, reg, orgCatalog)
 	reg.failWhen(func(*http.Request) bool { return true })
@@ -363,6 +375,7 @@ func TestExtensionPullFailurePartial(t *testing.T) {
 }
 
 func TestExtensionInvalidFilePartial(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := pushOrgCatalog(t, reg, "apiVersion: v0\n")
 	snap, err := NewService(nil, nil).Fleet(t.Context(), FleetOptions{ExternalCatalogRef: ref})
@@ -370,6 +383,7 @@ func TestExtensionInvalidFilePartial(t *testing.T) {
 }
 
 func TestExtensionDigestMismatchPartial(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := pushOrgCatalog(t, reg, orgCatalog)
 	other := pushOrgCatalog(t, reg, strings.Replace(orgCatalog, "Corporate MQ", "Other MQ", 1))
@@ -387,6 +401,7 @@ func TestExtensionDigestMismatchPartial(t *testing.T) {
 }
 
 func TestExtensionSignatureNeverGatesLoading(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := pushOrgCatalog(t, reg, orgCatalog)
 	attach(t, reg, ref, delivery.BundleMediaType, nil) // a junk Sigstore bundle
@@ -418,6 +433,7 @@ func TestExtensionNeverReportsVerifiedWithoutTrustedSigner(t *testing.T) {
 }
 
 func TestExtensionMemoised(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := pushOrgCatalog(t, reg, orgCatalog)
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)

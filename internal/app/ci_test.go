@@ -47,6 +47,7 @@ func ciSkeletonPlan(t *testing.T) (*ci.Plan, map[string]*impact.Result) {
 }
 
 func TestCIPlanSkeleton(t *testing.T) {
+	t.Parallel()
 	p, results := ciSkeletonPlan(t)
 	if results != nil {
 		t.Fatalf("results = %v, want nil until impact runs", results)
@@ -66,6 +67,7 @@ func TestCIPlanSkeleton(t *testing.T) {
 }
 
 func TestCISkippedFromPactoignore(t *testing.T) {
+	t.Parallel()
 	p, _ := ciSkeletonPlan(t)
 	if len(p.Skipped) != 1 || p.Skipped[0].Rel != "services/legacy" || p.Skipped[0].Rule != ".pactoignore:1" {
 		t.Fatalf("skipped = %+v", p.Skipped)
@@ -73,6 +75,7 @@ func TestCISkippedFromPactoignore(t *testing.T) {
 }
 
 func TestCISkippedPastDepthLimit(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeCIFile(t, root, "a/pacto.yaml", "service:\n  name: a\n")
 	writeCIFile(t, root, "deep/1/2/3/4/5/6/7/8/pacto.yaml", "service:\n  name: deep\n")
@@ -88,6 +91,7 @@ func TestCISkippedPastDepthLimit(t *testing.T) {
 }
 
 func TestCIPlanSkeletonRegistryFromImages(t *testing.T) {
+	t.Parallel()
 	p, _ := ciSkeletonPlan(t)
 	if p.Registry.Value != "ghcr.io/acme" || p.Registry.Source != "image references in services/payments/compose.yaml:3" {
 		t.Fatalf("registry = %+v", p.Registry)
@@ -95,6 +99,7 @@ func TestCIPlanSkeletonRegistryFromImages(t *testing.T) {
 }
 
 func TestCIPlanRegistryFlagAndContext(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeCIFile(t, root, "pacto.yaml", "service:\n  name: root\n")
 	env := map[string]string{"GITHUB_ACTIONS": "true", "GITHUB_BASE_REF": "main"}
@@ -108,6 +113,7 @@ func TestCIPlanRegistryFlagAndContext(t *testing.T) {
 }
 
 func TestCIPlanRootMissing(t *testing.T) {
+	t.Parallel()
 	if _, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: filepath.Join(t.TempDir(), "nope")}); err == nil {
 		t.Fatal("a missing root must fail the run")
 	}
@@ -117,6 +123,7 @@ func TestCIPlanRootMissing(t *testing.T) {
 // older Pacto pushed untyped still reads unchanged against the same folder,
 // even though a push would now write another manifest digest.
 func TestCIUnchangedAcrossTypedPush(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	svc, dir := pushIndexService(ir), writeTestBundle(t)
 	local, err := svc.ResolveBundle(t.Context(), dir)

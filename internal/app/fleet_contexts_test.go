@@ -55,6 +55,7 @@ func contextService(current string, clients map[string]*fakeFleetK8sClient, host
 }
 
 func TestContextsOnOneClusterReadOnce(t *testing.T) {
+	t.Parallel()
 	svc := contextService("", map[string]*fakeFleetK8sClient{"eu-prod": clusterFake(clusterA), "eu-admin": clusterFake(clusterA)},
 		map[string]string{"eu-prod": "https://eu", "eu-admin": "https://eu"})
 	entries := svc.ResolveK8sContexts(context.Background(), false, []string{"eu-prod", "eu-admin"})
@@ -74,6 +75,7 @@ func TestContextsOnOneClusterReadOnce(t *testing.T) {
 // the CA as a file, the other inline, and one writes the host with a trailing
 // slash; they reach one server, so the second is an alias, never a conflict.
 func TestContextsOnOneServerSpellingCADifferentlyAreAliases(t *testing.T) {
+	t.Parallel()
 	ca := filepath.Join(t.TempDir(), "ca.crt")
 	if err := os.WriteFile(ca, []byte("PEM\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -92,6 +94,7 @@ func TestContextsOnOneServerSpellingCADifferentlyAreAliases(t *testing.T) {
 }
 
 func TestContextsSharingUIDOnDifferentServersArePartial(t *testing.T) {
+	t.Parallel()
 	svc := contextService("", map[string]*fakeFleetK8sClient{"eu-prod": clusterFake(clusterA), "eu-clone": clusterFake(clusterA)},
 		map[string]string{"eu-prod": "https://eu", "eu-clone": "https://clone"})
 	snap, err := svc.Fleet(context.Background(), FleetOptions{K8sContexts: []string{"eu-prod", "eu-clone"}})
@@ -119,6 +122,7 @@ func hasLimitationText(lims []fleet.Limitation, code, source, text string) bool 
 }
 
 func TestKAndContextOnOneClusterReadOnce(t *testing.T) {
+	t.Parallel()
 	svc := contextService("eu-prod", map[string]*fakeFleetK8sClient{"eu-prod": clusterFake(clusterA), "eu-admin": clusterFake(clusterA)},
 		map[string]string{"eu-prod": "https://eu", "eu-admin": "https://eu"})
 	if e := svc.ResolveK8sContexts(context.Background(), true, []string{"eu-prod"}); len(e) != 1 || e[0].Name != "eu-prod" {
@@ -134,6 +138,7 @@ func TestKAndContextOnOneClusterReadOnce(t *testing.T) {
 }
 
 func TestUnidentifiedContextAmongSeveralRefused(t *testing.T) {
+	t.Parallel()
 	svc := contextService("", map[string]*fakeFleetK8sClient{"eu-prod": clusterFake(clusterA), "us-prod": clusterFake("")},
 		map[string]string{"eu-prod": "https://eu", "us-prod": "https://us"})
 	snap, err := svc.Fleet(context.Background(), FleetOptions{K8sContexts: []string{"eu-prod", "us-prod"}})
@@ -159,6 +164,7 @@ func TestUnidentifiedContextAmongSeveralRefused(t *testing.T) {
 }
 
 func TestSingleUnidentifiedContextKeepsToday(t *testing.T) {
+	t.Parallel()
 	svc := contextService("", map[string]*fakeFleetK8sClient{"us-prod": clusterFake("")}, nil)
 	snap, err := svc.Fleet(context.Background(), FleetOptions{K8sContexts: []string{"us-prod"}})
 	if err != nil {
@@ -182,6 +188,7 @@ func twoClusters() (*Service, *fakeFleetK8sClient) {
 var twoContexts = []string{"eu-prod", "us-prod"}
 
 func TestUnreachableContextServesLastCollectionStale(t *testing.T) {
+	t.Parallel()
 	svc, us := twoClusters()
 	opts := FleetOptions{K8sContexts: twoContexts, LongRunning: true, K8sNamespaces: []string{"prod"}}
 	if _, err := svc.Fleet(context.Background(), opts); err != nil {
@@ -202,6 +209,7 @@ func TestUnreachableContextServesLastCollectionStale(t *testing.T) {
 }
 
 func TestUnreachableContextIdentityFailureStaysStale(t *testing.T) {
+	t.Parallel()
 	svc, us := twoClusters()
 	opts := FleetOptions{K8sContexts: twoContexts, LongRunning: true}
 	if _, err := svc.Fleet(context.Background(), opts); err != nil {
@@ -221,6 +229,7 @@ func TestUnreachableContextIdentityFailureStaysStale(t *testing.T) {
 }
 
 func TestRememberedStaleStateCarriesNoRawError(t *testing.T) {
+	t.Parallel()
 	svc, us := twoClusters()
 	opts := FleetOptions{K8sContexts: twoContexts, LongRunning: true}
 	if _, err := svc.Fleet(context.Background(), opts); err != nil {
@@ -238,6 +247,7 @@ func TestRememberedStaleStateCarriesNoRawError(t *testing.T) {
 }
 
 func TestUnreachableContextOneShotIsPartial(t *testing.T) {
+	t.Parallel()
 	for _, longRunning := range []bool{false, true} {
 		svc, us := twoClusters()
 		us.down = errors.New("dial tcp: connection refused")
@@ -259,6 +269,7 @@ func TestUnreachableContextOneShotIsPartial(t *testing.T) {
 }
 
 func TestTwoContextsTwoClustersFourPartKeys(t *testing.T) {
+	t.Parallel()
 	svc, _ := twoClusters()
 	snap, err := svc.Fleet(context.Background(), FleetOptions{K8sContexts: twoContexts})
 	if err != nil {
@@ -278,6 +289,7 @@ func TestTwoContextsTwoClustersFourPartKeys(t *testing.T) {
 // is an unavailable pair; one whose config cannot be loaded is still read,
 // with no server to compare.
 func TestContextWithoutClientOrConfig(t *testing.T) {
+	t.Parallel()
 	svc := contextService("", map[string]*fakeFleetK8sClient{"eu-prod": clusterFake(clusterA)}, nil)
 	entries := svc.ResolveK8sContexts(context.Background(), false, []string{"eu-prod", "ghost"})
 	if entries[0].Config != nil || entries[0].UID != clusterA || entries[1].Err == nil {
@@ -301,6 +313,7 @@ func TestContextWithoutClientOrConfig(t *testing.T) {
 // keeps why a context was refused: its source read nothing, so nothing
 // rebuilds the fixed-text limitation.
 func TestRefusedContextLimitationSurvivesRestrict(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, uid, code, source, text string
 	}{
@@ -327,6 +340,7 @@ func TestRefusedContextLimitationSurvivesRestrict(t *testing.T) {
 // TestRememberingSourceKeepsItsCluster: a remembered live source still names
 // its cluster, so its first failure lowers that cluster's status.
 func TestRememberingSourceKeepsItsCluster(t *testing.T) {
+	t.Parallel()
 	c := &fleet.Cluster{ID: clusterA, Name: "eu-prod"}
 	if r := (&rememberingSource{Source: fleetsrc.NewK8sSource(clusterA, c, nil, nil)}); r.Cluster() != c {
 		t.Error("a remembered live source names its cluster")
@@ -339,6 +353,7 @@ func TestRememberingSourceKeepsItsCluster(t *testing.T) {
 // Every build makes new sources, yet the mesh is read once per interval per
 // context: its last read is kept on the Service, one-shot builds included.
 func TestMeshReadOncePerIntervalAcrossBuilds(t *testing.T) {
+	t.Parallel()
 	c := clusterFake(clusterA)
 	svc := contextService("eu-prod", map[string]*fakeFleetK8sClient{"eu-prod": c}, map[string]string{"eu-prod": "https://eu"})
 	for _, longRunning := range []bool{false, true, false} {

@@ -71,6 +71,7 @@ func hasSourceKind(snap *fleet.FleetSnapshot, kind string) bool {
 // inferred detection row and nothing reads it; with LiveEdges it is the row
 // of its own edge source and the detection source no longer lists it.
 func TestLiveEdgesOnlyOnDashboard(t *testing.T) {
+	t.Parallel()
 	path := jaegerDetection(t)
 	snap := liveFleet(t, FleetOptions{Detected: path})
 	if got := rowsOf(snap, "detection"); !slices.Equal(got, []string{"cloud", "jaeger"}) || hasSourceKind(snap, fleet.SourceKindTraces) {
@@ -91,6 +92,7 @@ func TestLiveEdgesOnlyOnDashboard(t *testing.T) {
 }
 
 func TestDetectionReadErrorKeepsTheUnavailableSource(t *testing.T) {
+	t.Parallel()
 	snap := liveFleet(t, FleetOptions{Detected: filepath.Join(t.TempDir(), "missing.json"), LiveEdges: fleetsrc.NewLiveEdges(time.Now)})
 	st, _ := detectionState(t, snap)
 	if st.Status != fleet.SourceUnavailable || st.Error == nil || st.Error.Code != "NOT_FOUND" || hasSourceKind(snap, fleet.SourceKindTraces) || len(snap.Sources) != 1 {
@@ -99,6 +101,7 @@ func TestDetectionReadErrorKeepsTheUnavailableSource(t *testing.T) {
 }
 
 func TestConfiguredSourceIDWinsOverAutoSource(t *testing.T) {
+	t.Parallel()
 	snap := liveFleet(t, FleetOptions{Detected: jaegerDetection(t), LiveEdges: fleetsrc.NewLiveEdges(time.Now),
 		ObservationSources: []ObservationSourceSpec{{ID: "detected-jaeger", Root: t.TempDir(), Path: "traces.json"}}})
 	if hasSourceKind(snap, fleet.SourceKindTraces) {
@@ -112,7 +115,7 @@ func TestConfiguredSourceIDWinsOverAutoSource(t *testing.T) {
 // jaegerAt is a Jaeger source over a server answering links.
 func jaegerAt(t *testing.T, links string) fleet.Source {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(links)) }))
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(links)) }))
 	t.Cleanup(srv.Close)
 	e := detect.Entry{Kind: "jaeger", Value: "Jaeger", Completeness: detect.Complete, Endpoint: srv.URL,
 		Objects: []detect.Object{{Kind: "Service", Namespace: "observability", Name: "jaeger-query"}}}
@@ -124,6 +127,7 @@ func jaegerAt(t *testing.T, links string) fleet.Source {
 // between two declared services is an observed relationship, a caller no
 // contract describes is an uncontracted caller.
 func TestTraceEdgesFoldLikeMira(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalBundle(t, filepath.Join(root, "orders"), "orders")
 	writeLocalBundle(t, filepath.Join(root, "payments"), "payments")
@@ -145,6 +149,7 @@ func TestTraceEdgesFoldLikeMira(t *testing.T) {
 // TestTraceSourceMakesNoSnapshotPartial: a Jaeger that returned nothing is a
 // partial advisory source; the snapshot stays complete.
 func TestTraceSourceMakesNoSnapshotPartial(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalBundle(t, filepath.Join(root, "orders"), "orders")
 	snap := liveFleet(t, FleetOptions{LocalRoots: []string{root}, extraSources: []fleet.Source{jaegerAt(t, `{"data":[]}`)}})
@@ -158,6 +163,7 @@ func TestTraceSourceMakesNoSnapshotPartial(t *testing.T) {
 // the row of the service-graph source and the Collector stays a detection
 // row; a Tempo with no Prometheus is partial and says why.
 func TestServiceGraphTakesTempoOnDashboard(t *testing.T) {
+	t.Parallel()
 	path := writeDetected(t,
 		detect.Entry{Kind: "otel-collector", Value: "OpenTelemetry Collector", Completeness: detect.Complete},
 		detect.Entry{Kind: "tempo", Value: "Tempo", Completeness: detect.Complete})
@@ -175,6 +181,7 @@ func TestServiceGraphTakesTempoOnDashboard(t *testing.T) {
 // entry with a Prometheus Endpoint is read through the service graph without
 // being taken; a configured source holding the id, or no Endpoint, builds none.
 func TestServiceGraphFromCollectorLeavesItsEntry(t *testing.T) {
+	t.Parallel()
 	col := detect.Entry{Kind: "otel-collector", Completeness: detect.Complete, Endpoint: "http://prometheus.monitoring.svc:9090"}
 	res := detect.Result{Entries: []detect.Entry{col}}
 	opts := FleetOptions{LiveEdges: fleetsrc.NewLiveEdges(time.Now)}
@@ -217,6 +224,7 @@ func receiverEdges(t *testing.T) *fleetsrc.LiveEdges {
 }
 
 func TestReceiverSourceWithoutDetected(t *testing.T) {
+	t.Parallel()
 	snap := liveFleet(t, FleetOptions{LiveEdges: receiverEdges(t)})
 	st := slices.IndexFunc(snap.Sources, func(s fleet.SourceState) bool { return s.ID == "otlp-receiver" })
 	if st < 0 || !snap.Sources[st].CautionOnly || snap.Sources[st].Kind != fleet.SourceKindOTLPReceiver {
@@ -233,6 +241,7 @@ func TestReceiverSourceWithoutDetected(t *testing.T) {
 }
 
 func TestReceiverTakesTheCollectorEntry(t *testing.T) {
+	t.Parallel()
 	path := writeDetected(t, detect.Entry{Kind: "cloud", Value: "kind", Completeness: detect.Complete},
 		detect.Entry{Kind: "otel-collector", Value: "OTel Collector", Completeness: detect.Complete})
 	snap := liveFleet(t, FleetOptions{Detected: path, LiveEdges: receiverEdges(t)})
@@ -260,6 +269,7 @@ func TestReceiverTakesTheCollectorEntry(t *testing.T) {
 // still builds: the first is the live source's row, the second a detected
 // row, so the source ids stay unique.
 func TestDuplicateEdgeKindsStillBuild(t *testing.T) {
+	t.Parallel()
 	jaeger := detect.Entry{Kind: "jaeger", Value: "Jaeger", Completeness: detect.Complete}
 	collector := detect.Entry{Kind: "otel-collector", Value: "OTel Collector", Completeness: detect.Complete}
 	path := writeDetected(t, jaeger, jaeger, collector, collector)

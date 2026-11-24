@@ -292,6 +292,7 @@ func TestProvenanceTrustMemo(t *testing.T) {
 // PublisherTrust does; no streams repository reads no pins, and a pin
 // signer it cannot use answers why on every read.
 func TestInstallationTrust(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	streams := e.host + "/delivery/streams"
 	e.publishing(&delivery.PublisherConfig{Registry: "ghcr.io/acme", StreamsRepository: streams, PinSigner: e.pinSigner()})
@@ -365,6 +366,7 @@ func TestProvenanceUnguardedCapsUnknown(t *testing.T) {
 // than the one its Stage already used gets no pin, and says so; the
 // policy high-water mark comes from a watch that judges with the policy.
 func TestInstallationTrustPinRollback(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	streams := e.host + "/delivery/streams"
 	stage := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "payments-reg", map[string]any{

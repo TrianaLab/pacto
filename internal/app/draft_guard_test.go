@@ -6,6 +6,7 @@ import "testing"
 // `pacto declare --draft` hold other content and are never the base, even when
 // they were pushed after the published version.
 func TestDraftTagsNeverACIBase(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1})
 	published := e.publish(t, "reports", "acme/reports", "1.0.0", nil)

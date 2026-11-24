@@ -35,6 +35,7 @@ func setStageStatus(t *testing.T, c *dynamicfake.FakeDynamicClient, fields map[s
 }
 
 func TestRegressionVersionNeedsDigest(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "alice", nil, nil)
 	reg := d.RegressionEvidence(context.Background(), impact.Event{Kind: impact.EventRegressed, Service: "payments", Revision: "1.0.0"})
 	if len(reg.Evidence) != 0 || !strings.Contains(reg.Unavailable, "name the artifact digest") {
@@ -46,6 +47,7 @@ func TestRegressionVersionNeedsDigest(t *testing.T) {
 // and a rollback off the digest are cited, and a complete read says nothing
 // is missing.
 func TestRegressionReadsStages(t *testing.T) {
+	t.Parallel()
 	rollback := opFixture("rb1", map[string]any{"type": delivery.TypeRollback, "stage": "payments-prod",
 		"params": map[string]any{"from": dlB, "to": dlA}, "actor": map[string]any{"user": "bot"}, "cause": map[string]any{"reason": "health failed"}},
 		map[string]any{"phase": "Concluded", "outcome": "Succeeded", "seq": int64(4), "pointer": map[string]any{"before": dlB, "after": dlA}})
@@ -68,6 +70,7 @@ func TestRegressionReadsStages(t *testing.T) {
 // A person's rollback off the digest leaves failedDigests unchanged, so a
 // Stage that does not list it still has its history read and cited.
 func TestRegressionReadsManualRollback(t *testing.T) {
+	t.Parallel()
 	rollback := opFixture("rb1", map[string]any{"type": delivery.TypeRollback, "stage": "payments-prod",
 		"params": map[string]any{"from": dlB, "to": dlA}, "actor": map[string]any{"user": "alice"}, "cause": map[string]any{"reason": "error rate 30%"}},
 		map[string]any{"phase": "Concluded", "outcome": "Succeeded", "seq": int64(4), "pointer": map[string]any{"before": dlB, "after": dlA}})
@@ -82,6 +85,7 @@ func TestRegressionReadsManualRollback(t *testing.T) {
 // digest recorded as a write-once tag, on a registry without the Referrers
 // API, is cited from the Stage's stream.
 func TestRegressionEvidenceReadsWriteOnceTagStream(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnvOn(t, testutil.ReferrersOptions{Unsupported: true})
 	e.tagged = true
 	r1 := e.attach("delivery/streams", e.anchor, move(1, "", "boot", "", dlB))
@@ -99,6 +103,7 @@ func TestRegressionEvidenceReadsWriteOnceTagStream(t *testing.T) {
 // TestRegressionForbiddenNamespaceNamed: a namespace the caller may not read
 // is named, and what was read is kept.
 func TestRegressionForbiddenNamespaceNamed(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil, obj("v1", "Namespace", "", "prod", nil), obj("v1", "Namespace", "", "test", nil))
 	setStageStatus(t, c, map[string]any{"failedDigests": []any{dlB}})
 	c.PrependReactor("list", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
@@ -121,6 +126,7 @@ func TestRegressionForbiddenNamespaceNamed(t *testing.T) {
 }
 
 func TestRegressionNotServed(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	c.PrependReactor("list", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, apierrors.NewNotFound(gvrStages.GroupResource(), "")

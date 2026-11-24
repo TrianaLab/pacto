@@ -32,6 +32,7 @@ func catSrcFixture(t *testing.T) (*Service, string) {
 }
 
 func TestCatalogSourceIDAndKind(t *testing.T) {
+	t.Parallel()
 	src := &catalogSource{id: "catalog"}
 	if src.ID() != "catalog" || src.Kind() != "catalog" {
 		t.Errorf("id/kind = %q/%q, want catalog/catalog", src.ID(), src.Kind())
@@ -64,6 +65,7 @@ func catSrcCollect(t *testing.T, svc *Service, dir string) map[string]fleet.RawR
 // root goes in, and the revision it declares comes out with it, resolved
 // through the registry.
 func TestCatalogSourceCollectsTheClosureNotJustTheRoots(t *testing.T) {
+	t.Parallel()
 	svc, dir := catSrcFixture(t)
 	byName := catSrcCollect(t, svc, dir)
 
@@ -82,6 +84,7 @@ func TestCatalogSourceCollectsTheClosureNotJustTheRoots(t *testing.T) {
 // across the projection: the catalog's content identity, its own fetch time and
 // the references it was reached by.
 func TestCatalogSourceProjectsTheCatalogIdentity(t *testing.T) {
+	t.Parallel()
 	svc, dir := catSrcFixture(t)
 	byName := catSrcCollect(t, svc, dir)
 
@@ -122,6 +125,7 @@ func keysOf(m map[string]fleet.RawRevision) []string {
 // nothing leaves the closure short, and a short closure served as a whole one
 // would say a service has no dependents when nobody looked.
 func TestCatalogSourceReportsAGapRatherThanDroppingIt(t *testing.T) {
+	t.Parallel()
 	svc, _ := mxService(authn.DefaultKeychain)
 	missing := filepath.Join(t.TempDir(), "not-a-bundle")
 
@@ -149,6 +153,7 @@ func TestCatalogSourceReportsAGapRatherThanDroppingIt(t *testing.T) {
 // TestCatalogSourceCancelledMidWalk covers the limitation that carries no
 // reference: the walk stopped, and there is no one declaration to blame.
 func TestCatalogSourceCancelledMidWalk(t *testing.T) {
+	t.Parallel()
 	svc, dir := catSrcFixture(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -169,6 +174,7 @@ func TestCatalogSourceCancelledMidWalk(t *testing.T) {
 // with no roots at all, and an unavailable source is the honest way to carry
 // that refusal into a snapshot.
 func TestCatalogSourceWithoutRootsFails(t *testing.T) {
+	t.Parallel()
 	svc, _ := mxService(authn.DefaultKeychain)
 	if _, err := (&catalogSource{id: "catalog", svc: svc}).Collect(context.Background()); err == nil {
 		t.Fatal("expected an error when the source has no roots")
@@ -178,6 +184,7 @@ func TestCatalogSourceWithoutRootsFails(t *testing.T) {
 // TestFleetIncludesTheCatalogClosure proves the wiring end to end: no --local,
 // one --root, and the snapshot holds the dependency the root declared.
 func TestFleetIncludesTheCatalogClosure(t *testing.T) {
+	t.Parallel()
 	svc, dir := catSrcFixture(t)
 
 	snap, err := svc.Fleet(context.Background(), FleetOptions{CatalogRoots: []string{dir}})
@@ -202,6 +209,7 @@ func TestFleetIncludesTheCatalogClosure(t *testing.T) {
 // TestBundleRecorderKeepsWhatTheWalkResolved covers the recorder on its own,
 // including the nil-recorder path [Service.CatalogResolver] takes.
 func TestBundleRecorderKeepsWhatTheWalkResolved(t *testing.T) {
+	t.Parallel()
 	rec := newBundleRecorder()
 	id := catalog.ContentID{Scheme: catalog.SchemeLocal, Digest: "sha256:abc"}
 	b := mxBundle(t, "payments", "1.0.0")
@@ -219,6 +227,7 @@ func TestBundleRecorderKeepsWhatTheWalkResolved(t *testing.T) {
 }
 
 func TestFirstRefOfNothing(t *testing.T) {
+	t.Parallel()
 	if got := firstRef(nil); got != "" {
 		t.Errorf("firstRef(nil) = %q, want empty", got)
 	}

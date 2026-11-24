@@ -27,6 +27,7 @@ func mqFolder(t *testing.T) string {
 }
 
 func TestCatalogInputsNameUsedCatalogs(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := pushOrgCatalog(t, reg, orgMQCatalog)
 	_, digest, _ := strings.Cut(ref, "@")
@@ -57,6 +58,7 @@ func TestCatalogInputsNameUsedCatalogs(t *testing.T) {
 }
 
 func TestPackUsesExternalCatalog(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := pushOrgCatalog(t, reg, orgMQCatalog)
 	_, digest, _ := strings.Cut(ref, "@")
@@ -77,6 +79,7 @@ func TestPackUsesExternalCatalog(t *testing.T) {
 // Every local completion refuses an organization catalog that is not pinned
 // by digest, before it reads the folder.
 func TestCompletionRefusesCatalogTag(t *testing.T) {
+	t.Parallel()
 	dir := mqFolder(t)
 	old, err := readLocalBundle(dir)
 	if err != nil {

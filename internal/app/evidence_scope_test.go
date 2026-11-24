@@ -13,6 +13,7 @@ import (
 // with no subject prefix, never a tag: its push scope is referrer-only. With a
 // prefix it may tag exactly <prefix>pacto-evidence.
 func TestServeEvidenceStoreScope(t *testing.T) {
+	t.Parallel()
 	opts := evidenceStoreOptions(nil)
 	if opts.Scope == nil || len(opts.Scope.Prefixes()) != 0 {
 		t.Fatalf("evidence store scope = %+v, want referrer-only", opts.Scope)

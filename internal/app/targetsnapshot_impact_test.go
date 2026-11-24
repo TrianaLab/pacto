@@ -94,6 +94,7 @@ func autoImpact(t *testing.T, svc *Service, e *snapEnv, newPath, trust string) *
 }
 
 func TestRegistryRoots(t *testing.T) {
+	t.Parallel()
 	for ref, want := range map[string][]string{
 		"oci://ghcr.io/acme/contracts/ledger:2.3.0": {"ghcr.io/acme", "ghcr.io"},
 		"ghcr.io/acme/ledger@sha256:abc":            {"ghcr.io/acme", "ghcr.io"},
@@ -109,6 +110,7 @@ func TestRegistryRoots(t *testing.T) {
 // TestSnapshotRoots: a GAR registry value has two path segments, and the
 // operator publishes its snapshot under it, so the deeper prefixes come first.
 func TestSnapshotRoots(t *testing.T) {
+	t.Parallel()
 	for ref, want := range map[string][]string{
 		"oci://europe-docker.pkg.dev/acme/pacto/reports:1.0.0": {"europe-docker.pkg.dev/acme/pacto", "europe-docker.pkg.dev/acme", "europe-docker.pkg.dev"},
 		"r.example/a/b/c/d/e/svc":                              {"r.example/a/b/c", "r.example/a/b", "r.example/a", "r.example"},
@@ -123,6 +125,7 @@ func TestSnapshotRoots(t *testing.T) {
 }
 
 func TestFindTargetSnapshotFirstWins(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	pushAt(t, e.host()+"/"+delivery.TargetSnapshotRepository, e.key, snapB, ledgerSnapshot(snapB, snapNow))
@@ -134,6 +137,7 @@ func TestFindTargetSnapshotFirstWins(t *testing.T) {
 }
 
 func TestFindTargetSnapshotFallsBackToHost(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	hostRepo := e.host() + "/" + delivery.TargetSnapshotRepository
 	pushAt(t, hostRepo, e.key, snapB, ledgerSnapshot(snapB, snapNow))
@@ -147,6 +151,7 @@ func TestFindTargetSnapshotFallsBackToHost(t *testing.T) {
 // <host>/acme/pacto the operator publishes <host>/acme/pacto/pacto-targets,
 // and a ref under that registry finds it before the shallower roots.
 func TestFindTargetSnapshotUnderTwoSegmentRegistry(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	deep := e.host() + "/acme/pacto/" + delivery.TargetSnapshotRepository
 	pushAt(t, deep, e.key, snapB, ledgerSnapshot(snapB, snapNow))
@@ -159,6 +164,7 @@ func TestFindTargetSnapshotUnderTwoSegmentRegistry(t *testing.T) {
 // TestFindTargetSnapshotNotFound: a 404 and an anonymous 401 both read as
 // no repository there, and the walk tries every root.
 func TestFindTargetSnapshotNotFound(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	for _, code := range []int64{0, http.StatusUnauthorized} {
 		e.status.Store(code)
@@ -185,6 +191,7 @@ func TestFindTargetSnapshotDeniedIsNamed(t *testing.T) {
 // TestFindTargetSnapshotNoClusterTag: a repository with tags but no
 // cluster-<uid> tag is no snapshot there.
 func TestFindTargetSnapshotNoClusterTag(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	repo, _ := ocireferrer.Open(e.repo, ocireferrer.Options{})
 	desc, err := oras.PackManifest(t.Context(), repo, oras.PackManifestVersion1_1, "application/vnd.example", oras.PackManifestOptions{})
@@ -201,6 +208,7 @@ func TestFindTargetSnapshotNoClusterTag(t *testing.T) {
 }
 
 func TestLookupOutcome(t *testing.T) {
+	t.Parallel()
 	nameUnknown := &errcode.ErrorResponse{StatusCode: http.StatusBadRequest, Errors: errcode.Errors{{Code: errcode.ErrorCodeNameUnknown}}}
 	for _, c := range []struct {
 		err          error
@@ -225,6 +233,7 @@ func TestLookupOutcome(t *testing.T) {
 // walk stops with a failing source and a BREAKING change with a consumer
 // never clears.
 func TestFindTargetSnapshotServerErrorIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.status.Store(http.StatusInternalServerError)
 	found, look, failed := (&Service{}).findTargetSnapshot(t.Context(), e.ordersRef("1.0.0"))
@@ -247,6 +256,7 @@ func TestFindTargetSnapshotServerErrorIsPartial(t *testing.T) {
 }
 
 func TestImpactAutoReadsSnapshot(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, webappSnapshot(snapA, e.host(), "^1.0.0", snapNow))
 	res := autoImpact(t, ordersService(t), e, e.ordersRef("2.0.0"), trustFile(t, e.scoped("rec", snapA)))
@@ -260,6 +270,7 @@ func TestImpactAutoReadsSnapshot(t *testing.T) {
 // published service, so it takes the old ref's domain and the snapshot's
 // consumer is found.
 func TestImpactAutoSnapshotLocalNewRevision(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, webappSnapshot(snapA, e.host(), "^1.0.0", snapNow))
 	newDir := t.TempDir()
@@ -274,6 +285,7 @@ func TestImpactAutoSnapshotLocalNewRevision(t *testing.T) {
 // a local new revision of a published old one stays in the default domain,
 // where a --local consumer resolves it, with derivation on or off.
 func TestImpactLocalNewRevisionKeepsLocalConsumer(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	root := t.TempDir()
 	testutil.WriteOrders(t, filepath.Join(root, "orders"), "2.0.0", "job")
@@ -293,6 +305,7 @@ func TestImpactLocalNewRevisionKeepsLocalConsumer(t *testing.T) {
 // TestImpactAutoNotFoundKeepsGate: with no pacto-targets anywhere the answer
 // is the answer of the same sources without the lookup, plus where it looked.
 func TestImpactAutoNotFoundKeepsGate(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	root, _ := testutil.ImpactFleet(t, ">=1.0.0")
 	svc := ordersService(t)
@@ -313,6 +326,7 @@ func TestImpactAutoNotFoundKeepsGate(t *testing.T) {
 }
 
 func TestImpactAutoSkippedWithTargetInput(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	root, ev := testutil.ImpactFleet(t, "^1.0.0")
 	res, err := ordersService(t).Impact(t.Context(), ImpactOptions{OldPath: e.ordersRef("1.0.0"), NewPath: e.ordersRef("2.0.0"), TargetSnapshotAuto: true,
@@ -326,6 +340,7 @@ func TestImpactAutoSkippedWithTargetInput(t *testing.T) {
 // TestImpactAutoKeepsSnapshotOnAddMissingRebuild: no source holds orders, so
 // the new revision is added in a rebuild that keeps the snapshot.
 func TestImpactAutoKeepsSnapshotOnAddMissingRebuild(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, webappSnapshot(snapA, e.host(), "^1.0.0", snapNow))
 	res := autoImpact(t, ordersService(t), e, e.ordersRef("2.0.0"), trustFile(t, e.scoped("rec", snapA)))
@@ -356,6 +371,7 @@ func TestImpactAutoKeepsSnapshotOnAddMissingRebuild(t *testing.T) {
 // only consumer, which no Pacto targets, adds no consumer and leaves the gate
 // as it was.
 func TestSnapshotInferredNeverClearsGate(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	svc := ordersService(t)
 	trust := trustFile(t, e.scoped("rec", snapA))
@@ -375,6 +391,7 @@ func TestSnapshotInferredNeverClearsGate(t *testing.T) {
 // TestSnapshotWorkloadSourceHealthNeverGates: a workload source that is not
 // available leaves a complete answer complete.
 func TestSnapshotWorkloadSourceHealthNeverGates(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, webappSnapshot(snapA, e.host(), "^2.0.0", snapNow))
 	// IndexNone: the test registry holds no organization index, which reads partial.
@@ -388,6 +405,7 @@ func TestSnapshotWorkloadSourceHealthNeverGates(t *testing.T) {
 }
 
 func TestImpactEventReadsExplicitSnapshot(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, webappSnapshot(snapA, e.host(), "^1.0.0", snapNow))
 	res, err := (&Service{}).ImpactEvent(t.Context(), ImpactEventOptions{Event: impact.Event{Kind: impact.EventUnavailable, Service: "webapp"},
@@ -402,6 +420,7 @@ func TestImpactEventReadsExplicitSnapshot(t *testing.T) {
 // runs a consumer the change breaks. Trusted for A's streams or as a bare
 // PEM, the forgery never clears the change.
 func TestImpactCrossClusterForgeryNeverClears(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	_, keyB, _ := ed25519.GenerateKey(rand.Reader)
 	pushAt(t, e.repo, keyB, snapB, webappSnapshot(snapB, e.host(), "^1.0.0", snapNow))

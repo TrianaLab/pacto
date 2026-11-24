@@ -97,6 +97,7 @@ func (e *atEnv) trustApprovalIn(stage delivery.RecordStage, uid, san string) str
 }
 
 func TestTrustDerivedRule(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	e.publishing(&delivery.PublisherConfig{Registry: "ghcr.io/acme"})
 	v := e.d.PublisherTrust(context.Background(), []delivery.StageObject{trustStage("payments-prod", "payments", nil)}, nil)
@@ -113,6 +114,7 @@ func TestTrustDerivedRule(t *testing.T) {
 }
 
 func TestTrustPolicyState(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	e.publishing(&delivery.PublisherConfig{Registry: "ghcr.io/acme", Policy: "ghcr.io/acme/policy:v1"})
 	v := e.d.PublisherTrust(context.Background(), []delivery.StageObject{trustStage("payments-prod", "payments",
@@ -127,6 +129,7 @@ func TestTrustPolicyState(t *testing.T) {
 // person or the person signed it keyless; one a workload signed is a
 // proposal, so its pin is named unreadable and never listed.
 func TestTrustPinsVerified(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	e.publishing(&delivery.PublisherConfig{Registry: "ghcr.io/acme", StreamsRepository: e.host + "/delivery/streams", PinSigner: e.pinSigner()})
 	e.pin(trustPayments, "alice", e.trustApproval("u1", ""), "u1", "2026-11-17T00:00:00Z")
@@ -141,6 +144,7 @@ func TestTrustPinsVerified(t *testing.T) {
 }
 
 func TestTrustPinsPartialOnReadFailure(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	stages := []delivery.StageObject{trustStage("payments-prod", "payments", nil)}
 	streams := e.host + "/delivery/streams"
@@ -209,6 +213,7 @@ func quote(s string) string {
 }
 
 func TestTrustPendingFromHeldOperations(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	e.publishing(&delivery.PublisherConfig{Registry: "ghcr.io/acme"})
 	id := trustCI
@@ -226,6 +231,7 @@ func TestTrustPendingFromHeldOperations(t *testing.T) {
 // listed are named, and only their pins are read: a hidden service's pins,
 // approvers and approval ids never reach the answer.
 func TestTrustOnlyCallerStages(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	e.publishing(&delivery.PublisherConfig{StreamsRepository: e.host + "/delivery/streams", PinSigner: e.pinSigner()})
 	hidden := delivery.ServiceRef{Name: "hidden"}
@@ -251,6 +257,7 @@ func TestTrustOnlyCallerStages(t *testing.T) {
 // service in a namespace the caller listed no Stage in never reaches the
 // answer.
 func TestTrustPinsOfListedNamespacesOnly(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	e.publishing(&delivery.PublisherConfig{StreamsRepository: e.host + "/delivery/streams", PinSigner: e.pinSigner()})
 	teamX := atStage
@@ -272,6 +279,7 @@ func TestTrustPinsOfListedNamespacesOnly(t *testing.T) {
 // TestTrustPinsCutPartial: more pins than a listing reads make the answer
 // partial and say so, in the trust view and to fleet provenance.
 func TestTrustPinsCutPartial(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	e.publishing(&delivery.PublisherConfig{StreamsRepository: e.host + "/delivery/streams", PinSigner: e.pinSigner()})
 	approval := e.trustApproval("u1", "")

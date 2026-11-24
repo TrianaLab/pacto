@@ -157,6 +157,7 @@ func wantErrContaining(t *testing.T, err error, want string) {
 }
 
 func TestDeliveryPlanAndPropose(t *testing.T) {
+	t.Parallel()
 	d, _, reg := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
@@ -176,6 +177,7 @@ func TestDeliveryPlanAndPropose(t *testing.T) {
 }
 
 func TestProposeStaleOnChangedCause(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, OnBehalfOf: "alice"}
@@ -192,6 +194,7 @@ func TestProposeStaleOnChangedCause(t *testing.T) {
 }
 
 func TestDeliveryProposeGetCancel(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
@@ -239,6 +242,7 @@ func proposeFixture(t *testing.T) (*Delivery, *string) {
 }
 
 func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
+	t.Parallel()
 	d, gen := proposeFixture(t)
 	op, plan, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeRollback, Undoes: "p0"})
 	if err != nil {
@@ -254,6 +258,7 @@ func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
 }
 
 func TestDeliveryProposeFreeze(t *testing.T) {
+	t.Parallel()
 	d, _ := proposeFixture(t)
 	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeUnfreeze})
 	if err != nil || op.Spec.Facet != delivery.FacetFreeze {
@@ -274,6 +279,7 @@ func TestDeliveryProposeFreeze(t *testing.T) {
 }
 
 func TestDeliveryProposeLevel(t *testing.T) {
+	t.Parallel()
 	d, _ := proposeFixture(t)
 	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeAutonomy, To: "advise"})
 	if err != nil || op.Spec.Facet != delivery.FacetLevel || op.Spec.Params.To != "advise" || op.Spec.Params.From != string(delivery.LevelAutonomous) {
@@ -286,6 +292,7 @@ func TestDeliveryProposeLevel(t *testing.T) {
 }
 
 func TestDeliveryRefusals(t *testing.T) {
+	t.Parallel()
 	d, _, reg := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	base := delivery.Request{Namespace: "prod", Stage: "payments-prod"}
@@ -329,6 +336,7 @@ func TestDeliveryRefusals(t *testing.T) {
 // and the plan names the verified version of that consumer to ship first,
 // read through the consumer's own apply OCIRepository.
 func TestDeliveryPlanSaysWhatMovesFirst(t *testing.T) {
+	t.Parallel()
 	orders := obj("pacto.trianalab.io/v1alpha1", "Pacto", "prod", "orders", map[string]any{"status": map[string]any{
 		"contractStatus": "Compliant",
 		"contract":       map[string]any{"serviceName": "orders", "version": "1.8.0", "resolvedRef": "oci://reg/pactos/orders@" + dlC},
@@ -363,6 +371,7 @@ func TestDeliveryPlanSaysWhatMovesFirst(t *testing.T) {
 // where it runs: a Kustomization applying a test Stage's version into its
 // namespace. With the Kustomizations unreadable it counts again.
 func TestDeliveryPlanPlacesConsumersByWhereTheyRun(t *testing.T) {
+	t.Parallel()
 	orders := obj("pacto.trianalab.io/v1alpha1", "Pacto", "orders-test", "orders", map[string]any{"status": map[string]any{
 		"contractStatus": "Compliant",
 		"contract":       map[string]any{"serviceName": "orders", "version": "1.8.0", "resolvedRef": "oci://reg/pactos/orders@" + dlC},
@@ -398,6 +407,7 @@ func TestDeliveryPlanPlacesConsumersByWhereTheyRun(t *testing.T) {
 }
 
 func TestDeliveryUnreadableClusterState(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	c.PrependReactor("get", "ocirepositories", func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -433,6 +443,7 @@ func TestDeliveryUnreadableClusterState(t *testing.T) {
 }
 
 func TestDeliverySecureRegistry(t *testing.T) {
+	t.Parallel()
 	d, c, reg := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	ri := c.Resource(gvrOCIRepository).Namespace("prod")
@@ -447,6 +458,7 @@ func TestDeliverySecureRegistry(t *testing.T) {
 }
 
 func TestDeliveryWhoAmIAndApprove(t *testing.T) {
+	t.Parallel()
 	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
 		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments-prod", "actor": map[string]any{"user": "bot"}},
 		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
@@ -479,6 +491,7 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 // login the cluster cannot date decides and the Approval carries no
 // authTime; a Stage it cannot read refuses the decision.
 func TestDeliveryApproveReadsTheStage(t *testing.T) {
+	t.Parallel()
 	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
 		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments-prod", "actor": map[string]any{"user": "bot"}},
 		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
@@ -515,6 +528,7 @@ func TestDeliveryApproveReadsTheStage(t *testing.T) {
 // policy the chart's delivery section publishes, and a client without it falls back to
 // the one it was given.
 func TestDeliveryReadsThePublishedPolicy(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cm := obj("v1", "ConfigMap", "pacto-delivery", delivery.PolicyConfigMap, map[string]any{
 		"data": map[string]any{delivery.PolicyKey: `{"agentGroups":["acme:bots"],"teamGroupPrefix":"acme:","requireOwnerTeam":true,"gateProviders":{"evals":"eval"}}`},
@@ -540,6 +554,7 @@ func TestDeliveryReadsThePublishedPolicy(t *testing.T) {
 }
 
 func TestDeliveryApproveRefusals(t *testing.T) {
+	t.Parallel()
 	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
 		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments-prod", "actor": map[string]any{"user": "bot"}},
 		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
@@ -602,6 +617,7 @@ func TestDeliveryApproveRefusals(t *testing.T) {
 // the published gate admits; one in the Stage's own namespace when it names no
 // namespace, and refused when it cannot be read.
 func TestDeliveryUpstreamStage(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	stage, err := d.Stage(ctx, "prod", "payments-prod")
@@ -645,6 +661,7 @@ func upstreamOf(ctx context.Context, d *Delivery, stage *delivery.StageObject) (
 }
 
 func TestDeliveryLists(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil, obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "op1", nil))
 	ctx := context.Background()
 	all, err := d.Stages(ctx, "")
@@ -663,6 +680,7 @@ func TestDeliveryLists(t *testing.T) {
 }
 
 func TestDeliveryDescribe(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	prod, _ := d.Stages(ctx, "prod")
@@ -677,6 +695,7 @@ func TestDeliveryDescribe(t *testing.T) {
 }
 
 func TestDeliveryCanByNamespace(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "carol", []string{"team-orders"}, nil)
 	var asked map[string]any
 	c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
@@ -705,6 +724,7 @@ func TestDeliveryCanByNamespace(t *testing.T) {
 // TestDeliveryCan: the caller's own SelfSubjectAccessReview, asked about the
 // delivery group, answers; a failed review is an error, never a yes.
 func TestDeliveryCan(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	var asked map[string]any
@@ -734,6 +754,7 @@ func TestDeliveryCan(t *testing.T) {
 // version; an upstream that fails to read stops it, and a version cannot be
 // matched while a candidate's artifact cannot be read.
 func TestDeliveryCandidates(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	got, err := d.Candidates(ctx, "prod", "payments-prod")
@@ -767,6 +788,7 @@ func TestDeliveryCandidates(t *testing.T) {
 // A propose whose intent digest differs only by the reason it adds names the
 // reason; any other difference lists what the digest binds.
 func TestDeliveryPlanStaleNamesWhatDiffers(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, OnBehalfOf: "alice"}
@@ -788,6 +810,7 @@ func TestDeliveryPlanStaleNamesWhatDiffers(t *testing.T) {
 // TestWhoAmIPolicyNotFoundHint: a policy that could not be read is carried
 // on the caller, and a missing one says which flag points at it.
 func TestWhoAmIPolicyNotFoundHint(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	hint := "; the ConfigMap pacto-delivery-identities is not in pacto-delivery: pass --delivery-namespace with the namespace the chart's delivery.namespace names"
 	d, _, _ := deliveryFixture(t, "carol", nil, nil)
@@ -808,6 +831,7 @@ func TestWhoAmIPolicyNotFoundHint(t *testing.T) {
 }
 
 func TestSpecCopiesCorrelationID(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "alice", []string{"system:authenticated"}, nil)
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, CorrelationID: "CHG-2041"}
 	_, spec, err := d.Plan(context.Background(), req)
@@ -822,6 +846,7 @@ func TestSpecCopiesCorrelationID(t *testing.T) {
 }
 
 func TestSpecRefusesLongCorrelationID(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "alice", []string{"system:authenticated"}, nil)
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, CorrelationID: strings.Repeat("x", 129)}
 	_, _, err := d.Plan(context.Background(), req)
@@ -832,6 +857,7 @@ func TestSpecRefusesLongCorrelationID(t *testing.T) {
 // repository the Stage's applier fetches, as the promoter does, so a plan on
 // an Argo CD or HelmRelease Stage reads the same artifacts.
 func TestDeliveryApplyRepoFollowsTheApplier(t *testing.T) {
+	t.Parallel()
 	app := obj("argoproj.io/v1alpha1", "Application", "prod", "payments-app", map[string]any{
 		"spec": map[string]any{"source": map[string]any{"repoURL": "oci://reg.example/apps/payments-argo"}},
 	})

@@ -96,6 +96,7 @@ func validateAt(t *testing.T, svc *Service, opts ValidateOptions) *ValidateResul
 }
 
 func TestValidateBehindIsInfoAndValid(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + prevVersion + "'\nservice: {name: s, version: 1.0.0}\n"})
 	r := validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})
 	want := `pactoVersion "` + prevVersion + `" is behind "` + contract.Current() + `"; setting pactoVersion: "` + contract.Current() + `" keeps what this contract means; pacto ci publishes it as ` + contract.Current() + ` when it next publishes this service, if its own check agrees` + migrateHint
@@ -105,6 +106,7 @@ func TestValidateBehindIsInfoAndValid(t *testing.T) {
 }
 
 func TestValidateCurrentHasNoBehind(t *testing.T) {
+	t.Parallel()
 	for _, doc := range []string{"pactoVersion: '" + contract.Current() + "'\n", "service: {name: s}\n"} {
 		dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": doc})
 		if r := validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir}); len(withoutBehind(r.Warnings)) != len(r.Warnings) {
@@ -114,6 +116,7 @@ func TestValidateCurrentHasNoBehind(t *testing.T) {
 }
 
 func TestValidateBehindKeptNamesFinding(t *testing.T) {
+	t.Parallel()
 	r := validateAt(t, NewService(&mockBundleStore{}, nil), ValidateOptions{Path: refPair(t, strictSchema, nil)})
 	got := behind(t, r)
 	if !r.Valid || !strings.Contains(got, `would add ENVIRONMENT_VALUES_MISSING at environments`) || strings.Contains(got, "keeps what") {
@@ -122,6 +125,7 @@ func TestValidateBehindKeptNamesFinding(t *testing.T) {
 }
 
 func TestValidateBehindRefOverridesNamed(t *testing.T) {
+	t.Parallel()
 	r := validateAt(t, NewService(&mockBundleStore{}, nil), ValidateOptions{Path: refPair(t, openSchema, nil)})
 	got := behind(t, r)
 	if !strings.Contains(got, "adds no validation finding; the operator then also accepts ContractOverrides values for its ref configurations (db)") || strings.Contains(got, "keeps what") {
@@ -132,6 +136,7 @@ func TestValidateBehindRefOverridesNamed(t *testing.T) {
 // An override that points prod at a file giving db its values would hide
 // ENVIRONMENT_VALUES_MISSING; the judged bytes are the file's, so it does not.
 func TestValidateBehindIgnoresOverrides(t *testing.T) {
+	t.Parallel()
 	opts := ValidateOptions{Path: refPair(t, strictSchema, nil), Overrides: override.Overrides{Values: []map[string]any{{
 		"environments": []any{map[string]any{"name": "prod", "file": "full.yaml"}},
 	}}}}
@@ -148,6 +153,7 @@ func TestValidateBehindIgnoresOverrides(t *testing.T) {
 }
 
 func TestValidateBehindInvalidContractNeverSaysKeeps(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + prevVersion + "'\nservice: {name: s, version: 1.0.0}\nconfigurations:\n  - {name: app, schema: missing.json, required: false}\n"})
 	r := validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})
 	got := behind(t, r)
@@ -159,6 +165,7 @@ func TestValidateBehindInvalidContractNeverSaysKeeps(t *testing.T) {
 // The judged pacto.yaml comes from the one read Validate makes: a registry
 // tag that moves, or a pull that fails, after it never reaches the judgement.
 func TestValidateBehindJudgesTheOneRead(t *testing.T) {
+	t.Parallel()
 	pulls := 0
 	b := testBundle()
 	b.RawYAML = nil
@@ -179,6 +186,7 @@ func TestValidateBehindJudgesTheOneRead(t *testing.T) {
 // neither invents nor hides CONTRACT_BEHIND, and the message names the
 // declared version.
 func TestValidateBehindOverriddenVersion(t *testing.T) {
+	t.Parallel()
 	setVersion := func(v string) override.Overrides {
 		return override.Overrides{Values: []map[string]any{{"pactoVersion": v}}}
 	}
@@ -197,6 +205,7 @@ func TestValidateBehindOverriddenVersion(t *testing.T) {
 // A run whose only failure is a stage outside the layers Upgrade re-runs (here
 // an unmet guarantee) still cannot tell: it never says the raise keeps.
 func TestValidateBehindGuaranteeFailureNeverSaysKeeps(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeClosureFile(t, root, "orders/pacto.yaml", guaranteeProvider)
 	writeClosureFile(t, root, "orders/events.yaml", "asyncapi: 3.0.0\ninfo: {title: orders, version: 1.0.0}\n")
@@ -213,6 +222,7 @@ func TestValidateBehindGuaranteeFailureNeverSaysKeeps(t *testing.T) {
 // or an error publishes as written, and a run that already fails is told
 // only to fix it.
 func TestBehindMessageNamesPactoCI(t *testing.T) {
+	t.Parallel()
 	cur := contract.Current()
 	raises := "; pacto ci publishes it as " + cur + " when it next publishes this service, if its own check agrees"
 	ref := &contract.Contract{Configurations: []contract.Configuration{{Name: "db", Ref: "../pg"}}}
@@ -249,6 +259,7 @@ func TestBehindMessageNamesPactoCI(t *testing.T) {
 // a failing run would stay as written, and a registry bundle has no file to
 // rewrite.
 func TestBehindMessageNamesMigrate(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '" + prevVersion + "'\nservice: {name: s, version: 1.0.0}\n"})
 	if got := behind(t, validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})); !strings.HasSuffix(got, "; pacto ci publishes it as "+contract.Current()+" when it next publishes this service, if its own check agrees; run `pacto migrate` to rewrite the file") {
 		t.Fatalf("local keeping: %q", got)
@@ -275,6 +286,7 @@ func TestBehindMessageNamesMigrate(t *testing.T) {
 // TestBehindDeclaredBuildKeepsMeaning: validate judges a behind file with a
 // declared build the way pacto migrate does, so it names migrate.
 func TestBehindDeclaredBuildKeepsMeaning(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", buildFolder(prevVersion, dockerBuild, map[string]string{"Dockerfile": "FROM scratch\n"}))
 	if got := behind(t, validateAt(t, NewService(nil, nil), ValidateOptions{Path: dir})); !strings.HasSuffix(got, migrateHint) {
 		t.Fatalf("%q", got)

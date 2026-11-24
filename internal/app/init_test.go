@@ -207,6 +207,7 @@ func TestInit_ScaffoldValidates(t *testing.T) {
 // ready, the bundle and both artifacts in the registry read from the
 // Deployment's image.
 func TestInit_PactifiedContractPublishes(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := filepath.Join(t.TempDir(), "fraud")
 	files := map[string]string{

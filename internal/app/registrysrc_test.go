@@ -170,6 +170,7 @@ func discoveredNames(coll *fleet.Collection) []string {
 }
 
 func TestCheckDiscover(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"oci://ghcr.io/acme/": "ghcr.io/acme",
 		" ghcr.io ":           "ghcr.io",
@@ -285,6 +286,7 @@ func TestDiscoveryCompleteness(t *testing.T) {
 }
 
 func TestDiscoveryNoListingIsPartialNeverEmpty(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.hook(catalog404)
 	snap, err := e.svc.Fleet(t.Context(), FleetOptions{Discover: []string{"oci://" + e.prefix()}})
@@ -297,6 +299,7 @@ func TestDiscoveryNoListingIsPartialNeverEmpty(t *testing.T) {
 }
 
 func TestDiscoveryResolvesOnlyTemplatesAndOfferings(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/orders", svcYAML("orders", "1.0.0"), "")
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), "")
@@ -311,6 +314,7 @@ func TestDiscoveryResolvesOnlyTemplatesAndOfferings(t *testing.T) {
 }
 
 func TestDiscoveredOfferingCounts(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/postgresql", offeringYAML("postgresql", "16.0.0"), "")
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), "")
@@ -381,6 +385,7 @@ func attentionOn(t *testing.T, q *fleet.Query, k fleet.ServiceKey) *fleet.Attent
 }
 
 func TestDiscoveryClassifiesUntypedBundles(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	old, _ := oci.LegacyBundleImage(e.bundleOf(t, "pactoVersion: \"2.3\"\nservice: {name: orders, version: 1.0.0}\n"))
 	e.writeImage(t, "acme/orders", "1.0.0", old)
@@ -400,6 +405,7 @@ func TestDiscoveryClassifiesUntypedBundles(t *testing.T) {
 }
 
 func TestDiscoveryDropsMislabelledService(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	img, _ := oci.BundleImage(e.bundleOf(t, svcYAML("orders", "1.0.0")))
 	e.writeImage(t, "acme/orders", "1.0.0", mutate.Annotations(img, map[string]string{oci.AnnotationKind: oci.KindTemplate}).(v1.Image))
@@ -415,6 +421,7 @@ func TestDiscoveryDropsMislabelledService(t *testing.T) {
 }
 
 func TestDiscoveryRepositoryNameBindsService(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), "")
 	// A higher version under another repository, listed by _catalog and by
@@ -436,6 +443,7 @@ func TestDiscoveryRepositoryNameBindsService(t *testing.T) {
 }
 
 func TestForgedIndexEntryDoesNotHideRealPath(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), "")
 	evil := e.pushAt(t, "acme/evil", tplYAML("go-http-postgres", "9.0.0"), IndexNone)
@@ -453,6 +461,7 @@ func TestForgedIndexEntryDoesNotHideRealPath(t *testing.T) {
 // (or whose entry write failed) is still found by _catalog in a repository
 // the index already names, so a stale entry never reads as the newest path.
 func TestDiscoveryReadsPastALaggingIndex(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.2.0"), "")
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.3.0"), IndexNone)
@@ -467,6 +476,7 @@ func TestDiscoveryReadsPastALaggingIndex(t *testing.T) {
 // repository under the prefix cannot steer the verdict of the service it
 // names before keepDiscovered drops it.
 func TestDiscoveredForgeryNeverJoinsOwnerHistory(t *testing.T) {
+	t.Parallel()
 	var seen []string
 	pass := discoveredOwnerRights(func(_ context.Context, _ string, revs []fleet.ContractRevision) {
 		for _, r := range revs {
@@ -487,6 +497,7 @@ func TestDiscoveredForgeryNeverJoinsOwnerHistory(t *testing.T) {
 }
 
 func TestDiscoveryUsesOnlyConfirmedEntries(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.hook(catalog404)
 	elsewhere := newIndexReg(t)
@@ -506,6 +517,7 @@ func TestDiscoveryUsesOnlyConfirmedEntries(t *testing.T) {
 }
 
 func TestCatalogOutsidePrefixDropped(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), IndexNone)
 	e.pushAt(t, "acmeco/node-worker", tplYAML("node-worker", "1.0.0"), IndexNone)
@@ -519,6 +531,7 @@ func TestCatalogOutsidePrefixDropped(t *testing.T) {
 }
 
 func TestCatalogSkipsPactoOwnedRepositories(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	for _, repo := range []string{"acme/pacto-inferred/stripe", "acme/team/pacto-inferred/x", "acme/pacto-evidence", "acme/pacto-targets"} {
 		e.pushAt(t, repo, offeringYAML("stripe", "1.0.0"), IndexNone)
@@ -561,6 +574,7 @@ func TestDiscoveryTimeoutIsTruncatedNotEmpty(t *testing.T) {
 }
 
 func TestDiscoveryFetchBudget(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/typed", tplYAML("typed", "1.0.0"), IndexNone)
 	old, _ := oci.LegacyBundleImage(e.bundleOf(t, "pactoVersion: \"2.3\"\nservice: {name: old, version: 1.0.0}\n"))
@@ -579,6 +593,7 @@ func TestDiscoveryFetchBudget(t *testing.T) {
 }
 
 func TestDiscoveryRefusesOversizedDescriptorBeforeFetch(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushRaw(t, "acme/big-manifest", "1.0.0", oci.BundleArtifactType, map[string]string{"pad": strings.Repeat("a", oci.MaxBundleManifestBytes)},
 		labels(map[string]string{"io.pacto.name": "big-manifest"}))
@@ -594,6 +609,7 @@ func TestDiscoveryRefusesOversizedDescriptorBeforeFetch(t *testing.T) {
 }
 
 func TestDiscoveryCountsUnreadableCandidates(t *testing.T) {
+	t.Parallel()
 	cfg := func(version string) []byte {
 		return labels(map[string]string{"io.pacto.name": "x", "io.pacto.pactoVersion": version})
 	}
@@ -659,6 +675,7 @@ func TestDiscoveryCountsUnreadableCandidates(t *testing.T) {
 }
 
 func TestDiscoveryLimitationsNameNoRepository(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), "")
 	e.pushAt(t, "acme/broken", tplYAML("broken", "1.0.0"), "")
@@ -689,6 +706,7 @@ func TestDiscoveryLimitationsNameNoRepository(t *testing.T) {
 }
 
 func TestDiscoveryListingMemoized(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), "")
 	e.pushAt(t, "acme/node-worker", tplYAML("node-worker", "0.4.0"), IndexNone)
@@ -757,6 +775,7 @@ func TestTruncatedWalkIsMemoized(t *testing.T) {
 }
 
 func TestDiscoveryAndRepositoriesKeyToOneRevision(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), "")
 	snap, err := e.svc.Fleet(t.Context(), FleetOptions{OCIRefs: []string{"oci://" + e.prefix() + "/go-http-postgres:1.0.0"}, Discover: []string{e.prefix()}})
@@ -769,6 +788,7 @@ func TestDiscoveryAndRepositoriesKeyToOneRevision(t *testing.T) {
 }
 
 func TestDiscoveryAndWholeIndexShareOneListing(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), "")
 	snap, err := e.svc.Fleet(t.Context(), FleetOptions{ReadIndex: e.index(), Discover: []string{e.prefix()}})
@@ -781,6 +801,7 @@ func TestDiscoveryAndWholeIndexShareOneListing(t *testing.T) {
 }
 
 func TestNoDiscoveryNoSource(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), "")
 	snap, err := e.svc.Fleet(t.Context(), FleetOptions{})
@@ -801,6 +822,7 @@ func TestNoDiscoveryNoSource(t *testing.T) {
 }
 
 func TestDiscoveredTemplateIsGoldenPath(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushAt(t, "acme/go-http-postgres", tplYAML("go-http-postgres", "1.0.0"), "")
 	snap, err := e.svc.Fleet(t.Context(), FleetOptions{Discover: []string{e.prefix()}})
@@ -814,6 +836,7 @@ func TestDiscoveredTemplateIsGoldenPath(t *testing.T) {
 }
 
 func TestDiscoverReadersOfOCIRefs(t *testing.T) {
+	t.Parallel()
 	if !readsGHCR(FleetOptions{Discover: []string{"ghcr.io/acme"}}) || !readsGHCR(FleetOptions{Discover: []string{"oci://GHCR.io"}}) ||
 		readsGHCR(FleetOptions{Discover: []string{"quay.io/acme"}}) {
 		t.Fatal("readsGHCR ignores Discover")
@@ -835,6 +858,7 @@ func (e *idxEnv) discoverOther() (FleetOptions, func() int) {
 }
 
 func TestImpactIgnoresDiscover(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	e.hook(catalog404)
@@ -851,6 +875,7 @@ func TestImpactIgnoresDiscover(t *testing.T) {
 // reads partial on a registry with no _catalog; the impact answer is as
 // complete as it is without discovery.
 func TestImpactOnDiscoverySnapshotStaysComplete(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	e.hook(catalog404)
@@ -873,6 +898,7 @@ func TestImpactOnDiscoverySnapshotStaysComplete(t *testing.T) {
 }
 
 func TestImpactEventIgnoresDiscover(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	fo, reads := e.discoverOther()
@@ -882,6 +908,7 @@ func TestImpactEventIgnoresDiscover(t *testing.T) {
 }
 
 func TestCIIgnoresDiscover(t *testing.T) {
+	t.Parallel()
 	e := proposalEnv(t)
 	p, _, err := e.svc.CIPlan(t.Context(), CIOptions{Root: e.root, Registry: e.host + "/acme", Bundles: map[string]*contract.Bundle{},
 		Fleet: FleetOptions{Discover: []string{e.host + "/acme"}}})
@@ -896,6 +923,7 @@ func TestCIIgnoresDiscover(t *testing.T) {
 }
 
 func TestPublishInferredIgnoresDiscover(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	ir := newIndexReg(t)
 	dir := t.TempDir()
@@ -911,6 +939,7 @@ func TestPublishInferredIgnoresDiscover(t *testing.T) {
 }
 
 func TestNewestTag(t *testing.T) {
+	t.Parallel()
 	for want, tags := range map[string][]string{
 		"1.2.0":      {"latest", "1.0.0", "1.2.0", "2.0.0-rc.1"},
 		"2.0.0-rc.2": {"2.0.0-rc.1", "2.0.0-rc.2", "main"},
@@ -923,6 +952,7 @@ func TestNewestTag(t *testing.T) {
 }
 
 func TestKindsBounded(t *testing.T) {
+	t.Parallel()
 	svc := &Service{}
 	for i := range maxKinds + 1 {
 		svc.keepKind(fmt.Sprint(i), oci.KindTemplate)

@@ -117,6 +117,7 @@ func (e *atEnv) concluded(ids ...string) {
 }
 
 func TestRecordAtApprovalPersonVerified(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	ref, _ := e.personApproval("alice@acme.example", "ok")
 	at, err := e.d.RecordAt(context.Background(), ref)
@@ -131,6 +132,7 @@ func TestRecordAtApprovalPersonVerified(t *testing.T) {
 }
 
 func TestRecordAtApprovalSaysWhetherItCounted(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	ref, id := e.personApproval("alice@acme.example", "ok")
 	at, _ := e.d.RecordAt(context.Background(), ref)
@@ -162,6 +164,7 @@ func TestRecordAtApprovalSaysWhetherItCounted(t *testing.T) {
 }
 
 func TestRecordAtApprovalUnknownIssuerUnverified(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	ref, _ := e.personApproval("alice@acme.example", "ok")
 	e.d.Policy.Signers[0].Issuer = "https://other.example"
@@ -181,6 +184,7 @@ func TestRecordAtApprovalUnknownIssuerUnverified(t *testing.T) {
 }
 
 func TestRecordAtApprovalPublishedPolicyRefusesSigner(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	ref, _ := e.personApproval("alice@acme.example", "ok")
 	published := e.d.Policy
@@ -197,6 +201,7 @@ func TestRecordAtApprovalPublishedPolicyRefusesSigner(t *testing.T) {
 }
 
 func TestRecordAtApprovalCustomApprovalsRepository(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	if err := ocireferrer.Push(context.Background(), e.repo("delivery/decisions"), deliveryrecord.Anchor(recStream)); err != nil {
 		t.Fatal(err)
@@ -212,6 +217,7 @@ func TestRecordAtApprovalCustomApprovalsRepository(t *testing.T) {
 }
 
 func TestRecordAtIntentWithTrust(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	approvals := deliveryrecord.AnchorRef(e.host+"/"+atApprovals, recStream)
 	ref := e.intent(e.key, approvals)
@@ -232,6 +238,7 @@ func TestRecordAtIntentWithTrust(t *testing.T) {
 }
 
 func TestRecordAtOperationRecord(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	e.concluded()
 	descs, _, _ := ocireferrer.Attached(context.Background(), e.repo("delivery/streams"), e.anchor, "")
@@ -242,6 +249,7 @@ func TestRecordAtOperationRecord(t *testing.T) {
 }
 
 func TestRecordAtNoTrustSaysUnverified(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	ref := e.intent(e.key, "")
 	approval, _ := e.recorderApproval(e.key)
@@ -285,6 +293,7 @@ func TestRecordAtBounded(t *testing.T) {
 }
 
 func TestRecordAtReferenceErrors(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	ref, _ := e.personApproval("alice@acme.example", "ok")
 	for _, bad := range []string{"reg", "reg/x", "reg/x:", "@sha256:x"} {
@@ -311,6 +320,7 @@ func TestRecordAtReferenceErrors(t *testing.T) {
 // TestRecordAtBrokenBundle: a bundle that is no statement fails to open,
 // under every predicate.
 func TestRecordAtBrokenBundle(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	for _, p := range []string{delivery.PredicateOperation, delivery.PredicateApproval, delivery.PredicateIntent} {
 		r, err := deliveryrecord.Push(context.Background(), e.repo("delivery/streams"), recStream+p, capabilities.ReferrersNative, p, []byte("{}"), nil)
@@ -324,6 +334,7 @@ func TestRecordAtBrokenBundle(t *testing.T) {
 }
 
 func TestApproveIntentPushesToApprovals(t *testing.T) {
+	t.Parallel()
 	for _, opts := range []testutil.ReferrersOptions{{}, {Unsupported: true}} {
 		e := newAtEnv(t, opts)
 		approvals := deliveryrecord.AnchorRef(e.host+"/"+atApprovals, recStream)
@@ -349,6 +360,7 @@ func TestApproveIntentPushesToApprovals(t *testing.T) {
 }
 
 func TestApproveIntentRefusals(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	approvals := deliveryrecord.AnchorRef(e.host+"/"+atApprovals, recStream)
 	in, _ := e.d.IntentAt(context.Background(), e.intent(e.key, approvals))
@@ -379,6 +391,7 @@ func TestApproveIntentRefusals(t *testing.T) {
 }
 
 func TestApproveIntentRegistryFailures(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	approvals := deliveryrecord.AnchorRef(e.host+"/"+atApprovals, recStream)
 	in, _ := e.d.IntentAt(context.Background(), e.intent(e.key, approvals))
@@ -416,6 +429,7 @@ func TestApproveIntentRegistryFailures(t *testing.T) {
 // a person, an agent or a CI workload signed it and what said so; an agent's
 // is a proposal that never counted.
 func TestRecordAtCarriesClassifiedBy(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	ref, _ := e.personApproval("alice@acme.example", "ok")
 	at, err := e.d.RecordAt(context.Background(), ref)

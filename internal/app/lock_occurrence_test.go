@@ -110,6 +110,7 @@ func collisionRoot() *contract.Contract {
 // THE closure counterexample: a transitive entry and a direct entry may share a
 // (kind, name), and the lock must record which contract declared each.
 func TestReferenceClosure_SameNameAcrossRootAndChildStayDistinct(t *testing.T) {
+	t.Parallel()
 	s := NewService(collisionStore(), nil)
 	refs, err := s.buildReferenceClosure(context.Background(), collisionRoot(), "")
 	if err != nil {
@@ -152,6 +153,7 @@ func TestReferenceClosure_SameNameAcrossRootAndChildStayDistinct(t *testing.T) {
 // A lock built from the counterexample answers the direct lookup with the entry
 // the ROOT declared, never the transitive namesake.
 func TestLockRootReference_IgnoresTransitiveNamesakes(t *testing.T) {
+	t.Parallel()
 	s := NewService(collisionStore(), nil)
 	root := collisionRoot()
 	l, err := s.buildLock(context.Background(), "oci://r/app:1.0.0", &contract.Bundle{Contract: root}, nil)
@@ -224,6 +226,7 @@ func localCollisionTree(t *testing.T) (rootDir string) {
 // The same relative ref text declared from two directories names two different
 // bundles, and the closure must pin both.
 func TestReferenceClosure_SameRelativeRefFromDifferentDirectories(t *testing.T) {
+	t.Parallel()
 	rootDir := localCollisionTree(t)
 	s := NewService(&testutil.MockBundleStore{}, nil)
 	root, err := loadLocalBundle(rootDir)
@@ -262,6 +265,7 @@ func TestReferenceClosure_SameRelativeRefFromDifferentDirectories(t *testing.T) 
 // occurrences, each pinned, agreeing on the identity. Distinguishing occurrences
 // must not fabricate a difference where there is none.
 func TestReferenceClosure_SameTargetTwiceIsTwoAgreeingOccurrences(t *testing.T) {
+	t.Parallel()
 	leaf := &contract.Bundle{Contract: &contract.Contract{
 		Service: contract.Service{Name: "leaf", Version: "4.0.0"}}}
 	s := NewService(&testutil.MockBundleStore{
@@ -293,6 +297,7 @@ func TestReferenceClosure_SameTargetTwiceIsTwoAgreeingOccurrences(t *testing.T) 
 // A cycle terminates on the RESOLVED bundle, not on the ref text used to reach
 // it, and each declared occurrence around the cycle is still pinned once.
 func TestReferenceClosure_CycleTerminatesOnResolvedIdentity(t *testing.T) {
+	t.Parallel()
 	p := configRefContract("p", "1.0.0", map[string]string{"to-q": "oci://r/q"})
 	q := configRefContract("q", "1.0.0", map[string]string{"to-p": "oci://r/p"})
 	s := NewService(&testutil.MockBundleStore{
@@ -324,6 +329,7 @@ func TestReferenceClosure_CycleTerminatesOnResolvedIdentity(t *testing.T) {
 
 // Regenerating the lock from an unchanged tree produces byte-identical output.
 func TestBuildLock_DeterministicRegeneration(t *testing.T) {
+	t.Parallel()
 	root := &contract.Bundle{Contract: collisionRoot()}
 	var first []byte
 	for i := 0; i < 3; i++ {

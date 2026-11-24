@@ -12,6 +12,7 @@ import (
 )
 
 func TestPublishInferred(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(dir, "checkout"), 0o755); err != nil {

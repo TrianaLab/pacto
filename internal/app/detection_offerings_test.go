@@ -57,6 +57,7 @@ func offeringEnv(t *testing.T, kp func(*ctbEnv) *signing.Keypair) (*ctbEnv, stri
 }
 
 func TestDetectionOfferingsVerifiedWithInstallationKey(t *testing.T) {
+	t.Parallel()
 	e, root := offeringEnv(t, func(e *ctbEnv) *signing.Keypair { return e.mine })
 	col := collectOfferings(t, e, offeringDetection(t, root, e.mine))
 	if len(col.Revisions) != 1 || col.Revisions[0].Contributor.KeyID != "installation" || col.Revisions[0].Contributor.Cluster != offeringCluster {
@@ -68,6 +69,7 @@ func TestDetectionOfferingsVerifiedWithInstallationKey(t *testing.T) {
 }
 
 func TestDetectionOfferingsOtherKeyRefused(t *testing.T) {
+	t.Parallel()
 	e, root := offeringEnv(t, func(e *ctbEnv) *signing.Keypair { return e.other })
 	col := collectOfferings(t, e, offeringDetection(t, root, e.mine))
 	if len(col.Revisions) != 0 {
@@ -80,6 +82,7 @@ func TestDetectionOfferingsOtherKeyRefused(t *testing.T) {
 }
 
 func TestDetectionOfferingsOutsideRootsUnread(t *testing.T) {
+	t.Parallel()
 	e, root := offeringEnv(t, func(e *ctbEnv) *signing.Keypair { return e.mine })
 	e.reader.Roots, e.reg.heads = []string{"elsewhere.example/acme"}, 0
 	col := collectOfferings(t, e, offeringDetection(t, root, e.mine))
@@ -106,6 +109,7 @@ func producerRowOf(t *testing.T, col *fleet.Collection) fleet.Provider {
 // TestFleetDetectionReadsOfferings: the fleet hands its detection source the
 // contribution reader, so the installation's inferred offerings list.
 func TestFleetDetectionReadsOfferings(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	svc.BundleStore = nil
 	src := fleetsrc.NewDetectionResultSource("detection", detect.Result{}, readNow)
@@ -125,6 +129,7 @@ func TestFleetDetectionReadsOfferings(t *testing.T) {
 // only the installation registry (no contract ref, no target snapshot) reads
 // the inferred offerings the operator publishes under it, once per root.
 func TestContributionRootsIncludeDiscovery(t *testing.T) {
+	t.Parallel()
 	got := contributionRoots(FleetOptions{OCIRefs: []string{"reg.example/acme/svc"}, Discover: []string{"reg.example/acme", "other.example/x"}})
 	want := []string{"reg.example/acme", "reg.example", "other.example/x"}
 	if strings.Join(got, ",") != strings.Join(want, ",") {

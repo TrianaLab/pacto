@@ -11,6 +11,7 @@ import (
 )
 
 func TestResolvePinned(t *testing.T) {
+	t.Parallel()
 	bundle := &contract.Bundle{Contract: &contract.Contract{
 		Service: contract.Service{Name: "auth", Version: "1.2.0"}}}
 
@@ -97,6 +98,7 @@ func TestResolvePinned(t *testing.T) {
 }
 
 func TestWalkClosure(t *testing.T) {
+	t.Parallel()
 	t.Run("deduplication", func(t *testing.T) {
 		shared := &graph.Node{Name: "shared", Version: "1.0.0", Ref: "oci://r/shared"}
 		root := &graph.Node{

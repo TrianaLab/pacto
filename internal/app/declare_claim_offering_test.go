@@ -41,6 +41,7 @@ func offeringProvidersOf(snap *fleet.FleetSnapshot, offering string) []string {
 }
 
 func TestClaimOfferingWritesIntentMetadata(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.claimReq("team-platform")
 	req.Offering, req.Fleet = "postgresql", offeringFleet(t, "team-platform")
@@ -58,6 +59,7 @@ func TestClaimOfferingWritesIntentMetadata(t *testing.T) {
 }
 
 func TestClaimOfferingDoesNotListAsProvider(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.login(personToken("admin@acme.com"))
@@ -77,6 +79,7 @@ func TestClaimOfferingDoesNotListAsProvider(t *testing.T) {
 }
 
 func TestClaimOfferingOtherOwnerIsDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.login(personToken("admin@acme.com"))
@@ -121,6 +124,7 @@ func TestClaimOfferingOtherOwnerIsDraft(t *testing.T) {
 }
 
 func TestClaimOfferingProposesNew(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.claimReq("team-platform")
 	req.Offering, req.Fleet = "postgresql-legacy", offeringFleet(t, "team-data")
@@ -140,6 +144,7 @@ func TestClaimOfferingProposesNew(t *testing.T) {
 // the owners it did not read may be another team's: a draft, whose accept
 // nobody is known to be allowed.
 func TestClaimOfferingPartialFleetIsDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.login(personToken("admin@acme.com"))
@@ -160,6 +165,7 @@ func TestClaimOfferingPartialFleetIsDraft(t *testing.T) {
 }
 
 func TestOfferingJoinNoPolicy(t *testing.T) {
+	t.Parallel()
 	j := &offeringJoin{offering: "pg", teams: []string{"team-data"}, from: "none mounted"}
 	if de := refusal(t, j.refusal("stripe", delivery.PublisherIdentity{Subject: "a@b.c", Class: delivery.ClassHuman}, time.Now())); de.Code != "OWNER_POLICY_UNVERIFIED" {
 		t.Fatalf("%+v", de)
@@ -167,6 +173,7 @@ func TestOfferingJoinNoPolicy(t *testing.T) {
 }
 
 func TestClaimOfferingInvalidSlug(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.claimReq("team-platform")
 	req.Offering = "Postgres_SQL"
@@ -177,6 +184,7 @@ func TestClaimOfferingInvalidSlug(t *testing.T) {
 }
 
 func TestOfferingProvidersFleetError(t *testing.T) {
+	t.Parallel()
 	pl := &declarePlanner{s: &Service{}, req: DeclareRequest{Registry: "not a registry"}}
 	if n, owners, why := pl.offeringProviders(t.Context(), "postgresql"); n != 0 || owners != nil || why == "" {
 		t.Fatal(n, owners, why)
@@ -184,6 +192,7 @@ func TestOfferingProvidersFleetError(t *testing.T) {
 }
 
 func TestOfferingNote(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		n      int
 		owners []string

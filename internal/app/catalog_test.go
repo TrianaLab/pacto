@@ -54,6 +54,7 @@ func catCode(t *testing.T, err error) string {
 // ── registry resolution ───────────────────────────────────────────────────────
 
 func TestCatalogResolverPinsARegistryTagToItsDigest(t *testing.T) {
+	t.Parallel()
 	host := mxPlainRegistry(t)
 	svc, client := mxService(authn.DefaultKeychain)
 	mxPush(t, client, host, "acme/payments", "1.0.0", mxBundle(t, "payments", "1.0.0"))
@@ -89,6 +90,7 @@ func TestCatalogResolverPinsARegistryTagToItsDigest(t *testing.T) {
 // A reference naming no version is answered by the constraint that declared it,
 // which is the whole reason the constraint travels with the request.
 func TestCatalogResolverAppliesTheDeclaringConstraintToABareReference(t *testing.T) {
+	t.Parallel()
 	host := mxPlainRegistry(t)
 	svc, client := mxService(authn.DefaultKeychain)
 	for _, v := range []string{"1.0.0", "1.5.0", "2.0.0"} {
@@ -111,6 +113,7 @@ func TestCatalogResolverAppliesTheDeclaringConstraintToABareReference(t *testing
 }
 
 func TestCatalogResolverNeedsARegistryClientForARegistryReference(t *testing.T) {
+	t.Parallel()
 	svc := &Service{}
 	_, err := catResolve(t, svc.CatalogResolver(), "oci://ghcr.io/acme/api:1.0.0", "", "")
 	if got := catCode(t, err); got != catalog.ReasonUnavailable {
@@ -124,6 +127,7 @@ func TestCatalogResolverNeedsARegistryClientForARegistryReference(t *testing.T) 
 // two directories is one revision or two according to the bytes, never according
 // to the name.
 func TestCatalogResolverIdentifiesALocalBundleByItsContent(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	same := catBundleDir(t, filepath.Join(root, "copy"), "api", "1.0.0")
 	original := catBundleDir(t, filepath.Join(root, "original"), "api", "1.0.0")
@@ -166,6 +170,7 @@ func TestCatalogResolverIdentifiesALocalBundleByItsContent(t *testing.T) {
 // Two roots can declare the same relative reference and mean different things.
 // The declaring base is what decides, never whichever root was walked first.
 func TestCatalogResolverResolvesARelativeReferenceAgainstItsDeclarer(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	a := catBundleDir(t, filepath.Join(root, "a"), "a", "1.0.0")
 	b := catBundleDir(t, filepath.Join(root, "b"), "b", "1.0.0")
@@ -188,6 +193,7 @@ func TestCatalogResolverResolvesARelativeReferenceAgainstItsDeclarer(t *testing.
 }
 
 func TestCatalogResolverAcceptsAnAbsoluteAndAFileScopedReference(t *testing.T) {
+	t.Parallel()
 	dir := catBundleDir(t, filepath.Join(t.TempDir(), "svc"), "svc", "1.0.0")
 	r := (&Service{}).CatalogResolver()
 
@@ -222,6 +228,7 @@ func TestCatalogResolverResolvesARelativeRootAgainstTheWorkingDirectory(t *testi
 // local files the catalog reads, so a local reference declared by a registry
 // bundle fails closed whether it is relative or absolute.
 func TestCatalogResolverRefusesALocalReferenceDeclaredByARegistryBundle(t *testing.T) {
+	t.Parallel()
 	dir := catBundleDir(t, filepath.Join(t.TempDir(), "secret"), "secret", "1.0.0")
 	r := (&Service{}).CatalogResolver()
 
@@ -234,6 +241,7 @@ func TestCatalogResolverRefusesALocalReferenceDeclaredByARegistryBundle(t *testi
 }
 
 func TestCatalogResolverReportsLocalFailuresByCategory(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	missing := filepath.Join(root, "absent")
 	unparseable := catBundleDir(t, filepath.Join(root, "broken"), "broken", "1.0.0")
@@ -262,6 +270,7 @@ func TestCatalogResolverReportsLocalFailuresByCategory(t *testing.T) {
 }
 
 func TestCatalogResolverFailsClosedWhenTheBundleCannotBeHashed(t *testing.T) {
+	t.Parallel()
 	dir := catBundleDir(t, filepath.Join(t.TempDir(), "svc"), "svc", "1.0.0")
 	sub := filepath.Join(dir, "docs")
 	if err := os.Mkdir(sub, 0o755); err != nil {
@@ -282,6 +291,7 @@ func TestCatalogResolverFailsClosedWhenTheBundleCannotBeHashed(t *testing.T) {
 }
 
 func TestCatalogResolverFailsClosedWhenARootPathCannotBeMadeAbsolute(t *testing.T) {
+	t.Parallel()
 	svc := &Service{sys: sysDeps{absPath: func(string) (string, error) { return "", errors.New("no working directory") }}}
 
 	_, err := catResolve(t, svc.CatalogResolver(), "./svc", "", "")
@@ -304,6 +314,7 @@ func (s catStubStore) Resolve(context.Context, string) (string, error)        { 
 func (s catStubStore) ListTags(context.Context, string) ([]string, error)     { return nil, s.err }
 
 func TestCatalogResolverCategorisesRegistryFailures(t *testing.T) {
+	t.Parallel()
 	authHost := mxAuthRegistry(t, "u", "p")
 	goodHost := mxPlainRegistry(t)
 	_, goodClient := mxService(authn.DefaultKeychain)
@@ -353,6 +364,7 @@ func TestCatalogResolverCategorisesRegistryFailures(t *testing.T) {
 }
 
 func TestCatalogResolverReportsCancellationAsCancellation(t *testing.T) {
+	t.Parallel()
 	host := mxPlainRegistry(t)
 	svc, client := mxService(authn.DefaultKeychain)
 	mxPush(t, client, host, "acme/lib", "1.0.0", mxBundle(t, "lib", "1.0.0"))
@@ -372,6 +384,7 @@ func TestCatalogResolverReportsCancellationAsCancellation(t *testing.T) {
 // canonical revision, both provenance paths, both roots. This is the acceptance
 // case the fake proves in pkg/catalog, proved again against real resolution.
 func TestCatalogOverARealRegistryAndRealDirectories(t *testing.T) {
+	t.Parallel()
 	host := mxPlainRegistry(t)
 	svc, client := mxService(authn.DefaultKeychain)
 	mxPush(t, client, host, "acme/lib", "1.0.0", mxBundle(t, "lib", "1.0.0"))
@@ -427,6 +440,7 @@ func TestCatalogOverARealRegistryAndRealDirectories(t *testing.T) {
 // alone cannot say which service a revision belongs to, and the answer must not
 // depend on which root was asked for first.
 func TestCatalogKeepsMirroredRegistryContentAsTwoServices(t *testing.T) {
+	t.Parallel()
 	host := mxPlainRegistry(t)
 	svc, client := mxService(authn.DefaultKeychain)
 	mxPush(t, client, host, "acme/lib", "1.0.0", mxBundle(t, "lib", "1.0.0"))
@@ -511,6 +525,7 @@ func assertMirroredPair(t *testing.T, c *catalog.Catalog, mirrored string, wantD
 // A registry bundle declaring a local path is a partial catalog with a named
 // gap, never a silent read of whatever that path points at.
 func TestCatalogRefusesALocalPathDeclaredByARegistryRoot(t *testing.T) {
+	t.Parallel()
 	host := mxPlainRegistry(t)
 	svc, client := mxService(authn.DefaultKeychain)
 	mxPush(t, client, host, "acme/app", "1.0.0",

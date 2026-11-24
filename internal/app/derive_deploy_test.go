@@ -118,6 +118,7 @@ var manifestsFolder = map[string]string{
 }
 
 func TestDeployManifestsPinsTheImage(t *testing.T) {
+	t.Parallel()
 	d, got := deployed(t, manifestsFolder, "")
 	if d.pub.Deploy != contract.ArtifactManifests || d.pub.Artifacts[0].Ref != "oci://r.io/acme/deploy/payments" {
 		t.Fatalf("%+v", d.pub)
@@ -136,6 +137,7 @@ func TestDeployManifestsPinsTheImage(t *testing.T) {
 }
 
 func TestDeployManifestsUnpinnedFails(t *testing.T) {
+	t.Parallel()
 	// The image is written through an alias, which no rewrite can pin.
 	aliased := "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: payments, annotations: {img: &img r.io/acme/payments:1.0}}\n" +
 		"spec:\n  template:\n    spec:\n      containers:\n        - name: api\n          image: *img\n"
@@ -149,6 +151,7 @@ func TestDeployManifestsUnpinnedFails(t *testing.T) {
 }
 
 func TestDeployManifestsDeterministic(t *testing.T) {
+	t.Parallel()
 	var tgzs [][]byte
 	for range 2 {
 		d, err := deployOf(t, manifestsFolder, "")
@@ -185,6 +188,7 @@ func noLeak(t *testing.T, got map[string]string) {
 }
 
 func TestDeployLeavesSecretsOut(t *testing.T) {
+	t.Parallel()
 	d, got := deployed(t, map[string]string{
 		"Dockerfile":             "FROM scratch\n",
 		"kustomization.yaml":     "resources: [deploy.yaml, secret.yaml, empty-secret.yaml, gen]\n",
@@ -231,6 +235,7 @@ func TestDeployLeavesSecretsOut(t *testing.T) {
 }
 
 func TestDeployRefusesSymlinks(t *testing.T) {
+	t.Parallel()
 	outside := filepath.Join(t.TempDir(), "secret.yaml")
 	writeFiles(t, filepath.Dir(outside), map[string]string{"secret.yaml": deployment("r.io/acme/payments:1.0")})
 	for name, files := range map[string]map[string]string{
@@ -252,6 +257,7 @@ func TestDeployRefusesSymlinks(t *testing.T) {
 }
 
 func TestDeployOutputSecretScanFails(t *testing.T) {
+	t.Parallel()
 	for file, files := range map[string]map[string]string{
 		"k8s/deploy.yaml": {"k8s/deploy.yaml": deployment("r.io/acme/payments@"+digest64) + "          env:\n            - {name: DB_PASSWORD, value: hunter2}\n"},
 		"k8s/cm.yaml": {"k8s/deploy.yaml": deployment("r.io/acme/payments@" + digest64),
@@ -303,6 +309,7 @@ var kustomizeFolder = map[string]string{
 }
 
 func TestDeployKustomizeOnlyReferencedFiles(t *testing.T) {
+	t.Parallel()
 	_, got := deployed(t, kustomizeFolder, "")
 	want := []string{"app.env", "app.properties", "base/kustomization.yaml", "base/svc.yaml", "comp/kustomization.yaml",
 		"deploy.yaml", "kustomization.yaml", "one.env", "other.txt", "patch.yaml", "psm.yaml"}
@@ -328,6 +335,7 @@ func TestDeployKustomizeOnlyReferencedFiles(t *testing.T) {
 }
 
 func TestDeployKustomizeImagesEntry(t *testing.T) {
+	t.Parallel()
 	_, got := deployed(t, kustomizeFolder, "")
 	root, base := got["kustomization.yaml"], got["base/kustomization.yaml"]
 	entry := "  - name: r.io/acme/payments\n    digest: " + digest64 + "\n"
@@ -358,6 +366,7 @@ var chartFolder = map[string]string{
 }
 
 func TestChartPackageDeterministic(t *testing.T) {
+	t.Parallel()
 	var tgzs []string
 	for range 2 {
 		d, err := deployOf(t, chartFolder, "")
@@ -380,6 +389,7 @@ func TestChartPackageDeterministic(t *testing.T) {
 }
 
 func TestChartVersionIsTheServiceVersion(t *testing.T) {
+	t.Parallel()
 	_, got := deployed(t, chartFolder, "")
 	if c := got["payments/Chart.yaml"]; c != "apiVersion: v2\nname: payments\nversion: 1.2.3\nappVersion: 1.2.3\n" {
 		t.Fatalf("%q", c)
@@ -387,6 +397,7 @@ func TestChartVersionIsTheServiceVersion(t *testing.T) {
 }
 
 func TestChartValuesDigestOrTag(t *testing.T) {
+	t.Parallel()
 	_, got := deployed(t, chartFolder, "")
 	if v := got["payments/values.yaml"]; v != "image:\n  repository: r.io/acme/payments\n  tag: 1.2.3@"+digest64+"\n" {
 		t.Fatalf("%q", v)
@@ -412,6 +423,7 @@ func TestChartValuesDigestOrTag(t *testing.T) {
 // TestChartIsTheDeployArtifact: a chart folder publishes its chart as the
 // deploy artifact, annotated with the contract, and no applier object.
 func TestChartIsTheDeployArtifact(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := sectionless(t, "1.0.0", "", chartFolder)
 	res, err := publishService(&fakeRun{}, reg).withRun(&buildRun{}).Publish(t.Context(), signedOpts(t, dir, host))
@@ -433,6 +445,7 @@ func TestChartIsTheDeployArtifact(t *testing.T) {
 }
 
 func TestDeployShipsPactoResource(t *testing.T) {
+	t.Parallel()
 	resource := map[string]string{"delivery/pacto.yaml": "kind: Pacto\nversion: @PACTO_VERSION@\n"}
 	with := func(files map[string]string) map[string]string {
 		out := map[string]string{}
@@ -460,6 +473,7 @@ func TestDeployShipsPactoResource(t *testing.T) {
 // TestDeployFindingsRefuse: a folder that shows several deploy sources
 // derives none, and says why; a build-tool finding is not the deploy's.
 func TestDeployFindingsRefuse(t *testing.T) {
+	t.Parallel()
 	_, err := deployOf(t, map[string]string{"Dockerfile": "FROM scratch\n", "chart/Chart.yaml": "name: payments\n", "k8s/deploy.yaml": deployment("r.io/acme/payments:1.0")}, "")
 	if err == nil || err.Error() != "the deploy artifact cannot be assembled: finding: both chart (chart) and manifests (k8s/deploy.yaml) found; declare publish" {
 		t.Fatal(err)
@@ -471,6 +485,7 @@ func TestDeployFindingsRefuse(t *testing.T) {
 }
 
 func TestDeployFolderErrors(t *testing.T) {
+	t.Parallel()
 	if _, err := readDeploy(filepath.Join(t.TempDir(), "missing"), &discover.Scan{}, discover.DeploySource{}); err == nil {
 		t.Fatal("a missing folder")
 	}

@@ -87,6 +87,7 @@ func completed(t *testing.T, dir, commit string) string {
 }
 
 func TestPackEmbedsInferredRecord(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
 	files := packed(t, dir)
@@ -99,6 +100,7 @@ func TestPackEmbedsInferredRecord(t *testing.T) {
 }
 
 func TestPackTwiceSameDigest(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	digest := func() string {
 		c, _, fsys, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{Commit: commitA, Pacto: "dev"}, nil)
@@ -117,6 +119,7 @@ func TestPackTwiceSameDigest(t *testing.T) {
 }
 
 func TestPackOlderContractHasNoRecord(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, `pactoVersion: "2.4"`+"\n")
 	c, _, fsys, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{Commit: commitA}, nil)
 	if err != nil {
@@ -137,6 +140,7 @@ func TestPackOlderContractHasNoRecord(t *testing.T) {
 }
 
 func TestPackReplacesFolderRecord(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	writeFiles(t, dir, map[string]string{contract.InferredRecordFile: "format: pacto.inferred/v1\ninputs: {pacto: old, discovery: \"0\", sources: []}\nfields: []\n"})
 	if got := packed(t, dir)[contract.InferredRecordFile]; got != completed(t, dir, "") {
@@ -152,6 +156,7 @@ func TestPackReplacesFolderRecord(t *testing.T) {
 }
 
 func TestPackedRecordNeverHoldsValues(t *testing.T) {
+	t.Parallel()
 	rec := packed(t, completionFolder(t, ""))[contract.InferredRecordFile]
 	if rec == "" {
 		t.Fatal("no record packed")
@@ -164,6 +169,7 @@ func TestPackedRecordNeverHoldsValues(t *testing.T) {
 }
 
 func TestLocalReadCarriesRecord(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, "")
 	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
 	named, err := loadLocalBundleNamed(dir, "app", override.Overrides{}, contract.InferredInputs{Pacto: "dev"}, nil)
@@ -190,6 +196,7 @@ func TestLocalReadCarriesRecord(t *testing.T) {
 // TestIncompleteFolder: pack, push and publish refuse a folder Pacto cannot
 // complete; a read keeps its declared bundle, with no record and a warning.
 func TestIncompleteFolder(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, "")
 	if err := os.Chmod(filepath.Join(dir, "api"), 0); err != nil {
 		t.Fatal(err)
@@ -221,6 +228,7 @@ func TestIncompleteFolder(t *testing.T) {
 // completing read and sees what it sees; a folder it cannot complete still
 // explains its declared contract.
 func TestExplainLocalCarriesRecord(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, "")
 	res, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
 	if err != nil || len(res.Inferred) == 0 {
@@ -236,6 +244,7 @@ func TestExplainLocalCarriesRecord(t *testing.T) {
 }
 
 func TestLockIgnoresInferredRecord(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	dep := completionFolder(t, "")
 	if err := os.Rename(dep, filepath.Join(repo, "app")); err != nil {
@@ -269,6 +278,7 @@ func TestLockIgnoresInferredRecord(t *testing.T) {
 }
 
 func TestPublishRecordCommitMatchesRevision(t *testing.T) {
+	t.Parallel()
 	const revision = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef"
 	for name, opts := range map[string]PublishOptions{"--revision": {Revision: revision}, "git": {}} {
 		t.Run(name, func(t *testing.T) {
@@ -298,6 +308,7 @@ func TestPublishRecordCommitMatchesRevision(t *testing.T) {
 // TestPushFromAnotherCommitIsUnchanged: pushing the same content from a new
 // commit changes only the record's inputs, so push stays a no-op success.
 func TestPushFromAnotherCommitIsUnchanged(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	writeGit(t, dir, map[string]string{"HEAD": commitA + "\n"})
 	var first *contract.Bundle
@@ -332,6 +343,7 @@ func TestPushFromAnotherCommitIsUnchanged(t *testing.T) {
 }
 
 func TestRefRepo(t *testing.T) {
+	t.Parallel()
 	for ref, want := range map[string]string{
 		"ghcr.io/acme/app:1.0.0":        "ghcr.io/acme/app",
 		"ghcr.io/acme/app@sha256:ab":    "ghcr.io/acme/app",

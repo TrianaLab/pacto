@@ -33,6 +33,7 @@ func rightsPolicy() *delivery.OwnerPolicy {
 // TestOwnerRightsEffectiveOwnerSkipsRefused: an owner change by a person
 // outside the rule never becomes the reference of the next change.
 func TestOwnerRightsEffectiveOwnerSkipsRefused(t *testing.T) {
+	t.Parallel()
 	revs := []fleet.ContractRevision{
 		ownedRev("1.2.0", "payments", "eve@acme.com", delivery.ClassHuman, true), // refused: eve is no billing member
 		ownedRev("1.0.0", "billing", "", "", false),                              // unsigned, no declaration: counts as it is
@@ -58,6 +59,7 @@ func TestOwnerRightsEffectiveOwnerSkipsRefused(t *testing.T) {
 // TestOwnerRightsIgnoresSelfNamedBaseline: a declaration naming a refused
 // revision as its baseline is judged against the effective owner.
 func TestOwnerRightsIgnoresSelfNamedBaseline(t *testing.T) {
+	t.Parallel()
 	refused := ownedRev("1.1.0", "payments", "eve@acme.com", delivery.ClassHuman, true)
 	laundered := ownedRev("1.2.0", "payments", "eve@acme.com", delivery.ClassHuman, true)
 	laundered.Record.Declaration.Baseline = &contract.InferredBaseline{Version: "1.1.0", Bundle: "reg.io/acme/invoices@sha256:1.1.0"}
@@ -69,6 +71,7 @@ func TestOwnerRightsIgnoresSelfNamedBaseline(t *testing.T) {
 }
 
 func TestOwnerJudgeCases(t *testing.T) {
+	t.Parallel()
 	judge := ownerJudge("invoices", rightsPolicy(), "", rightsNow)
 	current := delivery.OwnerClaim{Owner: contract.Owner{Team: "billing"}, Provenance: fleet.OwnerProvenanceDeclared}
 	// An accepted CI publish is outside the rule.
@@ -103,6 +106,7 @@ func TestOwnerJudgeCases(t *testing.T) {
 }
 
 func TestOwnerRightsAttestedAndRemoval(t *testing.T) {
+	t.Parallel()
 	att := fleet.ContractRevision{Key: "sha256:a", Version: "1.0.0", Record: attestedRecord("payments"), Provenance: attestedProvenance()}
 	cur, _ := OwnerRights(t.Context(), []fleet.ContractRevision{att}, ownerJudge("invoices", nil, "x", rightsNow))
 	if cur.Owner.Team != "payments" || cur.Provenance != fleet.OwnerProvenanceAttested || cur.Source == "" {

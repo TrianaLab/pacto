@@ -121,6 +121,7 @@ func (f extensionFixture) build(t *testing.T, base string, now time.Time) (*flee
 // absent variant reads failing and NonCompliant naming the producer, the same
 // report a day later reads unknown, and a key without the grant is refused.
 func TestServeEvidenceExtensionFixture(t *testing.T) {
+	t.Parallel()
 	host, _ := referrersRegistry(t)
 	f := extensionFixtureOn(t, host)
 	base := serveEvidence(t, f.svc, ServeOptions{TrustPath: f.trustPath, Subjects: []string{f.contractRef}, Producers: []string{"acme-backup", "other"}})

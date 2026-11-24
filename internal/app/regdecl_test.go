@@ -112,6 +112,7 @@ func (e *declareEnv) signedDecl(t *testing.T, tag, tok string, files map[string]
 }
 
 func TestCountedDeclarationUnsignedIgnored(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	d := e.signedDecl(t, "0.1.0", "", declFiles("0.1.0", "ana@acme.com", "", false, nil))
 	if got, why, err := e.counted(t, e.trustingAcme(t), e.reg, "0.1.0", d); got != nil || err != nil || why != "declaration unsigned: no signature names the asker ana@acme.com" {
@@ -120,6 +121,7 @@ func TestCountedDeclarationUnsignedIgnored(t *testing.T) {
 }
 
 func TestCountedDeclarationOtherSignerIgnored(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	d := e.signedDecl(t, "0.1.0", personToken("bob@acme.com"), declFiles("0.1.0", "ana@acme.com", "", false, nil))
 	if got, why, err := e.counted(t, e.trustingAcme(t), e.reg, "0.1.0", d); got != nil || err != nil || why != "declaration signed by bob@acme.com, not the asker ana@acme.com" {
@@ -128,6 +130,7 @@ func TestCountedDeclarationOtherSignerIgnored(t *testing.T) {
 }
 
 func TestCountedDeclarationCISignerIgnored(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	d := e.signedDecl(t, "0.1.0", acmeCIToken(), declFiles("0.1.0", "ana@acme.com", "", false, nil))
 	if got, why, err := e.counted(t, e.trustingAcme(t), e.reg, "0.1.0", d); got != nil || err != nil || !strings.Contains(why, "(ci), not the asker ana@acme.com") {
@@ -136,6 +139,7 @@ func TestCountedDeclarationCISignerIgnored(t *testing.T) {
 }
 
 func TestCountedDeclarationDraftIgnored(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	d := e.signedDecl(t, "0.1.0", personToken("ana@acme.com"), declFiles("0.1.0", "ana@acme.com", "", true, nil))
 	if got, why, err := e.counted(t, e.trustingAcme(t), e.reg, "0.1.0", d); got != nil || err != nil || why != "a declaration draft is not a version" {
@@ -144,6 +148,7 @@ func TestCountedDeclarationDraftIgnored(t *testing.T) {
 }
 
 func TestCountedDeclarationSignerNotAllowed(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	d := e.signedDecl(t, "0.1.0", personToken("eve@evil.com"), declFiles("0.1.0", "eve@evil.com", "", false, nil))
 	if got, why, err := e.counted(t, e.trustingAcme(t), e.reg, "0.1.0", d); got != nil || err != nil || !strings.HasPrefix(why, "declaration by eve@evil.com not counted: ") {
@@ -156,6 +161,7 @@ func TestCountedDeclarationSignerNotAllowed(t *testing.T) {
 }
 
 func TestCountedDeclarationOtherServiceIgnored(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	files := declFiles("0.1.0", "ana@acme.com", "", false, nil)
 	files["pacto.yaml"] = strings.Replace(files["pacto.yaml"], "name: invoices", "name: payments", 1)
@@ -171,6 +177,7 @@ func TestCountedDeclarationOtherServiceIgnored(t *testing.T) {
 }
 
 func TestCountedDeclarationRetaggedIgnored(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	d := e.signedDecl(t, "0.1.0", personToken("ana@acme.com"), declFiles("0.1.0", "ana@acme.com", "", false, nil))
 	if err := e.reg.Tag(t.Context(), e.host+"/acme/invoices", d, "9.0.0"); err != nil {
@@ -244,6 +251,7 @@ func TestCountedDeclarationNoRootReachableNotChecked(t *testing.T) {
 }
 
 func TestCountedDeclarationConfiguredRootUnparsableIsError(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	d := e.signedDecl(t, "0.1.0", personToken("ana@acme.com"), declFiles("0.1.0", "ana@acme.com", "", false, nil))
 	tr := declarationTrustFrom(t.Context(), impactTrust(ImpactOptions{Signers: &delivery.ClassPolicy{Signers: []delivery.PersonSigner{
@@ -254,6 +262,7 @@ func TestCountedDeclarationConfiguredRootUnparsableIsError(t *testing.T) {
 }
 
 func TestCountedDeclarationUnreadIsError(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	d := e.signedDecl(t, "0.1.0", personToken("ana@acme.com"), declFiles("0.1.0", "ana@acme.com", "", false, nil))
 	if got, _, err := e.counted(t, e.trustingAcme(t), layerFails{e.reg}, "0.1.0", d); got != nil || err == nil || !strings.Contains(err.Error(), "reading the signatures of") {
@@ -266,6 +275,7 @@ func TestCountedDeclarationUnreadIsError(t *testing.T) {
 }
 
 func TestCountedDeclarationNoRecordReadsNoSignature(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	d := e.signedDecl(t, "1.0.0", "", e.invoicesBaseline("1.0.0", ""))
 	refs := &refCounter{Registry: e.reg}
@@ -281,6 +291,7 @@ func TestCountedDeclarationNoRecordReadsNoSignature(t *testing.T) {
 }
 
 func TestCountedDeclarationChecksIdentityBeforeSignature(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	repo := e.host + "/acme/invoices"
 	base := e.signedDecl(t, "0.1.0", "", e.invoicesBaseline("0.1.0", ""))

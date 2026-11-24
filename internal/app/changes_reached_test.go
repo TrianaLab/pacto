@@ -28,6 +28,7 @@ func refuseStages(e *recordEnv, nss ...string) {
 }
 
 func TestReachedReadsSignedArrivals(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	_, r2 := e.twoRecords()
 	got := e.d.Reached(context.Background(), "payments")
@@ -42,6 +43,7 @@ func TestReachedReadsSignedArrivals(t *testing.T) {
 }
 
 func TestReachedForbiddenHidden(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	refuseStages(e, "")
 	e.c.PrependReactor("list", "namespaces", func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -59,6 +61,7 @@ func TestReachedForbiddenHidden(t *testing.T) {
 }
 
 func TestReachedPartialNamespaces(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t, obj("v1", "Namespace", "", "prod", nil), obj("v1", "Namespace", "", "test", nil))
 	e.twoRecords()
 	refuseStages(e, "", "test")
@@ -75,6 +78,7 @@ func TestReachedPartialNamespaces(t *testing.T) {
 }
 
 func TestReachedNotServedNotRead(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.c.PrependReactor("list", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, errors.New("the server could not find the requested resource")
@@ -88,6 +92,7 @@ func TestReachedNotServedNotRead(t *testing.T) {
 // A Stage read only from Operation statuses may lack earlier moves: its
 // times are partial and it is named, never "not recorded".
 func TestReachedStatusHistoryPartial(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	got := e.d.Reached(context.Background(), "payments")
 	if got.Times != fleet.TimesPartial || !slices.Contains(got.Unreadable, "prod/payments-prod: earlier moves may be missing") {

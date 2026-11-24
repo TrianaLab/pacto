@@ -16,6 +16,7 @@ import (
 )
 
 func TestLoadLocalBundleAppliesPactoignore(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write := func(name, body string) {
 		full := filepath.Join(dir, name)
@@ -68,6 +69,7 @@ func TestLoadLocalBundleAppliesPactoignore(t *testing.T) {
 }
 
 func TestLoadLocalBundleIgnoreLoadError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	write := func(name, body string) {
 		full := filepath.Join(dir, name)
@@ -99,30 +101,35 @@ func TestLoadLocalBundleIgnoreLoadError(t *testing.T) {
 }
 
 func TestDefaultPath_Empty(t *testing.T) {
+	t.Parallel()
 	if got := defaultPath(""); got != "." {
 		t.Errorf("expected %q, got %q", ".", got)
 	}
 }
 
 func TestDefaultPath_NonEmpty(t *testing.T) {
+	t.Parallel()
 	if got := defaultPath("custom"); got != "custom" {
 		t.Errorf("expected custom, got %q", got)
 	}
 }
 
 func TestIsOCIRef_True(t *testing.T) {
+	t.Parallel()
 	if !isOCIRef("oci://ghcr.io/acme/svc:1.0.0") {
 		t.Error("expected true for oci:// prefix")
 	}
 }
 
 func TestIsOCIRef_False(t *testing.T) {
+	t.Parallel()
 	if isOCIRef("my-service") {
 		t.Error("expected false for local path")
 	}
 }
 
 func TestResolveLocalPath_Success(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	filePath, bundleDir, err := resolveLocalPath(dir)
 	if err != nil {
@@ -137,6 +144,7 @@ func TestResolveLocalPath_Success(t *testing.T) {
 }
 
 func TestResolveLocalPath_NotADirectory(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	filePath := filepath.Join(dir, "pacto.yaml")
 	_, _, err := resolveLocalPath(filePath)
@@ -146,6 +154,7 @@ func TestResolveLocalPath_NotADirectory(t *testing.T) {
 }
 
 func TestResolveLocalPath_MissingPactoYAML(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	_, _, err := resolveLocalPath(dir)
 	if err == nil {
@@ -154,6 +163,7 @@ func TestResolveLocalPath_MissingPactoYAML(t *testing.T) {
 }
 
 func TestResolveLocalPath_NonexistentDir(t *testing.T) {
+	t.Parallel()
 	_, _, err := resolveLocalPath("/nonexistent/dir")
 	if err == nil {
 		t.Error("expected error for nonexistent directory")
@@ -161,6 +171,7 @@ func TestResolveLocalPath_NonexistentDir(t *testing.T) {
 }
 
 func TestResolveBundle_LocalPath(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	bundle, err := svc.resolveBundle(context.Background(), dir)
@@ -176,6 +187,7 @@ func TestResolveBundle_LocalPath(t *testing.T) {
 }
 
 func TestResolveBundle_Exported(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	bundle, err := svc.ResolveBundle(context.Background(), dir)
@@ -191,6 +203,7 @@ func TestResolveBundle_Exported(t *testing.T) {
 }
 
 func TestResolveBundle_LocalPath_NotFound(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.resolveBundle(context.Background(), "/nonexistent/dir")
 	if err == nil {
@@ -199,6 +212,7 @@ func TestResolveBundle_LocalPath_NotFound(t *testing.T) {
 }
 
 func TestResolveBundle_LocalPath_UnreadableFile(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	pactoPath := filepath.Join(dir, "pacto.yaml")
 	if err := os.Chmod(pactoPath, 0000); err != nil {
@@ -214,6 +228,7 @@ func TestResolveBundle_LocalPath_UnreadableFile(t *testing.T) {
 }
 
 func TestResolveBundle_LocalPath_InvalidYAML(t *testing.T) {
+	t.Parallel()
 	dir := writeUnparseableBundle(t)
 	svc := NewService(nil, nil)
 	_, err := svc.resolveBundle(context.Background(), dir)
@@ -223,6 +238,7 @@ func TestResolveBundle_LocalPath_InvalidYAML(t *testing.T) {
 }
 
 func TestResolveBundle_OCI_Success(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	bundle, err := svc.resolveBundle(context.Background(), "oci://ghcr.io/acme/svc:1.0.0")
@@ -235,6 +251,7 @@ func TestResolveBundle_OCI_Success(t *testing.T) {
 }
 
 func TestResolveBundle_OCI_NoTag_ResolvesLatest(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
 			return []string{"1.0.0", "2.0.0", "3.0.0"}, nil
@@ -251,6 +268,7 @@ func TestResolveBundle_OCI_NoTag_ResolvesLatest(t *testing.T) {
 }
 
 func TestResolveBundle_OCI_NoTag_ListTagsError(t *testing.T) {
+	t.Parallel()
 	store := errBundleStore("list failed")
 	svc := NewService(store, nil)
 	_, err := svc.resolveBundle(context.Background(), "oci://ghcr.io/acme/svc")
@@ -260,6 +278,7 @@ func TestResolveBundle_OCI_NoTag_ListTagsError(t *testing.T) {
 }
 
 func TestResolveBundle_OCI_NilStore(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.resolveBundle(context.Background(), "oci://ghcr.io/acme/svc:1.0.0")
 	if err == nil {
@@ -268,6 +287,7 @@ func TestResolveBundle_OCI_NilStore(t *testing.T) {
 }
 
 func TestResolveBundle_OCI_StoreError(t *testing.T) {
+	t.Parallel()
 	store := errBundleStore("pull failed")
 	svc := NewService(store, nil)
 	_, err := svc.resolveBundle(context.Background(), "oci://ghcr.io/acme/svc:1.0.0")
@@ -277,6 +297,7 @@ func TestResolveBundle_OCI_StoreError(t *testing.T) {
 }
 
 func TestExtractBundleFS(t *testing.T) {
+	t.Parallel()
 	fsys := fstest.MapFS{
 		"pacto.yaml":   &fstest.MapFile{Data: []byte("test")},
 		"sub/file.txt": &fstest.MapFile{Data: []byte("nested")},
@@ -304,6 +325,7 @@ func TestExtractBundleFS(t *testing.T) {
 }
 
 func TestExtractBundleFS_WithDirectory(t *testing.T) {
+	t.Parallel()
 	fsys := fstest.MapFS{
 		"dir":          &fstest.MapFile{Mode: os.ModeDir},
 		"dir/file.txt": &fstest.MapFile{Data: []byte("content")},
@@ -323,6 +345,7 @@ func TestExtractBundleFS_WithDirectory(t *testing.T) {
 }
 
 func TestPrepareBundleDir_LocalPath(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	bundleDir, cleanup, err := (&Service{}).prepareBundleDir(dir, nil)
 	if err != nil {
@@ -337,6 +360,7 @@ func TestPrepareBundleDir_LocalPath(t *testing.T) {
 }
 
 func TestPrepareBundleDir_OCI(t *testing.T) {
+	t.Parallel()
 	fsys := fstest.MapFS{
 		"pacto.yaml": &fstest.MapFile{Data: []byte("test")},
 	}
@@ -355,6 +379,7 @@ func TestPrepareBundleDir_OCI(t *testing.T) {
 }
 
 func TestExtractBundleFS_ReadFileError(t *testing.T) {
+	t.Parallel()
 	fsys := readFailFS{fstest.MapFS{
 		"test.txt": &fstest.MapFile{Data: []byte("content")},
 	}}
@@ -366,6 +391,7 @@ func TestExtractBundleFS_ReadFileError(t *testing.T) {
 }
 
 func TestExtractBundleFS_MkdirAllError(t *testing.T) {
+	t.Parallel()
 	fsys := fstest.MapFS{
 		"file.txt": &fstest.MapFile{Data: []byte("content")},
 	}
@@ -377,6 +403,7 @@ func TestExtractBundleFS_MkdirAllError(t *testing.T) {
 }
 
 func TestExtractBundleFS_WalkError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	err := extractBundleFS(&errFS{}, dir)
 	if err == nil {
@@ -385,6 +412,7 @@ func TestExtractBundleFS_WalkError(t *testing.T) {
 }
 
 func TestPrepareBundleDir_OCIExtractError(t *testing.T) {
+	t.Parallel()
 	_, _, err := (&Service{}).prepareBundleDir("oci://ghcr.io/acme/svc:1.0.0", &errFS{})
 	if err == nil {
 		t.Error("expected error when extracting bundle FS fails")
@@ -392,6 +420,7 @@ func TestPrepareBundleDir_OCIExtractError(t *testing.T) {
 }
 
 func TestApplyOverrides_Empty(t *testing.T) {
+	t.Parallel()
 	bundle := testBundle()
 	result, err := applyOverrides(bundle, override.Overrides{})
 	if err != nil {
@@ -403,6 +432,7 @@ func TestApplyOverrides_Empty(t *testing.T) {
 }
 
 func TestApplyOverrides_WithSet(t *testing.T) {
+	t.Parallel()
 	bundle := testBundle()
 	result, err := applyOverrides(bundle, override.Overrides{
 		SetValues: []string{"service.version=9.9.9"},
@@ -416,6 +446,7 @@ func TestApplyOverrides_WithSet(t *testing.T) {
 }
 
 func TestApplyOverrides_NilRawYAML_FSReadError(t *testing.T) {
+	t.Parallel()
 	bundle := &contract.Bundle{
 		Contract: testBundle().Contract,
 		RawYAML:  nil,
@@ -430,6 +461,7 @@ func TestApplyOverrides_NilRawYAML_FSReadError(t *testing.T) {
 }
 
 func TestApplyOverrides_NilRawYAML_WithFS(t *testing.T) {
+	t.Parallel()
 	bundle := testBundle()
 	bundle.RawYAML = nil // Force read from FS
 	result, err := applyOverrides(bundle, override.Overrides{
@@ -444,6 +476,7 @@ func TestApplyOverrides_NilRawYAML_WithFS(t *testing.T) {
 }
 
 func TestApplyOverrides_NilRawYAML_NilFS(t *testing.T) {
+	t.Parallel()
 	bundle := &contract.Bundle{
 		Contract: testBundle().Contract,
 		RawYAML:  nil,
@@ -458,6 +491,7 @@ func TestApplyOverrides_NilRawYAML_NilFS(t *testing.T) {
 }
 
 func TestApplyOverrides_InvalidOverride(t *testing.T) {
+	t.Parallel()
 	bundle := testBundle()
 	_, err := applyOverrides(bundle, override.Overrides{
 		SetValues: []string{"no-equals"},
@@ -468,6 +502,7 @@ func TestApplyOverrides_InvalidOverride(t *testing.T) {
 }
 
 func TestApplyOverrides_InvalidOverrideResult(t *testing.T) {
+	t.Parallel()
 	// Override service to a scalar — this will produce YAML that fails
 	// structural validation (JSON Schema).
 	bundle := testBundle()
@@ -480,6 +515,7 @@ func TestApplyOverrides_InvalidOverrideResult(t *testing.T) {
 }
 
 func TestApplyOverrides_SchemaViolation(t *testing.T) {
+	t.Parallel()
 	// Override an enum field to an invalid value — this should fail structural
 	// validation even though Go struct unmarshalling would accept it.
 	bundle := testBundle()
@@ -495,6 +531,7 @@ func TestApplyOverrides_SchemaViolation(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_Success(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	c, rawYAML, bundleFS, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{}, nil)
 	if err != nil {
@@ -512,6 +549,7 @@ func TestLoadAndValidateLocal_Success(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_FileNotFound(t *testing.T) {
+	t.Parallel()
 	_, _, _, err := loadAndValidateLocal(context.Background(), "/nonexistent/dir", override.Overrides{}, contract.InferredInputs{}, nil)
 	if err == nil {
 		t.Error("expected error for nonexistent directory")
@@ -519,6 +557,7 @@ func TestLoadAndValidateLocal_FileNotFound(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_UnreadableFile(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	pactoPath := filepath.Join(dir, "pacto.yaml")
 	if err := os.Chmod(pactoPath, 0000); err != nil {
@@ -533,6 +572,7 @@ func TestLoadAndValidateLocal_UnreadableFile(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_InvalidContract(t *testing.T) {
+	t.Parallel()
 	dir := writeUnparseableBundle(t)
 	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{}, nil)
 	if err == nil {
@@ -541,6 +581,7 @@ func TestLoadAndValidateLocal_InvalidContract(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_OverrideError(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{
 		SetValues: []string{"no-equals"},
@@ -551,6 +592,7 @@ func TestLoadAndValidateLocal_OverrideError(t *testing.T) {
 }
 
 func TestLoadAndValidateLocal_ValidationFails(t *testing.T) {
+	t.Parallel()
 	dir := writeInvalidBundle(t)
 	_, _, _, err := loadAndValidateLocal(context.Background(), dir, override.Overrides{}, contract.InferredInputs{}, nil)
 	if err == nil {
@@ -559,6 +601,7 @@ func TestLoadAndValidateLocal_ValidationFails(t *testing.T) {
 }
 
 func TestLoadAndValidateFull_Success(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	store := &mockBundleStore{}
 	c, rawYAML, bundleFS, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, store, contract.InferredInputs{}, nil, false)
@@ -577,6 +620,7 @@ func TestLoadAndValidateFull_Success(t *testing.T) {
 }
 
 func TestLoadAndValidateFull_NilStore(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	c, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{}, nil, false)
 	if err != nil {
@@ -588,6 +632,7 @@ func TestLoadAndValidateFull_NilStore(t *testing.T) {
 }
 
 func TestLoadAndValidateFull_FileNotFound(t *testing.T) {
+	t.Parallel()
 	_, _, _, err := loadAndValidateFull(context.Background(), "/nonexistent/dir", override.Overrides{}, nil, contract.InferredInputs{}, nil, false)
 	if err == nil {
 		t.Error("expected error for nonexistent directory")
@@ -595,6 +640,7 @@ func TestLoadAndValidateFull_FileNotFound(t *testing.T) {
 }
 
 func TestLoadAndValidateFull_OverrideError(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{
 		SetValues: []string{"no-equals"},
@@ -605,6 +651,7 @@ func TestLoadAndValidateFull_OverrideError(t *testing.T) {
 }
 
 func TestLoadAndValidateFull_ValidationFails(t *testing.T) {
+	t.Parallel()
 	dir := writeInvalidBundle(t)
 	_, _, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{}, nil, contract.InferredInputs{}, nil, false)
 	if err == nil {
@@ -613,6 +660,7 @@ func TestLoadAndValidateFull_ValidationFails(t *testing.T) {
 }
 
 func TestLoadAndValidateFull_PolicyRefUnresolved(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := []byte(`pactoVersion: "2.0"
 service:
@@ -648,6 +696,7 @@ capabilities:
 }
 
 func TestLoadAndValidateFull_PolicyRefResolved(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := []byte(`pactoVersion: "2.0"
 service:
@@ -702,6 +751,7 @@ capabilities:
 }
 
 func TestLoadAndValidateFull_PolicyViolation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := []byte(`pactoVersion: "2.0"
 service:
@@ -750,6 +800,7 @@ capabilities:
 }
 
 func TestCopyFSWithReplace_ErrorFS(t *testing.T) {
+	t.Parallel()
 	_, err := copyFSWithReplace(errFS{}, "pacto.yaml", []byte("data"))
 	if err == nil {
 		t.Error("expected error for errFS")
@@ -757,6 +808,7 @@ func TestCopyFSWithReplace_ErrorFS(t *testing.T) {
 }
 
 func TestCopyFSWithReplace_ReadFileError(t *testing.T) {
+	t.Parallel()
 	base := readFailFS{fstest.MapFS{
 		"other.yaml": &fstest.MapFile{Data: []byte("data")},
 	}}
@@ -767,6 +819,7 @@ func TestCopyFSWithReplace_ReadFileError(t *testing.T) {
 }
 
 func TestApplyOverrides_CopyFSError(t *testing.T) {
+	t.Parallel()
 	b := testBundle()
 	b.FS = errFS{}
 	_, err := applyOverrides(b, override.Overrides{SetValues: []string{"service.version=9.9.9"}})
@@ -776,6 +829,7 @@ func TestApplyOverrides_CopyFSError(t *testing.T) {
 }
 
 func TestCopyFSWithReplace(t *testing.T) {
+	t.Parallel()
 	base := fstest.MapFS{
 		"pacto.yaml":   &fstest.MapFile{Data: []byte("original")},
 		"openapi.yaml": &fstest.MapFile{Data: []byte("openapi content")},
@@ -826,6 +880,7 @@ func implicitBundle(t *testing.T, raw string) *contract.Bundle {
 }
 
 func TestPublishablePinsVersion(t *testing.T) {
+	t.Parallel()
 	b, err := publishable(implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n"), false)
 	if err != nil {
 		t.Fatal(err)
@@ -847,6 +902,7 @@ func TestPublishablePinsVersion(t *testing.T) {
 }
 
 func TestPublishableKeepsDeclaredVersion(t *testing.T) {
+	t.Parallel()
 	in := implicitBundle(t, "pactoVersion: \"2.0\"\nservice:\n  name: a\n  version: 1.0.0\n")
 	if b, err := publishable(in, false); err != nil || b != in {
 		t.Fatalf("got %v, %v", b, err)
@@ -854,6 +910,7 @@ func TestPublishableKeepsDeclaredVersion(t *testing.T) {
 }
 
 func TestPublishablePinIsDeterministic(t *testing.T) {
+	t.Parallel()
 	var digests []string
 	for range 2 {
 		b, err := publishable(implicitBundle(t, "service:\n  name: a\n  version: 1.0.0\n"), false)
@@ -872,6 +929,7 @@ func TestPublishablePinIsDeterministic(t *testing.T) {
 }
 
 func TestPublishableRefusesMissingVersion(t *testing.T) {
+	t.Parallel()
 	_, err := publishable(implicitBundle(t, "service:\n  name: a\n"), false)
 	if !errors.Is(err, ErrPublishNeedsServiceVersion) || !strings.HasPrefix(err.Error(), "PUBLISH_NEEDS_SERVICE_VERSION") {
 		t.Fatalf("got %v", err)
@@ -879,6 +937,7 @@ func TestPublishableRefusesMissingVersion(t *testing.T) {
 }
 
 func TestPublishableRefusesMissingName(t *testing.T) {
+	t.Parallel()
 	_, err := publishable(implicitBundle(t, "service:\n  version: 1.0.0\n"), false)
 	if !errors.Is(err, ErrPublishNeedsServiceName) || !strings.HasPrefix(err.Error(), "PUBLISH_NEEDS_SERVICE_NAME") {
 		t.Fatalf("got %v", err)
@@ -886,6 +945,7 @@ func TestPublishableRefusesMissingName(t *testing.T) {
 }
 
 func TestPublishablePinFailures(t *testing.T) {
+	t.Parallel()
 	named := &contract.Contract{Service: contract.Service{Name: "a", Version: "1.0.0"}}
 	for raw, want := range map[string]string{
 		"[a]": "not a mapping",
@@ -906,6 +966,7 @@ func TestPublishablePinFailures(t *testing.T) {
 // Push and publish load through loadAndValidateFull, so it must refuse an
 // undeclared service.version just as pack does.
 func TestLoadAndValidateFullRefusesMissingVersion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: a\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -934,6 +995,7 @@ func emptyChartDir(t *testing.T, contractYAML string) string {
 }
 
 func TestLoadLocalBundleInfersName(t *testing.T) {
+	t.Parallel()
 	b, err := loadLocalBundle(emptyChartDir(t, ""))
 	if err != nil {
 		t.Fatal(err)
@@ -948,6 +1010,7 @@ func TestLoadLocalBundleInfersName(t *testing.T) {
 }
 
 func TestPublishableRefusesInferredName(t *testing.T) {
+	t.Parallel()
 	b, err := loadLocalBundle(emptyChartDir(t, "service:\n  version: 1.0.0\n"))
 	if err != nil {
 		t.Fatal(err)
@@ -959,6 +1022,7 @@ func TestPublishableRefusesInferredName(t *testing.T) {
 }
 
 func TestOverrideNameClearsInferredName(t *testing.T) {
+	t.Parallel()
 	b, err := loadLocalBundleWithOverrides(emptyChartDir(t, ""), override.Overrides{SetValues: []string{"service.name=billing"}})
 	if err != nil {
 		t.Fatal(err)
@@ -969,6 +1033,7 @@ func TestOverrideNameClearsInferredName(t *testing.T) {
 }
 
 func TestPublishWithOverrideNamePublishes(t *testing.T) {
+	t.Parallel()
 	dir := emptyChartDir(t, "service:\n  version: 1.0.0\n")
 	c, raw, _, err := loadAndValidateFull(context.Background(), dir, override.Overrides{SetValues: []string{"service.name=payments"}}, nil, contract.InferredInputs{}, nil, false)
 	if err != nil {
@@ -980,6 +1045,7 @@ func TestPublishWithOverrideNamePublishes(t *testing.T) {
 }
 
 func TestLoadLocalBundleWithOverridesErrors(t *testing.T) {
+	t.Parallel()
 	dir := emptyChartDir(t, "")
 	if _, err := loadLocalBundleWithOverrides(dir, override.Overrides{SetValues: []string{"service.name=Bad_Name"}}); err == nil {
 		t.Fatal("an invalid override must fail")
@@ -990,6 +1056,7 @@ func TestLoadLocalBundleWithOverridesErrors(t *testing.T) {
 }
 
 func TestResolveBundleAsWrittenOverrideError(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "s", map[string]string{"s/pacto.yaml": "pactoVersion: '2.5'\nservice: {name: s, version: 1.0.0}\n"})
 	if _, _, err := NewService(nil, nil).resolveBundleAsWritten(context.Background(), dir, override.Overrides{SetValues: []string{"workload=nope"}}); err == nil {
 		t.Fatal("an override that breaks the contract loaded")

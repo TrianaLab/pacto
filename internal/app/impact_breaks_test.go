@@ -30,7 +30,6 @@ type breakRepo struct {
 
 func newBreakRepo(t *testing.T, expires string) *breakRepo {
 	t.Helper()
-	noAmbient(t)
 	e := &breakRepo{ciRepoEnv: newCIRepo(t), ss: testutil.New(t)}
 	e.svc.sys.refusalRepo = func(path string) (*remote.Repository, error) {
 		return ocireferrer.Open(path, ocireferrer.Options{Keychain: anonymous})
@@ -96,6 +95,7 @@ func webOf(t *testing.T, res *impact.Result) impact.AffectedConsumer {
 }
 
 func TestBreakAcceptedBeforeProviderPublish(t *testing.T) {
+	t.Parallel()
 	e := newBreakRepo(t, "2999-01-01")
 	p, res := e.planCI(t, nil)
 	if c := webOf(t, res); p.text != "blocked (web)" || c.Break == nil || c.Break.State != impact.BreakAnnounced {
@@ -118,6 +118,7 @@ func TestBreakAcceptedBeforeProviderPublish(t *testing.T) {
 }
 
 func TestImpactAndCIAgreeOnUndatedBreak(t *testing.T) {
+	t.Parallel()
 	e := newBreakRepo(t, "")
 	env := map[string]string{"SOURCE_DATE_EPOCH": "1795000000"}
 	_, ciRes := e.planCI(t, env)
@@ -134,6 +135,7 @@ func TestImpactAndCIAgreeOnUndatedBreak(t *testing.T) {
 }
 
 func TestDeclaredExpiryWinsOverRecord(t *testing.T) {
+	t.Parallel()
 	rec := acceptRecordOf(contract.Inferred{Field: "breaks[0].expires", Value: "2026-12-14", Source: "commit:0123456789ab +30d", Confidence: contract.ConfidenceLikely},
 		contract.Inferred{Field: "breaks[1].expires", Value: "2026-12-14", Source: "commit:0123456789ab +30d", Confidence: contract.ConfidenceLikely})
 	c := &contract.Contract{Service: contract.Service{Name: "payments"}, Breaks: []contract.Break{
@@ -150,6 +152,7 @@ func TestDeclaredExpiryWinsOverRecord(t *testing.T) {
 }
 
 func TestImpactTrust(t *testing.T) {
+	t.Parallel()
 	if impactTrust(ImpactOptions{}) != nil {
 		t.Fatal("no trust")
 	}
@@ -164,6 +167,7 @@ func TestImpactTrust(t *testing.T) {
 }
 
 func TestRevisionRepos(t *testing.T) {
+	t.Parallel()
 	rev := &fleet.ContractRevision{ResolvedRef: "oci://reg/acme/web@sha256:00",
 		Contract: &contract.Contract{Publish: &contract.Publish{Bundle: "oci://reg/acme/web-bundle"}}}
 	if got := revisionRepos(rev); strings.Join(got, " ") != "reg/acme/web-bundle reg/acme/web" {
@@ -174,6 +178,7 @@ func TestRevisionRepos(t *testing.T) {
 // TestImpactReadsRangeAcceptances: with no break announced, impact still
 // reads a consumer's acceptances, so a counted range counts as accepted.
 func TestImpactReadsRangeAcceptances(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personToken("ana@acme.com"), tag: true})
 	if e.svc.impactAcceptances(t.Context(), ImpactOptions{}, &fleet.FleetSnapshot{}, nil) != nil {
@@ -190,6 +195,7 @@ func TestImpactReadsRangeAcceptances(t *testing.T) {
 // TestImpactNotesPublicGoodJudgement: an answer that counts a signed
 // acceptance judged with public-good issuers says so.
 func TestImpactNotesPublicGoodJudgement(t *testing.T) {
+	t.Parallel()
 	read := ImpactOptions{Acceptances: true}
 	for _, res := range []*impact.Result{
 		{Ranges: &impact.RangeCoverage{Accepted: 1}},

@@ -104,6 +104,7 @@ func onePayments() *runEnv {
 }
 
 func TestImpactRunningJudgesRunningRevision(t *testing.T) {
+	t.Parallel()
 	res := mustRun(t, onePayments().withLedger("^1"), "2.0.0")
 	if res.Gate != impact.GateBlocked || res.Running == nil || res.Running.Judged != "oci://"+runReg+"/payments:1.0.0@sha256:p1" || res.OldVersion != "1.0.0" || res.Running.FirstVersion {
 		t.Fatalf("gate %s %q running %+v old %s", res.Gate, res.GateReason, res.Running, res.OldVersion)
@@ -111,6 +112,7 @@ func TestImpactRunningJudgesRunningRevision(t *testing.T) {
 }
 
 func TestImpactRunningWorstGateWins(t *testing.T) {
+	t.Parallel()
 	e := onePayments().withLedger("^1")
 	e.col.Revisions = append(e.col.Revisions, payRev("2.0.0", "sha256:p2"))
 	e.col.Targets = append(e.col.Targets, payTarget("pay-canary", "sha256:p2"))
@@ -121,6 +123,7 @@ func TestImpactRunningWorstGateWins(t *testing.T) {
 }
 
 func TestImpactRunningNoTargetIsFirstVersion(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.0.0", "sha256:p1")}}}
 	res := mustRun(t, e.withLedger("^2"), "2.0.0")
 	if res.Gate != impact.GateClear || res.Running.Refs == nil || len(res.Running.Refs) != 0 || !res.Running.FirstVersion || res.Running.Judged != "" {
@@ -140,12 +143,14 @@ func unread(t *testing.T, e *runEnv, want string) *impact.Result {
 }
 
 func TestImpactRunningInlineContractIsUnread(t *testing.T) {
+	t.Parallel()
 	e := onePayments()
 	e.col.Revisions[0].ResolvedRef = ""
 	unread(t, e, "runs a revision with no registry ref")
 }
 
 func TestImpactRunningUnlinkedTargetIsUnread(t *testing.T) {
+	t.Parallel()
 	e := onePayments()
 	e.col.Targets[0].Digest = "sha256:other"
 	unread(t, e, "runs a revision Pacto could not link")
@@ -166,6 +171,7 @@ func TestImpactRunningUnlinkedTargetIsUnread(t *testing.T) {
 // A live cluster read runs a digest-pinned revision the registry no longer
 // lists by tag: the target's own pinned ref is judged rather than left unread.
 func TestImpactRunningJudgesTargetPinnedRefWithoutRevision(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{col: fleet.Collection{Targets: []fleet.RawTarget{payTarget("pay", "sha256:p1")}}}
 	e.col.Targets[0].ResolvedRef = runReg + "/payments:1.0.0@sha256:p1"
 	res := mustRun(t, e.withLedger("^1"), "2.0.0")
@@ -179,6 +185,7 @@ func TestImpactRunningJudgesTargetPinnedRefWithoutRevision(t *testing.T) {
 }
 
 func TestImpactRunningInferredLinkNeverClears(t *testing.T) {
+	t.Parallel()
 	e := onePayments()
 	// The target names the tag only: a mutable correlation, never proof.
 	e.col.Targets[0].Digest, e.col.Targets[0].ResolvedRef = "", runReg+"/payments:1.0.0"
@@ -192,6 +199,7 @@ func TestImpactRunningInferredLinkNeverClears(t *testing.T) {
 }
 
 func TestImpactRunningOnlyUnreadStillBlocksIncompatible(t *testing.T) {
+	t.Parallel()
 	e := onePayments().withLedger("^1")
 	e.col.Revisions[0].ResolvedRef = ""
 	res := mustRun(t, e, "2.0.0")
@@ -207,12 +215,14 @@ func inferredPayments() fleet.Source {
 }
 
 func TestImpactRunningInferredWorkloadIsUnread(t *testing.T) {
+	t.Parallel()
 	e := onePayments()
 	e.extra = []fleet.Source{inferredPayments()}
 	unread(t, e, "pay/payments runs an undeclared revision of payments")
 }
 
 func TestFirstVersionNotSetWhenInferredRuns(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.0.0", "sha256:p1")}}, extra: []fleet.Source{inferredPayments()}}
 	res := mustRun(t, e, "2.0.0")
 	if res.Gate != impact.GateUnverified || res.GateCode() != impact.GateCodeRunningUnread {
@@ -221,6 +231,7 @@ func TestFirstVersionNotSetWhenInferredRuns(t *testing.T) {
 }
 
 func TestImpactRunningPullFailureIsUnread(t *testing.T) {
+	t.Parallel()
 	e := onePayments()
 	e.fail = true
 	res := unread(t, e, "payments:1.0.0@sha256:p1: could not be pulled")
@@ -230,6 +241,7 @@ func TestImpactRunningPullFailureIsUnread(t *testing.T) {
 }
 
 func TestImpactRunningForeignHostIsUnread(t *testing.T) {
+	t.Parallel()
 	e := onePayments()
 	e.col.Revisions[0].ResolvedRef = "evil.example/acme/payments:1.0.0"
 	unread(t, e, "oci://evil.example/acme/payments:1.0.0@sha256:p1: registry not allowed")
@@ -239,6 +251,7 @@ func TestImpactRunningForeignHostIsUnread(t *testing.T) {
 }
 
 func TestImpactRunningBound(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{}
 	for i := range MaxRunningRevisions + 1 {
 		v, d := "1.0."+strconv.Itoa(i), "sha256:p"+strconv.Itoa(i)
@@ -254,6 +267,7 @@ func TestImpactRunningBound(t *testing.T) {
 // TestRunningExcludedNewTakesNoBoundSlot: the new revision is left out
 // before the MaxRunningRevisions cut, so it never takes a baseline's slot.
 func TestRunningExcludedNewTakesNoBoundSlot(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{}
 	for i := range MaxRunningRevisions + 1 {
 		v, d := "1.0."+strconv.Itoa(i), "sha256:p"+strconv.Itoa(i)
@@ -268,6 +282,7 @@ func TestRunningExcludedNewTakesNoBoundSlot(t *testing.T) {
 }
 
 func TestImpactRunningDomainFromRunningRef(t *testing.T) {
+	t.Parallel()
 	res := mustRun(t, onePayments().withLedger("^1"), "1.1.0")
 	if res.Classification != "BREAKING" || res.Gate != impact.GateUnverified || len(res.Consumers) != 1 || res.Consumers[0].Service != "ledger" {
 		t.Fatalf("gate %s %q consumers %+v", res.Gate, res.GateReason, res.Consumers)
@@ -275,6 +290,7 @@ func TestImpactRunningDomainFromRunningRef(t *testing.T) {
 }
 
 func TestImpactRunningFirstVersionLocalPathFindsRegistryConsumers(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.0.0", "sha256:p1")}}}
 	res := mustRun(t, e.withLedger("^1"), "2.0.0")
 	if res.Gate != impact.GateBlocked || !strings.Contains(res.GateReason, "ledger") || !res.Running.FirstVersion {
@@ -283,6 +299,7 @@ func TestImpactRunningFirstVersionLocalPathFindsRegistryConsumers(t *testing.T) 
 }
 
 func TestImpactRunningAmbiguousDomainRefused(t *testing.T) {
+	t.Parallel()
 	other := payRev("1.0.0", "sha256:o1")
 	other.Domain, other.ResolvedRef = "other.example/team", "other.example/team/payments:1.0.0"
 	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.0.0", "sha256:p1"), other}}}
@@ -293,6 +310,7 @@ func TestImpactRunningAmbiguousDomainRefused(t *testing.T) {
 }
 
 func TestImpactRunningNoDomainIsUnverified(t *testing.T) {
+	t.Parallel()
 	res := mustRun(t, &runEnv{}, "2.0.0")
 	if res.Gate != impact.GateUnverified || res.GateCode() != impact.GateCodeServiceNotInFleet || !res.Running.FirstVersion ||
 		!strings.Contains(res.GateReason, "payments is in no fleet domain") || !strings.Contains(res.GateReason, "oci:// reference") ||
@@ -309,6 +327,7 @@ func threePayments(rng string) *runEnv {
 }
 
 func TestImpactRunningRangeBlocksAnUnchangedSurface(t *testing.T) {
+	t.Parallel()
 	res := mustRun(t, threePayments("^3"), "4.0.0")
 	if res.Classification == "BREAKING" || res.Gate != impact.GateBlocked || res.Running.Judged == "" || res.Running.FirstVersion {
 		t.Fatalf("%s gate %s %q running %+v", res.Classification, res.Gate, res.GateReason, res.Running)
@@ -316,6 +335,7 @@ func TestImpactRunningRangeBlocksAnUnchangedSurface(t *testing.T) {
 }
 
 func TestImpactRunningPartialNeverClears(t *testing.T) {
+	t.Parallel()
 	e := threePayments("^3")
 	e.extra = []fleet.Source{fleet.NewFailingSource("cluster-b", "memory", context.DeadlineExceeded)}
 	res := mustRun(t, e, "3.1.0")
@@ -328,6 +348,7 @@ func TestImpactRunningPartialNeverClears(t *testing.T) {
 }
 
 func TestImpactRunningUnreadWorkloadsNeverClear(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.0.0", "sha256:p1")}},
 		extra: []fleet.Source{fleet.NewFailingSource("k"+workloadsSuffix, fleet.SourceKindKubernetesWorkloads, context.DeadlineExceeded)}}
 	res := mustRun(t, e, "2.0.0")
@@ -338,6 +359,7 @@ func TestImpactRunningUnreadWorkloadsNeverClear(t *testing.T) {
 }
 
 func TestImpactRunningRebuiltSnapshotDriftNeverClears(t *testing.T) {
+	t.Parallel()
 	// The served snapshot predates the payments target; the rebuild the
 	// index forces finds it.
 	served := threePayments("^4")
@@ -359,6 +381,7 @@ func TestImpactRunningRebuiltSnapshotDriftNeverClears(t *testing.T) {
 }
 
 func TestImpactRunningOCINewKeepsItsDomain(t *testing.T) {
+	t.Parallel()
 	e := onePayments().withLedger("^1")
 	store := &mockBundleStore{PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
 		if strings.HasSuffix(ref, "@sha256:abc123") { // the new tag, pinned to what it resolved to
@@ -376,6 +399,7 @@ func TestImpactRunningOCINewKeepsItsDomain(t *testing.T) {
 }
 
 func TestImpactRunningErrors(t *testing.T) {
+	t.Parallel()
 	if _, err := NewService(nil, nil).ImpactRunning(context.Background(), ImpactOptions{NewPath: "/nonexistent"}, nil); err == nil {
 		t.Fatal("bad new path")
 	}
@@ -410,6 +434,7 @@ func freshNow() *time.Time {
 }
 
 func TestImpactRunningUnreadIsBounded(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.0.0", "sha256:p1")}}}
 	for i := range maxUnreadLines + 5 {
 		e.col.Targets = append(e.col.Targets, payTarget("pay"+strconv.Itoa(i), "sha256:none"))
@@ -432,6 +457,7 @@ func (c *countingSource) Collect(ctx context.Context) (*fleet.Collection, error)
 }
 
 func TestImpactRunningBuildsTheIndexOncePerRepository(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{}
 	for i := range 3 {
 		v, d := "1.0."+strconv.Itoa(i), "sha256:p"+strconv.Itoa(i)
@@ -449,6 +475,7 @@ func TestImpactRunningBuildsTheIndexOncePerRepository(t *testing.T) {
 }
 
 func TestImpactRunningIndexRebuildError(t *testing.T) {
+	t.Parallel()
 	e := onePayments()
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("mem", "memory", &e.col))
 	if err != nil {
@@ -471,6 +498,7 @@ func ociNew(ref string) func(*ImpactOptions) {
 }
 
 func TestRunningExcludesNewDigest(t *testing.T) {
+	t.Parallel()
 	e := onePayments().withLedger("^1")
 	e.col.Revisions = append(e.col.Revisions, payRev("1.1.0", "sha256:p11"))
 	e.col.Targets = append(e.col.Targets, payTarget("pay-canary", "sha256:p11"))
@@ -496,6 +524,7 @@ func countPulls(pulled []string, part string) int {
 }
 
 func TestRunningOnlyNewRunsStillBlocks(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("2.0.0", "sha256:p2")}, Targets: []fleet.RawTarget{payTarget("pay", "sha256:p2")}}}
 	res := mustRun(t, e.withLedger("^1"), "2.0.0", ociNew("oci://"+runReg+"/payments:2.0.0@sha256:p2"))
 	r := res.Running
@@ -505,6 +534,7 @@ func TestRunningOnlyNewRunsStillBlocks(t *testing.T) {
 }
 
 func TestRunningSkippedFailedRegistryNeighbour(t *testing.T) {
+	t.Parallel()
 	// 1.1.0 runs; 1.2.0 removed the api and was held; 1.2.1 keeps the
 	// removal, so it diffs clean against 1.2.0 but breaks against 1.1.0.
 	cut := func(v string) *contract.Bundle {
@@ -532,6 +562,7 @@ func TestRunningSkippedFailedRegistryNeighbour(t *testing.T) {
 }
 
 func TestRunningLocalNewExcludesNothing(t *testing.T) {
+	t.Parallel()
 	res := mustRun(t, onePayments(), "1.0.0")
 	if res.Running.Excluded != nil || len(res.Running.Refs) != 1 {
 		t.Fatalf("running %+v", res.Running)
@@ -539,6 +570,7 @@ func TestRunningLocalNewExcludesNothing(t *testing.T) {
 }
 
 func TestRunningNewDigestResolvedFromTag(t *testing.T) {
+	t.Parallel()
 	e := onePayments()
 	store := &mockBundleStore{
 		PullFn:    func(_ context.Context, ref string) (*contract.Bundle, error) { return payBundle(refVersion(ref)), nil },
@@ -576,6 +608,7 @@ func (p *pinnedRunStore) PullPinned(ctx context.Context, ref string) (*contract.
 // TestRunningExcludesThePulledDigest: the excluded digest is the one of the
 // bytes judged, never a second lookup of the tag.
 func TestRunningExcludesThePulledDigest(t *testing.T) {
+	t.Parallel()
 	e := onePayments()
 	e.col.Revisions = append(e.col.Revisions, payRev("2.0.0", "sha256:p2"))
 	e.col.Targets = append(e.col.Targets, payTarget("pay-canary", "sha256:p2"))
@@ -601,6 +634,7 @@ func TestRunningExcludesThePulledDigest(t *testing.T) {
 // revision digest is the new one, while the target reports other content,
 // is pinned to what the target runs and never excluded.
 func TestRunningInferredLinkPinsTheObservedDigest(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("1.1.0", "sha256:p11")}, Targets: []fleet.RawTarget{payTarget("pay", "sha256:old")}}}
 	e.col.Targets[0].ResolvedRef = runReg + "/payments:1.1.0"
 	res := mustRun(t, e, "1.1.0", ociNew("oci://"+runReg+"/payments:1.1.0@sha256:p11"))
@@ -613,6 +647,7 @@ func TestRunningInferredLinkPinsTheObservedDigest(t *testing.T) {
 // TestRunningOnlyNewRunsSaysSo: with only the new revision running, the
 // reason never calls it a first version.
 func TestRunningOnlyNewRunsSaysSo(t *testing.T) {
+	t.Parallel()
 	e := &runEnv{col: fleet.Collection{Revisions: []fleet.RawRevision{payRev("2.0.0", "sha256:p2")}, Targets: []fleet.RawTarget{payTarget("pay", "sha256:p2")}}}
 	res := mustRun(t, e.withLedger("^2"), "2.0.0", ociNew("oci://"+runReg+"/payments:2.0.0@sha256:p2"))
 	if !res.Running.FirstVersion || strings.Contains(res.GateReason, "first version") ||
@@ -625,6 +660,7 @@ func TestRunningOnlyNewRunsSaysSo(t *testing.T) {
 // versions record runs a guessed revision: the answer never clears, and its
 // ref is never taken as proof the new revision runs.
 func TestImpactRunningGuessedLinkIsUnread(t *testing.T) {
+	t.Parallel()
 	e := onePayments()
 	e.col.Targets[0].Link = &fleet.ObservedLink{Signal: fleet.LinkSignalImageDigest, Value: "sha256:img", OtherVersions: []string{"0.9.0"}}
 	unread(t, e, "its running revision is a guess")

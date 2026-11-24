@@ -13,6 +13,7 @@ import (
 // interface of a provider it depends on directly, also when a sibling reached
 // that provider first (a diamond), and never about a transitive provider.
 func TestValidate_Closure_DeprecatedProviderInterface(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	deprecated := closureService("ledger", "bob@example.com") + `interfaces:
   - name: v1
@@ -102,6 +103,7 @@ func closureService(name, dri string, deps ...string) string {
 }
 
 func TestValidate_Closure(t *testing.T) {
+	t.Parallel()
 	rootPolicy := "policies:\n  - name: platform-policy\n    ref: ../platform-policy\n"
 
 	tests := []struct {
@@ -205,6 +207,7 @@ func TestValidate_Closure(t *testing.T) {
 // A root that violates its own policy still fails with the plain
 // POLICY_VIOLATION, and closure findings are added after it.
 func TestValidate_Closure_RootViolationKept(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeClosureFile(t, root, "platform-policy/pacto.yaml", closureService("platform-policy", ""))
 	writeClosureFile(t, root, "platform-policy/policy/schema.json", closurePolicySchema)
@@ -225,6 +228,7 @@ func TestValidate_Closure_RootViolationKept(t *testing.T) {
 // A consumer validated with --closure is warned when a provider it depends on
 // is deprecated as a whole (service.lifecycle, pactoVersion 2.4).
 func TestValidate_Closure_DeprecatedProviderService(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	ledger := strings.Replace(closureService("ledger", "bob@example.com"), `"2.0"`, `"2.4"`, 1)
 	ledger = strings.Replace(ledger, "  owner:", "  lifecycle: {deprecated: \"2026-01-15\", successor: \"oci://r/ledger-v2\"}\n  owner:", 1)

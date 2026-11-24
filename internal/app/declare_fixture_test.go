@@ -125,7 +125,6 @@ func identities() *unstructured.Unstructured {
 
 func newDeclareEnv(t *testing.T, objs ...runtime.Object) *declareEnv {
 	t.Helper()
-	noAmbient(t)
 	host, reg := publishRegistry(t)
 	ss := testutil.New(t)
 	rootPath := filepath.Join(t.TempDir(), "trusted_root.json")

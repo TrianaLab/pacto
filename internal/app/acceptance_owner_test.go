@@ -19,7 +19,7 @@ func (e *acceptEnv) ownerRuledStore(t *testing.T) *acceptanceStore {
 }
 
 func TestAcceptanceByAttestedOwnerCountsUnderOwnerPolicy(t *testing.T) {
-	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	t.Parallel()
 	e := newAcceptEnv(t, true)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com")})
 	q := e.query()
@@ -35,7 +35,7 @@ func TestAcceptanceByAttestedOwnerCountsUnderOwnerPolicy(t *testing.T) {
 }
 
 func TestAcceptanceByDefaultApproverCountsUnderOwnerPolicy(t *testing.T) {
-	t.Setenv("PACTO_DELIVERY_TRUST", "")
+	t.Parallel()
 	e := newAcceptEnv(t, true)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("admin@acme.com")})
 	if got, _ := e.read(t, e.ownerRuledStore(t), e.query()); !slices.Equal(states(got), []string{impact.AcceptRouted}) {
@@ -48,6 +48,7 @@ func TestAcceptanceByDefaultApproverCountsUnderOwnerPolicy(t *testing.T) {
 }
 
 func TestAcceptProvenanceNeedsReferrers(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	env := e.svc.env()
 	if acceptProvenance(env, nil) == nil {

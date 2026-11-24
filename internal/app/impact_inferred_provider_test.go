@@ -28,6 +28,7 @@ func operatorOnly() *fleet.BundleProvenance {
 // pacto-inferred is analysed as the inferred contract it is: never added as
 // a fleet service, its pinned consumers unknown and the gate unverified.
 func TestImpactInferredProviderFromRef(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	checkout := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "checkout", Version: "1.0.0"},
 		Dependencies: []contract.Dependency{{Name: "stripe", Ref: "oci://" + stripeInferredRepo, Compatibility: "^0.0.1"}}}
@@ -56,6 +57,7 @@ func TestImpactInferredProviderFromRef(t *testing.T) {
 // failing that the snapshot's operator-only signature on that very version; a
 // claimed contract elsewhere, another version or another signer is judged.
 func TestInferredProviderOption(t *testing.T) {
+	t.Parallel()
 	signed := &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments", Version: "1.1.0"}}
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("oci", "oci", &fleet.Collection{Revisions: []fleet.RawRevision{
 		{Bundle: &contract.Bundle{Contract: signed, FS: fstest.MapFS{}}, Digest: "sha256:p", Provenance: operatorOnly()},

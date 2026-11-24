@@ -52,6 +52,7 @@ func (w *offeringWorld) declaredXbucket(t *testing.T, published ...string) *flee
 // xbucket; a newer contribution makes the declared offering drift; the
 // person's re-acceptance at 1.1.0 from it clears the drift.
 func TestDeclareOfferingE2E(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	w.withOwnerPolicy(t)
 	first := w.accepted(t, 2, "1.0.0")

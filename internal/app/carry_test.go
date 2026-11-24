@@ -66,6 +66,7 @@ func carriedRecord(t *testing.T, b *contract.Bundle) *contract.InferredRecord {
 }
 
 func TestCarryPinsAcceptedRange(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	r := e.rangesRecord()
 	r.Ranges = append(r.Ranges, delivery.AcceptedRange{Field: "dependencies[ledger].ref", Value: "oci://" + e.host + "/acme/ledger", Source: indexSrc})
@@ -93,6 +94,7 @@ func TestCarryPinsAcceptedRange(t *testing.T) {
 }
 
 func TestCarryRepositoryWins(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	r := e.rangesRecord()
 	r.Ranges = []delivery.AcceptedRange{{Field: "dependencies[billing].compatibility", Value: "^1.4.0"}, {Field: "dependencies[ghost].ref", Value: "oci://x/y"},
@@ -113,6 +115,7 @@ func TestCarryRepositoryWins(t *testing.T) {
 }
 
 func TestCarryCitesBreakAcceptance(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	brk := delivery.AcceptanceRecord{Service: e.key("reports"), Version: "1.6.0", Kind: delivery.AcceptKindBreak,
 		Break: &delivery.AcceptedBreak{Provider: e.key("ledger"), Version: "3.0.0", Announcement: "abc"}}
@@ -143,6 +146,7 @@ func TestCarryIgnoresRoutedAndProposal(t *testing.T) {
 }
 
 func TestCarryLatestAcceptanceWins(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	time.Sleep(1100 * time.Millisecond) // the test Sigstore stamps whole seconds
@@ -156,6 +160,7 @@ func TestCarryLatestAcceptanceWins(t *testing.T) {
 }
 
 func TestCarryDropsRecordThatNoLongerVerifies(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	ref := e.repo + "@" + e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	// reports 1.6.1 published the carried range and cites the record.
@@ -196,6 +201,7 @@ func TestCarryDropsRecordThatNoLongerVerifies(t *testing.T) {
 }
 
 func TestCarryUnwritableBundle(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	local := bundleOf(t, e.reportsFiles("1.6.1", false))
@@ -206,6 +212,7 @@ func TestCarryUnwritableBundle(t *testing.T) {
 }
 
 func TestReadCited(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	ref := e.repo + "@" + e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	st := e.store(t)
@@ -243,6 +250,7 @@ func TestReadCited(t *testing.T) {
 }
 
 func TestImpactReadsCitedAcceptances(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	rd := e.reader(t, &fleet.FleetSnapshot{})
 	brk := delivery.AcceptanceRecord{Service: e.key("reports"), Version: "1.6.0", Kind: delivery.AcceptKindBreak,
@@ -273,6 +281,7 @@ func TestImpactReadsCitedAcceptances(t *testing.T) {
 // TestCarryPinsOverDeclaredUnknown: compatibility: unknown, as pactify and
 // pacto_create write it, declares no range, so the accepted one replaces it.
 func TestCarryPinsOverDeclaredUnknown(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	r := e.rangesRecord()
 	r.Ranges = []delivery.AcceptedRange{{Field: "dependencies[billing].compatibility", Value: "^1.4.0", Proposed: "^1.4.0", Source: snapSrc}}
@@ -287,6 +296,7 @@ func TestCarryPinsOverDeclaredUnknown(t *testing.T) {
 // TestCarryRefOnlyStaysValid: a ref accepted alone pins compatibility:
 // unknown beside it, so the published pacto.yaml validates when re-read.
 func TestCarryRefOnlyStaysValid(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	r := e.rangesRecord()
 	r.Ranges = []delivery.AcceptedRange{{Field: "dependencies[ledger].ref", Value: "oci://" + e.host + "/acme/ledger", Source: indexSrc}}
@@ -305,6 +315,7 @@ func TestCarryRefOnlyStaysValid(t *testing.T) {
 // TestCarryNotesPublicGoodJudgement: what carries under no installation
 // signer policy says it was judged with public-good issuers.
 func TestCarryNotesPublicGoodJudgement(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	st := newAcceptanceStore(t.Context(), e.svc.env(), nil)

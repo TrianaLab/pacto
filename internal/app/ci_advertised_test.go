@@ -48,6 +48,7 @@ func advertisedPlan(t *testing.T, reg publish.Registry, detected string) *ci.Pla
 }
 
 func TestCIPrintsAdvertisedSource(t *testing.T) {
+	t.Parallel()
 	path := advertisement(t, time.Now(), "oci://europe-docker.pkg.dev/acme/pacto/")
 	p := advertisedPlan(t, &fakeCIRegistry{tags: noTags}, path)
 	if want := "europe-docker.pkg.dev/acme/pacto (from the installation advertised at " + path + ")"; p.Registry.String() != want {
@@ -61,6 +62,7 @@ func TestCIPrintsAdvertisedSource(t *testing.T) {
 }
 
 func TestCIContactsAdvertisedRegistry(t *testing.T) {
+	t.Parallel()
 	reg := &fakeCIRegistry{tags: noTags}
 	p := advertisedPlan(t, reg, advertisement(t, time.Now(), "r.example/acme"))
 	if allowedHost(p.Registry) != "r.example" || !slices.Contains(reg.calls, "tags r.example/acme/reports") {
@@ -69,6 +71,7 @@ func TestCIContactsAdvertisedRegistry(t *testing.T) {
 }
 
 func TestCIIgnoresStaleAdvertisement(t *testing.T) {
+	t.Parallel()
 	reg := &fakeCIRegistry{tags: noTags}
 	p := advertisedPlan(t, reg, advertisement(t, time.Now().Add(-time.Hour), "r.example/acme"))
 	if p.Registry.Value != "" || allowedHost(p.Registry) != "" || len(reg.calls) != 0 || !slices.Contains(p.Notes, "installation advertisement stale: not used") {
@@ -77,6 +80,7 @@ func TestCIIgnoresStaleAdvertisement(t *testing.T) {
 }
 
 func TestCIIgnoresUnavailableAdvertisement(t *testing.T) {
+	t.Parallel()
 	for path, note := range map[string]string{
 		filepath.Join(t.TempDir(), "missing.json"):      "installation advertisement unavailable: not used",
 		advertisement(t, time.Now(), ""):                "installation advertisement absent: not used",
@@ -93,6 +97,7 @@ func TestCIIgnoresUnavailableAdvertisement(t *testing.T) {
 // TestCIAdvertisementWithoutRegistryIsAbsent: the operator writes the block on
 // every install; one with only its profile advertises no registry.
 func TestCIAdvertisementWithoutRegistryIsAbsent(t *testing.T) {
+	t.Parallel()
 	b, err := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: time.Now(),
 		Installation: &detect.Installation{Profile: []string{"default"}}})
 	if err != nil {
@@ -112,6 +117,7 @@ func TestCIAdvertisementWithoutRegistryIsAbsent(t *testing.T) {
 // TestCIRegistryFlagSkipsAdvertisement: --registry wins, so the advertisement
 // is not read and adds no note, even an unreadable one.
 func TestCIRegistryFlagSkipsAdvertisement(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeCIFile(t, root, "reports/pacto.yaml", reportsV1)
 	reg := &fakeCIRegistry{tags: noTags}

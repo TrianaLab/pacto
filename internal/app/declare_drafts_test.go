@@ -16,6 +16,7 @@ import (
 )
 
 func TestDeclareDraftFlagSkipsLogin(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	calls := e.login(personToken("ana@acme.com"))
 	req := e.req("ledger")
@@ -67,6 +68,7 @@ func (e *declareEnv) draftsOf(t *testing.T, n int) string {
 }
 
 func TestPlanListsDraftsNewestFirst(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	digest := e.draftsOf(t, 3)
 	e.pushImage(t, e.host+"/acme/invoices", "draft-x") // no draft number: never listed
@@ -87,6 +89,7 @@ func TestPlanListsDraftsNewestFirst(t *testing.T) {
 }
 
 func TestPlanDraftsBounded(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.draftsOf(t, 25)
 	p, _ := e.plan(t, e.req())
@@ -96,6 +99,7 @@ func TestPlanDraftsBounded(t *testing.T) {
 }
 
 func TestPlanUnreadableDraftListed(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.draftsOf(t, 1)
 	e.pushImage(t, e.host+"/acme/invoices", "draft-2")
@@ -107,6 +111,7 @@ func TestPlanUnreadableDraftListed(t *testing.T) {
 }
 
 func TestPlanDraftTagOrSignatureUnreadable(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.draftsOf(t, 1)
 	pl := &declarePlanner{s: e.svc, req: e.req(), reg: failingHead{e.reg}, plan: &DeclarePlan{Service: "invoices"}}
@@ -138,6 +143,7 @@ func (failingHead) Head(context.Context, string) (*publish.Remote, error) {
 }
 
 func TestPlanVisibleHidesNamespace(t *testing.T) {
+	t.Parallel()
 	hidden := func(ns string) bool { return ns != "billing" }
 	listedIn := func(e *declareEnv, ns string) bool {
 		return slices.ContainsFunc(e.dyn.Actions(), func(a k8stesting.Action) bool {
@@ -176,6 +182,7 @@ func TestPlanVisibleHidesNamespace(t *testing.T) {
 }
 
 func TestDeclareRequestLoginCountsAsLogin(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	calls := e.login(personToken("bob@acme.com"))
 	req := e.req()
@@ -222,6 +229,7 @@ func (c *countingStore) Tags(ctx context.Context, repo string) ([]string, error)
 }
 
 func TestDeclareRequestStoreAndTexts(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	store := &countingStore{Registry: e.reg}
 	req := e.req("ledger")

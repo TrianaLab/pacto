@@ -20,12 +20,14 @@ import (
 )
 
 func TestInstallationConfigNilWithoutRef(t *testing.T) {
+	t.Parallel()
 	if f := detectedService(t).InstallationConfig(""); f != nil {
 		t.Error("an empty ref reads a detection")
 	}
 }
 
 func TestInstallationConfigReadsDetectionFile(t *testing.T) {
+	t.Parallel()
 	b, err := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: detectedNow, Cluster: "uid-1",
 		Installation: &detect.Installation{Profile: []string{"hardened"}}})
 	if err != nil {
@@ -46,6 +48,7 @@ func TestInstallationConfigReadsDetectionFile(t *testing.T) {
 }
 
 func TestInstallationConfigUnavailableState(t *testing.T) {
+	t.Parallel()
 	d, st := detectedService(t).InstallationConfig(filepath.Join(t.TempDir(), "missing.json"))(context.Background())
 	if d != nil || st.Status != fleet.SourceUnavailable || st.Error == nil {
 		t.Errorf("declared %+v state %+v", d, st)
@@ -54,6 +57,7 @@ func TestInstallationConfigUnavailableState(t *testing.T) {
 
 // A k8s: ref names no host path, so the answer may name it.
 func TestInstallationConfigNamesK8sRef(t *testing.T) {
+	t.Parallel()
 	b, err := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: detectedNow, Cluster: "uid-1",
 		Installation: &detect.Installation{Profile: []string{"idp"}}})
 	if err != nil {
