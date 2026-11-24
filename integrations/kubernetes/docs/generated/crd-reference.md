@@ -287,7 +287,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 
 | Field | Type | Required | Default | Enum | Description |
 | --- | --- | --- | --- | --- | --- |
-| `spec` | `object` | yes |  |  | StageSpec is one service in one environment. |
+| `spec` | `object` | yes |  |  | Spec is one service in one environment. Its environment must be a DNS label when the Stage is created and is fixed afterwards; a Stage created before that rule keeps its environment. The rules sit on the Stage, never on StageSpec, which an Operation's status.policy also copies. |
 | `spec.applyRef` | `object` | yes |  |  | ApplyRef is the object the promoter points at a version: a Flux OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it sets spec.source.targetRevision). Nothing else is ever written on it. |
 | `spec.applyRef.kind` | `string` | no |  | `OCIRepository`, `Application`, `HelmRelease` | Kind is OCIRepository (Flux, the default), Application (Argo CD, with an OCI source and automated sync) or HelmRelease (Flux: the promoter writes the chart digest on the OCIRepository its spec.chartRef names). |
 | `spec.applyRef.name` | `string` | yes |  |  |  |

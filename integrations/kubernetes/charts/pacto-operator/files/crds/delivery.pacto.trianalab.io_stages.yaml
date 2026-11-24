@@ -69,7 +69,11 @@ spec:
           metadata:
             type: object
           spec:
-            description: StageSpec is one service in one environment.
+            description: |-
+              Spec is one service in one environment. Its environment must be a DNS
+              label when the Stage is created and is fixed afterwards; a Stage created
+              before that rule keeps its environment. The rules sit on the Stage, never
+              on StageSpec, which an Operation's status.policy also copies.
             properties:
               applyRef:
                 description: |-
@@ -197,11 +201,7 @@ spec:
                   also places the Pactos and Stages a change's consumers run on, and
                   selects the values the applier may apply: values-<environment>.yaml or
                   overlays/<environment>. It is fixed at creation.
-                pattern: ^[a-z0-9]([-a-z0-9]*[a-z0-9])?$
                 type: string
-                x-kubernetes-validations:
-                - message: environment is fixed at creation; create a new Stage
-                  rule: self == oldSelf
               gates:
                 description: |-
                   Gates configures the Stage's gates. The pre-gates are fixed by the operation
@@ -363,6 +363,15 @@ spec:
             - environment
             - service
             type: object
+            x-kubernetes-validations:
+            - fieldPath: .environment
+              message: environment must be a DNS label, such as production
+              optionalOldSelf: true
+              reason: FieldValueInvalid
+              rule: oldSelf.hasValue() || self.environment.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')
+            - fieldPath: .environment
+              message: environment is fixed at creation; create a new Stage
+              rule: self.environment == oldSelf.environment
           status:
             description: |-
               StageStatus is written by the promoter's operation and stage reconcilers and

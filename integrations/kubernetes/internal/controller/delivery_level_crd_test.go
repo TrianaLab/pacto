@@ -78,5 +78,27 @@ var _ = Describe("Stage environment", func() {
 		err := k8sClient.Update(ctx, s)
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("environment is fixed at creation; create a new Stage"))
+		// Any other spec change still goes through.
+		Expect(unstructured.SetNestedField(s.Object, "production", "spec", "environment")).To(Succeed())
+		Expect(unstructured.SetNestedField(s.Object, true, "spec", "approval", "always")).To(Succeed())
+		Expect(k8sClient.Update(ctx, s)).To(Succeed())
+	})
+
+	// An Operation copies the Stage's spec into status.policy when it
+	// concludes; a Stage created before the rule keeps its environment, so
+	// the copy is never checked against it.
+	It("records an Operation policy whose environment predates the rule", func() {
+		op := &unstructured.Unstructured{Object: map[string]any{
+			"metadata": map[string]any{"namespace": "default", "name": "env-legacy-op"},
+			"spec": map[string]any{"type": "delivery.pacto.trianalab.io/promote", "stage": "payments-prod", "facet": "pointer",
+				"actor": map[string]any{"user": "bot"}},
+		}}
+		op.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "Operation"})
+		Expect(k8sClient.Create(ctx, op)).To(Succeed())
+		for _, env := range []string{"prod_eu", "Prod", ""} {
+			Expect(unstructured.SetNestedField(op.Object, map[string]any{"service": map[string]any{"name": "payments"}, "environment": env,
+				"applyRef": map[string]any{"name": "payments"}}, "status", "policy")).To(Succeed())
+			Expect(k8sClient.Status().Update(ctx, op)).To(Succeed(), env)
+		}
 	})
 })
