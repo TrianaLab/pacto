@@ -444,6 +444,20 @@ describe('ServiceDelivery', () => {
     v.destroy();
   });
 
+  it('shows the values file the applier selects, with where it was observed in its provenance mark', async () => {
+    environments.mockResolvedValue(answer([row({ applier: { state: 'Adopted', manager: 'argocd', completeness: 'complete', asOf: '2026-11-04T09:59:00Z',
+      display: 'Argo CD (Application payments)', values: 'values-production.yaml' } })]));
+    const v = render({});
+    await settle();
+    const line = v.target.querySelector('[data-testid="service-delivery-applier"]') as HTMLElement;
+    const read = line.cloneNode(true) as HTMLElement;
+    read.querySelectorAll('.prov-mark').forEach((m) => m.remove());
+    expect(read.textContent?.replace(/\s+/g, ' ')).toContain('Applier: Argo CD (Application payments), values values-production.yaml (as of ');
+    expect(line.querySelectorAll('bdi')[1].textContent).toBe('values-production.yaml');
+    expect(line.querySelector('.prov-mark .prov-tip')?.textContent).toMatch(/^observed on Argo CD \(Application payments\) as of /);
+    v.destroy();
+  });
+
   it('warns when the applier conflicts, in words, even when another Ready reason took precedence', async () => {
     environments.mockResolvedValue(answer([row({ ready: 'False: CandidateUnverified', readyMessage: 'the candidate is not verified',
       applier: { state: 'Conflict', manager: 'helm', completeness: 'complete', display: 'Helm (release payments, release annotations)',

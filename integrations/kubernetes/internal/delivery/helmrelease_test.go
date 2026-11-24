@@ -258,7 +258,7 @@ func TestHelmReleaseMediated(t *testing.T) {
 			chart.SetLabels(tc.chartLabels)
 		}
 		a := helmReleaseApplier{hr: withHR(helmReleaseObj("True", "", dA, dA), tc.edit), chart: &source{obj: chart}}
-		c, err := Cluster{}.mediated(t.Context(), ns, a)
+		c, err := Cluster{}.mediated(t.Context(), ns, "prod", a)
 		if err != nil || c.Reason != tc.reason || !strings.Contains(c.Message, tc.msg) {
 			t.Errorf("%s: %+v %v", tc.name, c, err)
 		}

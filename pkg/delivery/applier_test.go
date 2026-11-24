@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"encoding/json"
 	"maps"
 	"slices"
 	"strings"
@@ -430,5 +431,39 @@ func TestApplierStale(t *testing.T) {
 	}
 	if !(&ApplierStatus{AsOf: "2026-11-15T09:59:00Z", StaleAt: "2026-11-15T09:59:59Z"}).Stale(now) {
 		t.Error("a staleAt in the past is stale")
+	}
+}
+
+// TestApplierStatusJSONKeepsFields: the values the applier selects ride on
+// the status as observed, omitted when it selects none, and every existing
+// key keeps its name. AdoptApplier copies them whenever the applier API is
+// served, and a values change alone is a new result.
+func TestApplierStatusJSONKeepsFields(t *testing.T) {
+	st := ApplierStatus{Manager: "argocd", Owner: "o", Evidence: "e", Display: "d", Workloads: []string{"w"}, State: ApplierAdopted,
+		Message: "m", Since: "s", AsOf: "a", StaleAt: "x", Completeness: "complete"}
+	b, _ := json.Marshal(st)
+	want := `{"manager":"argocd","owner":"o","evidence":"e","display":"d","workloads":["w"],"state":"Adopted","message":"m","since":"s","asOf":"a","staleAt":"x","completeness":"complete"}`
+	if string(b) != want {
+		t.Fatalf("got %s", b)
+	}
+	st.Values = "values-production.yaml"
+	if b, _ = json.Marshal(st); !strings.Contains(string(b), `"values":"values-production.yaml","completeness"`) {
+		t.Fatalf("got %s", b)
+	}
+	in := ApplierInput{Namespace: "prod", Service: "payments", Values: "values-production.yaml", Now: applierNow}
+	for _, got := range []ApplierStatus{AdoptApplier(in),
+		AdoptApplier(ApplierInput{Namespace: "prod", Values: "v", Unread: []string{"x"}, Now: applierNow}),
+		AdoptApplier(ApplierInput{Namespace: "prod", Values: "v", Ref: ApplyRef{Kind: ApplierArgoCD, Name: "payments"}, Now: applierNow,
+			Targets: []ApplierTarget{{Workload: "Deployment payments", Manager: argoOwner("prod", "payments")}}})} {
+		if got.Values == "" {
+			t.Fatalf("values dropped: %+v", got)
+		}
+	}
+	if got := AdoptApplier(ApplierInput{NoAPI: true, Values: "v", Now: applierNow}); got.Values != "" {
+		t.Fatalf("no applier API, no values: %+v", got)
+	}
+	a, b2 := AdoptApplier(in), AdoptApplier(ApplierInput{Namespace: "prod", Service: "payments", Values: "values-staging.yaml", Now: applierNow})
+	if SameApplier(&a, &b2) {
+		t.Fatal("a values change is a new result")
 	}
 }

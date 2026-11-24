@@ -461,7 +461,7 @@ describe('applier', () => {
     const now = Date.parse('2026-11-15T10:00:00Z');
     expect(applierLine(undefined, now)).toBeNull();
     const ok = applierLine({ state: 'Adopted', display: 'Argo CD (Application payments, tracking annotation)', asOf: '2026-11-15T09:59:30Z' }, now);
-    expect(ok).toEqual({ display: 'Argo CD (Application payments, tracking annotation)', problem: '', asOf: 'as of 2026-11-15 09:59 UTC', warn: false,
+    expect(ok).toEqual({ display: 'Argo CD (Application payments, tracking annotation)', problem: '', asOf: 'as of 2026-11-15 09:59 UTC', values: '', valuesTitle: '', warn: false,
       text: 'Applier: Argo CD (Application payments, tracking annotation) (as of 2026-11-15 09:59 UTC)' });
     const bad = applierLine({ state: 'Conflict', display: 'Helm (release payments, release annotations)', message: 'Helm release payments owns Deployment payments',
       asOf: '2026-11-15T09:50:00Z' }, now);
@@ -471,6 +471,15 @@ describe('applier', () => {
     const stale = applierLine({ state: 'Unmanaged', display: 'unmanaged', asOf: '2026-11-15T09:50:00Z' }, now);
     expect(stale?.warn).toBe(true);
     expect(applierLine({ state: 'Unknown', manager: 'none', message: 'cannot tell' }, now)?.text).toBe('Applier: none, unknown: cannot tell');
+  });
+
+  it('TestApplierLineCarriesValues: the values file the applier selects, observed on it', () => {
+    const now = Date.parse('2026-11-15T10:00:00Z');
+    const line = applierLine({ state: 'Adopted', display: 'Argo CD (Application payments)', values: 'values-production.yaml', asOf: '2026-11-15T09:59:30Z' }, now);
+    expect(line?.values).toBe('values-production.yaml');
+    expect(line?.valuesTitle).toBe('observed on Argo CD (Application payments) as of 2026-11-15 09:59 UTC');
+    expect(line?.text).toBe('Applier: Argo CD (Application payments), values values-production.yaml (as of 2026-11-15 09:59 UTC)');
+    expect(applierLine({ state: 'Adopted', display: 'Flux', values: 'overlays/production' }, now)?.valuesTitle).toBe('observed on Flux');
   });
 
   it('judges staleness by the promoter\'s staleAt and the server clock', () => {

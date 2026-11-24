@@ -472,6 +472,10 @@ interface ApplierLine {
   problem: string;
   /** asOf is when the promoter last looked, stale when it stopped, else ''. */
   asOf: string;
+  /** values is the values file or overlay the applier selects, else ''. */
+  values: string;
+  /** valuesTitle says where values comes from: observed on the applier, never declared. */
+  valuesTitle: string;
   warn: boolean;
   text: string;
 }
@@ -490,7 +494,7 @@ export function serverNow(asOf: string | undefined): number {
   return Date.parse(asOf ?? '') || Date.now();
 }
 
-export function applierLine(a: { state?: string; display?: string; manager?: string; message?: string; asOf?: string; staleAt?: string } | null | undefined,
+export function applierLine(a: { state?: string; display?: string; manager?: string; message?: string; asOf?: string; staleAt?: string; values?: string } | null | undefined,
   now = Date.now(), ready = ''): ApplierLine | null {
   if (!a) return null;
   const bad = a.state === 'Conflict' || a.state === 'Unknown';
@@ -500,7 +504,10 @@ export function applierLine(a: { state?: string; display?: string; manager?: str
   const said = /^False: Applier(Conflict|Unknown)\b/.test(ready);
   const problem = bad && !said ? `${a.state!.toLowerCase()}: ${a.message ?? ''}` : '';
   const asOf = a.asOf ? `as of ${timeLabel(a.asOf)}${stale ? ', stale: the promoter has not checked since' : ''}` : '';
-  return { display, problem, asOf, warn: bad || stale, text: `Applier: ${display}${problem ? `, ${problem}` : ''}${asOf ? ` (${asOf})` : ''}` };
+  const values = a.values ?? '';
+  const valuesTitle = values ? `observed on ${display}${a.asOf ? ` as of ${timeLabel(a.asOf)}` : ''}` : '';
+  return { display, problem, asOf, values, valuesTitle, warn: bad || stale,
+    text: `Applier: ${display}${problem ? `, ${problem}` : ''}${values ? `, values ${values}` : ''}${asOf ? ` (${asOf})` : ''}` };
 }
 
 /** gateLabel names a built-in check in plain words; a check the Stage names itself keeps its own name. */

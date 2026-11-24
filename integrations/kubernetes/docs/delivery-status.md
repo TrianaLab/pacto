@@ -36,6 +36,7 @@ are named in the `note` and are never silently ordered.
 | `sourceRevision` | The source revision `pacto publish` stamped on the artifact (`org.opencontainers.image.revision`): an annotation, not signed |
 | `lastCheck` | The newest re-check after release: the worst result, when it ran and each verdict with its citation. `current` is false once the Stage moved to another version |
 | `watched` | The `Watched` condition while `lastCheck` is about the running version, else `Unknown` with reason `NotRechecked` |
+| `applier.values` | The values file or Kustomize overlay the Stage's applier selects, as observed on the applyRef object (`status.applier.values`); empty when it selects none. See [Values per environment](delivery-environments.md#values-per-environment) |
 | `ready`, `readyFix` | The Ready condition and, when it is False, the change that clears it |
 | `offers` | What you may ask for here, below |
 

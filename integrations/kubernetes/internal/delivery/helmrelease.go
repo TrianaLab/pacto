@@ -122,7 +122,7 @@ var helmProgress = map[string]bool{"Progressing": true, "ProgressingWithRetry": 
 // mediated is the Mediated condition of a labelled HelmRelease: its chart
 // source carries the apply-ref label, it runs as its own service account and
 // sets nothing that changes the chart's output.
-func (a helmReleaseApplier) mediated(context.Context, Cluster, string) (delivery.Condition, error) {
+func (a helmReleaseApplier) mediated(context.Context, Cluster, string, string) (delivery.Condition, error) {
 	name, chart := a.hr.GetName(), a.chart.obj.GetName()
 	if !labelled(a.chart.obj) {
 		return notMediated("ApplyRefUnguarded", "the chart OCIRepository "+chart+" of HelmRelease "+name+" has no "+ApplyRefLabel+

@@ -126,7 +126,7 @@ type applier interface {
 	// applied reports whether the applier applied digest (Cluster.applied).
 	applied(ctx context.Context, c Cluster, ns, digest string) (ok, failed bool, msg string, err error)
 	// mediated is the Mediated condition of a labelled applier.
-	mediated(ctx context.Context, c Cluster, ns string) (delivery.Condition, error)
+	mediated(ctx context.Context, c Cluster, ns, env string) (delivery.Condition, error)
 	// notReady says what keeps a labelled applier from taking a version,
 	// nil when nothing does; what names it in the message.
 	notReady(what string) *delivery.Condition

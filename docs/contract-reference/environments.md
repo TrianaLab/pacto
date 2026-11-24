@@ -128,8 +128,7 @@ Once `expires` is at or before the clock of the run, `pacto validate` and
 WARN  [ENVIRONMENT_EXPIRED] environments[1].expires: environment pr-482 expired at 2026-11-20T00:00:00Z; nothing was deleted: remove it with pacto_edit remove_environments or move expires
 ```
 
-The verdict stays the same. Validation deletes nothing for an expired
-environment: no contract entry, file, Stage or resource. Only a Stage Pacto
+The verdict stays the same, and validation deletes nothing. Only a Stage Pacto
 created from the installation ladder retires, as
 [above](#environments-and-the-installation-ladder). The fleet and the dashboard's
 service page show it as expired (inferred), as of the time of their answer. An
@@ -210,6 +209,29 @@ stage of [`pacto validate`](validation.md#environments-stage).
 Values hold references to secrets, such as a Secret or ExternalSecret name.
 Keep secret material out of the environment files, as you keep it out of the
 contract; see [Secret references](configuration-and-policy.md#secret-references).
+
+### Offering parameters
+
+When a configuration's `ref` reaches a [platform offering](../platform-offerings.md#environment-values)
+whose schema declares tiers (`x-pacto-tier`), an environment may change only
+its `tunable` fields, within the offering's bounds, enums and classes. An
+untiered field of such a schema is `contract`: set it once in
+`configurations[].values`, which apply everywhere and are never tier-checked.
+An untiered offering keeps the plain schema check, and an inferred one leaves
+the values `ENVIRONMENT_VALUES_UNVERIFIED`.
+
+Pacto's principle:
+infrastructure only through offerings; every change planned and checked before it applies.
+`pacto validate`, `pacto ci`, `pacto_check` and the
+delivery plan refuse the rest with a code, the closest valid name and a `Next:`
+step, and no approval clears the plan's refusal.
+
+| Code | Example, for an offering `postgresql` that marks `class` and `replicas` tunable |
+|---|---|
+| `TierNotTunable` | `database.storageGB is contract-tier in offering postgresql 16.2.0, so it cannot change per environment. Next: set it once in configurations[0].values, or ask infra-data to mark it x-pacto-tier: tunable`. Pacto does not follow `$ref`, `oneOf`, `anyOf` or `allOf`, so a field behind one is contract, and the message adds `the tier sits behind a $ref Pacto does not follow` |
+| `ParameterOutOfRange` | `database.replicas is outside the parameters of offering postgresql 16.2.0. Next: use a value of type integer, >= 1, <= 5; pacto fleet get postgresql lists the parameters` |
+| `ParameterNotDeclared` | `database.replica is not a parameter of offering postgresql 16.2.0. Next: remove it (did you mean "replicas"?); pacto fleet get postgresql lists the parameters` |
+| `ClassNotOffered` | `database.class names a class offering postgresql 16.2.0 does not offer. Next: use one of small, medium, large (did you mean "large"?)` |
 
 ### Catch a chart change that breaks an environment
 
@@ -328,11 +350,33 @@ version's contract declares. The `pacto.environment` check runs the same
 |---|---|
 | Declares no `environments` | Goes on. The check says it does not apply |
 | Declares environments, but none named like the Stage's `spec.environment` | Waits for the service's team to approve it |
-| Declares that environment, and its values fail with an error from the table above | Waits for the service's team to approve it, with each error located in the file |
+| Declares that environment, and its values fail with an error from [How values are checked](#how-values-are-checked) | Waits for the service's team to approve it, with each error located in the file |
 | Declares that environment, and its values are `ENVIRONMENT_VALUES_UNVERIFIED` | Waits for a person to [accept the unknown](../glossary.md#accept-the-unknown) |
+| Declares that environment, and its values fail with one of the four [offering parameter codes](#offering-parameters) | Stops. No approval clears it |
+| Declares that environment, and the applier applies values that differ from its file, or it declares no file while the applier applies one | Waits for a person to accept the unknown |
 | Declares that environment, and its values pass | Goes on |
 
 Name each environment after the `spec.environment` of the Stages that deliver
-the service there, such as `staging` and `production`. Pacto names the Stages
-it creates after the environments of the installation ladder, so declare an
-environment under the same name.
+the service there, such as `staging`. A Stage Pacto creates has the `spec.environment` of
+its installation ladder rung.
+
+### Values per environment
+
+One deploy digest carries every environment's values, such as a chart with
+`values-staging.yaml` and `values-production.yaml`, so production is offered
+only what staging verified. The Stage's applier selects the file for its
+`spec.environment`. Pacto reads that selection and never writes or renders it.
+
+Keep the environment file's `chart:` entry equal to the chart's
+`values-<environment>.yaml`. The delivery plan cites the selected file and its
+sha256 from the promoted digest, and `pacto.environment` passes when those
+values equal the values Pacto checked. A missing file waits for a person.
+
+| Applier | The selection Pacto accepts |
+|---|---|
+| Argo CD Application | `spec.source.helm.valueFiles: [values-<environment>.yaml]`, with nothing else under `helm` |
+| Flux Kustomization | `spec.path` ending in `overlays/<environment>` |
+| Flux HelmRelease | None: it cannot select a values file inside an OCI chart, so a chart that carries `values-<environment>.yaml` waits for a person |
+
+Any other selection sets `Mediated` `False` with `OtherEnvironmentValues`; see
+the [operator reference](../integrations/kubernetes/delivery-environments.md#values-per-environment).

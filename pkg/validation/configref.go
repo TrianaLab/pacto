@@ -26,13 +26,15 @@ type ResolvedConfigRef struct {
 	Selected                      string
 	ProviderName, ProviderVersion string
 	Provider                      *contract.Contract
-	// SchemaProvider is the contract that holds Schema: Provider, or the
-	// last contract of the chain.
-	SchemaProvider *contract.Contract
-	Schema         *jsonschema.Schema
-	SchemaPath     string
-	ProviderFS     fs.FS
-	Err            error
+	// Offering is the first contract of the chain that declares
+	// service.offering, nil for none, read from OfferingFS: the offering
+	// whose parameter rules the values follow, wherever its schema sits.
+	Offering   *contract.Contract
+	OfferingFS fs.FS
+	Schema     *jsonschema.Schema
+	SchemaPath string
+	ProviderFS fs.FS
+	Err        error
 }
 
 // ConfigRefs holds each resolved configuration ref, keyed by the consumer's
@@ -122,9 +124,7 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 			return fail("", "ref", false, "ref %q resolved to an empty bundle", entry.Ref)
 		}
 		p := bundle.Contract
-		if hop == 0 {
-			r.Provider, r.ProviderName, r.ProviderVersion = p, p.Service.Name, p.Service.Version
-		}
+		r.note(hop, bundle)
 		sel, code, why := SelectConfiguration(entry, p)
 		if code != "" {
 			field := "ref"
@@ -144,10 +144,22 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 		if err != nil {
 			return fail("", "ref", false, "%s@%s configuration %s: %v", p.Service.Name, p.Service.Version, sel.Name, err)
 		}
-		r.Schema, r.SchemaPath, r.ProviderFS, r.SchemaProvider = schema, sel.Schema, bundle.FS, p
+		r.Schema, r.SchemaPath, r.ProviderFS = schema, sel.Schema, bundle.FS
 		return r, nil
 	}
 	return fail("", "ref", false, "ref %q chains through more than %d configuration refs", cfg.Ref, MaxConfigRefHops)
+}
+
+// note records what hop of the chain, bundle, says of r: the provider at hop
+// 0, and the first offering.
+func (r *ResolvedConfigRef) note(hop int, bundle *contract.Bundle) {
+	p := bundle.Contract
+	if hop == 0 {
+		r.Provider, r.ProviderName, r.ProviderVersion = p, p.Service.Name, p.Service.Version
+	}
+	if r.Offering == nil && p.Service.Offering != "" {
+		r.Offering, r.OfferingFS = p, bundle.FS
+	}
 }
 
 // readConfigSchema reads and compiles the configuration schema at path.

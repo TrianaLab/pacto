@@ -1280,3 +1280,153 @@ func TestSnapshotExtraSources(t *testing.T) {
 		t.Fatalf("externals = %+v", snap.Externals)
 	}
 }
+
+// chartEnvBundle is envBundle with its configuration the chart's values,
+// named chart with the schema chart/values.schema.json.
+func chartEnvBundle(envs map[string]string, files map[string]string) *contract.Bundle {
+	b := envBundle(envs, files, true)
+	b.Contract.Configurations = []contract.Configuration{{Name: "chart", Schema: "chart/values.schema.json"}}
+	b.FS.(fstest.MapFS)["chart/values.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object","properties":{"replicas":{"type":"integer"}}}`)}
+	return b
+}
+
+// valuesPlan promotes payments 1.0.0 to b with the inspector answering ins.
+func valuesPlan(t *testing.T, b *contract.Bundle, ins ManifestInspection) Plan {
+	t.Helper()
+	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, b)
+	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), From: from, To: to, Snapshot: snap, Class: ClassAgent,
+		Status:           StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
+		InspectManifests: true, Manifests: func(context.Context) ManifestInspection { return ins }})
+}
+
+// chartValues is a chart inspection whose applier applies values-prod.yaml
+// holding replicas.
+func chartValues(replicas float64) ManifestInspection {
+	return ManifestInspection{Artifact: "chart", Namespace: "prod", Total: 1, Objects: []ManifestObject{{Kind: "Deployment", Name: "payments"}},
+		ValuesFile: "values-prod.yaml", ValuesDigest: "sha256:5e0c", Values: map[string]any{"replicas": replicas}}
+}
+
+var twoEnvs = map[string]string{"dev": "dev.yaml", "prod": "prod.yaml"}
+
+func twoEnvFiles(prod string) map[string]string {
+	return map[string]string{"dev.yaml": "chart:\n  replicas: 1\n", "prod.yaml": prod}
+}
+
+// TestEnvironmentGateSameValues: the applier applies the values the
+// environment file declares for the chart, so the gate passes and says so.
+func TestEnvironmentGateSameValues(t *testing.T) {
+	p := valuesPlan(t, chartEnvBundle(twoEnvs, twoEnvFiles("chart:\n  replicas: 3\n")), chartValues(3))
+	v := verdict(t, p, GateEnvironment)
+	if v.Result != Pass || p.Predicted != PredictProceeds ||
+		v.Message != "the values of environment prod satisfy the configuration schemas; Argo CD applies the same values as environments[1].file" ||
+		v.Citation["appliedValues"] != "values-prod.yaml" || v.Citation["appliedValuesDigest"] != "sha256:5e0c" ||
+		v.Citation["checkedValues"] != "environments[1].file" {
+		t.Fatalf("the same values pass: %+v %+v", v, p)
+	}
+}
+
+// wantUnchecked asserts the environment gate reads Unknown, naming why, and
+// that the promote waits for a person to decide.
+func wantUnchecked(t *testing.T, name string, p Plan, decision Decision, why string) {
+	t.Helper()
+	v := verdict(t, p, GateEnvironment)
+	if v.Result != Unknown || !strings.Contains(v.Message, why) || p.Floor.Decision != decision || !p.Floor.Human ||
+		p.Predicted != PredictHeld || !strings.Contains(p.Question, why) || !strings.Contains(p.Question, "Asked of: team-payments") {
+		t.Errorf("%s: want Unknown naming %q, got %+v %+v", name, why, v, p)
+	}
+}
+
+// TestEnvironmentGateDifferentValuesIsUnknown: values the applier applies that
+// differ from the environment file's are values Pacto did not check: the
+// gate reads Unknown and a person accepts the unknown, and never Pass, even
+// when the gate already asks for an approval.
+func TestEnvironmentGateDifferentValuesIsUnknown(t *testing.T) {
+	const why = "the applier applies values-prod.yaml (sha256:5e0c), different values from environments[1].file, so Pacto has not checked the values that run"
+	wantUnchecked(t, "different", valuesPlan(t, chartEnvBundle(twoEnvs, twoEnvFiles("chart:\n  replicas: 3\n")), chartValues(4)), AcceptUnknown, why)
+	wantUnchecked(t, "different and invalid",
+		valuesPlan(t, chartEnvBundle(twoEnvs, twoEnvFiles("chart:\n  replicas: many\n")), chartValues(4)), Approve, why)
+	wantUnchecked(t, "undeclared environment", valuesPlan(t, chartEnvBundle(map[string]string{"dev": "dev.yaml"}, twoEnvFiles("")), chartValues(1)),
+		Approve, "the applier applies values-prod.yaml (sha256:5e0c), and the contract declares no environment prod, so Pacto has not checked the values that run")
+}
+
+// TestEnvironmentGateNoChartConfigurationIsUnknown: without one configuration
+// whose schema is the chart's values.schema.json, Pacto cannot tell which
+// values to compare, so the gate reads Unknown.
+func TestEnvironmentGateNoChartConfigurationIsUnknown(t *testing.T) {
+	const why = "the applier applies values-prod.yaml (sha256:5e0c), and no one configuration of the contract has the chart's values.schema.json as its schema, so Pacto has not checked the values that run"
+	wantUnchecked(t, "none", valuesPlan(t, envBundle(twoEnvs, map[string]string{"dev.yaml": "", "prod.yaml": "app:\n  replicas: 3\n"}, true), chartValues(3)), AcceptUnknown, why)
+	two := chartEnvBundle(twoEnvs, twoEnvFiles("chart:\n  replicas: 3\n"))
+	two.Contract.Configurations = append(two.Contract.Configurations, contract.Configuration{Name: "other", Schema: "other/values.schema.json"})
+	two.FS.(fstest.MapFS)["other/values.schema.json"] = &fstest.MapFile{Data: []byte(`{"type":"object"}`)}
+	wantUnchecked(t, "two", valuesPlan(t, two, chartValues(3)), AcceptUnknown, why)
+}
+
+// TestEnvironmentGateFilelessWithAppliedFileIsUnknown: an environment that
+// declares no values file while the applier applies one runs values Pacto did
+// not check.
+func TestEnvironmentGateFilelessWithAppliedFileIsUnknown(t *testing.T) {
+	b := chartEnvBundle(map[string]string{"prod": ""}, nil)
+	b.Contract.PactoVersion = "2.6"
+	wantUnchecked(t, "fileless", valuesPlan(t, b, chartValues(3)), AcceptUnknown,
+		"the applier applies values-prod.yaml (sha256:5e0c), and environments[0] declares no file, so Pacto has not checked the values that run")
+}
+
+// TestEnvironmentsWithoutChart: a service that declares environments and
+// ships manifests applies no values file, and the gate judges as before.
+func TestEnvironmentsWithoutChart(t *testing.T) {
+	p := valuesPlan(t, envBundle(map[string]string{"prod": "prod.yaml"}, map[string]string{"prod.yaml": "app:\n  replicas: 3\n"}, true), passInspection)
+	v := verdict(t, p, GateEnvironment)
+	if _, ok := v.Citation["appliedValues"]; ok || v.Result != Pass || v.Message != "the values of environment prod satisfy the configuration schemas" ||
+		p.Predicted != PredictProceeds {
+		t.Fatalf("no values file, no applied clause: %+v %+v", v, p)
+	}
+}
+
+// TestHelmServiceWithoutEnvironments: a chart whose applier applies a values
+// file, from a contract that declares no environments, is not judged: the
+// gate says what runs, and pacto.manifests cites the file.
+func TestHelmServiceWithoutEnvironments(t *testing.T) {
+	p := valuesPlan(t, bundle("payments", "1.1.0"), chartValues(3))
+	v := verdict(t, p, GateEnvironment)
+	if v.Result != Pass || v.Citation["applicable"] != "false" || v.Citation["appliedValues"] != "values-prod.yaml" || p.Predicted != PredictProceeds ||
+		v.Message != "not applicable: the contract of sha256:bbbbbbbbbbbb declares no environments; the applier applies values-prod.yaml (sha256:5e0c)" {
+		t.Fatalf("not applicable, with the applied clause: %+v %+v", v, p)
+	}
+	if m := verdict(t, p, GateManifests); m.Citation["valuesFile"] != "values-prod.yaml" || m.Citation["valuesDigest"] != "sha256:5e0c" {
+		t.Fatalf("pacto.manifests cites the file: %+v", m)
+	}
+	ins := passInspection
+	ins.ValuesFile = "overlays/prod"
+	if v := verdict(t, valuesPlan(t, bundle("payments", "1.1.0"), ins), GateEnvironment); v.Result != Pass ||
+		v.Message != "not applicable: the contract of sha256:bbbbbbbbbbbb declares no environments; the applier applies overlays/prod" {
+		t.Fatalf("an overlay is named with no digest: %+v", v)
+	}
+}
+
+// TestEnvironmentGateOverlayCitesOnly: a Kustomize overlay is a directory
+// with no Helm values, so the gate cites it and keeps its result.
+func TestEnvironmentGateOverlayCitesOnly(t *testing.T) {
+	ins := passInspection
+	ins.ValuesFile = "overlays/prod"
+	p := valuesPlan(t, envBundle(map[string]string{"prod": "prod.yaml"}, map[string]string{"prod.yaml": "app:\n  replicas: 3\n"}, true), ins)
+	v := verdict(t, p, GateEnvironment)
+	if _, ok := v.Citation["appliedValuesDigest"]; ok || v.Result != Pass || v.Citation["appliedValues"] != "overlays/prod" ||
+		v.Message != "the values of environment prod satisfy the configuration schemas" || p.Predicted != PredictProceeds {
+		t.Fatalf("an overlay is cited only: %+v %+v", v, p)
+	}
+}
+
+// TestEnvironmentGateWithoutInspectionSaysNothing: with the inspector off
+// nothing is read, so the gate cites no applied values.
+func TestEnvironmentGateWithoutInspectionSaysNothing(t *testing.T) {
+	p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, rev(dA, c1, bundle("payments", "1.0.0")),
+		rev(dB, c2, chartEnvBundle(twoEnvs, twoEnvFiles("chart:\n  replicas: 3\n"))))
+	v := verdict(t, p, GateEnvironment)
+	if _, ok := v.Citation["appliedValues"]; ok || v.Result != Pass || v.Message != "the values of environment prod satisfy the configuration schemas" {
+		t.Fatalf("no inspection, no applied clause: %+v", v)
+	}
+}
