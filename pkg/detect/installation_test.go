@@ -250,3 +250,27 @@ func TestResultDeclared(t *testing.T) {
 		t.Errorf("a block with no profile declared %v", d.Profile)
 	}
 }
+
+// TestInstallationChartVersionRoundTrips: the chart version an installation
+// hands out survives Encode and Decode, cleaned; anything longer than 64 bytes
+// or outside the semver characters is dropped.
+func TestInstallationChartVersionRoundTrips(t *testing.T) {
+	for in, want := range map[string]string{
+		"6.4.0": "6.4.0", "6.4.0-rc.1+build.7": "6.4.0-rc.1+build.7", "6.4.0\u202e": "6.4.0",
+		"6.4.0; rm -rf /": "", "6.4.0 ": "", strings.Repeat("1", 65): "", strings.Repeat("1", 64): strings.Repeat("1", 64),
+	} {
+		inst := installation(pushed)
+		inst.ChartVersion = in
+		data, err := Encode(Result{AsOf: asOf, Installation: inst})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := res.Installation.ChartVersion; got != want {
+			t.Errorf("chart version %q = %q, want %q", in, got, want)
+		}
+	}
+}

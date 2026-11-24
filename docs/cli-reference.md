@@ -443,6 +443,38 @@ pacto cluster approve <uid> [flags]
       --registry string             the registry the members publish to, or its pacto-targets repository; this or --detected is required
 ```
 
+### `pacto cluster install`
+
+Prints an Argo CD ApplicationSet (--from argocd) or Flux HelmReleases (--from flux), one per kubeconfig ref the hub's Flux names, that install the Pacto chart on every cluster the engine reaches. The values are only registry, hub.url when you pass --hub-url and insecureRegistries with --insecure-registry. Pacto writes nothing to Git and applies nothing: you hand the files to the engine. Deleting them never uninstalls Pacto from a member. Each new cluster then publishes its snapshot and waits for a person's approval. --push writes the files to &lt;registry&gt;/pacto-targets with your registry credentials, tagged by their digest, and prints for Flux the bootstrap that pins that digest; --digest pins one pushed earlier.
+
+```
+pacto cluster install [flags]
+```
+
+**Examples:**
+
+```
+  pacto cluster install --from argocd --detected k8s:pacto/pacto-detected > pacto-members.yaml
+  pacto cluster install --from flux --registry ghcr.io/acme --chart-version 4.6.0 --detected k8s:pacto/pacto-detected --push
+```
+
+**Flags:**
+
+```
+      --chart string                     the chart reference, for a mirror (default "oci://ghcr.io/trianalab/pacto/charts/pacto-operator")
+      --chart-version string             the chart version to install (default the version the hub's operator advertises)
+      --context stringArray              kubeconfig context of the hub cluster (default the current context)
+      --delivery-namespace string        namespace of the hub's delivery identities ConfigMap, which lists the approver signers (default "pacto-delivery")
+      --detected string                  what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON
+      --digest string                    pin the Flux bootstrap to an install pushed earlier, sha256:<64 hex> (--from flux only)
+      --from string                      the engine that applies the install: argocd or flux (required)
+  -h, --help[=true|false]                help for install
+      --hub-url string                   the hub's https:// or wss:// URL, set as hub.url on every member
+      --insecure-registry[=true|false]   members, and --push, reach the registry over plain HTTP, for a local registry only (the member list read follows PACTO_INSECURE_REGISTRIES)
+      --push[=true|false]                push the files to <registry>/pacto-targets with your registry credentials and pin the bootstrap to their digest
+      --registry string                  the registry the members publish to, or its pacto-targets repository; this or --detected is required
+```
+
 ### `pacto cluster list`
 
 Lists every cluster in &lt;registry&gt;/pacto-targets: approved members, pending clusters with why they are pending, and removed members. The environments a cluster seems to host are inferred and say where they came from. An approved member's group mappings say who approved them. The list reads the registry, so it knows nothing about live review channels: the hub's dashboard shows them on Data sources and in meta.clusters[].link of its fleet answers.

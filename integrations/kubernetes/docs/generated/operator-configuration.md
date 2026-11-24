@@ -19,6 +19,9 @@ Controller flags and their exact defaults are captured from the operator's real 
 | Flag | Type | Default | Via chart | Description |
 | --- | --- | --- | --- | --- |
 | `-caller-coverage-ignore-namespace` | `value` |  | chart value | Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's are always ignored. |
+| `-chart-version` | `string` |  | always on | The chart version this operator was installed with, advertised in the detected ConfigMap so a generated member install pins the same chart. |
+| `-cluster-inventory` | `bool` |  | chart value | List the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher know into the detected ConfigMap, as metadata only; nothing joins on its own. |
+| `-cluster-inventory-namespaces` | `value` |  | chart value | Comma-separated namespaces the chart grants Secret list in: the operator reads Argo CD cluster Secrets and Flux kubeconfig Secrets there, metadata only, and nowhere else. |
 | `-dashboard-allow-anonymous` | `bool` |  | chart value | Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; everyone who reaches it reads what its ServiceAccount reads. |
 | `-dashboard-backstage-token-key` | `string` | `token` | chart value | Key of the reader token in that Secret. |
 | `-dashboard-backstage-token-secret` | `string` |  | chart value | Secret in the operator namespace holding the catalog reader token, which the dashboard sends only to --dashboard-backstage-url; the operator never reads it. |

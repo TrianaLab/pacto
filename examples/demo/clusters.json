@@ -1,0 +1,19 @@
+{
+  "schemaVersion": "1",
+  "asOf": "2026-11-16T09:00:00Z",
+  "cluster": "5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11",
+  "sources": [
+    {"source": "argocd", "completeness": "complete", "namespaces": ["argocd"]},
+    {"source": "capi", "completeness": "complete"}
+  ],
+  "candidates": [
+    {"source": "argocd", "kind": "Secret", "namespace": "argocd", "name": "eu-prod", "displayName": "eu-prod",
+      "labels": {"env": "prod", "region": "eu"},
+      "uid": "9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34", "uidSource": "annotation pacto.trianalab.io/cluster-uid"},
+    {"source": "argocd", "kind": "Secret", "namespace": "argocd", "name": "staging-west", "displayName": "staging-west",
+      "labels": {"env": "staging", "region": "us-west"}},
+    {"source": "capi", "kind": "Cluster", "namespace": "capi-system", "name": "ap-dev-pool", "displayName": "ap-dev-pool",
+      "labels": {"cluster.x-k8s.io/cluster-name": "ap-dev-pool", "env": "dev"}}
+  ],
+  "total": 3
+}

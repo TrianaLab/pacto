@@ -43,9 +43,10 @@ export class ApiError extends Error {
 // ── generated response types (never redeclared) ──────────────────────────────
 // Product responses are inline operation payloads; alias them from the generated
 // operations so the facade and UI consume the generated wire types.
-// Only operations that answer 200: a create answers 201 and has no 200 entry.
+// Only operations that answer 200 with JSON: a create answers 201 and has no 200 entry,
+// and a download answers another media type.
 type OpsWith200 = {
-  [K in keyof operations]: operations[K]['responses'] extends { 200: unknown } ? K : never;
+  [K in keyof operations]: operations[K]['responses'] extends { 200: { content: { 'application/json': unknown } } } ? K : never;
 }[keyof operations];
 type JSON200<T extends OpsWith200> =
   operations[T]['responses'][200]['content']['application/json'];
@@ -79,6 +80,8 @@ export type ProductMeta = ProductOverview['meta'];
 /** The member clusters of a hub: approved, pending and removed, with the counts a reader may not see. */
 export type ClusterJoinList = components['schemas']['Delivery.ClusterJoinList'];
 export type ClusterJoinState = components['schemas']['Delivery.ClusterJoinState'];
+/** A cluster the hub's GitOps or cluster managers know, matched to a member only by a UID it states. */
+export type ClusterCandidate = components['schemas']['Delivery.ClusterCandidate'];
 
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
 // body straight from the generated `paths`, keyed by the exact path a facade method
@@ -509,6 +512,9 @@ export const api = {
       throw e;
     }
   },
+  /** The YAML that installs the Pacto chart on every member through the engine from. */
+  fleetClusterInstall: (from: 'argocd' | 'flux'): Promise<string> =>
+    unwrap(client.GET('/api/fleet/clusters/install', { params: { query: { from } }, parseAs: 'text' })),
   fleetEntities: (params: FleetEntitiesInput = {}): Promise<ProductEntityList> => {
     const { kinds, ...rest } = params;
     return productGet(client.GET('/api/fleet/entities', {

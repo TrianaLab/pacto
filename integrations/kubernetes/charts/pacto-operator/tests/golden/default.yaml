@@ -2578,6 +2578,7 @@ spec:
             - --health-probe-bind-address=:8081
             - --metrics-bind-address=:8443
             - --metrics-secure=true
+            - --chart-version=VERSION
             - --enable-probing=auto
             - --enable-metrics-observation=auto
             - --egress-gateway-logs=auto

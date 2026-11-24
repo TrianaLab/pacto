@@ -120,6 +120,8 @@ A cluster can also join a hub as a [member](glossary.md#member) through the
 registry alone, with no kubeconfig of it, and link out to the hub so that
 each member reviews signed-in people with its own RBAC. See
 [Member clusters](member-clusters.md).
+[Install members](install-members.md) installs the chart on every cluster
+your Argo CD or Flux already knows.
 
 ## Operation records
 

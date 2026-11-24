@@ -222,6 +222,18 @@ The privilege idp adds:
 - `create`, `delete`, `get`, `patch` and `update` on Deployments and Services in the release namespace, for the Evidence Server
 - With `idp.crossplane.install=true` only, the upstream Crossplane chart's RBAC: the `crossplane` ServiceAccount writes CRDs, Secrets, ServiceAccounts, Services, Deployments and webhook configurations cluster-wide, the `rbac-manager` ServiceAccount may escalate and bind ClusterRoles, and the `crossplane:masters` group is bound to `crossplane-admin`
 
+### Cluster inventory
+
+`clusterInventory.enabled=true` lists the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher know on a hub; Data sources and `pacto cluster list` show them, and nothing joins on its own. It adds `list` on each inventory API the cluster serves. Argo CD cluster Secrets and Flux kubeconfig Secrets are read only in the namespaces `clusterInventory.secretNamespaces` names, each through a Role with `list` on `secrets` and its RoleBinding:
+
+```yaml
+clusterInventory:
+  enabled: true
+  secretNamespaces: [argocd, flux-system]
+```
+
+The Roles render only when both values are set. The grant lets the operator's ServiceAccount list those Secrets, data included; Pacto requests their metadata only, and no ClusterRole grants Secrets. [Install members](https://pacto.run/latest/install-members/) lists the candidates and installs the chart on them through Argo CD or Flux.
+
 ## Artifact Verification
 
 The chart and the controller image are signed keyless with Sigstore. [Published artifacts](https://pacto.run/latest/integrations/kubernetes/artifact-hub/) gives the coordinates and the verify command.
@@ -231,6 +243,8 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for the controller pod |
+| clusterInventory.enabled | bool | `false` | List the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher know on this hub: Data sources and `pacto cluster list` show them with their labels and source. Adds `list` on each inventory API the cluster serves (metadata only); nothing joins on its own. |
+| clusterInventory.secretNamespaces | list | `[]` | Namespaces where the operator may list Secrets (metadata only), for Argo CD cluster Secrets and Flux kubeconfig Secrets. This grants the operator's ServiceAccount Secret list there; no Secret is read cluster-wide. |
 | controller.egressGatewayLogs | string | `"auto"` | Istio egress gateway access logs. auto finds Istio egress gateways and proposes the value; on reads their access log tail, which adds pods/log get; "off" stops both. on reads the istio-proxy log of the pods labelled istio=egressgateway in istio-system and grants pods/log get and pods list in a Role there, never in a ClusterRole. Quote "off": a bare off is YAML false, and false keeps meaning auto; true means on. |
 | controller.interfaceNameMatchDiscovery | bool | `false` | Resolve an unbound interface's Service port by matching a Service port whose name equals the interface name. A positive availability assist only: it never produces an absent or error result. |
 | controller.kernelEvidence.callerIgnoreNamespaces | list | `["kube-flannel","calico-system","tigera-operator"]` | Extra namespaces whose host-network pods are taken not to call workloads. The node agent cannot tell a host-network pod's calls from the node's own, so any such pod makes a Service's caller coverage partial, except in kube-system, kube-public, kube-node-lease and the node agent's namespace. The default lists the Flannel and Calico namespaces. Keep only namespaces that exist on your cluster and that you control: anyone who can create a listed namespace can call your services from a host-network pod there unseen. |

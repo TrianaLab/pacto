@@ -273,3 +273,35 @@ func TestVisibleJoins(t *testing.T) {
 	expect(t, len(v.Clusters) == 1 && v.Hidden == 2 && !v.CanApprove && v.Completeness == fleet.CompletenessPartial &&
 		len(v.Limitations) == 1 && strings.HasSuffix(v.Limitations[0].Message, ": timeout"), "failed review = %+v", v)
 }
+
+// candidateList is hubList with one matched candidate whose label gave the
+// approved member an inventory environment, and a candidate limitation.
+func candidateList() delivery.ClusterJoinList {
+	l := hubList()
+	l.Candidates = []delivery.ClusterCandidate{{Source: "argocd", Kind: "Secret", Namespace: "argocd", Name: "eu", Match: delivery.CandidateMatched,
+		Member: &delivery.ClusterRef{UID: euProd, Name: "eu-prod"}}, {Source: "capi", Kind: "Cluster", Name: "us", Match: delivery.CandidateUnmatched}}
+	l.CandidatesAsOf, l.CandidatesCompleteness = "2026-11-23T10:00:00Z", fleet.CompletenessPartial
+	l.Limitations = []fleet.Limitation{{Code: fleet.LimitationSourcePartial, Source: delivery.CandidatesID, Message: "the candidate clusters from flux are partial: labels not read in apps"}}
+	for i := range l.Clusters {
+		l.Clusters[i].InventoryEnvironments = []delivery.InventoryEnvironment{{Name: "prod", Source: "label env=prod on Argo CD cluster Secret argocd/eu", Candidate: "argocd:argocd/eu"}}
+	}
+	return l
+}
+
+func TestVisibleJoinsHidesCandidates(t *testing.T) {
+	v := visibleJoins(candidateList(), true, nil)
+	expect(t, len(v.Candidates) == 2 && v.HiddenCandidates == 0 && len(v.Limitations) == 1, "approver = %+v", v)
+	for _, err := range []error{nil, errors.New("timeout")} {
+		v = visibleJoins(candidateList(), false, err)
+		data, _ := json.Marshal(v)
+		expect(t, v.Candidates == nil && v.HiddenCandidates == 2 && v.CandidatesAsOf == "" && v.CandidatesCompleteness == "" &&
+			!strings.Contains(string(data), "argocd") && !strings.Contains(string(data), "flux"), "non-approver (%v) = %s", err, data)
+	}
+}
+
+func TestVisibleJoinsDropsInventoryEnvironments(t *testing.T) {
+	v := visibleJoins(candidateList(), false, nil)
+	expect(t, len(v.Clusters) == 1 && v.Clusters[0].InventoryEnvironments == nil, "non-approver = %+v", v.Clusters)
+	v = visibleJoins(candidateList(), true, nil)
+	expect(t, len(v.Clusters[0].InventoryEnvironments) == 1, "approver = %+v", v.Clusters)
+}

@@ -154,7 +154,7 @@ func TestDetectorEntriesFitMaxEntries(t *testing.T) {
 	d.Pieces = func() []detect.Entry {
 		return []detect.Entry{detect.EvidencePiece("off", "no registry value", nil, detect.Complete, ""), detect.RecorderPiece("on")}
 	}
-	res := d.detect(context.Background())
+	res, _ := d.detect(context.Background())
 	want := []string{"registry", "pull-secret", "cloud", "nodes", "metrics", "istio-egress", "cilium-fqdn", "sign-in", "exposure",
 		"crossplane", "evidence", "recorder", "otel-collector", "tempo", "jaeger", "datadog", "backstage"}
 	got := make([]string, 0, len(res.Entries))

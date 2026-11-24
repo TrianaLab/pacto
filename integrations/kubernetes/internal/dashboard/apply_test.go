@@ -543,7 +543,7 @@ func TestDeploymentAC_DetectedVolumeOptional(t *testing.T) {
 		}
 		cm := v.ConfigMap
 		vol = cm != nil && *cm.Name == "pacto-operator-detected" && cm.Optional != nil && *cm.Optional &&
-			len(cm.Items) == 2 && *cm.Items[0].Key == "detected.json" && *cm.Items[0].Path == "detected.json"
+			len(cm.Items) == 3 && *cm.Items[0].Key == "detected.json" && *cm.Items[0].Path == "detected.json"
 	}
 	if !vol {
 		t.Error("expected an optional ConfigMap volume detected with the detected.json item")
@@ -789,6 +789,25 @@ func TestDetectedVolumeMountsLinkedKey(t *testing.T) {
 		}
 	}
 	t.Error("expected the detected volume to mount linked.json")
+}
+
+// TestDashboardMountsClustersKey: detection writes clusters.json into the
+// same ConfigMap; the dashboard reads the candidate clusters beside
+// detected.json, and the volume stays optional.
+func TestDashboardMountsClustersKey(t *testing.T) {
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", DetectedConfigMap: "pacto-operator-detected"}
+	deploy := deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration)
+	for _, v := range deploy.Spec.Template.Spec.Volumes {
+		if *v.Name != "detected" || !*v.ConfigMap.Optional {
+			continue
+		}
+		for _, it := range v.ConfigMap.Items {
+			if *it.Key == "clusters.json" && *it.Path == "clusters.json" {
+				return
+			}
+		}
+	}
+	t.Error("expected the optional detected volume to mount clusters.json")
 }
 
 // TestAuthEnvMCP: the dashboard serves /mcp only with a usable sign-in (token

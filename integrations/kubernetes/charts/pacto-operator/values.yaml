@@ -81,6 +81,18 @@ hub:
   # hub's certificate may chain to beside the system pool.
   caConfigMap: ""
 
+clusterInventory:
+  # -- List the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher
+  # know on this hub: Data sources and `pacto cluster list` show them with
+  # their labels and source. Adds `list` on each inventory API the cluster
+  # serves (metadata only); nothing joins on its own.
+  enabled: false
+  # -- Namespaces where the operator may list Secrets (metadata only), for
+  # Argo CD cluster Secrets and Flux kubeconfig Secrets. This grants the
+  # operator's ServiceAccount Secret list there; no Secret is read
+  # cluster-wide.
+  secretNamespaces: []
+
 # -- Number of controller replicas
 replicaCount: 1
 

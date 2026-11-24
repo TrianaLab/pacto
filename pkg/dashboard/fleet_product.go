@@ -490,6 +490,7 @@ func (s *Server) stubProvidersForSchemaExport() {
 	s.opts.ClusterJoins = func(context.Context) (delivery.ClusterJoinList, error) {
 		return delivery.ClusterJoinList{}, errors.New("schema export only")
 	}
+	s.opts.ClusterInstall = func(context.Context, string) ([]byte, error) { return nil, errors.New("schema export only") }
 	s.opts.Declare = schemaDeclarer{}
 }
 

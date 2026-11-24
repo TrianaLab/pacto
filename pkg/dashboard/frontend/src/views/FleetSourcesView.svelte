@@ -25,10 +25,11 @@
   import ConnectAgent from '../components/ConnectAgent.svelte';
   import { loadTrustFigure } from '../lib/lazyFigures.ts';
   import HelpTip from '../components/HelpTip.svelte';
-  import { clusterWord, clusterReason, showClusters, shortKey, joinNameTip, joinHostsTip, approvedWords, removedWords, snapshotWords, joinCounts } from '../lib/clusters.ts';
+  import { clusterWord, clusterReason, showClusters, shortKey, joinNameTip, joinHostsTip, approvedWords, removedWords, snapshotWords, joinCounts, hiddenCandidateCount } from '../lib/clusters.ts';
   import { linkWords, linkTip } from '../lib/clusterLink.ts';
   import ProvenanceMark from '../components/ProvenanceMark.svelte';
   import ClusterApprove from '../components/ClusterApprove.svelte';
+  import ClusterCandidates from '../components/ClusterCandidates.svelte';
   import LimitationsList from '../components/LimitationsList.svelte';
 
   // The product Sources list: source discovery through
@@ -137,9 +138,14 @@
   const pending = $derived(joinRows.filter((r) => r.state === 'pending'));
   const removed = $derived(joinRows.filter((r) => r.state === 'removed'));
   const approved = $derived(new Map(joinRows.filter((r) => r.state === 'approved').map((r) => [r.uid, r])));
-  const counts = $derived(joinCounts(joins?.hidden ?? 0, joins?.otherHubs ?? 0, (joins?.limitations ?? []).some((l) => l.source === 'cluster-join-approver')));
+  const counts = $derived([...joinCounts(joins?.hidden ?? 0, joins?.otherHubs ?? 0, (joins?.limitations ?? []).some((l) => l.source === 'cluster-join-approver')),
+    hiddenCandidateCount(joins?.hiddenCandidates ?? 0)].filter(Boolean));
+  // The candidate clusters (514-S5): a hub with candidates and no member yet still shows the block.
+  const candidates = $derived(joins?.candidates ?? []);
+  const memberIds = $derived(new Set(clusters.map((c) => c.id)));
+  const memberAnchor = (uid) => `sc-member-${uid}`;
   const joinLimits = $derived(joins?.limitations ?? []);
-  const showBlock = $derived(showClusters(clusters) || !!joinsError || pending.length > 0 || removed.length > 0 || counts.length > 0 || joinLimits.length > 0);
+  const showBlock = $derived(showClusters(clusters) || !!joinsError || pending.length > 0 || removed.length > 0 || counts.length > 0 || joinLimits.length > 0 || candidates.length > 0);
 </script>
 
 <div class="product-page">
@@ -184,7 +190,7 @@
       <ul class="sc-list">
         {#each clusters as c, i (`${c.id}@@${i}`)}
           {@const link = linkWords(c, approved.has(c.id))}
-          <li class="sc-chip tone-{clusterTone(c)}" data-testid="source-cluster">
+          <li class="sc-chip tone-{clusterTone(c)}" id={memberAnchor(c.id)} tabindex="-1" data-testid="source-cluster">
             <span class="sc-dot" aria-hidden="true"></span>
             <bdi title={c.name || c.id}>{c.name || c.id}</bdi>
             <span class="sc-word">{clusterWord(c)}</span>
@@ -229,6 +235,7 @@
           </ul>
         </details>
       {/if}
+      {#if candidates.length}<ClusterCandidates {candidates} asOf={joins?.candidatesAsOf} completeness={joins?.candidatesCompleteness} members={memberIds} {memberAnchor} />{/if}
       {#if counts.length}<p class="t-meta" data-testid="cluster-join-counts">{counts.join('; ')}.</p>{/if}
       {#if joinLimits.length}<LimitationsList items={joinLimits} />{/if}
     </section>
@@ -285,6 +292,8 @@
   .sc-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--sp-2); min-inline-size: 0; }
   .sc-chip { display: inline-flex; align-items: center; gap: var(--sp-2); max-inline-size: 100%; min-inline-size: 0; padding: 2px var(--sp-1) 2px var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-pill); font-size: var(--text-sm); }
   .sc-dot { flex: none; inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--tone-c); }
+  /* A matched candidate card focuses its chip by script, which :focus-visible skips after a click. */
+  .sc-chip:focus { outline: 2px solid var(--c-accent); outline-offset: 2px; }
   /* A 63-character cluster name ends in an ellipsis; its title holds it whole. */
   .sc-chip bdi { min-inline-size: 0; max-inline-size: 28ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
   .sc-word { flex: none; color: var(--c-text-2); }
