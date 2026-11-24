@@ -1,0 +1,49 @@
+# The Crossplane RDS Instances the two composites produced: labelled with
+# their claim and owned by their composite (the script fills in each
+# composite's uid). The script then writes status.atProvider the way the
+# provider does: the ARN that names account, region and id, and the engine.
+apiVersion: rds.aws.upbound.io/v1beta1
+kind: Instance
+metadata:
+  name: orders-db-x1-rds
+  labels:
+    crossplane.io/claim-name: orders-db
+    crossplane.io/claim-namespace: shop
+  annotations:
+    crossplane.io/external-name: orders-db
+  ownerReferences:
+    - apiVersion: platform.example.org/v1alpha1
+      kind: XPostgreSQLInstance
+      name: orders-db-x1
+      uid: __ORDERS_XR_UID__
+spec:
+  forProvider:
+    region: eu-west-1
+    engine: postgres
+    engineVersion: "16"
+  writeConnectionSecretToRef:
+    namespace: crossplane-system
+    name: orders-db-x1-rds
+---
+apiVersion: rds.aws.upbound.io/v1beta1
+kind: Instance
+metadata:
+  name: legacy-db-x1-rds
+  labels:
+    crossplane.io/claim-name: legacy-db
+    crossplane.io/claim-namespace: shop
+  annotations:
+    crossplane.io/external-name: legacy-db
+  ownerReferences:
+    - apiVersion: platform.example.org/v1alpha1
+      kind: XPostgreSQLInstance
+      name: legacy-db-x1
+      uid: __LEGACY_XR_UID__
+spec:
+  forProvider:
+    region: eu-west-1
+    engine: postgres
+    engineVersion: "14"
+  writeConnectionSecretToRef:
+    namespace: crossplane-system
+    name: legacy-db-x1-rds

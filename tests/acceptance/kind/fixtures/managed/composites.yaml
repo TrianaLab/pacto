@@ -1,0 +1,24 @@
+# One composite per claim, each naming its claim in spec.claimRef: the
+# operator trusts a resource's claim labels only when its owning composite
+# agrees.
+apiVersion: platform.example.org/v1alpha1
+kind: XPostgreSQLInstance
+metadata:
+  name: orders-db-x1
+spec:
+  claimRef:
+    apiVersion: platform.example.org/v1alpha1
+    kind: PostgreSQLInstance
+    namespace: shop
+    name: orders-db
+---
+apiVersion: platform.example.org/v1alpha1
+kind: XPostgreSQLInstance
+metadata:
+  name: legacy-db-x1
+spec:
+  claimRef:
+    apiVersion: platform.example.org/v1alpha1
+    kind: PostgreSQLInstance
+    namespace: shop
+    name: legacy-db

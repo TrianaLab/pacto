@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-delivery-environments test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
-       test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review test-acceptance-kind-managed-resources ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -134,7 +134,8 @@ test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrad
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
 	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
 	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-delivery-environments test-acceptance-kind-least-privilege \
-	test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review
+	test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review \
+	test-acceptance-kind-managed-resources
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -162,6 +163,15 @@ test-acceptance-kind-profiles:
 # Crossplane CRDs and resources stay.
 test-acceptance-kind-idp:
 	bash tests/acceptance/kind/idp.sh
+
+# Managed resources on a real API server: helm grants list on the catalog's
+# managed kinds and an XRD's claim and composite plurals only when it runs after
+# their CRDs appear, the operator reads two Crossplane claims and their RDS
+# Instances, the published consumer joins through its connection Secret name, a
+# signed provisioning record puts one resource through an offering and the
+# hand-applied claim reads outside the contract.
+test-acceptance-kind-managed-resources:
+	bash tests/acceptance/kind/managed-resources.sh
 
 # Multi-cluster reads on two real API servers: one dashboard started with
 # --context on the runner reads two kind clusters (an alias context of the

@@ -1,0 +1,15 @@
+# The XRD the platform team wrote: helm reads it with lookup and grants the
+# list of its composite and claim plurals, and the operator reads its claims
+# and composites at the referenceable version.
+apiVersion: apiextensions.crossplane.io/v1
+kind: CompositeResourceDefinition
+metadata:
+  name: xpostgresqlinstances.platform.example.org
+spec:
+  group: platform.example.org
+  names: {kind: XPostgreSQLInstance, plural: xpostgresqlinstances}
+  claimNames: {kind: PostgreSQLInstance, plural: postgresqlinstances}
+  versions:
+    - name: v1alpha1
+      served: true
+      referenceable: true
