@@ -45,6 +45,18 @@ func sarEnv(t *testing.T) client.Client {
 		t.Fatal(err)
 	}
 	must(t, grantUpdates(context.Background(), c))
+	// The RBAC authorizer reads through an informer: wait until both grants
+	// answer, so no review races the bindings just created.
+	r := &OperationReconciler{Client: c, Now: time.Now}
+	granted := func(user string) bool {
+		a, err := r.access(context.Background(), delivery.Identity{User: user, Groups: []string{"system:authenticated"}}, sarStage("checkout"))
+		return err == nil && a.Allowed
+	}
+	for deadline := time.Now().Add(30 * time.Second); !granted("dana@example.com") || !granted("frank@example.com"); time.Sleep(100 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the RBAC grants never reached the authorizer")
+		}
+	}
 	return c
 }
 
