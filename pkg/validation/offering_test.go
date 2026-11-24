@@ -168,6 +168,76 @@ func TestEnvironmentNullOnTunableObjectPasses(t *testing.T) {
 	}
 }
 
+// A null on a tunable object removes every field under it, so it is refused
+// when a field declared there is contract-tier.
+func TestEnvironmentNullOnTunableObjectWithContractChildIsTierNotTunable(t *testing.T) {
+	tight := offeringBundle("postgresql", "postgresql", strings.Replace(offeringSchema, `"properties":{"window":`,
+		`"properties":{"retentionDays":{"type":"integer","minimum":7,"x-pacto-tier":"contract"},"window":`, 1), nil)
+	c, fsys := offeringConsumer(map[string]any{"class": "small", "storageGB": 20, "backup": map[string]any{"retentionDays": 30}}, "{}\n", "database: {backup: null}\n")
+	st, _ := runOffering(t, c, fsys, tight)
+	if codes(st) != string(finding.CodeTierNotTunable) || !strings.Contains(st.Errors[0].Message, "database.backup.retentionDays is contract-tier") {
+		t.Fatalf("got %+v", st.Errors)
+	}
+}
+
+// A path reported with a parameter code is reported once: nothing under it
+// is also a tier finding.
+func TestParameterCodeHidesTierFindingsBelow(t *testing.T) {
+	for values, code := range map[string]finding.Code{
+		"database: {extra: {a: 1}}\n":     finding.CodeParameterNotDeclared,
+		"database: {storageGB: {x: 1}}\n": finding.CodeParameterOutOfRange,
+	} {
+		if st := envProduction(t, values); codes(st) != string(code) {
+			t.Fatalf("%s: got %+v", values, st.Errors)
+		}
+	}
+}
+
+// Every bound an offering declares on a tunable value refuses, maxItems
+// included, so the consuming team cannot approve past it.
+func TestEnvironmentArrayBoundIsParameterOutOfRange(t *testing.T) {
+	cidrs := offeringBundle("postgresql", "postgresql", strings.Replace(offeringSchema, `"properties":{`,
+		`"properties":{"allowedCIDRs":{"type":"array","maxItems":2,"uniqueItems":true,"x-pacto-tier":"tunable"},`, 1), nil)
+	for _, prod := range []string{"database: {allowedCIDRs: [a, b, c]}\n", "database: {allowedCIDRs: [a, a]}\n"} {
+		c, fsys := offeringConsumer(baseValues(), "{}\n", prod)
+		st, _ := runOffering(t, c, fsys, cidrs)
+		if codes(st) != string(finding.CodeParameterOutOfRange) {
+			t.Fatalf("%s: got %+v", prod, st.Errors)
+		}
+	}
+	c, fsys := offeringConsumer(baseValues(), "{}\n", "database: {allowedCIDRs: [a, b, c]}\n")
+	if st, _ := runOffering(t, c, fsys, cidrs); !strings.Contains(st.Errors[0].Message, "with at most 2 items") {
+		t.Fatalf("got %+v", st.Errors)
+	}
+}
+
+// An offering whose configuration is a ref to a plain schema library keeps
+// its parameter rules: the offering on the chain decides, wherever the
+// schema sits, and its owner is the one named.
+func TestOfferingRefToSchemaLibraryIsTierChecked(t *testing.T) {
+	offering := &contract.Bundle{
+		Contract: &contract.Contract{PactoVersion: "2.5", Service: contract.Service{Name: "postgresql", Version: "16.1.0", Offering: "postgresql", Owner: contract.Owner{Team: "team-data"}},
+			Configurations: []contract.Configuration{{Name: "default", Ref: "./schemas", ProviderConfiguration: "default"}}},
+		FS: fstest.MapFS{},
+	}
+	library := offeringBundle("pg-schemas", "", offeringSchema, nil)
+	r := &originResolver{root: "/c", bundles: map[string]*contract.Bundle{"/c\x00./pg": offering, "/pg\x00./schemas": library},
+		childOf: map[string]string{"/c\x00./pg": "/pg", "/pg\x00./schemas": "/schemas"}}
+	c, fsys := offeringConsumer(baseValues(), "{}\n", "database: {storageGB: 100}\n")
+	c.Configurations[0].Ref = "./pg"
+	refs, _ := ResolveConfigRefs(t.Context(), c, fsys, ConfigRefOptions{Resolver: r})
+	st := EnvironmentStageWith(c, fsys, refs)
+	if codes(st) != string(finding.CodeTierNotTunable) || !strings.Contains(st.Errors[0].Message, "offering postgresql 16.1.0") {
+		t.Fatalf("got %+v", st.Errors)
+	}
+	// An inferred offering on the chain leaves the values unverified.
+	offering.FS = fstest.MapFS{contract.InferredRecordFile: {Data: []byte("format: pacto.inferred/v1\n")}}
+	refs, _ = ResolveConfigRefs(t.Context(), c, fsys, ConfigRefOptions{Resolver: r})
+	if st = EnvironmentStageWith(c, fsys, refs); st.Status != StageSkip {
+		t.Fatalf("inferred: got %+v", st)
+	}
+}
+
 func TestEnvironmentScalarReplacesRootIsTierNotTunable(t *testing.T) {
 	st := envProduction(t, "database: 5\n")
 	if codes(st) != string(finding.CodeTierNotTunable) || !strings.HasPrefix(st.Errors[0].Message, "environment production: database is contract-tier") {
@@ -192,7 +262,7 @@ func TestChainedRefToOfferingIsTierChecked(t *testing.T) {
 	c, fsys := offeringConsumer(baseValues(), "{}\n", "database: {storageGB: 100}\n")
 	c.Configurations[0].Ref, c.Configurations[0].ProviderConfiguration = "./wrapper", ""
 	refs, _ := ResolveConfigRefs(t.Context(), c, fsys, ConfigRefOptions{Resolver: r})
-	if refs["database"].Provider.Service.Name != "db-wrapper" || refs["database"].SchemaProvider.Service.Name != "postgresql" {
+	if refs["database"].Provider.Service.Name != "db-wrapper" || refs["database"].Offering.Service.Name != "postgresql" {
 		t.Fatalf("got %+v", refs["database"])
 	}
 	st := EnvironmentStageWith(c, fsys, refs)
@@ -315,7 +385,7 @@ func TestSchemaBoundAndOwnerFallbacks(t *testing.T) {
 	if got := schemaBound(doc, []string{"a"}); got != "equal to x, > 1, < 9, a multiple of 2, at least 1 characters long, at most 3 characters long" {
 		t.Fatalf("got %q", got)
 	}
-	r := ResolvedConfigRef{SchemaProvider: &contract.Contract{Service: contract.Service{Name: "pg"}}}
+	r := ResolvedConfigRef{Offering: &contract.Contract{Service: contract.Service{Name: "pg"}}}
 	if got := nextStep(string(finding.CodeTierNotTunable), r, 0, doc, nil, "", nil); !strings.Contains(got, "ask the offering owner") {
 		t.Fatalf("got %q", got)
 	}
