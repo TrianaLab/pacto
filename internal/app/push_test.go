@@ -665,6 +665,10 @@ func TestPushFailsOnUnresolvableConfigRef(t *testing.T) {
 	if err == nil || err.Error() != "contract validation failed with 1 error(s)" {
 		t.Fatalf("expected a refused push, got %v", err)
 	}
+	// A contribution runs the same validation before its record is read.
+	if _, _, err := loadContribution(context.Background(), dir, override.Overrides{}, store); err == nil || err.Error() != "contract validation failed with 1 error(s)" {
+		t.Fatalf("expected a refused contribution, got %v", err)
+	}
 	// The one error is the unresolved ref, as validate reports it.
 	r, _ := svc.Validate(context.Background(), ValidateOptions{Path: dir})
 	if len(r.Errors) != 1 || r.Errors[0].Code != "CONFIG_REF_UNRESOLVED" {
