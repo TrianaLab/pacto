@@ -92,6 +92,7 @@ const (
 var fieldCoverageCases = []fcCase{
 	valid("pactoVersion/valid"),
 	invalid("pactoVersion/invalid", parseError, set("pactoVersion", "1.0"), del("service.template"), del("service.origin")),
+	valid("pactoVersion=2.5", set("pactoVersion", "2.5")),
 	valid("pactoVersion=2.4", set("pactoVersion", "2.4"), del("interfaces.0.port"), del("breaks")),
 	valid("pactoVersion/absent-is-current", del("pactoVersion")),
 	valid("pactoVersion=2.3", set("pactoVersion", "2.3"), del("interfaces.0.port"), del("breaks"), del("environments.0.lifetime"), del("environments.0.expires"), del("environments.0.owner"), del("service.template"), del("service.origin"), del("service.lifecycle"), del("service.domain"), del("service.offering"), del("service.summary")),
@@ -268,6 +269,8 @@ var fieldCoverageCases = []fcCase{
 	invalid("environments[].file/invalid", "ENVIRONMENT_VALUES_INVALID", set("environments.0.file", "environments/broken.yaml")),
 	invalid("environments[].file/missing", "FILE_NOT_FOUND", set("environments.0.file", "environments/qa.yaml")),
 	invalid("environments[].file/unknown-configuration", "ENVIRONMENT_UNKNOWN_CONFIGURATION", set("environments.0.file", "environments/typo.yaml")),
+	valid("environments[].file/absent", del("environments.0.file")),
+	invalid("environments[].file/absent-before-2.6", schemaViolation, set("pactoVersion", "2.5"), del("environments.0.file")),
 	valid("environments[].lifetime/valid", set("environments.0.lifetime", "persistent"), del("environments.0.expires")),
 	invalid("environments[].lifetime/invalid", schemaViolation, set("environments.0.lifetime", "forever")),
 	invalid("environments[].lifetime/needs-2.4", needs24, envNeeds24("lifetime")...),
@@ -605,11 +608,11 @@ func manyPlugins(n int) []any {
 	return out
 }
 
-// fieldCoverageBase declares every field of the v2.5 schema at least once
+// fieldCoverageBase declares every field of the v2.6 schema at least once
 // (publish.sign declares one of its three ways; the cases cover the others; a
 // ref configuration with values needs a registry, so the
 // configurations[].configuration cases add the selector themselves).
-const fieldCoverageBase = `pactoVersion: "2.5"
+const fieldCoverageBase = `pactoVersion: "2.6"
 service:
   name: orders
   version: 1.0.0

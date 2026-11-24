@@ -169,20 +169,21 @@ func (r *Recorder) SetupWithManager(mgr ctrl.Manager) error {
 }
 
 // stageStreamSeeded posts environment.created when the promoter first gives a
-// Stage its stream id (or gives it again after its status was lost). Informer
-// replays on restart are creates, so a restart posts nothing.
+// hand-written Stage its stream id (or gives it again after its status was
+// lost). Informer replays on restart are creates, so a restart posts nothing.
+// The promoter's EnvironmentReconciler posts those of managed Stages.
 func (r *Recorder) stageStreamSeeded(ctx context.Context, e cevent.UpdateEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
 	old, stage := e.ObjectOld.(*dv1.Stage), e.ObjectNew.(*dv1.Stage)
-	if old.Status.Stream.ID == "" && stage.Status.Stream.ID != "" {
+	if old.Status.Stream.ID == "" && stage.Status.Stream.ID != "" && !managed(stage) {
 		r.Events.emitEnvironment(ctx, stage, true, r.Now())
 	}
 }
 
-// stageGone posts environment.deleted for a deleted Stage that was given a
-// stream id. One never seeded got no environment.created and has no subject
+// stageGone posts environment.deleted for a deleted hand-written Stage that
+// was given a stream id. One never seeded got no environment.created and has no subject
 // id, which CDEvents requires.
 func (r *Recorder) stageGone(ctx context.Context, e cevent.DeleteEvent, _ workqueue.TypedRateLimitingInterface[reconcile.Request]) {
-	if stage := e.Object.(*dv1.Stage); stage.Status.Stream.ID != "" {
+	if stage := e.Object.(*dv1.Stage); stage.Status.Stream.ID != "" && !managed(stage) {
 		r.Events.emitEnvironment(ctx, stage, false, r.Now())
 	}
 }

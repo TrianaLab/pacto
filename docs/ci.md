@@ -153,10 +153,10 @@ directory, which a pull request can change.
 `pacto ci` raises an older `pactoVersion` in the bundle only, when that
 adds no validation finding. Its row says:
 
-- `ledger: pacto.yaml is 2.4, publishes as 2.5 (migrated in memory)`
+- `ledger: pacto.yaml is 2.4, publishes as 2.6 (migrated in memory)`
 - `kept at 2.4 (<finding>)`: published as written when it declares a `publish`
   section; with none, the row fails until you fix the finding and raise `pactoVersion`
-- `published as 2.4 (raises to 2.5 when it next changes)`: a raise alone never
+- `published as 2.4 (raises to 2.6 when it next changes)`: a raise alone never
   republishes
 
 No note changes the exit code. The bundle records the raise in

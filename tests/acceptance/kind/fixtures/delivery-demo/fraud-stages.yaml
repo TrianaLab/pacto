@@ -1,0 +1,277 @@
+# fraud's hand-written delivery pieces in test and prod: per environment the
+# Flux OCIRepositories, the deployer account, the Kustomization and the Stage.
+# pacto init --delivery writes none of these (the promoter creates managed
+# Stages from the installation ladder); a person wrote these, verifying the
+# demo key whose public half is cosign-pub, and Pacto leaves them as they are.
+# New versions: every version the publisher signed.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: fraud-candidates
+  namespace: test
+spec:
+  interval: 1m
+  url: oci://pacto-registry.pacto-system.svc.cluster.local:5000/story/deploy/fraud
+  ref:
+    semver: ">=0.0.0"
+  # The registry speaks plain HTTP: for a local registry only.
+  insecure: true
+  verify:
+    provider: cosign
+    secretRef:
+      name: cosign-pub
+---
+# The account Flux applies each version of fraud as, in test. Widen the Role in
+# git if your manifests need more; never give it cluster-wide rights or
+# the delivery, Flux or RBAC groups.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fraud-deployer
+  namespace: test
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fraud-deployer
+  namespace: test
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets, services, serviceaccounts, persistentvolumeclaims]
+    verbs: ["*"]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: ["*"]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: ["*"]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: ["*"]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: ["*"]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: ["*"]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: ["*"]
+  # Flux checks a rollout's health as this account, reading its ReplicaSets and Pods.
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fraud-deployer
+  namespace: test
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fraud-deployer
+subjects:
+  - kind: ServiceAccount
+    name: fraud-deployer
+---
+# The version that runs. GitOps owns spec.ref: it is the tag you deploy today,
+# so while the Stage observes, Flux applies what it always did. Pacto writes a
+# digest here only once this OCIRepository carries the apply-ref label.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: fraud
+  namespace: test
+spec:
+  interval: 1m
+  url: oci://pacto-registry.pacto-system.svc.cluster.local:5000/story/deploy/fraud
+  ref:
+    tag: 1.0.0
+  # The registry speaks plain HTTP: for a local registry only.
+  insecure: true
+  verify:
+    provider: cosign
+    secretRef:
+      name: cosign-pub
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fraud
+  namespace: test
+spec:
+  interval: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: fraud
+  path: ./
+  prune: true
+  targetNamespace: test
+  # Flux applies each version as this account, never as itself: a version
+  # can then change only what the deployer Role above allows, in this
+  # namespace. An auto level judges the contract, not the manifests.
+  serviceAccountName: fraud-deployer
+  # Ready only once what it applied is rolled out, so the Stage judges the new pods.
+  wait: true
+  timeout: 2m
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata:
+  name: fraud
+  namespace: test
+spec:
+  service:
+    name: fraud
+  environment: test
+  applyRef:
+    name: fraud
+  # The workload the checks judge: a Pacto that checked anything else, such as
+  # a decoy a version shipped, counts for nothing.
+  workload:
+    kind: Deployment
+    name: fraud
+  candidates:
+    ociRepositoryRef:
+      name: fraud-candidates
+  # The Stage plans every change and moves nothing. Every level above this is
+  # a delivery.pacto.trianalab.io/autonomy operation a second person approves.
+  startLevel: observe
+  gates:
+    verify:
+      window: 5m
+---
+# The account Flux applies each version of fraud as, in prod. Widen the Role in
+# git if your manifests need more; never give it cluster-wide rights or
+# the delivery, Flux or RBAC groups.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: fraud-deployer
+  namespace: prod
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: fraud-deployer
+  namespace: prod
+rules:
+  - apiGroups: [""]
+    resources: [configmaps, secrets, services, serviceaccounts, persistentvolumeclaims]
+    verbs: ["*"]
+  - apiGroups: [apps]
+    resources: [deployments, statefulsets, daemonsets]
+    verbs: ["*"]
+  - apiGroups: [batch]
+    resources: [jobs, cronjobs]
+    verbs: ["*"]
+  - apiGroups: [autoscaling]
+    resources: [horizontalpodautoscalers]
+    verbs: ["*"]
+  - apiGroups: [policy]
+    resources: [poddisruptionbudgets]
+    verbs: ["*"]
+  - apiGroups: [networking.k8s.io]
+    resources: [ingresses, networkpolicies]
+    verbs: ["*"]
+  - apiGroups: [pacto.trianalab.io]
+    resources: [pactos]
+    verbs: ["*"]
+  # Flux checks a rollout's health as this account, reading its ReplicaSets and Pods.
+  - apiGroups: [apps]
+    resources: [replicasets]
+    verbs: [get, list, watch]
+  - apiGroups: [""]
+    resources: [pods]
+    verbs: [get, list, watch]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: fraud-deployer
+  namespace: prod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: fraud-deployer
+subjects:
+  - kind: ServiceAccount
+    name: fraud-deployer
+---
+# The version that runs. GitOps owns spec.ref: it is the tag you deploy today,
+# so while the Stage observes, Flux applies what it always did. Pacto writes a
+# digest here only once this OCIRepository carries the apply-ref label.
+apiVersion: source.toolkit.fluxcd.io/v1
+kind: OCIRepository
+metadata:
+  name: fraud
+  namespace: prod
+spec:
+  interval: 1m
+  url: oci://pacto-registry.pacto-system.svc.cluster.local:5000/story/deploy/fraud
+  ref:
+    tag: 1.0.0
+  # The registry speaks plain HTTP: for a local registry only.
+  insecure: true
+  verify:
+    provider: cosign
+    secretRef:
+      name: cosign-pub
+---
+apiVersion: kustomize.toolkit.fluxcd.io/v1
+kind: Kustomization
+metadata:
+  name: fraud
+  namespace: prod
+spec:
+  interval: 10m
+  sourceRef:
+    kind: OCIRepository
+    name: fraud
+  path: ./
+  prune: true
+  targetNamespace: prod
+  # Flux applies each version as this account, never as itself: a version
+  # can then change only what the deployer Role above allows, in this
+  # namespace. An auto level judges the contract, not the manifests.
+  serviceAccountName: fraud-deployer
+  # Ready only once what it applied is rolled out, so the Stage judges the new pods.
+  wait: true
+  timeout: 2m
+---
+apiVersion: delivery.pacto.trianalab.io/v1alpha1
+kind: Stage
+metadata:
+  name: fraud
+  namespace: prod
+spec:
+  service:
+    name: fraud
+  environment: prod
+  applyRef:
+    name: fraud
+  # The workload the checks judge: a Pacto that checked anything else, such as
+  # a decoy a version shipped, counts for nothing.
+  workload:
+    kind: Deployment
+    name: fraud
+  candidates:
+    upstreamStage:
+      name: fraud
+      namespace: test
+  # The Stage plans every change and moves nothing. Every level above this is
+  # a delivery.pacto.trianalab.io/autonomy operation a second person approves.
+  startLevel: observe
+  gates:
+    verify:
+      window: 5m
+  # Every promote here waits for a person: the contract check alone cannot
+  # see a consumer with no contract, or whether the version is healthy. Add a
+  # health check under gates.verify.checks, then delete approval to let
+  # versions that pass it move on their own.
+  approval:
+    always: true

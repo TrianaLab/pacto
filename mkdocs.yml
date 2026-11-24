@@ -272,6 +272,7 @@ nav:
           - Record keys: integrations/kubernetes/delivery-record-keys.md
           - Run records: integrations/kubernetes/delivery-run-records.md
           - Setup and gates: integrations/kubernetes/delivery-setup.md
+          - Environments and the installation ladder: integrations/kubernetes/delivery-environments.md
           - Plan, propose and approve: integrations/kubernetes/delivery-operations.md
           - Status, progress and lifecycle: integrations/kubernetes/delivery-status.md
           - Health checks: integrations/kubernetes/delivery-health.md

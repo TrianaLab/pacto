@@ -747,6 +747,20 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     unmount(component); document.body.removeChild(target);
   });
 
+  it('leaves the URL alone when the reader navigated away while the analysis ran', async () => {
+    let answer!: (v: unknown) => void;
+    impactFn.mockReturnValue(new Promise((r) => { answer = r; }));
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    location.hash = '#/fleet/graph';
+    answer(impactResult());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(location.hash).toBe('#/fleet/graph');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('restores an event link and runs it on load, but a bare mode=event only shows the form', async () => {
     impactFn.mockResolvedValue(eventResult());
     const idle = mountView({ svc: 'domain-a/payments', mode: 'event' });

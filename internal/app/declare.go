@@ -488,9 +488,9 @@ func (pl *declarePlanner) source(ctx context.Context) error {
 	return nil
 }
 
-// externalSource writes a claim's folder (Decision 4): a 2.5 pacto.yaml
-// naming the service, the external system it describes and its owner, and a
-// record that infers nothing. With req.Dir (the draft folder an accepted
+// externalSource writes a claim's folder (Decision 4): a pacto.yaml at the
+// current pactoVersion naming the service, the external system it describes
+// and its owner, and a record that infers nothing. With req.Dir (the draft folder an accepted
 // draft was written to) the name and owner are the draft's, and a different
 // --owner is refused. Nothing is read from a cluster.
 func (pl *declarePlanner) externalSource() error {
@@ -506,8 +506,8 @@ func (pl *declarePlanner) externalSource() error {
 			contract.InferredRepository, CLI: pl.req.command("")}
 	}
 	pl.dir = filepath.Join(pl.scratch, name)
-	raw := fmt.Sprintf("pactoVersion: \"2.5\"\nservice:\n  name: %s\n  version: %s\n  external: %s\n  owner:\n    team: %s\n",
-		discover.Quote(name), firstDeclaration, discover.Quote(string(pl.claim)), discover.Quote(owner))
+	raw := fmt.Sprintf("pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n  external: %s\n  owner:\n    team: %s\n",
+		contract.Current(), discover.Quote(name), firstDeclaration, discover.Quote(string(pl.claim)), discover.Quote(owner))
 	pl.rec = &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: pl.s.buildVersion()}, Fields: []contract.Inferred{}}
 	return pl.writeFile(DefaultContractPath, []byte(raw))
 }
@@ -804,7 +804,7 @@ func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, di
 }
 
 // checkBaseline refuses a baseline that names another bundle repository or
-// is below pactoVersion 2.5, which a declaration's record needs.
+// is below pactoVersion 2.5, the first a declaration's record has.
 func (pl *declarePlanner) checkBaseline(base *contract.Bundle) error {
 	if err := cmp.Or(pl.checkExternalBaseline(base), pl.checkOfferingBaseline(base)); err != nil {
 		return err
@@ -813,8 +813,8 @@ func (pl *declarePlanner) checkBaseline(base *contract.Bundle) error {
 		return &DeclareError{Code: codeBundleRepoMismatch, Message: fmt.Sprintf("the baseline declares publish.bundle %s, not %s: declare with the registry it publishes to",
 			publish.Repo(pub.Bundle), pl.repo())}
 	}
-	if v := base.Contract.PactoVersion; v != "2.5" {
-		return &DeclareError{Code: codeBaselineNeedsMigration, Message: "the baseline is at pactoVersion " + v + ", and a declaration needs 2.5: migrate it and publish it first",
+	if v := base.Contract.PactoVersion; contract.Older(v, "2.5") {
+		return &DeclareError{Code: codeBaselineNeedsMigration, Message: "the baseline is at pactoVersion " + v + ", and a declaration needs 2.5 or newer: migrate it and publish it first",
 			CLI: "pacto migrate <dir>"}
 	}
 	return nil
@@ -1173,7 +1173,7 @@ func (pl *declarePlanner) pack(raw []byte, rec *contract.InferredRecord) (*decla
 
 // declarationBundle packs the folder dir as a declaration: every file the
 // .pactoignore keeps but manifests.yaml, with rec as its inferred record, in
-// memory. pacto.yaml must be at pactoVersion 2.5, and the bundle must
+// memory. pacto.yaml must be at pactoVersion 2.5 or newer, and the bundle must
 // validate (the declaration stage included), so an invalid declaration is
 // never signed.
 func declarationBundle(dir string, rec *contract.InferredRecord) (*contract.Bundle, error) {
@@ -1181,8 +1181,8 @@ func declarationBundle(dir string, rec *contract.InferredRecord) (*contract.Bund
 	if err != nil {
 		return nil, err
 	}
-	if v := b.Contract.PactoVersion; v != "2.5" {
-		return nil, fmt.Errorf("a declaration is at pactoVersion 2.5, not %q", v)
+	if v := b.Contract.PactoVersion; contract.Older(v, "2.5") {
+		return nil, fmt.Errorf("a declaration is at pactoVersion 2.5 or newer, not %q", v)
 	}
 	files, err := copyFSWithReplace(contract.WithoutFile(contract.WithoutInferredRecord(b.FS), manifestsFile), "", nil)
 	if err != nil {

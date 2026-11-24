@@ -78,11 +78,13 @@ type Publishers struct {
 
 	mu       sync.Mutex
 	policies map[string]delivery.PublisherPolicy // verified in this process, by digest
-	tm       root.TrustedMaterial
-	rootErr  error
-	rootNext time.Time
-	listings map[string]listing
-	signers  map[string]signersRead
+	// placement is the newest placement policy verified in this process.
+	placement *delivery.PlacementPolicy
+	tm        root.TrustedMaterial
+	rootErr   error
+	rootNext  time.Time
+	listings  map[string]listing
+	signers   map[string]signersRead
 }
 
 // listing is one read of a repository's newest version tags.
@@ -516,6 +518,72 @@ func (p *Publishers) VerifiedPolicy(ctx context.Context) (*delivery.PublisherPol
 	return pol, why
 }
 
+// NewestAccepted is the verdict on the newest version of svc in its bundle
+// repository repo that the watch accepts, judged as a Stage's registry
+// watch judges it (the rule or verified policy, and svc's pins in every
+// namespace); nil and why when none is accepted, and an error when the watch
+// cannot judge, so a read that failed never reads as an untrusted publisher.
+func (p *Publishers) NewestAccepted(ctx context.Context, svc delivery.ServiceRef, repo string) (*delivery.PublisherVerdict, string, error) {
+	reg := p.Reg()
+	b := p.basisFor(ctx, reg, "", svc, nil)
+	tm, err := p.root()
+	if err != nil {
+		return nil, "", fmt.Errorf("the Sigstore trusted root could not be fetched (%w)", err)
+	}
+	verdicts, err := p.watch(ctx, reg, tm, svc, repo, b)
+	if err != nil {
+		return nil, "", fmt.Errorf("the registry %s cannot be listed (%w)", repo, err)
+	}
+	for _, v := range verdicts {
+		if v.Verdict == delivery.VerdictAccepted {
+			return &v, "", nil
+		}
+	}
+	return nil, "no version of " + repo + " has a signer the publisher rule, policy or a pin accepts", nil
+}
+
+// VerifiedPlacement is the signed placement policy at the tag placement of
+// the delivery policy's repository, verified against PolicyVerify: the newest
+// by its signed at this process verified, so an older policy pushed over it
+// is ignored. nil with no why when no delivery policy is configured or none
+// sits at the tag; nil and why when it cannot be verified; the last one
+// verified (nil when none was) and why when it cannot be read.
+func (p *Publishers) VerifiedPlacement(ctx context.Context) (*delivery.PlacementPolicy, string) {
+	if p.Policy == "" {
+		return nil, ""
+	}
+	repo := policyRepo(p.Policy)
+	ref := repo + ":" + delivery.PlacementPolicyTag
+	reg := p.Reg()
+	unread := func(err error) (*delivery.PlacementPolicy, string) {
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return p.placement, "the placement policy " + ref + " could not be read (" + err.Error() + ")"
+	}
+	h, err := reg.Head(ctx, ref)
+	switch {
+	case err != nil:
+		return unread(err)
+	case h == nil:
+		return nil, ""
+	}
+	bundle, _, err := reg.Layer(ctx, repo, h.Digest)
+	if err != nil {
+		return unread(err)
+	}
+	pol, err := delivery.OpenPlacementPolicy(bundle, p.PolicyVerify)
+	if err != nil {
+		return nil, "the placement policy " + ref + " could not be verified (" + err.Error() + ")"
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if last := p.placement; last != nil && parseOr(pol.At).Before(parseOr(last.At)) {
+		return last, fmt.Sprintf("the placement policy %s now names one signed at %s, older than %s, which stays", ref, pol.At, last.At)
+	}
+	p.placement = &pol
+	return &pol, ""
+}
+
 // errPolicyRead marks a policy that could not be read, as opposed to one
 // that was read and does not verify.
 var errPolicyRead = errors.New("the policy could not be read")
@@ -709,6 +777,13 @@ func (r *StageReconciler) trustAsk(ctx context.Context, stage *dv1.Stage, verdic
 	reason := "new signer " + v.Identity.Subject
 	if len(b.pins) > 0 {
 		reason = "signer changed from " + b.pins[0].Subject + " to " + v.Identity.Subject
+	}
+	q, err := r.Environments.question(ctx, stage)
+	if err != nil {
+		return trust{}, err
+	}
+	if q != "" {
+		reason = q + " " + reason
 	}
 	return trust{name: name, spec: &delivery.OperationSpec{Type: delivery.TypeTrust, Stage: stage.Name, Facet: delivery.FacetTrust,
 		Params: delivery.Params{From: stage.Status.Pointer, To: v.Digest, Publisher: v.Identity}, Reason: reason,

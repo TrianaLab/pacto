@@ -8,6 +8,7 @@ type ObjectMeta struct {
 	Generation        int64             `json:"generation,omitempty"`
 	CreationTimestamp string            `json:"creationTimestamp,omitempty"`
 	Labels            map[string]string `json:"labels,omitempty"`
+	Annotations       map[string]string `json:"annotations,omitempty"`
 	Finalizers        []string          `json:"finalizers,omitempty"`
 }
 

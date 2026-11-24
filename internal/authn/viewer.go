@@ -125,6 +125,11 @@ type ResourceAttributes struct {
 // to count. No CRD serves it: only RBAC names it.
 var ClusterJoinResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "clusterjoins", Verb: "approve"}
 
+// EnvironmentLadderResource is the virtual resource a person must be allowed
+// to approve, in the cluster, for their confirmation of its installation
+// ladder to count. No CRD serves it: only RBAC names it.
+var EnvironmentLadderResource = ResourceAttributes{Group: "delivery.pacto.trianalab.io", Resource: "environmentladders", Verb: "approve"}
+
 // PactoResource is the resource every fleet answer is reviewed against.
 var PactoResource = reviewable("Pacto")
 

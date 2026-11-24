@@ -11,6 +11,7 @@
   // answers: a failure is a value the schema rejects, located in its file; Not verified
   // means Pacto could not check, and Not checked that the check never ran (the reason
   // says which earlier stage stopped it). Neither of the last two is a pass.
+  // An environment with no values file (pactoVersion 2.6) says so, muted, in the file's slot.
   // Each also shows its declared lifetime, expiry and owner. An expiry is inferred against
   // `asOf`, the answer time, when the caller has one; the revision page has no service
   // owner to fall back to, so an absent owner reads No owner declared.
@@ -32,7 +33,7 @@
       <div class="env-head">
         <span class="env-name" title={env.name}>{env.name}</span>
         <IdentityBadge label={badge.label} tone={badge.tone} />
-        {#if env.file}<span class="env-file"><span class="env-k">File</span><CopyableIdentifier value={env.file} label="values file" /></span>{/if}
+        {#if env.file}<span class="env-file"><span class="env-k">File</span><CopyableIdentifier value={env.file} label="values file" /></span>{:else}<span class="env-nofile" title="This environment declares no values file, so each configuration runs on its defaults">No values file</span>{/if}
       </div>
       <p class="env-decl" data-testid="environment-declared">
         <IdentityBadge label={life.label} tone={life.tone} title={life.title} />
@@ -68,6 +69,7 @@
   .env-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; min-width: 0; }
   .env-name { font-weight: 600; color: var(--c-text); overflow-wrap: anywhere; }
   .env-file { display: inline-flex; gap: var(--sp-2); align-items: center; min-width: 0; max-width: 100%; }
+  .env-nofile { color: var(--c-text-3); font-size: var(--text-sm); }
   .env-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .env-decl { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--sp-1) var(--sp-2); margin: 0; font-size: var(--text-sm); color: var(--c-text-2); overflow-wrap: anywhere; min-width: 0; }
   .env-expired { color: var(--c-warn); }

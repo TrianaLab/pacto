@@ -23,6 +23,9 @@ func TestReviewObjectCarriesVerbAndName(t *testing.T) {
 	if a := attrs(join); a["verb"] != "approve" || a["name"] != "9f1c4e2a" || a["resource"] != "clusterjoins" || a["group"] != "pacto.trianalab.io" {
 		t.Errorf("an approve review = %v", a)
 	}
+	if a := attrs(EnvironmentLadderResource); a["verb"] != "approve" || a["name"] != nil || a["resource"] != "environmentladders" || a["group"] != "delivery.pacto.trianalab.io" {
+		t.Errorf("a ladder review = %v", a)
+	}
 }
 
 func TestAskCacheKeyHoldsVerbAndName(t *testing.T) {

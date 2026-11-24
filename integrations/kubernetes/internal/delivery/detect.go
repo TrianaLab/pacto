@@ -34,13 +34,7 @@ import (
 // an indexed cache if perf_envtest shows it.
 func (c Cluster) detectApplier(ctx context.Context, stage *dv1.Stage, now time.Time) delivery.ApplierStatus {
 	in := delivery.ApplierInput{Namespace: stage.Namespace, Service: stage.Spec.Service.Name, Ref: stage.Spec.ApplyRef, Now: now}
-	gvk := gvkOCIRepository
-	switch stage.Spec.ApplyRef.Kind {
-	case delivery.ApplierHelmRelease:
-		gvk = gvkHelmRelease
-	case delivery.ApplierArgoCD:
-		gvk = gvkApplication
-	}
+	gvk := applierGVK(stage.Spec.ApplyRef.Kind)
 	if _, err := c.Client.RESTMapper().RESTMapping(gvk.GroupKind(), gvk.Version); meta.IsNoMatchError(err) {
 		// No Flux or Argo CD serves the applyRef's kind.
 		in.NoAPI = true

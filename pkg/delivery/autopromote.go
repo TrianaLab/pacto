@@ -19,5 +19,11 @@ func AutoPromoteHold(spec StageSpec, status StageStatus) string {
 	case status.Candidate == "":
 		return "the Stage has no eligible candidate"
 	}
+	// A Stage that is not Ready would only promote into a refusal, and each
+	// refusal moves the stream, which names the next promote anew: without
+	// this the promoter raises one rejected promote after another.
+	if r := readyOf(status); r != nil && r.Status == "False" {
+		return "the Stage is not Ready: " + r.Message
+	}
 	return ""
 }

@@ -12,7 +12,7 @@ import (
 )
 
 // SupportedVersions are the pactoVersion values Parse accepts, oldest first.
-var SupportedVersions = []string{"2.0", "2.1", "2.2", "2.3", "2.4", "2.5"}
+var SupportedVersions = []string{"2.0", "2.1", "2.2", "2.3", "2.4", "2.5", "2.6"}
 
 // Current returns the newest supported pactoVersion.
 func Current() string { return SupportedVersions[len(SupportedVersions)-1] }
@@ -20,11 +20,12 @@ func Current() string { return SupportedVersions[len(SupportedVersions)-1] }
 // Parse deserializes a pacto.yaml from the given reader into a Contract.
 // It enforces syntactic correctness (field types, unknown-field rejection). An
 // empty document is an empty contract, and an absent pactoVersion is Current().
-// The versions in SupportedVersions ("2.0" to "2.5") are supported; other
+// The versions in SupportedVersions ("2.0" to "2.6") are supported; other
 // versions are rejected. 2.1 adds the publish and checks sections, external
 // dependencies and the mcp interface type, which validation refuses in a 2.0
 // contract; 2.2 adds fields validation refuses in a 2.0 or 2.1 contract, and
-// 2.3, 2.4 and 2.5 each add fields it refuses in any older one.
+// 2.3, 2.4 and 2.5 each add fields it refuses in any older one. 2.6 adds no
+// field: an environment may leave out its values file.
 // Deeper semantic validation is a separate concern handled by the validation engine.
 func Parse(r io.Reader) (*Contract, error) {
 	raw, err := io.ReadAll(r)

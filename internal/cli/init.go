@@ -114,8 +114,8 @@ written, and the Status block says what was checked and what Pacto cannot
 tell yet. Each plugin the path names is listed with the binary it resolves
 to; only the ones you name with --run-plugins run, never with --plan, and
 the files they return are added like the path's own. --delivery plans the
-cluster pieces from the created contract when the path publishes manifests
-under publish.deploy; otherwise the delivery step says why none were planned.
+Pacto resource from the created contract when the path publishes manifests
+under publish.deploy; otherwise the delivery step says why none was planned.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
@@ -171,15 +171,16 @@ changes nothing.`,
 	f := cmd.Flags()
 	f.BoolVar(&opts.Plan, "plan", false, "show what would be added and change nothing")
 	f.BoolVar(&opts.DescribeOnly, "describe-only", false, "write a contract that only describes the service: its next steps say how to validate it, never how to publish it")
-	f.BoolVar(&opts.Delivery, "delivery", false, "also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object")
+	f.BoolVar(&opts.Delivery, "delivery", false, "also writes delivery/pacto.yaml, the Pacto resource that ships inside every version of a manifests deploy; Pacto creates each environment's Stage once delivery is on")
 	f.StringVar(&opts.Name, "name", "", "service name (default: the workload's name, then the folder's)")
 	f.StringVar(&opts.Owner, "owner", "", "the team that owns the service, as a bare name such as billing (default: the workload's team label)")
 	f.StringVar(&opts.Domain, "domain", "", "business domain, such as payments")
 	f.StringVar(&opts.Registry, "registry", "", "where to publish, as host/path (default: read from the workload's image)")
-	f.StringSliceVar(&opts.Environments, "env", []string{"test", "prod"}, "environments for --delivery: declared in the contract and given a Stage each, in promotion order")
+	f.StringSlice("env", nil, "ignored: Pacto creates environments from the installation ladder")
+	_ = f.MarkDeprecated("env", "Pacto creates environments from the installation ladder: see Delivery reference: environments")
 	f.BoolVar(&opts.NoTransparencyLog, "no-transparency-log", false, "with --from: write transparencyLog: false under the golden path's publish.sign")
-	f.BoolVar(&opts.InsecureRegistry, "insecure-registry", false, "with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)")
-	f.StringVar(&opts.RegistrySecret, "registry-secret", "", "with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with")
+	f.BoolVar(&opts.InsecureRegistry, "insecure-registry", false, "with --delivery: the registry speaks plain HTTP, so the next steps say how the Pacto resource reads its contract over plain HTTP (a local registry only)")
+	f.StringVar(&opts.RegistrySecret, "registry-secret", "", "with --delivery: the docker-registry Secret, in the namespace of delivery/pacto.yaml, that the Pacto resource logs in to a private registry with")
 	f.StringSliceVar(&opts.FleetRoots, "fleet", nil, "folders of other services' contracts to find the services that use this one")
 	f.BoolVar(&fromCluster, "cluster", false, "draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context")
 	f.StringSliceVar(&cluster.Namespaces, "namespace", nil, "with --cluster: a namespace to read; repeat it for more (default: every namespace)")

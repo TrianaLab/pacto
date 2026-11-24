@@ -132,6 +132,8 @@ func TestEditMinVersionTable(t *testing.T) {
 		{"environment expires", EditInput{AddEnvironments: []EnvironmentInput{{Name: "pr", Expires: "2026-11-20"}}}, "2.4"},
 		{"environment owner", EditInput{AddEnvironments: []EnvironmentInput{{Name: "pr", Owner: &contract.Owner{Team: "perf"}}}}, "2.4"},
 		{"environment", EditInput{AddEnvironments: []EnvironmentInput{{Name: "prod"}}}, "2.3"},
+		{"file-less environment", EditInput{AddEnvironments: []EnvironmentInput{{Name: "pr", NoFile: true}},
+			AddDependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a"}}}, "2.6"},
 		{"external dependency", EditInput{AddDependencies: []DependencyInput{{Name: "model", External: true, Version: "v1"}}}, "2.1"},
 		{"ranged dependency", EditInput{AddDependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a", Compatibility: "^1.0.0"}}}, ""},
 	} {
@@ -148,7 +150,7 @@ func TestCreateMinVersion(t *testing.T) {
 		want  string
 	}{
 		{"plain", CreateInput{Name: "a", Version: "1.0.0"}, "2.0"},
-		{"no version", CreateInput{Name: "a"}, "2.5"},
+		{"no version", CreateInput{Name: "a"}, contract.Current()},
 		{"external", CreateInput{Version: "1.0.0", Dependencies: []DependencyInput{{Name: "m", External: true, Version: "v1"}}}, "2.1"},
 		{"domain", CreateInput{Version: "1.0.0", Domain: "payments"}, "2.4"},
 		{"undeclared range", CreateInput{Version: "1.0.0", Domain: "payments", Dependencies: []DependencyInput{{Name: "a", Ref: "oci://r/a"}}}, "2.5"},
@@ -156,6 +158,14 @@ func TestCreateMinVersion(t *testing.T) {
 		if got := createMinVersion(tc.input); got != tc.want {
 			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+// TestCreateUndeclaredVersionIsCurrent: a contract created with no service
+// version is written at the newest pactoVersion.
+func TestCreateUndeclaredVersionIsCurrent(t *testing.T) {
+	if got := createMinVersion(CreateInput{Name: "a", Domain: "payments"}); got != contract.Current() {
+		t.Fatalf("got %q, want %q", got, contract.Current())
 	}
 }
 

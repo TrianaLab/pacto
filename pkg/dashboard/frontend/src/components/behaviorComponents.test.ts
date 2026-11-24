@@ -133,6 +133,14 @@ describe('EnvironmentList', () => {
     expect(target.textContent).toContain('ENVIRONMENT_VALUES_INVALID');
     expect(target.textContent).toContain('Not checked: policy failed.');
   });
+  it('shows a file-less environment as having no values file', () => {
+    comp = mount(EnvironmentList, { target, props: { items: [env('pr-412', 'pass', { file: '' }), env('staging', 'pass')] } });
+    const heads = [...target.querySelectorAll('.env-head')];
+    expect(heads[0].querySelector('.env-nofile')?.textContent).toBe('No values file');
+    expect(heads[0].querySelector('.env-file')).toBeNull();
+    expect(heads[1].querySelector('.env-nofile')).toBeNull();
+    expect(heads[1].textContent).toContain('envs/staging.yaml');
+  });
   it('shows the declared lifetime, expiry and owner, and never reads an absent lifetime as persistent', () => {
     comp = mount(EnvironmentList, { target, props: { asOf: '2026-11-12T10:00:00Z', items: [
       env('preview', 'pass', { lifetime: 'temporary', expires: '2026-09-30T00:00:00Z', expired: true }),

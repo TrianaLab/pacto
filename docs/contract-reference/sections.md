@@ -9,7 +9,7 @@ dependencies and state are in
 
 ## `pactoVersion`
 
-The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`.
+The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"`, `"2.5"` or `"2.6"`.
 
 - 2.1 adds [`publish`](publish.md), [`checks`](checks.md), external
   dependencies and the `mcp` interface type.
@@ -29,6 +29,8 @@ The contract specification version: `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` 
   derives a dependency `name` from its `ref`, defaults `required` to `true`,
   accepts `compatibility: unknown` and adds an interface `port` and
   [`breaks`](dependencies-and-state.md#breaks).
+- 2.6 makes [`environments[].file`](environments.md#an-environment-without-a-values-file)
+  optional.
 
 Each version accepts every contract of the version before it.
 [Versions](../installation.md#versions) lists the Pacto core and operator
@@ -43,11 +45,12 @@ The version picks the JSON Schema the contract is validated against:
 [`pacto-v2.1.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.1.schema.json),
 [`pacto-v2.2.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.2.schema.json),
 [`pacto-v2.3.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.3.schema.json),
-[`pacto-v2.4.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.4.schema.json)
+[`pacto-v2.4.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.4.schema.json),
+[`pacto-v2.5.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.5.schema.json)
 or
-[`pacto-v2.5.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.5.schema.json).
+[`pacto-v2.6.schema.json`](https://github.com/TrianaLab/pacto/blob/main/pkg/validation/schema/pacto-v2.6.schema.json).
 Any other value fails to load with `PARSE_ERROR` (`unsupported pactoVersion "3.0"; supported: 2.0,
-2.1, 2.2, 2.3, 2.4, 2.5`). See [Validation layers](validation.md).
+2.1, 2.2, 2.3, 2.4, 2.5, 2.6`). See [Validation layers](validation.md).
 
 ---
 
@@ -444,7 +447,7 @@ capabilities:
     ref: example.com/tracing
 ```
 
-You can declare a `health` or `metrics` capability with no binding. Another collector can verify that declaration. The Kubernetes integration reports an unbound capability as Unsupported/Unknown because it has no endpoint to probe. An `extension` capability requires a namespaced `ref` and cannot declare a binding. Pacto lists each extension in `coverage.unverified` as `capabilities[ref=<ref>]` until a producer trusted for that ref [reports on it](../evidence.md#extension-capabilities). A reported extension is a required assertion on a running revision, or the current one when none runs: absent is NonCompliant, and stale or about another revision is Unknown.
+You can declare a `health` or `metrics` capability with no binding, for another collector to verify. The Kubernetes integration, with no endpoint to probe, reports an unbound capability as Unsupported/Unknown. An `extension` capability requires a namespaced `ref` and cannot declare a binding. Pacto lists each extension in `coverage.unverified` as `capabilities[ref=<ref>]` until a producer trusted for that ref [reports on it](../evidence.md#extension-capabilities). A reported extension is a required assertion on a running revision, or the current one when none runs: absent is NonCompliant; stale or about another revision is Unknown.
 
 ---
 

@@ -138,6 +138,7 @@ var registryFlags = map[string]string{
 		"the pins it confirms go to the streams repository",
 	"records-repository":                "read: the promoter reads the recorder's pins from the streams repository",
 	"dashboard-stats-registry":          "read: the dashboard only reads run records",
+	"ladder-repository":                 "read: the promoter only reads ladder records from the approvals repository",
 	"dashboard-registry":                "push",
 	"dashboard-declare-registry-secret": "push",
 }

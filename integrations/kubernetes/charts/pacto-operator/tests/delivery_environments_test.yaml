@@ -1,0 +1,330 @@
+suite: delivery environments
+templates:
+  - templates/delivery/deployment.yaml
+  - templates/delivery/rbac.yaml
+  - templates/delivery/environments.yaml
+release:
+  name: d
+  namespace: pacto-system
+set:
+  delivery.enabled: true
+  delivery.identities.allowEmptyHumanGroups: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: delivery on renders --environment-ladder=staging,production
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environments=true
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-ladder=staging,production
+
+  - it: renders the ladder in promotion order
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.environments.ladder: [dev, staging, production]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-ladder=dev,staging,production
+
+  - it: environments.enabled=false renders --environments=false
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.environments.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environments=false
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-ladder=staging,production
+
+  - it: environments.enabled=false renders no environments Role or namespace rule
+    set:
+      delivery.environments.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/environments.yaml
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
+        template: templates/delivery/rbac.yaml
+        # the promoter ClusterRole (its binding shares the name)
+        documentIndex: 1
+
+  - it: delivery off renders no environments ConfigMap Role
+    set:
+      delivery.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/environments.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/rbac.yaml
+
+  - it: the reader binding names system:authenticated
+    template: templates/delivery/environments.yaml
+    asserts:
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-environments], verbs: [get]}
+        documentIndex: 2
+      - equal:
+          path: subjects
+          value:
+            - {apiGroup: rbac.authorization.k8s.io, kind: Group, name: "system:authenticated"}
+        documentIndex: 3
+
+  - it: the writer Role grants get, create, patch on pacto-delivery-environments and pacto-delivery-placements only
+    template: templates/delivery/environments.yaml
+    asserts:
+      - equal:
+          path: metadata.namespace
+          value: pacto-delivery
+        documentIndex: 0
+      - equal:
+          path: rules
+          value:
+            - {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-environments, pacto-delivery-placements], verbs: [get, patch]}
+            # RBAC cannot narrow create by name.
+            - {apiGroups: [""], resources: [configmaps], verbs: [create]}
+        documentIndex: 0
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: d-pacto-operator-delivery, namespace: pacto-delivery}
+        documentIndex: 1
+
+  - it: the promoter reads namespaces to propose rungs
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
+
+  - it: the promoter creates, updates and retires the Stages of the installation ladder
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [create, patch, delete]}
+
+  - it: delivery off renders no stage create right
+    set:
+      delivery.environments.enabled: false
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [create, patch, delete]}
+
+  - it: refuses a ladder rung that is not a DNS label
+    set:
+      delivery.environments.ladder: [Staging]
+    asserts:
+      - failedTemplate: {}
+
+  - it: promoter reads the ladder from the approvals repository
+    template: templates/delivery/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --ladder-repository=ghcr.io/acme/pacto-streams-approvals
+
+  - it: an explicit approvals repository is where the ladder is read
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.recorder.approvalsRepository: registry.acme.io/people/approvals
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --ladder-repository=registry.acme.io/people/approvals
+
+  - it: no registry renders no ladder repository
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --ladder-repository=-approvals
+
+  - it: the promoter lists workload metadata and reads GitRepositories to place services
+    template: templates/delivery/rbac.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - source.toolkit.fluxcd.io/v1/OCIRepository
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [apps], resources: [deployments, statefulsets, daemonsets], verbs: [list]}
+        documentIndex: 1
+      - contains:
+          path: rules
+          content: {apiGroups: [source.toolkit.fluxcd.io], resources: [gitrepositories], verbs: [get, list, watch]}
+        documentIndex: 1
+
+  - it: delivery.flux.enabled=false reads no GitRepository
+    template: templates/delivery/rbac.yaml
+    set:
+      delivery.flux.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [source.toolkit.fluxcd.io], resources: [gitrepositories], verbs: [get, list, watch]}
+        documentIndex: 1
+
+  - it: no reader binding names pacto-delivery-placements
+    template: templates/delivery/environments.yaml
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [configmaps], resourceNames: [pacto-delivery-placements], verbs: [get]}
+        documentIndex: 2
+
+  - it: profile idp creates the Flux objects and deployer identity of a service no applier runs
+    template: templates/delivery/deployment.yaml
+    set:
+      profile: idp
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-create-appliers
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-deployer-role=d-pacto-operator-delivery-deployer
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-create-namespaces
+
+  - it: outside idp the promoter creates no Flux object and binds no deployer role
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-create-appliers
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: rules
+          content: {apiGroups: [rbac.authorization.k8s.io], resources: [clusterroles], resourceNames: [d-pacto-operator-delivery-deployer], verbs: [bind]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+      - notContains:
+          path: rules
+          content: {apiGroups: [kustomize.toolkit.fluxcd.io], resources: [kustomizations], verbs: [get, create, patch, delete]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+
+  - it: under idp the promoter binds the deployer ClusterRole alone, which holds namespaced workload kinds only
+    set:
+      profile: idp
+    template: templates/delivery/rbac.yaml
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [rbac.authorization.k8s.io], resources: [clusterroles], resourceNames: [d-pacto-operator-delivery-deployer], verbs: [bind]}
+        documentIndex: 1
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [serviceaccounts], verbs: [get, create, patch, delete]}
+        documentIndex: 1
+      - contains:
+          path: rules
+          content: {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get, create, patch, delete]}
+        documentIndex: 1
+      - equal:
+          path: metadata.name
+          value: d-pacto-operator-delivery-deployer
+        documentIndex: 3
+      - notContains:
+          path: rules
+          content: {apiGroups: [rbac.authorization.k8s.io], resources: [roles, rolebindings], verbs: [get, list, watch, create, update, patch, delete]}
+        documentIndex: 3
+      - notMatchRegex:
+          path: rules[*].apiGroups[*]
+          pattern: ^(rbac.authorization.k8s.io|delivery.pacto.trianalab.io|.*fluxcd.io)$
+        documentIndex: 3
+
+  - it: createNamespaces renders the flag and the namespace create right
+    set:
+      delivery.environments.createNamespaces: true
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-create-namespaces
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [create]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+
+  - it: without createNamespaces the promoter creates no namespace
+    template: templates/delivery/rbac.yaml
+    documentIndex: 1
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [create]}
+
+  - it: retires managed Stages after seven days by default
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-retire-after=168h
+
+  - it: retireAfter sets the grace
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.environments.retireAfter: 24h
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-retire-after=24h
+
+  - it: refuses a retireAfter that is not a Go duration
+    set:
+      delivery.environments.retireAfter: 7d
+    asserts:
+      - failedTemplate: {}
+
+  - it: the promoter posts environment events to the recorder's CDEvents sink
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.recorder.cdeventsSink: https://events.acme.io/cdevents
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cdevents-sink=https://events.acme.io/cdevents
+
+  - it: no sink renders no promoter --cdevents-sink
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--cdevents-sink
+
+  - it: the installation ladder off renders neither retire flag nor promoter sink
+    template: templates/delivery/deployment.yaml
+    set:
+      delivery.environments.enabled: false
+      delivery.recorder.cdeventsSink: https://events.acme.io/cdevents
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-retire-after=168h
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --cdevents-sink=https://events.acme.io/cdevents

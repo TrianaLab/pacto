@@ -1,0 +1,42 @@
+{{- if and (include "pacto-operator.deliveryEnabled" .) (include "pacto-operator.delivery.environments" .) }}
+# The promoter publishes the installation ladder in pacto-delivery-environments
+# and each delivered service's placement in pacto-delivery-placements, and
+# patches only those ConfigMaps. RBAC cannot narrow create by name, so create
+# is a rule of its own, in the delivery namespace only.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-environments-writer
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [pacto-delivery-environments, pacto-delivery-placements]
+    verbs: [get, patch]
+  - apiGroups: [""]
+    resources: [configmaps]
+    verbs: [create]
+---
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-environments-writer" (include "pacto-operator.delivery.fullname" .)) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" (include "pacto-operator.delivery.labels" .) "serviceAccount" (include "pacto-operator.delivery.serviceAccountName" .) "serviceAccountNamespace" (include "pacto-operator.delivery.namespace" .)) }}
+---
+# Every authenticated user may read the installation ladder the promoter
+# publishes in pacto-delivery-environments: the declared and confirmed rungs and
+# the open proposal. It names no service and no namespace. The promoter writes
+# the ConfigMap itself; the name is fixed so clients find it.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: {{ include "pacto-operator.delivery.fullname" . }}-environments-reader
+  namespace: {{ include "pacto-operator.delivery.namespace" . }}
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+rules:
+  - apiGroups: [""]
+    resources: [configmaps]
+    resourceNames: [pacto-delivery-environments]
+    verbs: [get]
+---
+{{ include "pacto-operator.binding" (dict "kind" "RoleBinding" "name" (printf "%s-environments-reader" (include "pacto-operator.delivery.fullname" .)) "namespace" (include "pacto-operator.delivery.namespace" .) "labels" (include "pacto-operator.delivery.labels" .) "group" "system:authenticated") }}
+{{- end }}

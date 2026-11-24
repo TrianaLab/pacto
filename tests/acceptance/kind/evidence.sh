@@ -387,12 +387,18 @@ prefix_leg() {
   echo "== prefix: a subject prefix accepts a revision published after the upgrade, with no restart =="
   local prefix_sets=("${common_sets[@]}" --set "evidence.registry.subjectPrefixes[0]=oci://${REG_HOST}/")
   helm upgrade pacto-operator "$CHART" -n "$NS" "${prefix_sets[@]}" --wait --timeout 180s
+  # The upgrade restarts the operator, which re-applies the Evidence Deployment
+  # only once it wins the leader lease: until then the old Deployment is still
+  # "rolled out", so poll for the new args before waiting on readiness.
+  evidence_has_prefix() {
+    kubectl -n "$NS" get deploy pacto-evidence -o json \
+      | jq -e --arg p "oci://${REG_HOST}/" '.spec.template.spec.containers[0].args as $a
+          | [range(0; ($a | length) - 1) | select($a[.] == "--subject-prefix" and $a[. + 1] == $p)] | length == 1' >/dev/null
+  }
+  eventually 40 evidence_has_prefix \
+    || fail "the evidence Deployment does not carry --subject-prefix oci://${REG_HOST}/"
   kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
   wait_managed_ready pacto-evidence || fail "evidence Deployment did not become Ready with a subject prefix"
-  kubectl -n "$NS" get deploy pacto-evidence -o json \
-    | jq -e --arg p "oci://${REG_HOST}/" '.spec.template.spec.containers[0].args as $a
-        | [range(0; ($a | length) - 1) | select($a[.] == "--subject-prefix" and $a[. + 1] == $p)] | length == 1' >/dev/null \
-    || fail "the evidence Deployment does not carry --subject-prefix oci://${REG_HOST}/"
   pass "the Evidence Server runs with the subject prefix oci://${REG_HOST}/"
   evidence_pod() {
     kubectl -n "$NS" get pod -l app.kubernetes.io/component=evidence -o json \
