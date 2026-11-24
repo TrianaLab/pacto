@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -55,6 +56,36 @@ func MemberOnlyUnread() Members {
 			Message: "this cluster is a member of a hub: consumers in other clusters are read on the hub"}}})}}
 }
 
+// MembersHiddenID is the id of the carrier [RestrictMembers] adds.
+const MembersHiddenID = "cluster-joins-hidden"
+
+// memberSourcePrefix starts the id of a member's source (memberSource).
+const memberSourcePrefix = "member-"
+
+// RestrictMembers is m as a reader sees it: the source of each member cluster
+// sees refuses is replaced by one unread count, so its consumers stay unknown
+// to the gate and are never named to a reader who may not see that cluster.
+func RestrictMembers(m Members, sees func(uid string) bool) Members {
+	out, hidden := Members{Home: m.Home}, 0
+	for _, src := range m.Sources {
+		uid, member := strings.CutPrefix(src.ID(), memberSourcePrefix)
+		if member && !sees(uid) {
+			hidden++
+			continue
+		}
+		out.Sources = append(out.Sources, src)
+	}
+	if hidden > 0 {
+		msg := strconv.Itoa(hidden) + " member clusters you may not see may hold consumers, so consumers there are unknown"
+		if hidden == 1 {
+			msg = "1 member cluster you may not see may hold consumers, so consumers there are unknown"
+		}
+		out.Sources = append(out.Sources, fleet.NewMemorySource(MembersHiddenID, fleet.SourceKindClusterJoins, &fleet.Collection{UnreadClusters: hidden,
+			Limitations: []fleet.Limitation{{Code: fleet.LimitationClustersUnread, Source: MembersHiddenID, Message: msg}}}))
+	}
+	return out
+}
+
 // Members are what a promote reads beyond the hub's own Pactos: the sources
 // of the clusters that joined this hub and the hub's own cluster, which the
 // hub's Pactos sit in whenever Sources is not empty, so they are never
@@ -101,7 +132,7 @@ func MembersOf(list ClusterJoinList, read func(uid string) (TargetSnapshot, erro
 // memberSource is the source of member cl's snapshot snap (err when it was
 // not read), with the Pactos that may run in environment.
 func memberSource(cl *fleet.Cluster, snap TargetSnapshot, err error, environment string, known map[string]bool, now time.Time) fleet.Source {
-	id := "member-" + cl.ID
+	id := memberSourcePrefix + cl.ID
 	name := cmp.Or(cl.Name, cl.ID)
 	if err != nil {
 		return fleet.NewMemorySource(id, fleet.SourceKindTargetSnapshot, &fleet.Collection{Cluster: cl,

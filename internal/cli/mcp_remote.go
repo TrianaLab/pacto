@@ -356,6 +356,12 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	if rm.delivery != nil {
 		policy := rm.delivery(nil) // only its trust and policy namespace are read
 		id := remoteDeliveryIdentity(cmd, svc, d, cluster, policy)
+		inner := rm.delivery
+		rm.delivery = func(dyn dynamic.Interface) *app.Delivery {
+			c := inner(dyn)
+			c.Members = viewedMembers(id.viewer, c.Members, personFrom)
+			return c
+		}
 		rm.reads = mcpDeliveryReads(id, rm.modes.Fleet, deliveryNarrowing(flagNamespaces(cmd)))
 		rm.installed, rm.installedAt = id.installedProbe(), id.installedAt()
 	}

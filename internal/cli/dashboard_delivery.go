@@ -144,6 +144,32 @@ func (id *dashboardIdentity) deliveryCheckedAt() time.Time {
 	return id.checked
 }
 
+// personOf names the person of request r for viewedMembers.
+func (id *dashboardIdentity) personOf(r *http.Request) func(context.Context) (authn.Person, bool) {
+	p := id.state(r.Context()).Person
+	return func(context.Context) (authn.Person, bool) { return p, true }
+}
+
+// viewedMembers are members as the reader personOf names sees them: with a
+// viewer, a member cluster they may not list Pactos in cluster-wide, that
+// cannot review them, or any for a request that names nobody, is only
+// counted, so its consumers stay unknown to the gate and are never named.
+// ponytail: a reader of some namespaces there sees the cluster as unread; a
+// per-namespace restriction of the member snapshot would name what they may read.
+func viewedMembers(v *authn.Viewer, members func(context.Context, string, map[string]bool) delivery.Members,
+	personOf func(context.Context) (authn.Person, bool)) func(context.Context, string, map[string]bool) delivery.Members {
+	if v == nil || members == nil {
+		return members
+	}
+	return func(ctx context.Context, environment string, known map[string]bool) delivery.Members {
+		p, named := personOf(ctx)
+		return delivery.RestrictMembers(members(ctx, environment, known), func(uid string) bool {
+			all, err := v.MayList(ctx, p, uid, "", authn.PactoResource, "list")
+			return named && err == nil && all
+		})
+	}
+}
+
 // delivery is the caller's delivery API: the kubeconfig user in local mode,
 // the signed-in person's own token in shared mode, nothing in open mode. In
 // shared mode, Stages and Operations are read from the shared cache, filtered
@@ -182,7 +208,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		return nil, err
 	}
 	act := &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope, Infra: id.infra, Members: id.members}
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope, Infra: id.infra, Members: viewedMembers(id.viewer, id.members, id.personOf(r))}
 	out := newDashDelivery(id, act, who)
 	if s := id.sharedReads(); s != nil && token != "" {
 		c, sc := *act, sharedClient{Interface: dyn, s: s, token: token}

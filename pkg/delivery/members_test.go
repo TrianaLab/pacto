@@ -227,3 +227,28 @@ func TestMembersOfPartialListKeepsGraphPartial(t *testing.T) {
 		t.Fatalf("%s %+v", snap.Completeness, snap.Limitations)
 	}
 }
+
+// TestRestrictMembersCountsWhatTheReaderMayNotSee: a member cluster the
+// reader may not see is replaced by an unread count that names nothing, so
+// its consumers stay unknown and a breaking change stays held.
+func TestRestrictMembersCountsWhatTheReaderMayNotSee(t *testing.T) {
+	var read []string
+	l := joinList(delivery.JoinApproved, delivery.JoinApproved)
+	l.Completeness = fleet.CompletenessComplete
+	m := delivery.MembersOf(l, readerOf(&read, 0, memberPacto("ledger", "")), "prod", nil, membersNow, hub)
+	got := delivery.RestrictMembers(m, func(uid string) bool { return uid == "uid-a" })
+	if got.Home != m.Home || len(got.Sources) != 2 || got.Sources[0].ID() != "member-uid-a" || got.Sources[1].ID() != delivery.MembersHiddenID {
+		t.Fatalf("%+v", got.Sources)
+	}
+	col := collect(t, got.Sources[1])
+	if col.UnreadClusters != 1 || col.Limitations[0].Code != fleet.LimitationClustersUnread ||
+		strings.Contains(col.Limitations[0].Message, "uid-b") || strings.Contains(col.Limitations[0].Message, "cluster-b") {
+		t.Fatalf("%+v", col)
+	}
+	if all := delivery.RestrictMembers(m, func(string) bool { return false }); !strings.HasPrefix(collect(t, all.Sources[0]).Limitations[0].Message, "2 member clusters") {
+		t.Fatalf("%+v", all.Sources)
+	}
+	if same := delivery.RestrictMembers(m, func(string) bool { return true }); len(same.Sources) != 2 || same.Sources[1].ID() != "member-uid-b" {
+		t.Fatalf("%+v", same.Sources)
+	}
+}

@@ -392,3 +392,29 @@ func TestReviewedRemoteListFailureKept(t *testing.T) {
 	_, err = api.Operations(context.Background(), "")
 	expect(t, err != nil && strings.Contains(err.Error(), "connection refused"), "operations: %v", err)
 }
+
+// A restricted reader's plan names no consumer in a member cluster they may
+// not see: that member is only counted, and an unnamed request sees none.
+func TestViewedMembersHideClustersTheReaderMayNotSee(t *testing.T) {
+	members := func(context.Context, string, map[string]bool) delivery.Members {
+		return delivery.Members{Sources: []fleet.Source{
+			fleet.NewMemorySource("member-uid-eu", fleet.SourceKindTargetSnapshot, &fleet.Collection{}),
+			fleet.NewMemorySource("member-uid-us", fleet.SourceKindTargetSnapshot, &fleet.Collection{})}}
+	}
+	expect(t, viewedMembers(nil, members, personFrom) != nil && viewedMembers(authn.NewViewer(nil), nil, personFrom) == nil, "no viewer, no restriction")
+	rr := &remoteReviews{allow: func(_ authn.Person, ns string, res authn.ResourceAttributes) (bool, error) {
+		return ns == "" && res.Resource == authn.PactoResource.Resource, nil
+	}}
+	v := authn.NewViewer(rr.reviews)
+	ids := func(m delivery.Members) []string {
+		var out []string
+		for _, s := range m.Sources {
+			out = append(out, s.ID())
+		}
+		return out
+	}
+	named := viewedMembers(v, members, func(context.Context) (authn.Person, bool) { return dave, true })(t.Context(), "prod", nil)
+	expect(t, slices.Equal(ids(named), []string{"member-uid-eu", delivery.MembersHiddenID}), "dave sees eu, not us: %v", ids(named))
+	nobody := viewedMembers(v, members, personFrom)(t.Context(), "prod", nil)
+	expect(t, slices.Equal(ids(nobody), []string{delivery.MembersHiddenID}), "an unnamed request sees no member: %v", ids(nobody))
+}
