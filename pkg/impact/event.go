@@ -504,6 +504,10 @@ func (r *Result) eventGate() (string, string) {
 		return GateUnverified, r.externalGateReason()
 	}
 	gate, why := r.eventGateCore()
+	// Consumers in clusters that are not members are unknown.
+	if gate == GateClear && r.UnreadClusters > 0 {
+		gate, why = GateUnverified, "nobody visible depends on "+r.Service+", but "+unreadSentence(r.UnreadClusters)
+	}
 	// An inferred name may miss every consumer, so nobody found is no proof.
 	if inferred := r.nameInferred(); inferred != "" && gate == GateClear {
 		gate, why = GateUnverified, inferred
@@ -517,9 +521,6 @@ func (r *Result) eventGate() (string, string) {
 func (r *Result) eventGateCore() (string, string) {
 	if r.Completeness != fleet.CompletenessComplete {
 		return GateUnverified, "the answer is partial, so consumers Pacto cannot see may be affected. Fix the sources named in limitations and run the analysis again"
-	}
-	if len(r.Consumers) == 0 && r.UnreadClusters > 0 {
-		return GateUnverified, "nobody visible depends on " + r.Service + ", but " + unreadSentence(r.UnreadClusters)
 	}
 	if len(r.Consumers) == 0 {
 		why := "no contract in the complete snapshot declares a dependency on " + r.Service +
