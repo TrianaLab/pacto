@@ -67,8 +67,9 @@ configurations:
 
 A schema field may carry `x-pacto-tier: contract` or
 `x-pacto-tier: tunable`. A field with no tier is `contract`. The operator
-writes no tier, so every field it maps reads `contract`; a `tunable` field is
-the accepting person's choice in the declared offering.
+writes `x-pacto-tier: contract` on every field it maps, immutable ones and the
+class included; a `tunable` field is the accepting person's choice in the
+declared offering.
 
 Pacto reads the source object's kind and name from `source/object.yaml` as
 the producer wrote them. [Contribute an offering](write-a-source.md#contribute-an-offering)
@@ -179,5 +180,7 @@ not see the producer. Accept the new record to clear it.
 When both revisions declare `service.offering`, `pacto diff` grades the
 configuration schema as input a consumer sends: a removed field, a narrowed
 bound or a removed class breaks, and a new optional field or a widened bound
-is compatible. [Impact](impact.md) names the consumers whose current values
+is compatible. A field that moves from `tunable` to `contract`, or loses its
+`tunable` mark, breaks a consumer that set it per environment; a move to
+`tunable` is compatible. [Impact](impact.md) names the consumers whose current values
 the new schema rejects.
