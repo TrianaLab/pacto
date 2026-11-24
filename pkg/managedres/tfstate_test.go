@@ -23,7 +23,7 @@ func parseFile(t *testing.T, path string, cat *externalcatalog.Catalog) []fleet.
 		t.Fatal(err)
 	}
 	defer func() { _ = f.Close() }()
-	got, err := ParseState(f, "state-v4.json", cat, testNow)
+	got, _, err := ParseState(f, "state-v4.json", cat, testNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func parseFile(t *testing.T, path string, cat *externalcatalog.Catalog) []fleet.
 
 func parseString(t *testing.T, doc string, cat *externalcatalog.Catalog) []fleet.RawManagedResource {
 	t.Helper()
-	got, err := ParseState(strings.NewReader(doc), "terraform.tfstate", cat, testNow)
+	got, _, err := ParseState(strings.NewReader(doc), "terraform.tfstate", cat, testNow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -107,11 +107,11 @@ func TestStateSkipsSensitiveIDAttribute(t *testing.T) {
 }
 
 func TestStateRejectsOtherVersion(t *testing.T) {
-	_, err := ParseState(strings.NewReader(`{"version":3,"modules":[]}`), "old.tfstate", externalcatalog.Default(), testNow)
+	_, _, err := ParseState(strings.NewReader(`{"version":3,"modules":[]}`), "old.tfstate", externalcatalog.Default(), testNow)
 	if err == nil || !strings.Contains(err.Error(), "version 3") {
 		t.Fatalf("err = %v", err)
 	}
-	if _, err := ParseState(strings.NewReader(`{"version":`), "bad.tfstate", externalcatalog.Default(), testNow); err == nil {
+	if _, _, err := ParseState(strings.NewReader(`{"version":`), "bad.tfstate", externalcatalog.Default(), testNow); err == nil {
 		t.Fatal("a truncated document parsed")
 	}
 }
@@ -132,21 +132,23 @@ func (spaces) Read(p []byte) (int, error) {
 }
 
 func TestStateTooLarge(t *testing.T) {
-	_, err := ParseState(io.MultiReader(strings.NewReader(`{"version":4}`), spaces{}), "big.tfstate", externalcatalog.Default(), testNow)
+	_, _, err := ParseState(io.MultiReader(strings.NewReader(`{"version":4}`), spaces{}), "big.tfstate", externalcatalog.Default(), testNow)
 	if err == nil || !strings.Contains(err.Error(), "64 MiB") {
 		t.Fatalf("err = %v", err)
 	}
-	if _, err := ParseState(failingReader{}, "x.tfstate", externalcatalog.Default(), testNow); err == nil {
+	if _, _, err := ParseState(failingReader{}, "x.tfstate", externalcatalog.Default(), testNow); err == nil {
 		t.Fatal("a failed read parsed")
 	}
 }
 
-func TestStateDataSourcesSkipped(t *testing.T) {
-	got := parseString(t, `{"version":4,"resources":[
+func TestStateDataSourcesSkippedUnclassifiedCounted(t *testing.T) {
+	got, unclassified, err := ParseState(strings.NewReader(`{"version":4,"resources":[
 		{"mode":"data","type":"aws_db_instance","name":"d","instances":[{"attributes":{"identifier":"legacy"}}]},
-		{"mode":"managed","type":"random_password","name":"p","instances":[{"attributes":{"result":"x"}}]}]}`, externalcatalog.Default())
-	if len(got) != 0 {
-		t.Fatalf("resources %+v", got)
+		{"mode":"data","type":"random_id","name":"r","instances":[{"attributes":{}}]},
+		{"mode":"managed","type":"random_password","name":"p","instances":[{"attributes":{"result":"x"}},{"attributes":{"result":"y"}}]}]}`),
+		"terraform.tfstate", externalcatalog.Default(), testNow)
+	if err != nil || len(got) != 0 || unclassified != 2 {
+		t.Fatalf("resources %+v, unclassified %d, err %v", got, unclassified, err)
 	}
 }
 

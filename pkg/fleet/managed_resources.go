@@ -188,3 +188,15 @@ func sortResources(rs []ManagedResource) {
 			cmp.Compare(a.Name, b.Name), cmp.Compare(a.Type, b.Type), cmp.Compare(a.Location, b.Location))
 	})
 }
+
+// UnclassifiedNotes is the [LimitationManagedResourcesUnclassified] note of
+// source when it skipped n managed resources no catalog row names, for
+// [Collection.Notes]: what the catalog does not name is outside the graph,
+// not unknown, so it never makes the source partial.
+func UnclassifiedNotes(n int, source string) []Limitation {
+	if n <= 0 {
+		return nil
+	}
+	return []Limitation{{Code: LimitationManagedResourcesUnclassified, Source: source,
+		Message: fmt.Sprintf("%d managed resources of kinds or types no catalog row names were skipped; add a catalog row to classify them", n)}}
+}

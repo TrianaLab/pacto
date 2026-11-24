@@ -98,13 +98,14 @@ func hideUnreadable(s *FleetSnapshot, visible func(cluster, namespace string) bo
 
 // hiddenByScope reports whether a restricted view drops l: every namespace
 // scope limitation (rebuilt from what is left), an unreadable namespace
-// visible refuses in the cluster of l's source, and a capped managed list
-// counted cluster-wide for a reader of only some namespaces there.
+// visible refuses in the cluster of l's source, and a capped or unclassified
+// managed count, counted cluster-wide, for a reader of only some namespaces
+// there.
 func hiddenByScope(l Limitation, visible func(cluster, namespace string) bool, clusters map[string]string) bool {
 	switch l.Code {
 	case LimitationK8sNamespaceScoped:
 		return true
-	case LimitationManagedResourcesCapped:
+	case LimitationManagedResourcesCapped, LimitationManagedResourcesUnclassified:
 		return !visible(clusters[l.Source], "")
 	}
 	ns, ok := unreadableNamespace(l)

@@ -40,9 +40,9 @@ var errUnread = errors.New("forbidden")
 
 // managedRun is what one managed-resources read collects.
 type managedRun struct {
-	resources         []fleet.RawManagedResource
-	total, unverified int
-	unread            []string
+	resources                       []fleet.RawManagedResource
+	total, unverified, unclassified int
+	unread                          []string
 	// composites are the composites by uid; claimSecrets the connection
 	// Secret of each claim by its ref.
 	composites   map[string]managedres.ComposedClaim
@@ -95,7 +95,7 @@ func (d *Detector) managed(ctx context.Context, res *detect.Result) {
 			}
 		}
 	}
-	res.ManagedResources, res.ManagedResourcesTotal = run.resources, run.total
+	res.ManagedResources, res.ManagedResourcesTotal, res.ManagedResourcesUnclassified = run.resources, run.total, run.unclassified
 	res.Entries = append(res.Entries, detect.ManagedEntry(slices.Compact(groups), run.unread, run.total, run.unverified, false))
 }
 
@@ -105,7 +105,8 @@ func (d *Detector) managed(ctx context.Context, res *detect.Result) {
 func (d *Detector) addManaged(run *managedRun, gvk schema.GroupVersionKind, u *unstructured.Unstructured) {
 	r, c, ok := managedres.FromObject(gvk.Group, gvk.Kind, u.Object, externalcatalog.Default(), d.Now().UTC())
 	if !ok {
-		return // discovery offered a kind no catalog row names
+		run.unclassified++ // discovery offered a kind no catalog row names
+		return
 	}
 	if run.total++; len(run.resources) == detect.MaxManagedResources {
 		return

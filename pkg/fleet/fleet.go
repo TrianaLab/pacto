@@ -662,6 +662,10 @@ const (
 	// LimitationManagedResourcesCapped: a reader found more managed
 	// resources than its bound keeps; what lies past it is unknown.
 	LimitationManagedResourcesCapped = "MANAGED_RESOURCES_CAPPED"
+	// LimitationManagedResourcesUnclassified: a reader skipped managed
+	// resources of kinds or types no catalog row names. A note: what the
+	// catalog does not name is outside the graph, so the source stays as it is.
+	LimitationManagedResourcesUnclassified = "MANAGED_RESOURCES_UNCLASSIFIED"
 	// LimitationSecretRefsCapped: a reader kept or read only some of the
 	// Secret names the running pods reference, so a connection-secret
 	// consumer may be missing.

@@ -471,6 +471,7 @@ func TestRestrictDropsManagedCappedForNamespaceReader(t *testing.T) {
 	f := throughOfferingFleet()
 	snap := f.snap(t)
 	snap.Limitations = append(snap.Limitations, capped)
+	snap.Limitations = append(snap.Limitations, UnclassifiedNotes(7, "detection-prod-a")...)
 	snap.Providers = append(snap.Providers, row)
 	has := func(q *Query) (bool, bool) {
 		s := q.SnapshotForSerialization()
@@ -482,6 +483,15 @@ func TestRestrictDropsManagedCappedForNamespaceReader(t *testing.T) {
 	q := NewQuery(snap)
 	if r, s := has(q.Restrict(func(c, ns string) bool { return c == "uid-a" && ns == "shop" }, nil)); r || s {
 		t.Errorf("namespace reader keeps the count: row %v snapshot %v", r, s)
+	}
+	unclassified := func(q *Query) bool {
+		return slices.ContainsFunc(q.SnapshotForSerialization().Limitations, func(l Limitation) bool { return l.Code == LimitationManagedResourcesUnclassified })
+	}
+	if unclassified(q.Restrict(func(c, ns string) bool { return c == "uid-a" && ns == "shop" }, nil)) || !unclassified(q) {
+		t.Error("the unclassified count is kept for a namespace reader or dropped unrestricted")
+	}
+	if UnclassifiedNotes(0, "detection-prod-a") != nil {
+		t.Error("nothing skipped still notes")
 	}
 	// A cluster-wide reader of the row's cluster keeps the row's count; the
 	// snapshot's names no cluster, so only a reader of every one keeps it.

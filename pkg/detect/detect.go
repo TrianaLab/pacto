@@ -87,6 +87,9 @@ type Result struct {
 	// ManagedResourcesTotal is how many managed resources the operator
 	// found, more than ManagedResources when the list is capped.
 	ManagedResourcesTotal int `json:"managedResourcesTotal,omitempty"`
+	// ManagedResourcesUnclassified is how many managed resources the
+	// operator skipped because no catalog row names their kind or type.
+	ManagedResourcesUnclassified int `json:"managedResourcesUnclassified,omitempty"`
 	// SecretRefs are the Secret names the running pods reference, names
 	// only, at most [MaxSecretRefs].
 	SecretRefs []fleet.RawSecretRef `json:"secretRefs,omitempty"`
@@ -239,6 +242,7 @@ func sanitize(res *Result) {
 // was read, so a hand-edited list past the cap still reads capped.
 func sanitizeManaged(res *Result) {
 	res.ManagedResourcesTotal = max(res.ManagedResourcesTotal, len(res.ManagedResources))
+	res.ManagedResourcesUnclassified = max(res.ManagedResourcesUnclassified, 0)
 	res.ManagedResources = capped(res.ManagedResources, MaxManagedResources)
 	for i := range res.ManagedResources {
 		m := &res.ManagedResources[i]

@@ -29,9 +29,10 @@ var defaultHTTP = &http.Client{Timeout: 30 * time.Second}
 
 // remoteRead is one state or inventory read, kept for an Interval.
 type remoteRead struct {
-	at  time.Time
-	res []fleet.RawManagedResource
-	err error
+	at           time.Time
+	res          []fleet.RawManagedResource
+	unclassified int
+	err          error
 }
 
 // remote reads the listed Terraform states and, when a person named the
@@ -63,25 +64,27 @@ func (d *Detector) terraform(ctx context.Context, res *detect.Result, id cloud.I
 			failed[s] = "not a listed state location"
 			continue
 		}
-		rs, err := d.cached("state "+loc.String(), func() ([]fleet.RawManagedResource, error) { return d.state(ctx, loc, id, ok) })
+		rs, unclassified, err := d.cached("state "+loc.String(), func() ([]fleet.RawManagedResource, int, error) { return d.state(ctx, loc, id, ok) })
 		if err != nil {
 			failed[loc.String()] = cloudReason(err)
 			continue
 		}
 		read = append(read, loc.String())
+		res.ManagedResourcesUnclassified += unclassified
 		d.keep(res, rs)
 	}
 	return detect.TerraformEntry(read, failed)
 }
 
-// state fetches and parses one state; only names are kept.
-func (d *Detector) state(ctx context.Context, loc managedres.Location, id cloud.Identity, ok bool) ([]fleet.RawManagedResource, error) {
+// state fetches and parses one state; only names are kept, with the count
+// of instances of types no catalog row names.
+func (d *Detector) state(ctx context.Context, loc managedres.Location, id cloud.Identity, ok bool) ([]fleet.RawManagedResource, int, error) {
 	if !ok {
-		return nil, errors.New(id.Reason)
+		return nil, 0, errors.New(id.Reason)
 	}
 	body, err := cloud.FetchState(ctx, loc, id, d.client())
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer func() { _ = body.Close() }()
 	return managedres.ParseState(body, loc.String(), externalcatalog.Default(), d.Now().UTC())
@@ -101,8 +104,9 @@ func (d *Detector) inventory(ctx context.Context, res *detect.Result, id cloud.I
 	if !ok {
 		return detect.CloudInventoryEntry(want, "", id.Reason, false, nil)
 	}
-	rs, err := d.cached("inventory "+want, func() ([]fleet.RawManagedResource, error) {
-		return cloud.Inventory(ctx, id, externalcatalog.Default(), d.client(), d.Now().UTC())
+	rs, _, err := d.cached("inventory "+want, func() ([]fleet.RawManagedResource, int, error) {
+		rs, err := cloud.Inventory(ctx, id, externalcatalog.Default(), d.client(), d.Now().UTC())
+		return rs, 0, err // the inventory queries only the catalog's types
 	})
 	d.keep(res, rs) // a truncated read keeps the rows it read
 	if err != nil {
@@ -112,16 +116,16 @@ func (d *Detector) inventory(ctx context.Context, res *detect.Result, id cloud.I
 }
 
 // cached runs read unless the same key was read less than an Interval ago.
-func (d *Detector) cached(key string, read func() ([]fleet.RawManagedResource, error)) ([]fleet.RawManagedResource, error) {
+func (d *Detector) cached(key string, read func() ([]fleet.RawManagedResource, int, error)) ([]fleet.RawManagedResource, int, error) {
 	if c, ok := d.reads[key]; ok && d.Now().Sub(c.at) < cmp.Or(d.Interval, component.DefaultInterval) {
-		return c.res, c.err
+		return c.res, c.unclassified, c.err
 	}
-	rs, err := read()
+	rs, unclassified, err := read()
 	if d.reads == nil {
 		d.reads = map[string]remoteRead{}
 	}
-	d.reads[key] = remoteRead{at: d.Now(), res: rs, err: err}
-	return rs, err
+	d.reads[key] = remoteRead{at: d.Now(), res: rs, unclassified: unclassified, err: err}
+	return rs, unclassified, err
 }
 
 // keep counts rs and keeps each, stamped with this cluster, while fewer

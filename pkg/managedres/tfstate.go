@@ -48,35 +48,40 @@ type instance struct {
 // ParseState reads the managed resources of the state document r, read from
 // location (a file name or a state URL, never its contents), classified with
 // cat and observed at now. Only managed resources a catalog row names are
-// returned; data sources and unclassified types are skipped. Of every
+// returned, with the number of instances of managed types no row names
+// (for MANAGED_RESOURCES_UNCLASSIFIED); data sources are skipped. Of every
 // instance only the catalog's id attribute (never a sensitive key), arn, id
 // (an azurerm subscription), region, location, project and the engine keys
 // are read, the engine kept as an object's is; the identity is
 // the full managed identity when account, region and id were read, else the
 // catalog entry's identity with the missing parts listed. State records what
 // Terraform last applied, so the engine is observed.
-func ParseState(r io.Reader, location string, cat *externalcatalog.Catalog, now time.Time) ([]fleet.RawManagedResource, error) {
+func ParseState(r io.Reader, location string, cat *externalcatalog.Catalog, now time.Time) ([]fleet.RawManagedResource, int, error) {
 	data, err := io.ReadAll(io.LimitReader(r, MaxStateBytes+1))
 	switch {
 	case err != nil:
-		return nil, fmt.Errorf("terraform state %s: %w", location, err)
+		return nil, 0, fmt.Errorf("terraform state %s: %w", location, err)
 	case len(data) > MaxStateBytes:
-		return nil, fmt.Errorf("terraform state %s is over 64 MiB, so it is not read", location)
+		return nil, 0, fmt.Errorf("terraform state %s is over 64 MiB, so it is not read", location)
 	}
 	var doc state
 	if err := json.Unmarshal(data, &doc); err != nil {
-		return nil, fmt.Errorf("terraform state %s is not valid JSON", location)
+		return nil, 0, fmt.Errorf("terraform state %s is not valid JSON", location)
 	}
 	if doc.Version != stateVersion {
-		return nil, fmt.Errorf("terraform state %s is version %d; only version %d is read", location, doc.Version, stateVersion)
+		return nil, 0, fmt.Errorf("terraform state %s is version %d; only version %d is read", location, doc.Version, stateVersion)
 	}
-	var out []fleet.RawManagedResource
+	var (
+		out          []fleet.RawManagedResource
+		unclassified int
+	)
 	for _, res := range doc.Resources {
 		if res.Mode != "managed" {
 			continue
 		}
 		m, idAttr, ok := cat.MatchTerraform(res.Type)
 		if !ok {
+			unclassified += len(res.Instances)
 			continue
 		}
 		_, ref, _ := cat.Entry(m.Identity) // ponytail: a match always names an entry of cat
@@ -86,7 +91,7 @@ func ParseState(r io.Reader, location string, cat *externalcatalog.Catalog, now 
 			out = append(out, rr)
 		}
 	}
-	return out, nil
+	return out, unclassified, nil
 }
 
 // address is the Terraform address of an instance: <type>.<name>, with

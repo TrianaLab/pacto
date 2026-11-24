@@ -43,13 +43,16 @@ func TestDecodeCapsAndCleansManagedResources(t *testing.T) {
 		Claim: dirty, Engine: dirty, EngineRequested: dirty}
 	r := fleet.RawSecretRef{Cluster: dirty, ClusterName: dirty, Namespace: dirty, Kind: dirty, Name: dirty, Secret: dirty}
 	raw, _ := json.Marshal(Result{SchemaVersion: SchemaVersion, ManagedResources: slices.Repeat([]fleet.RawManagedResource{m}, 600),
-		SecretRefs: slices.Repeat([]fleet.RawSecretRef{r}, MaxSecretRefs+5)})
+		SecretRefs: slices.Repeat([]fleet.RawSecretRef{r}, MaxSecretRefs+5), ManagedResourcesUnclassified: -3})
 	res, err := Decode(raw)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(res.ManagedResources) != MaxManagedResources || len(res.SecretRefs) != MaxSecretRefs || res.ManagedResourcesTotal != 600 || !res.ManagedCapped() {
 		t.Fatalf("not capped: %d resources (total %d), %d refs", len(res.ManagedResources), res.ManagedResourcesTotal, len(res.SecretRefs))
+	}
+	if res.ManagedResourcesUnclassified != 0 {
+		t.Errorf("a negative unclassified count decoded as %d", res.ManagedResourcesUnclassified)
 	}
 	// A hand-edited list past the cap still reads capped.
 	if res.SecretRefsTotal != MaxSecretRefs+5 || !res.SecretRefsCapped() {

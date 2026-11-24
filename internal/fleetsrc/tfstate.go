@@ -32,7 +32,8 @@ func (s *TerraformStateSource) ID() string { return s.id }
 // Kind implements [fleet.Source].
 func (s *TerraformStateSource) Kind() string { return managedres.SourceTerraform }
 
-// Collect reads the file. An unreadable or invalid state is a source error.
+// Collect reads the file. An unreadable or invalid state is a source error;
+// the managed resources of types no catalog row names are a note.
 func (s *TerraformStateSource) Collect(ctx context.Context) (*fleet.Collection, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -42,9 +43,9 @@ func (s *TerraformStateSource) Collect(ctx context.Context) (*fleet.Collection, 
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	rs, err := managedres.ParseState(f, filepath.Base(s.path), s.cat, s.now())
+	rs, unclassified, err := managedres.ParseState(f, filepath.Base(s.path), s.cat, s.now())
 	if err != nil {
 		return nil, err
 	}
-	return &fleet.Collection{ManagedResources: rs}, nil
+	return &fleet.Collection{ManagedResources: rs, Notes: fleet.UnclassifiedNotes(unclassified, s.id)}, nil
 }

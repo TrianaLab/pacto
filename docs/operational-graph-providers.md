@@ -247,7 +247,9 @@ The three egress readers are cluster-wide and read calls leaving the cluster
   identity. With the value `"off"` and an identity bound, the row reads `off`
   and names the value to set; with a cloud and no identity, it names the
   missing identity. Beyond 500 resources per cluster the managed rows are
-  `partial` with `MANAGED_RESOURCES_CAPPED`. See
+  `partial` with `MANAGED_RESOURCES_CAPPED`. A resource whose kind or type no
+  catalog row names is skipped and counted in the note
+  `MANAGED_RESOURCES_UNCLASSIFIED`. See
   [Managed resources](integrations/kubernetes/detection.md#managed-resources)
   for the grants and the identity.
 

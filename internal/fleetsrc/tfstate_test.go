@@ -37,7 +37,23 @@ func TestTerraformStateSource(t *testing.T) {
 	if rec := snap.Externals[fleet.ExternalKey(r.Identity)]; rec == nil || len(rec.Resources) != 1 {
 		t.Fatalf("external record %+v", rec)
 	}
+}
 
+// TestTerraformStateSourceNotesUnclassified: the fixture's tls_private_key
+// names no catalog row, so it is a note and the source stays available.
+func TestTerraformStateSourceNotesUnclassified(t *testing.T) {
+	clock := func() time.Time { return time.Time{} }
+	src := NewTerraformStateSource("tf-state", "../../pkg/managedres/testdata/state-v4.json", externalcatalog.Default(), clock)
+	snap, err := fleet.Build(t.Context(), fleet.BuildOptions{Now: clock}, src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(snap.Limitations) != 1 || snap.Limitations[0].Code != fleet.LimitationManagedResourcesUnclassified || snap.Limitations[0].Source != "tf-state" {
+		t.Errorf("limitations %+v", snap.Limitations)
+	}
+	if st := snap.Sources[0]; st.Status != fleet.SourceAvailable {
+		t.Errorf("an unclassified type made the source %s", st.Status)
+	}
 }
 
 func TestTerraformStateSourceErrors(t *testing.T) {

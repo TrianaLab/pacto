@@ -138,6 +138,21 @@ func TestDetectorReadsListedState(t *testing.T) {
 	}
 }
 
+// TestDetectorCountsUnclassifiedStateTypes: the fixture's tls_private_key
+// names no catalog row; the count survives the Interval cache.
+func TestDetectorCountsUnclassifiedStateTypes(t *testing.T) {
+	hc, calls := fakeAWS(t, 0)
+	d := remoteDetector(t, hc, Readers{TerraformStates: []string{"s3://acme-tf/app.tfstate?region=eu-west-1"}})
+	for range 2 {
+		if res := detectOnce(d); res.ManagedResourcesUnclassified != 1 {
+			t.Errorf("unclassified = %d", res.ManagedResourcesUnclassified)
+		}
+	}
+	if n := calls["/app.tfstate"].Load(); n != 1 {
+		t.Errorf("fetched %d times in one interval", n)
+	}
+}
+
 func TestStateUnreachableIsUnavailableRow(t *testing.T) {
 	hc, _ := fakeAWS(t, 0)
 	d := remoteDetector(t, hc, Readers{TerraformStates: []string{"s3://acme-tf/missing.tfstate", "s3://acme-tf/a b"}})

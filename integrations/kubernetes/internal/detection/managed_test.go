@@ -167,14 +167,14 @@ func TestDetectorListsManagedResources(t *testing.T) {
 }
 
 // TestDetectorSkipsKindsOutsideTheCatalog: a kind discovery offers that no
-// catalog row names is neither kept nor counted.
+// catalog row names is not kept and is counted only as unclassified.
 func TestDetectorSkipsKindsOutsideTheCatalog(t *testing.T) {
 	d, c := managedDetector(&cluster{objects: map[string][]map[string]any{"ThingList": {{"metadata": map[string]any{"name": "x"}}}}})
 	d.Readers.Managed = func(context.Context) (map[string][]metav1.APIResource, error) {
 		return map[string][]metav1.APIResource{"example.org/v1": {{Name: "things", Kind: "Thing"}}}, nil
 	}
 	_ = d.Sync(context.Background())
-	if _, res := readResult(t, c); res.ManagedResources != nil || res.ManagedResourcesTotal != 0 {
+	if _, res := readResult(t, c); res.ManagedResources != nil || res.ManagedResourcesTotal != 0 || res.ManagedResourcesUnclassified != 1 {
 		t.Errorf("result = %+v", res)
 	}
 }

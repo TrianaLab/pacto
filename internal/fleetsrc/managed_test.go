@@ -21,6 +21,18 @@ func managedResult() detect.Result {
 	}
 }
 
+func TestDetectionSourceNotesUnclassified(t *testing.T) {
+	res := managedResult()
+	if col := collectDetection(t, NewDetectionResultSource("detection", res, clockAt(detectionNow))); len(col.Notes) != 0 {
+		t.Errorf("a Result with no unclassified resource has notes: %+v", col.Notes)
+	}
+	res.ManagedResourcesUnclassified = 3
+	noted := collectDetection(t, NewDetectionResultSource("detection", res, clockAt(detectionNow)))
+	if len(noted.Notes) != 1 || noted.Notes[0].Code != fleet.LimitationManagedResourcesUnclassified || len(noted.Limitations) != 0 {
+		t.Errorf("unclassified notes = %+v limitations = %+v", noted.Notes, noted.Limitations)
+	}
+}
+
 func TestDetectionSourceCarriesManagedResources(t *testing.T) {
 	res := managedResult()
 	col := collectDetection(t, NewDetectionResultSource("detection", res, clockAt(detectionNow)))
