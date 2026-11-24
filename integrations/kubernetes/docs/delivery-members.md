@@ -50,17 +50,19 @@ nothing on the member; it is counted in `pacto_member_requests_unverified_total`
 2. It names this cluster (`NotForThisCluster`), and it was signed within its
    lifetime, at most 24 hours by default and never longer than 7 days or the
    recorder's `operationTTL` (`RequestExpired`).
-3. The service, namespace and environment pass the allowlist
-   (`OutsideAllowlist`).
-4. Exactly one Stage in an allowed namespace runs that service in that
-   environment (`NoStage`, `AmbiguousStage`).
-5. A SubjectAccessReview in the member lets the person `create`
+3. The member has a Stage of that service in that environment, where `prod`
+   and `production` name the same environment (`NoStage`).
+4. Exactly one such Stage passes the allowlist of service, namespace and
+   environment (`OutsideAllowlist`, `AmbiguousStage`).
+5. The Stage did not move since the person asked (`PointerMoved`).
+6. A SubjectAccessReview in the member lets the person `create`
    `operations.delivery.pacto.trianalab.io` in the Stage's namespace
    (`NotAllowedHere`, with the `kubectl create rolebinding` to run).
-6. The Stage did not move since the person asked (`PointerMoved`).
 
 The operator then raises one promote, as an agent acting for that person, so
-that person never approves it. The member's own gates, approval floors and
+that person never approves it. The chart grants these reads and writes in the
+ClusterRole `<release>-member-intake`; the operator learns its own user with a
+SelfSubjectReview, which the built-in `system:basic-user` role allows. The member's own gates, approval floors and
 applier decide the rest: a digest no trusted publisher signed is rejected by
 `pacto.published`, and a managed production Stage holds it for another person.
 

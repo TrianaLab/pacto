@@ -69,6 +69,10 @@ type JoinStream struct {
 	Stream      string     `json:"stream"`
 }
 
+// MaxJoinRequestEntries bounds the issuers and, apart, the environments a
+// join block's requests name.
+const MaxJoinRequestEntries = 64
+
 // JoinRequests says a member takes requests: the issuers of the approver
 // signers it verifies them under and the environments it takes them for.
 type JoinRequests struct {
@@ -91,8 +95,7 @@ var snapshotNameSources = []string{fleet.ClusterNameFromNodeLabel, fleet.Cluster
 // DNS label, whose name source is unknown or approval, with over 16
 // environments or a source that is empty, over 200 bytes or not printable
 // ASCII, a recorder key or a stream checkJoinStreams refuses, and requests
-// naming an issuer that is not a URL or an environment that is not a DNS
-// label.
+// checkJoinRequests refuses.
 func checkJoin(uid string, j SnapshotJoin) error {
 	if err := checkKeyID(j.PublicKey, j.KeyID); err != nil {
 		return err
@@ -162,11 +165,15 @@ func (s JoinStream) Check(uid string) error {
 	return nil
 }
 
-// checkJoinRequests refuses requests naming an issuer that is not a URL or
-// an environment that is not a DNS label; nil checks.
+// checkJoinRequests refuses requests naming more than MaxJoinRequestEntries
+// issuers or environments, an issuer that is not a URL or an environment
+// that is not a DNS label; nil checks.
 func checkJoinRequests(r *JoinRequests) error {
 	if r == nil {
 		return nil
+	}
+	if len(r.Issuers) > MaxJoinRequestEntries || len(r.Environments) > MaxJoinRequestEntries {
+		return fmt.Errorf("requests name %d issuers and %d environments, over the %d bound", len(r.Issuers), len(r.Environments), MaxJoinRequestEntries)
 	}
 	for _, iss := range r.Issuers {
 		if u, err := url.Parse(iss); err != nil || u.Scheme == "" || u.Host == "" {

@@ -81,7 +81,7 @@ func MemberPlacement(policy *PlacementPolicy, states []ClusterJoinState, service
 func newestRequest(requests []VerifiedRequest, service ServiceRef, env string) *VerifiedRequest {
 	var newest *VerifiedRequest
 	for i, r := range requests {
-		if r.Request.Service == service && canonicalEnvironment(r.Request.Environment) == canonicalEnvironment(env) &&
+		if r.Request.Service == service && SameEnvironment(r.Request.Environment, env) &&
 			(newest == nil || r.SignedAt.After(newest.SignedAt)) {
 			newest = &requests[i]
 		}
@@ -100,7 +100,7 @@ func memberHosts(s ClusterJoinState, env string, rule *PlacementRule) (evidence,
 		return "placement rule " + rule.Name, ""
 	case len(s.Requests.Environments) == 0:
 		return "", "advertises no environment: name it in a placement rule"
-	case slices.ContainsFunc(s.Requests.Environments, func(e string) bool { return canonicalEnvironment(e) == canonicalEnvironment(env) }):
+	case slices.ContainsFunc(s.Requests.Environments, func(e string) bool { return SameEnvironment(e, env) }):
 		return "takes requests for " + strings.Join(s.Requests.Environments, ", "), ""
 	}
 	return "", ""

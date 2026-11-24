@@ -488,6 +488,22 @@ func TestIntakeNoStageAndAmbiguous(t *testing.T) {
 	}
 }
 
+// TestIntakeStageBySynonym: a request for production finds the Stage whose
+// environment reads prod, as the hub's placement canonicalizes it; a member
+// with no Stage at all answers NoStage even when the allowlist would also
+// refuse the service.
+func TestIntakeStageBySynonym(t *testing.T) {
+	e := newIntake(t, inStage("billing-prod", inNS, "prod"))
+	e.request()
+	e.poll()
+	if ops := e.ops(); len(ops) != 1 || ops[0].Spec.Stage != "billing-prod" {
+		t.Fatalf("a request for production raises on the prod Stage, got %d", len(ops))
+	}
+	e = newIntake(t, inStage("billing-staging", inNS, "staging"))
+	e.i.Allow.Services = []string{"payments"}
+	e.refusedWith(e.request(), core.RefusalNoStage)
+}
+
 func TestIntakeOncePerRequest(t *testing.T) {
 	e := newIntake(t)
 	m := e.request()
@@ -954,5 +970,22 @@ func TestJoinRequestsOnlyWithIntake(t *testing.T) {
 	e.i.Allow.Environments = []string{"staging"}
 	if got := e.i.JoinRequests(); got != nil {
 		t.Fatalf("an allowlist that takes no hosted environment takes no requests, got %+v", got)
+	}
+	e.i.ClusterName, e.i.Allow.Environments = "kind-a", nil
+	for n := range core.MaxJoinRequestEntries + 1 {
+		e.i.Allow.Environments = append(e.i.Allow.Environments, fmt.Sprintf("env%d", n))
+	}
+	if got := e.i.JoinRequests(); got != nil {
+		t.Fatalf("more environments than a join block names takes no requests, got %d", len(got.Environments))
+	}
+	e.i.Allow.Environments = nil
+	many := make([]core.PersonSigner, 0, core.MaxJoinRequestEntries+1)
+	for n := range core.MaxJoinRequestEntries + 1 {
+		many = append(many, core.PersonSigner{Issuer: fmt.Sprintf("https://%d.example", n)})
+	}
+	e.i.Policy = func(context.Context) (core.ClassPolicy, error) { return core.ClassPolicy{Signers: many}, nil }
+	e.poll()
+	if got := e.i.JoinRequests(); got != nil {
+		t.Fatalf("more issuers than a join block names takes no requests, got %d", len(got.Issuers))
 	}
 }

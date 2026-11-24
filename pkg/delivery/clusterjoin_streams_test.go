@@ -4,6 +4,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 
@@ -103,9 +104,12 @@ func TestCheckJoinRequests(t *testing.T) {
 		req    delivery.JoinRequests
 		reject string
 	}{
-		"takes requests":  {delivery.JoinRequests{Issuers: []string{"https://dex.example"}, Environments: []string{"production"}}, ""},
-		"issuer no URL":   {delivery.JoinRequests{Issuers: []string{"dex"}}, "requests issuer"},
-		"bad environment": {delivery.JoinRequests{Environments: []string{"Prod"}}, "requests environment"},
+		"takes requests":        {delivery.JoinRequests{Issuers: []string{"https://dex.example"}, Environments: []string{"production"}}, ""},
+		"issuer no URL":         {delivery.JoinRequests{Issuers: []string{"dex"}}, "requests issuer"},
+		"bad environment":       {delivery.JoinRequests{Environments: []string{"Prod"}}, "requests environment"},
+		"issuers at bound":      {delivery.JoinRequests{Issuers: slices.Repeat([]string{"https://dex.example"}, delivery.MaxJoinRequestEntries)}, ""},
+		"too many issuers":      {delivery.JoinRequests{Issuers: slices.Repeat([]string{"https://dex.example"}, delivery.MaxJoinRequestEntries+1)}, "over the 64 bound"},
+		"too many environments": {delivery.JoinRequests{Environments: slices.Repeat([]string{"production"}, delivery.MaxJoinRequestEntries+1)}, "over the 64 bound"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			j := streamsJoin(t)

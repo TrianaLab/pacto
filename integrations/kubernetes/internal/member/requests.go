@@ -122,8 +122,10 @@ type Intake struct {
 
 // JoinRequests is what the join block says about requests: nil when the
 // intake is off, before it read the approver signers, with no signer or
-// with no environment the allowlist takes, so a member never claims
-// requests it cannot verify or take. Otherwise the signers' issuers and the
+// with no environment the allowlist takes, or with more issuers or
+// environments than core.MaxJoinRequestEntries (the hub would refuse the
+// whole join block), so a member never claims requests it cannot verify or
+// take. Otherwise the signers' issuers and the
 // environments RequestAllowlist.Hosted takes (nil: every environment).
 func (i *Intake) JoinRequests() *core.JoinRequests {
 	if i == nil {
@@ -133,7 +135,8 @@ func (i *Intake) JoinRequests() *core.JoinRequests {
 	issuers := i.issuers
 	i.mu.Unlock()
 	hosted := i.Allow.Hosted(core.AdvertisedEnvironments(nil, i.ClusterName, i.NameSource))
-	if len(issuers) == 0 || (hosted != nil && len(hosted) == 0) {
+	if len(issuers) == 0 || (hosted != nil && len(hosted) == 0) ||
+		len(issuers) > core.MaxJoinRequestEntries || len(hosted) > core.MaxJoinRequestEntries {
 		return nil
 	}
 	return &core.JoinRequests{Issuers: issuers, Environments: hosted}
@@ -329,8 +332,10 @@ func (i *Intake) admitRequest(ctx context.Context, r request) (refusal, *dv1.Sta
 	return refusal{}, stage, nil
 }
 
-// resolveStage is the one Stage of r's service and environment in a
-// namespace the allowlist takes.
+// resolveStage is the one Stage of r's service and environment (by
+// canonical name: prod is production) in a namespace the allowlist takes.
+// With no Stage of that service and environment at all it answers NoStage,
+// before the allowlist is asked.
 func (i *Intake) resolveStage(ctx context.Context, r core.OperationRequest) (*dv1.Stage, refusal, error) {
 	var list dv1.StageList
 	if err := i.Reader.List(ctx, &list); err != nil {
@@ -341,7 +346,7 @@ func (i *Intake) resolveStage(ctx context.Context, r core.OperationRequest) (*dv
 	var allowed []dv1.Stage
 	var outside refusal
 	for _, s := range list.Items {
-		if s.Spec.Service != r.Service || s.Spec.Environment != r.Environment {
+		if s.Spec.Service != r.Service || !core.SameEnvironment(s.Spec.Environment, r.Environment) {
 			continue
 		}
 		found++
