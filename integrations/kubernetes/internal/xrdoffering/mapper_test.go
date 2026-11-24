@@ -262,36 +262,43 @@ func bundle(t *testing.T, o Offering) *contract.Bundle {
 	return &contract.Bundle{Contract: c, RawYAML: o.Files["pacto.yaml"], FS: fsys}
 }
 
+// assertContribution maps the v1 fixture with comps and checks the bundle is
+// an offering contribution whose record verifies and cites its sources.
+func assertContribution(t *testing.T, comps []unstructured.Unstructured) {
+	t.Helper()
+	o, err := Map(object(t, "xrd-v1.yaml"), comps, "6.5.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := bundle(t, o)
+	rec, err := contract.ReadInferredRecord(b.FS)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := contract.VerifyInferredRecord(b.FS, rec); err != nil {
+		t.Fatalf("record: %v", err)
+	}
+	if why := contract.ContributionRefusal(b, rec); why != "" {
+		t.Fatalf("refused: %s", why)
+	}
+	if k := oci.BundleKind(b.Contract); k != oci.KindOffering {
+		t.Errorf("kind = %s", k)
+	}
+	sources := make([]string, 0, len(rec.Fields))
+	for _, f := range rec.Fields {
+		sources = append(sources, f.Source)
+	}
+	if !slices.Contains(sources, ObjectFile) || rec.Inputs.Pacto != "6.5.0" || rec.Inputs.Discovery != Discovery {
+		t.Errorf("record = %+v", rec)
+	}
+	if comps != nil && !slices.Contains(sources, ClassesFile) {
+		t.Errorf("no field cites %s", ClassesFile)
+	}
+}
+
 func TestMapperBundleIsAContribution(t *testing.T) {
 	for _, comps := range [][]unstructured.Unstructured{compositions(t), nil} {
-		o, err := Map(object(t, "xrd-v1.yaml"), comps, "6.5.0")
-		if err != nil {
-			t.Fatal(err)
-		}
-		b := bundle(t, o)
-		rec, err := contract.ReadInferredRecord(b.FS)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := contract.VerifyInferredRecord(b.FS, rec); err != nil {
-			t.Fatalf("record: %v", err)
-		}
-		if why := contract.ContributionRefusal(b, rec); why != "" {
-			t.Fatalf("refused: %s", why)
-		}
-		if k := oci.BundleKind(b.Contract); k != oci.KindOffering {
-			t.Errorf("kind = %s", k)
-		}
-		sources := make([]string, 0, len(rec.Fields))
-		for _, f := range rec.Fields {
-			sources = append(sources, f.Source)
-		}
-		if !slices.Contains(sources, ObjectFile) || rec.Inputs.Pacto != "6.5.0" || rec.Inputs.Discovery != Discovery {
-			t.Errorf("record = %+v", rec)
-		}
-		if comps != nil && !slices.Contains(sources, ClassesFile) {
-			t.Errorf("no field cites %s", ClassesFile)
-		}
+		assertContribution(t, comps)
 	}
 	if o := mapped(t, "xrd-v1.yaml"); bytes.Contains(o.Files[ObjectFile], []byte("managedFields")) ||
 		bytes.Contains(o.Files[ObjectFile], []byte("Established")) || bytes.Contains(o.Files[ObjectFile], []byte("uid")) {
