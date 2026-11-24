@@ -300,16 +300,24 @@ jobs:
           target: ci-static
           golangci-lint: 'true'
 
+  # Two shards (ENGINE_SHARD in ci.mk): internal/app's unit tests alone, about
+  # 15 minutes under -race, and everything else. Run as one job they were a
+  # serial 24-minute leg. Each shard gates its own coverage profile at 100% and,
+  # on push, uploads it; Codecov merges the two.
   ci-engine:
     needs: changes
     if: needs.changes.outputs.engine == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [app, rest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/ci
         with:
-          target: ci-engine
+          target: ci-engine ENGINE_SHARD=${{ matrix.shard }}
       - name: Upload results to Codecov
         if: github.event_name == 'push'
         uses: codecov/codecov-action@303a32d7a59b442fa8d48b6a1cc6825c09c847a5 # v7.1.1
@@ -337,7 +345,7 @@ jobs:
   # browser with Playwright. No cluster required.
   #
   # Sharded by weight: the layout matrix is most of the browser minutes, so
-  # it gets their own leg on 4 shards and the rest of the suite runs on 2
+  # it gets their own leg on 6 shards and the rest of the suite runs on 3
   # (PW_LEG in playwright.config.ts; the legs partition the suite, so every spec
   # runs once). Sharding the whole suite by test count left slow layout tests
   # bunched on a few shards. Each shard builds the demo once and runs its
@@ -353,12 +361,15 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { leg: layout, shard: 1, of: 4 }
-          - { leg: layout, shard: 2, of: 4 }
-          - { leg: layout, shard: 3, of: 4 }
-          - { leg: layout, shard: 4, of: 4 }
-          - { leg: rest, shard: 1, of: 2 }
-          - { leg: rest, shard: 2, of: 2 }
+          - { leg: layout, shard: 1, of: 6 }
+          - { leg: layout, shard: 2, of: 6 }
+          - { leg: layout, shard: 3, of: 6 }
+          - { leg: layout, shard: 4, of: 6 }
+          - { leg: layout, shard: 5, of: 6 }
+          - { leg: layout, shard: 6, of: 6 }
+          - { leg: rest, shard: 1, of: 3 }
+          - { leg: rest, shard: 2, of: 3 }
+          - { leg: rest, shard: 3, of: 3 }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

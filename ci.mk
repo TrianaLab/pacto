@@ -51,7 +51,11 @@ ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint check-section ci-docs ci-ui-dri
 # The Compose demo acceptance is NOT here: it needs a Docker daemon and an image
 # build, and ci-engine is the leg a contributor runs on a laptop with nothing
 # installed. It has its own job, ci-e2e-compose.
+ifeq ($(ENGINE_SHARD),app)
+ci-engine: ci-test
+else
 ci-engine: ci-test test-integration test-acceptance-local test-fleet-budgets
+endif
 
 # The distributed Compose demo, end to end from a registry: push the artifact,
 # pull it BY DIGEST into an empty directory outside the checkout, start it there
@@ -498,10 +502,24 @@ verify-k8s-standalone:
 # it loads a program into the kernel, so it is covered by `make test-ebpf` (a
 # privileged container) and the kind e2e shards, not by unit tests.
 # COVER_PKGS is the package set behind the 100% gate; `make coverage` reuses it.
-COVER_PKGS = $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /cmd/genexternalcatalog | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf)
+COVER_LIST = go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /cmd/genexternalcatalog | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf
+COVER_PKGS = $$($(COVER_LIST))
+
+# ENGINE_SHARD splits ci-engine over two CI runners (the ci-engine matrix in
+# ci.yml). `app` runs internal/app's unit tests alone: one package, about 15
+# minutes under -race and the longest single package by far. `rest` runs every
+# other package plus the remaining legs. Profiles are per package (no -coverpkg),
+# so each shard holding its own profile at 100% is the same gate as the whole run.
+# Unset runs everything, as on a laptop.
+ENGINE_SHARD ?=
+ifneq ($(filter-out app rest,$(ENGINE_SHARD)),)
+$(error ENGINE_SHARD=$(ENGINE_SHARD): want app, rest or unset)
+endif
+ENGINE_PKGS = $$($(COVER_LIST)$(if $(filter app,$(ENGINE_SHARD)), | grep '/internal/app$$')$(if $(filter rest,$(ENGINE_SHARD)), | grep -v '/internal/app$$'))
+
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."
-	@go test -race -timeout 20m $(COVER_PKGS) -coverprofile=coverage.out
+	@go test -race -timeout 20m $(ENGINE_PKGS) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
 	if [ "$$total" != "100.0%" ]; then \
 		echo "FAIL: total coverage is $$total, expected 100.0%"; \
@@ -509,10 +527,12 @@ ci-test:
 		exit 1; \
 	fi
 	@echo "    total coverage: 100.0%"
+ifneq ($(ENGINE_SHARD),app)
 	@echo "==> Running example tests (no coverage gate)..."
 	@go test -race ./examples/...
 	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
 	@$(MAKE) -C examples/demo validate
+endif
 
 # NPM_CI is the frontend install every CI leg uses, with npm's own fetch retries
 # (the npm side of what release/scripts/retry.sh does for Go).
