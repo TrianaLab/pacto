@@ -13,7 +13,7 @@ import { appReady, settle } from './ready';
 // stays a detected row.
 
 const T = 20_000;
-const DETECTED = ['Registry', 'Cloud', 'Sign-in', 'Exposure', 'Metrics', 'Nodes', 'Pull Secret', 'Datadog', 'Istio egress', 'Cilium FQDN', 'Egress gateway', 'Crossplane', 'Backstage catalog'];
+const DETECTED = ['Registry', 'Cloud', 'Sign-in', 'Exposure', 'Metrics', 'Nodes', 'Pull Secret', 'Datadog', 'Istio egress', 'Cilium FQDN', 'Egress gateway', 'Crossplane', 'Backstage catalog', 'Managed resources', 'Terraform state', 'Cloud inventory'];
 const DECLARED = "Declared: by the operator's configuration";
 
 test.describe('WASM demo: what the cluster provides', () => {

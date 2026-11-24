@@ -207,7 +207,7 @@ test.describe('the inventory says what Pacto detected', () => {
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Seventeen reported rows (the Pacto CRD, the kernel-egress row,
+    // Eighteen reported rows (the Pacto CRD, the kernel-egress row,
     // Kubernetes workloads, the Argo CD, Flux and Helm rows that group the
     // inferred services, the Kargo promotion row, the Istio row of the mesh
     // source, the demo and partner registries and six reporting adapter
@@ -239,8 +239,8 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(block).toContainText('Registry demo.pacto.local');
     await expect(block).toContainText('Registry partners.demo.pacto.local');
     await expect(block).toContainText('no Referrers, no _catalog');
-    await expect(rows.nth(17)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(18)).toHaveClass(/dp-inferred/);
+    await expect(rows.nth(18)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(19)).toHaveClass(/dp-inferred/);
     // The running Crossplane is one more inferred row in the same block: its
     // version, what it serves and one provenance mark, never a block of its own.
     const crossplane = rows.filter({ has: page.locator('.dp-name bdi[title="Crossplane"]') });
