@@ -90,7 +90,7 @@ var _ = Describe("Stage environment", func() {
 	It("records an Operation policy whose environment predates the rule", func() {
 		op := &unstructured.Unstructured{Object: map[string]any{
 			"metadata": map[string]any{"namespace": "default", "name": "env-legacy-op"},
-			"spec": map[string]any{"type": "delivery.pacto.trianalab.io/promote", "stage": "payments-prod", "facet": "pointer",
+			"spec": map[string]any{"type": "delivery.pacto.trianalab.io/promote", "stage": "env-legacy-prod", "facet": "pointer",
 				"actor": map[string]any{"user": "bot"}},
 		}}
 		op.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "Operation"})
