@@ -67,19 +67,17 @@ var (
 func (x demoXRD) version() string { return fmt.Sprintf("0.0.0-inferred.%d.0", x.generation) }
 
 // schema is x's provisioning schema: its properties plus the class enum,
-// every object closed.
+// every object closed. It is built as a value and marshalled, never spliced
+// into a JSON string.
 func (x demoXRD) schema() string {
-	classes, _ := json.Marshal(x.classes)
-	return fmt.Sprintf(`{
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["region", "class"],
-  "properties": {
-    %s,
-    "class": {"type": "string", "enum": %s, "x-pacto-tier": "contract"}
-  }
-}
-`, x.properties, classes)
+	props := map[string]any{}
+	_ = json.Unmarshal([]byte("{"+x.properties+"}"), &props) // constants above
+	props["class"] = map[string]any{"type": "string", "enum": x.classes, "x-pacto-tier": "contract"}
+	out, _ := json.MarshalIndent(map[string]any{
+		"type": "object", "additionalProperties": false,
+		"required": []string{"region", "class"}, "properties": props,
+	}, "", "  ")
+	return string(out) + "\n"
 }
 
 // files are x's bundle in the public inferred-offering format: pacto.yaml
