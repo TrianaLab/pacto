@@ -514,8 +514,9 @@
   @media (pointer: coarse) { .ev-offer .btn { min-block-size: 44px; min-inline-size: 44px; } }
   .ev-fix, .ev-applier { overflow-wrap: anywhere; }
   .ev-ready { color: var(--c-warn); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  /* Two lines until a reader points at it or tabs to it; then the whole reason. */
-  .ev-ready:hover, .ev-ready:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }
+  /* Two lines until a reader points at it or tabs to it or into it (the values mark); then the
+     whole reason, and nothing clipped, so the mark's tip shows. */
+  .ev-ready:hover, .ev-ready:focus-within { -webkit-line-clamp: unset; line-clamp: none; overflow: visible; }
   .ev-head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--sp-2); }
   .ev-head .ev-version { overflow-wrap: anywhere; }
   .ev-tools > :global(form) { flex: 1 1 24rem; }

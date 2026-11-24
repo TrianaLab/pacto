@@ -94,6 +94,8 @@
   .vl-item { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
   .vl-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .vl-msg, .vl-proof { margin: 0; }
+  /* A values path with no hyphen or space still wraps on a phone. */
+  .vl-msg { overflow-wrap: anywhere; }
   .vl-pactos { margin: 0; padding-left: var(--sp-5); overflow-wrap: anywhere; }
   .vl-pactos a { color: var(--c-accent); text-decoration: underline; }
   .vl-proof a { color: var(--c-accent); text-decoration: underline; }
