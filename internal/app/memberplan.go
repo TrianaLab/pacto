@@ -48,14 +48,13 @@ func (o MemberPlanOptions) joins() JoinOptions {
 // requests for it that verified (newest last), the newest one's furthest
 // outcome, and what was not read.
 type memberRead struct {
-	requests     []delivery.VerifiedRequest
-	outcome      *delivery.RequestOutcome
-	unread       string
-	unverified   int
-	badOutcomes  int
-	requestsCut  bool
-	outcomesCut  bool
-	outcomeStage int
+	requests    []delivery.VerifiedRequest
+	outcome     *delivery.RequestOutcome
+	unread      string
+	unverified  int
+	badOutcomes int
+	requestsCut bool
+	outcomesCut bool
 }
 
 // MemberPlan plans req, a member request, over the approved members of the
@@ -72,8 +71,28 @@ func (s *Service) MemberPlan(ctx context.Context, req delivery.Request, opts Mem
 	if req.To != "" && !strings.HasPrefix(req.To, "sha256:") {
 		return delivery.MemberPlan{}, delivery.HubRefusal(delivery.RefusalDigestRequired, "member mode takes the digest of what to promote, never a version or tag ("+req.To+")", req, opts.Repository)
 	}
-	now := s.env().now()
+	return s.memberPlan(ctx, req, opts, s.ClusterJoins(ctx, opts.joins())), nil
+}
+
+// MemberPlans are the member plans, with no target digest, of service in
+// each environment the hub lists (envs, in their order) or an approved
+// member takes requests for (delivery.MemberEnvironments), read over one
+// list of the members: only those that place it on a member or hide one
+// from a restricted reader.
+func (s *Service) MemberPlans(ctx context.Context, service string, envs []string, opts MemberPlanOptions) []delivery.MemberPlan {
 	list := s.ClusterJoins(ctx, opts.joins())
+	out := []delivery.MemberPlan{}
+	for _, env := range delivery.MemberEnvironments(envs, list.Clusters) {
+		if p := s.memberPlan(ctx, delivery.Request{Service: service, Environment: env}, opts, list); len(p.Placement.Placed) > 0 || p.Hidden > 0 {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+// memberPlan is MemberPlan over list, the hub's members.
+func (s *Service) memberPlan(ctx context.Context, req delivery.Request, opts MemberPlanOptions, list delivery.ClusterJoinList) delivery.MemberPlan {
+	now := s.env().now()
 	ctx, cancel := context.WithTimeout(ctx, cmp.Or(s.sys.snapshotTimeout, delivery.TargetSnapshotReadTimeout))
 	defer cancel()
 	svc := delivery.ServiceRef{Name: req.Service}
@@ -100,7 +119,7 @@ func (s *Service) MemberPlan(ctx context.Context, req delivery.Request, opts Mem
 	if req.To != "" && len(plan.Placement.Placed) > 0 {
 		plan.Next = delivery.ConfirmCommand(req, opts.Repository)
 	}
-	return plan, nil
+	return plan
 }
 
 // memberPlanning is one MemberPlan call on its way to its answer.
@@ -170,45 +189,68 @@ func (mp *memberPlanning) read(ctx context.Context, placed delivery.MemberPlacem
 // planned promote, and the outcomes of the newest one.
 func (mp *memberPlanning) readMember(ctx context.Context, repo *remote.Repository, policy delivery.ClassPolicy, uid string) memberRead {
 	var r memberRead
-	fetched, cut, err := mp.s.joinRecords.ListOperationRequests(ctx, repo, uid)
+	var err error
+	r.requests, r.unverified, r.requestsCut, err = mp.verifiedRequests(ctx, repo, policy, uid, func(q delivery.OperationRequest) bool {
+		return q.Service.Name == mp.req.Service && q.Environment == mp.req.Environment && (mp.req.To == "" || q.Digest == mp.req.To)
+	})
 	if err != nil {
 		r.unread = err.Error()
 		return r
 	}
-	r.requestsCut = cut
+	if len(r.requests) == 0 {
+		return r
+	}
+	r.outcome, r.badOutcomes, r.outcomesCut, err = mp.outcomeOf(ctx, repo, uid, r.requests[len(r.requests)-1].Manifest)
+	if err != nil {
+		r.unread = err.Error()
+	}
+	return r
+}
+
+// verifiedRequests are the requests on member uid's stream that verify
+// (verifyRequest) and match says to keep, oldest first; those that do not
+// verify are counted and leave the read bound.
+func (mp *memberPlanning) verifiedRequests(ctx context.Context, repo *remote.Repository, policy delivery.ClassPolicy, uid string,
+	match func(delivery.OperationRequest) bool) (reqs []delivery.VerifiedRequest, unverified int, cut bool, err error) {
+	fetched, cut, err := mp.s.joinRecords.ListOperationRequests(ctx, repo, uid)
+	if err != nil {
+		return nil, 0, false, err
+	}
 	for _, f := range fetched {
 		v, ok := verifyRequest(policy, uid, f)
 		switch {
 		case !ok:
-			r.unverified++
+			unverified++
 			mp.s.joinRecords.Reject(delivery.ClusterRequestStream(uid), delivery.PredicateOperationRequest, f.Manifest)
-		case v.Request.Service.Name == mp.req.Service && v.Request.Environment == mp.req.Environment && (mp.req.To == "" || v.Request.Digest == mp.req.To):
-			r.requests = append(r.requests, v)
+		case match(v.Request):
+			reqs = append(reqs, v)
 		}
 	}
-	slices.SortFunc(r.requests, func(a, b delivery.VerifiedRequest) int { return a.SignedAt.Compare(b.SignedAt) })
-	if len(r.requests) == 0 {
-		return r
-	}
-	newest := r.requests[len(r.requests)-1].Manifest
-	outcomes, ocut, err := mp.s.joinRecords.ListRequestOutcomes(ctx, repo, uid, newest)
+	slices.SortFunc(reqs, func(a, b delivery.VerifiedRequest) int { return a.SignedAt.Compare(b.SignedAt) })
+	return reqs, unverified, cut, nil
+}
+
+// outcomeOf is the furthest outcome of request on member uid's stream that
+// the member's approved key signed for it (nil for none yet), with how
+// many did not verify and whether the read was cut.
+func (mp *memberPlanning) outcomeOf(ctx context.Context, repo *remote.Repository, uid, request string) (*delivery.RequestOutcome, int, bool, error) {
+	outcomes, cut, err := mp.s.joinRecords.ListRequestOutcomes(ctx, repo, uid, request)
 	if err != nil {
-		r.unread = err.Error()
-		return r
+		return nil, 0, false, err
 	}
-	r.outcomesCut = ocut
+	var furthest *delivery.RequestOutcome
+	bad := 0
 	for _, f := range outcomes {
 		st, err := delivery.OpenRequestOutcome(f.Bundle, mp.trust, uid, signing.OpenKey)
-		if err != nil || st.Predicate.Request != newest {
-			r.badOutcomes++
+		if err != nil || st.Predicate.Request != request {
+			bad++
 			continue
 		}
-		if n := outcomeStage[st.Predicate.State]; n > r.outcomeStage {
-			o := st.Predicate
-			r.outcome, r.outcomeStage = &o, n
+		if o, n := st.Predicate, outcomeStage[st.Predicate.State]; n > 0 && (furthest == nil || n > outcomeStage[furthest.State]) {
+			furthest = &o
 		}
 	}
-	return r
+	return furthest, bad, cut, nil
 }
 
 // outcomeStage orders outcomes: the furthest one says where a request is.
@@ -394,4 +436,129 @@ func (s *Service) WriteOperationRequests(ctx context.Context, reqs []delivery.Op
 func (s *Service) MemberTrust(ctx context.Context, opts MemberPlanOptions) (*delivery.TrustConfig, []delivery.ClusterJoinState) {
 	list := s.ClusterJoins(ctx, opts.joins())
 	return delivery.MemberRecordTrust(list.Clusters), list.Clusters
+}
+
+// MemberRefusal is a request a member refused at intake, or whose promote
+// its gates rejected: the member, the request and that outcome.
+type MemberRefusal struct {
+	Member  delivery.ClusterRef
+	Request delivery.OperationRequest
+	Outcome delivery.RequestOutcome
+}
+
+// MemberRefusals are the refusals of the hub's members, the members a
+// restricted reader may not see (counted) and what could not be read.
+type MemberRefusals struct {
+	Refusals   []MemberRefusal
+	Hidden     int
+	Unreadable []string
+}
+
+// MemberRefusals reads, on the request stream of every approved member that
+// takes requests, the requests that verify (as MemberPlan does) and each
+// one's furthest outcome, keeping those the member refused or whose
+// Operation concluded Rejected. A restricted reader does not see a member no
+// live channel reviews for (counted in Hidden), nor the namespace and
+// Operation of an outcome its review of that member does not let them read.
+// ponytail: every request's outcomes are read on each call, joinReadsAtOnce
+// members at once and MaxOperationRequests requests each; keep the answer a
+// moment if a Publish view on a large hub reads them too often.
+func (s *Service) MemberRefusals(ctx context.Context, opts MemberPlanOptions) MemberRefusals {
+	list := s.ClusterJoins(ctx, opts.joins())
+	var out MemberRefusals
+	if list.Completeness != fleet.CompletenessComplete {
+		for _, l := range list.Limitations {
+			out.Unreadable = append(out.Unreadable, l.Message)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, cmp.Or(s.sys.snapshotTimeout, delivery.TargetSnapshotReadTimeout))
+	defer cancel()
+	var members []delivery.ClusterJoinState
+	for _, c := range list.Clusters {
+		switch {
+		case c.State != delivery.JoinApproved || c.Requests == nil:
+		case opts.Restrict != nil && (opts.Reviewable == nil || !opts.Reviewable(c.UID)):
+			out.Hidden++
+		default:
+			members = append(members, c)
+		}
+	}
+	if len(members) == 0 {
+		return out
+	}
+	policy, err := opts.Delivery.classPolicy(ctx)
+	if err != nil {
+		out.Unreadable = append(out.Unreadable, "the hub's approver signers could not be read, so no member request was read: "+err.Error())
+		return out
+	}
+	mp := &memberPlanning{s: s, opts: opts, list: list, trust: delivery.JoinTrust(list.Clusters)}
+	repo, _ := openTargets(list.Repository) // ClusterJoins opened it
+	var mu sync.Mutex
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(joinReadsAtOnce)
+	for _, c := range members {
+		g.Go(func() error {
+			rows, unread := mp.refusalsOf(gctx, repo, policy, c)
+			mu.Lock()
+			defer mu.Unlock()
+			out.Refusals = append(out.Refusals, rows...)
+			if unread != "" {
+				out.Unreadable = append(out.Unreadable, c.Name+": "+unread)
+			}
+			return nil
+		})
+	}
+	_ = g.Wait() // refusalsOf returns its failures
+	return out
+}
+
+// refusalsOf are member c's refusals and what of its stream was not read.
+func (mp *memberPlanning) refusalsOf(ctx context.Context, repo *remote.Repository, policy delivery.ClassPolicy, c delivery.ClusterJoinState) ([]MemberRefusal, string) {
+	reqs, unverified, cut, err := mp.verifiedRequests(ctx, repo, policy, c.UID, func(delivery.OperationRequest) bool { return true })
+	if err != nil {
+		return nil, "its request stream could not be read: " + err.Error()
+	}
+	var rows []MemberRefusal
+	var unread []string
+	if unverified > 0 {
+		unread = append(unread, fmt.Sprintf("%s did not verify and %s not read", plural(unverified, "request"), were(unverified)))
+	}
+	for _, r := range reqs {
+		o, bad, ocut, err := mp.outcomeOf(ctx, repo, c.UID, r.Manifest)
+		switch {
+		case err != nil:
+			unread = append(unread, "the outcomes of a request could not be read: "+err.Error())
+			continue
+		case bad > 0:
+			unread = append(unread, fmt.Sprintf("%s did not verify and %s not read", plural(bad, "outcome"), were(bad)))
+		}
+		cut = cut || ocut
+		if refused(o) {
+			rows = append(rows, MemberRefusal{Member: delivery.ClusterRef{UID: c.UID, Name: c.Name}, Request: r.Request, Outcome: mp.restricted(c.UID, *o)})
+		}
+	}
+	if cut {
+		unread = append(unread, "its stream holds more records than a read takes; newer ones are read next time")
+	}
+	return rows, strings.Join(unread, "; ")
+}
+
+// refused reports an outcome that refused its request: at intake, or as an
+// Operation that concluded Rejected.
+func refused(o *delivery.RequestOutcome) bool {
+	return o != nil && (o.State == delivery.RequestRefused || o.State == delivery.RequestConcluded && o.Outcome == delivery.Rejected)
+}
+
+// restricted is o as a restricted reader sees it on member uid: without the
+// Operation, and its namespace out of the reasons, when that member's review
+// does not let them read the namespace.
+func (mp *memberPlanning) restricted(uid string, o delivery.RequestOutcome) delivery.RequestOutcome {
+	if o.Operation == nil || mp.opts.Restrict == nil || mp.opts.Restrict(uid, o.Operation.Namespace) {
+		return o
+	}
+	ns := o.Operation.Namespace
+	o.Operation = nil
+	o.Reason = strings.ReplaceAll(o.Reason, ns, "a namespace you may not read")
+	o.Published = strings.ReplaceAll(o.Published, ns, "a namespace you may not read")
+	return o
 }

@@ -547,8 +547,33 @@ func ConfirmCommand(req Request, registry string) string {
 	return cmd + " --registry " + cmp.Or(registry, "<registry>") + " --confirm"
 }
 
+// HubRefusalError is a hub refusal: its stable code, why and the next
+// command a person runs.
+type HubRefusalError struct{ Code, Why, Next string }
+
+func (e *HubRefusalError) Error() string {
+	return fmt.Sprintf("%s: %s; next: %s", e.Code, e.Why, e.Next)
+}
+
+// CheckRequestMode refuses a request that names both a Stage and members,
+// or neither, and a member request that is not a promote (an empty type is
+// one) to a sha256 digest, for req read from registry.
+func CheckRequestMode(req Request, registry string) error {
+	switch {
+	case req.Stage != "" && (req.Service != "" || req.Environment != "" || len(req.Members) > 0):
+		return HubRefusal(RefusalStageOrMembers, "pass --stage, or --service with --environment, not both", req, registry)
+	case req.Stage == "" && !req.MemberMode():
+		return HubRefusal(RefusalStageOrMembers, "name the Stage with --stage, or the service and environment with --service and --environment", req, registry)
+	case req.Stage == "" && cmp.Or(req.Type, TypePromote) != TypePromote:
+		return HubRefusal(RefusalStageOrMembers, "a member request is a promote only; change "+req.Type+" with --stage on the member itself", req, registry)
+	case req.Stage == "" && !strings.HasPrefix(req.To, "sha256:"):
+		return HubRefusal(RefusalDigestRequired, "member mode takes the digest of what to promote, never a version or tag", req, registry)
+	}
+	return nil
+}
+
 // HubRefusal is the refusal code with why and its next command, for req
-// read from registry.
+// read from registry (a *HubRefusalError).
 func HubRefusal(code, why string, req Request, registry string) error {
 	next := map[string]string{
 		RefusalMemberRequestNeedsPerson: "a person runs: " + ConfirmCommand(req, registry),
@@ -559,5 +584,5 @@ func HubRefusal(code, why string, req Request, registry string) error {
 		RefusalMemberTakesNoRequests:    "a cluster admin of that member sets delivery.remote.enabled, a registry and delivery there",
 		RefusalIssuerNotAccepted:        "log in with an approver signer the member accepts: pass --oidc-issuer-url",
 	}[code]
-	return fmt.Errorf("%s: %s; next: %s", code, why, next)
+	return &HubRefusalError{Code: code, Why: why, Next: next}
 }

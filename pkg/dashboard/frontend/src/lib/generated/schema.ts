@@ -93,7 +93,7 @@ export interface paths {
         };
         /**
          * Every Stage
-         * @description Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.
+         * @description Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo, and, on a hub, which members a promote is placed on and what each did with the newest request.
          */
         get: operations["delivery-environments"];
         put?: never;
@@ -239,7 +239,7 @@ export interface paths {
         put?: never;
         /**
          * Plan a change
-         * @description What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you.
+         * @description What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you. With service, environment and a sha256 to instead of a Stage, on a hub: members, the placement over its members, where it came from, each member's state and the command a person runs to sign the requests.
          */
         post: operations["delivery-plan"];
         delete?: never;
@@ -317,7 +317,7 @@ export interface paths {
         };
         /**
          * Publishes and promotes Pacto refused
-         * @description Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing.
+         * @description Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). On a hub, the requests its members refused or whose promote their gates rejected (check member, with the member in cluster). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing.
          */
         get: operations["delivery-refusals"];
         put?: never;
@@ -3145,6 +3145,8 @@ export interface components {
             };
             /** @description The Stages of the services on this page */
             environments: components["schemas"]["EnvironmentRow"][] | null;
+            /** @description With service, on a hub with approved members: per environment of the service (its Stages' in promotion order, then those a member takes requests for), the members a promote there is placed on, where that placement came from and the newest request a person signed for each member with what the member answered; only environments placed on a member. Absent on a hub with no members */
+            members?: components["schemas"]["Delivery.MemberPlan"][] | null;
             /** @description Which services this page holds; offset and limit count services */
             page: components["schemas"]["Page"];
             /** @description With service: that service's promotion graph, from its Stages' declared upstreams */
@@ -8504,8 +8506,10 @@ export interface components {
             at: string;
             /** @description The highest published version below it, the one the change was compared with */
             baseline?: string;
-            /** @description The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote */
+            /** @description The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote; member for a request a member refused or whose promote its gates rejected */
             check: string;
+            /** @description On a check member row: the member that refused it, by its display name */
+            cluster?: string;
             /** @description The stable code of a refused promote, such as RawInfraInArtifact, when it has one */
             code?: string;
             /** @description The deploy artifact digest a refused promote asked for */
@@ -8738,6 +8742,11 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
+            /**
+             * Format: int64
+             * @description How many members no live channel reviews for were not read for a reader whose access is restricted
+             */
+            hidden?: number;
             /** @description Where the refusals were read and what may be missing */
             note?: string;
             /** @description This cluster keeps a record of refused publishes or promotes; false means an empty list proves nothing */

@@ -75,7 +75,8 @@ const deliveryInstructions = "Pacto delivery decides which version each environm
 	"promoter: the name is asserted, that person may not approve " +
 	"the change, and planning needs no person. Pass correlation_id on plan and propose to tie a change to a ticket or " +
 	"incident; the rollback, freeze or step-down the promoter raises after it inherits the id, and it never changes the " +
-	"intent digest." + checkedPass + manifestsNote + noApprove
+	"intent digest. On a hub, plan a promote over its members with service and environment instead of a Stage; only a person signs the requests, " +
+	"so hand them the plan's next command." + checkedPass + manifestsNote + noApprove
 
 // manifestsNote says where an agent reads what a promote applies.
 const manifestsNote = " When the installation turns the manifest inspector on, a promote plan's pacto.manifests verdict " +
@@ -119,7 +120,10 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool, refs 
 			"running there does not accept the new version, the order: which consumer must move first and the verified " +
 			"version of it to promote. next says in plain words what proposing it leads to: which teams must sign, that an " +
 			"agent cannot answer and the operation is then Held, and what happens at the approval deadline. A Rejected plan " +
-			"asks nobody anything; its failing verdict says what to do first. Read-only." + checkedPass + manifestsNote + noApprove,
+			"asks nobody anything; its failing verdict says what to do first. With service, environment and a sha256 to instead of a Stage, on a hub, " +
+			"members answers the placement over its members (which members, from a signed placement rule (policy), confirmed by a person's signed request " +
+			"(advertised) or only the environments they take requests for (unconfirmed)), each member's state, asOf and completeness, and next, the command a person runs to sign the requests. " +
+			"Read-only." + checkedPass + manifestsNote + noApprove,
 		InputSchema: requestSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
 		req, err := a.request()
@@ -345,13 +349,16 @@ func registerDeliveryWrites(server *mcpsdk.Server, api DeliveryAPI) {
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_delivery_operation_propose",
 		Annotations: writes(false, false, true),
-		Description: "Propose an operation. Pass the intent_digest from your plan with the same to, reason and on_behalf_of: " +
+		Description: "Propose an operation on a Stage (a member request is refused with MemberRequestNeedsPerson and the command a person runs). Pass the intent_digest from your plan with the same to, reason and on_behalf_of: " +
 			"the digest binds them and the Stage's state, so if one differs or anything moved since, it fails with PlanStale, " +
 			"says which parameter differs when it can tell, and returns the fresh plan instead of proposing something you did " +
 			"not review. Pass correlation_id to tie it to an incident; it does not change the intent digest." + noApprove,
 		InputSchema: requestSchema("intent_digest", "name"),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
 		req, err := a.request()
+		if err == nil && req.MemberMode() {
+			err = delivery.HubRefusal(delivery.RefusalMemberRequestNeedsPerson, "a member request is signed by a person, never by an agent", req, "")
+		}
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -390,14 +397,18 @@ func resultOrError(v any, err error) (*mcpsdk.CallToolResult, any, error) {
 }
 
 type requestArgs struct {
-	Namespace  string `json:"namespace"`
-	Stage      string `json:"stage"`
-	Type       string `json:"type"`
-	To         string `json:"to"`
-	From       string `json:"from"`
-	Undoes     string `json:"undoes"`
-	Reason     string `json:"reason"`
-	OnBehalfOf string `json:"on_behalf_of"`
+	Namespace string `json:"namespace"`
+	Stage     string `json:"stage"`
+	// Service, Environment and Members name a member request: no Stage.
+	Service     string   `json:"service"`
+	Environment string   `json:"environment"`
+	Members     []string `json:"members"`
+	Type        string   `json:"type"`
+	To          string   `json:"to"`
+	From        string   `json:"from"`
+	Undoes      string   `json:"undoes"`
+	Reason      string   `json:"reason"`
+	OnBehalfOf  string   `json:"on_behalf_of"`
 	// CorrelationID ties the change to an incident or another change.
 	CorrelationID string `json:"correlation_id"`
 	IntentDigest  string `json:"intent_digest"`
@@ -406,9 +417,18 @@ type requestArgs struct {
 	CauseVerdict string `json:"cause_verdict"`
 }
 
+// errStageOrMembers refuses a request that names a Stage and members, or
+// neither.
+var errStageOrMembers = errors.New(delivery.RefusalStageOrMembers + ": name namespace and stage for a Stage in this cluster, " +
+	"or service and environment (and optionally members) to plan over a hub's members, not both")
+
 func (a requestArgs) request() (delivery.Request, error) {
-	req := delivery.Request{Namespace: a.Namespace, Stage: a.Stage, Type: a.Type, To: a.To, From: a.From, Undoes: a.Undoes,
+	req := delivery.Request{Namespace: a.Namespace, Stage: a.Stage, Service: a.Service, Environment: a.Environment, Members: a.Members,
+		Type: a.Type, To: a.To, From: a.From, Undoes: a.Undoes,
 		Reason: a.Reason, CorrelationID: a.CorrelationID, OnBehalfOf: a.OnBehalfOf, IntentDigest: a.IntentDigest, Name: a.Name}
+	if (a.Stage == "") != req.MemberMode() || a.Stage != "" && (a.Service != "" || a.Environment != "" || len(a.Members) > 0) {
+		return req, errStageOrMembers
+	}
 	if a.CauseVerdict != "" {
 		var v delivery.Verdict
 		if err := json.Unmarshal([]byte(a.CauseVerdict), &v); err != nil {
@@ -423,8 +443,12 @@ func (a requestArgs) request() (delivery.Request, error) {
 func requestSchema(extra ...string) map[string]any {
 	props := map[string]property{
 		"namespace": {Type: "string", Description: "Namespace of the Stage"},
-		"stage":     {Type: "string", Description: "Stage name"},
-		"type":      {Type: "string", Description: "Operation type (default delivery.pacto.trianalab.io/promote)"},
+		"stage":     {Type: "string", Description: "Stage name; give either namespace and stage, or service and environment"},
+		"service":   {Type: "string", Description: "Member mode, on a hub: the service to promote on its members, with environment and no stage"},
+		"environment": {Type: "string", Description: "Member mode: the environment to promote the service in; the answer's members says which members it is " +
+			"placed on, where that placement came from (policy, advertised or unconfirmed) and what each member did with the newest request"},
+		"members": {Type: "array", Items: "string", Description: "Member mode: the member uids to plan for; empty is every placed member"},
+		"type":    {Type: "string", Description: "Operation type (default delivery.pacto.trianalab.io/promote)"},
 		"to": {Type: "string", Description: "The version to move to: a version (3.0.0), a tag or an artifact digest (sha256:...). " +
 			"A version or tag must name exactly one version pacto publish published that this Stage may take, or it is refused; " +
 			"pacto_delivery_candidates lists them. For an autonomy operation, the level"},
@@ -445,7 +469,7 @@ func requestSchema(extra ...string) map[string]any {
 			props[e] = property{Type: "string", Description: "Operation name (generated when empty)"}
 		}
 	}
-	return inputSchema(props, []string{"namespace", "stage"})
+	return inputSchema(props, nil)
 }
 
 type stageArgs struct {
@@ -463,7 +487,7 @@ func stageSchema(extra ...string) map[string]any {
 	if len(extra) > 0 {
 		props["digest"] = property{Type: "string", Description: "The version (sha256:...) to blame; defaults to the one the Stage runs"}
 	}
-	return inputSchema(props, []string{"namespace", "stage"})
+	return inputSchema(props, nil)
 }
 
 type historyArgs struct {

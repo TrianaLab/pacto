@@ -69,21 +69,21 @@ func camel(kebab string) string {
 }
 
 const (
-	whyMemberModeHub = "member mode plans on the hub through the CLI; the dashboard plan route and the MCP plan tool read the request body without it yet"
-	whyMemberSigning = "the CLI reads the hub's members from the registry and signs member requests keyless with the person's fresh login; the dashboard hands off that command"
-	whyNamespace     = "every delivery command takes the namespace from the delivery group's -n (delivery --namespace)"
-	whyDashboardPage = "paging and narrowing of a dashboard table; the CLI and MCP answer the whole list"
-	whyNoEdit        = "the CLI has no edit command: people edit pacto.yaml and run pacto validate"
-	whyNoCreateFlag  = "pacto init reads it from the service folder (Dockerfile, manifests, workload labels) instead of a flag"
-	whyStatusRoute   = "GET /api/fleet/status answers the whole summary with no filters; the dashboard narrows it in the page"
-	whySearchRoute   = "GET /api/fleet/services takes text, owner, scope, source, status and template only; the dashboard's Services page narrows with /api/fleet/entities"
-	whyNoApprove     = "MCP has no approve tool: people answer an operation, an agent never does"
-	whyNoLadder      = "a person signs the installation ladder keyless from a terminal; MCP has no ladder tool and the dashboard hands off this command"
-	whyCreateOnly    = "the dashboard writes and checks no contract files, and an MCP server over HTTP serves only pacto_schema of the contract tools"
-	whyImpactRefs    = "over HTTP and on a shared dashboard, both resolve only refs of revisions in the caller's view, pinned to their digest"
-	whyKeyedImpact   = "the dashboard's impact page compares two revisions of its published snapshot by key; the CLI and MCP name refs (GET /api/fleet/impact)"
-	whyAtServerStart = "the MCP server and the dashboard take it once at startup (pacto mcp and pacto dashboard flags)"
-	whyRecordRef     = "a registry reference reads with the local machine's registry credentials, so only the CLI and the local MCP server take one; " +
+	whyMemberModePerson = "only a person signs a member request, through the CLI: the MCP propose tool refuses it with MemberRequestNeedsPerson and the command, and the dashboard hands off that command"
+	whyMemberSigning    = "the CLI reads the hub's members from the registry and signs member requests keyless with the person's fresh login; the dashboard hands off that command"
+	whyNamespace        = "every delivery command takes the namespace from the delivery group's -n (delivery --namespace)"
+	whyDashboardPage    = "paging and narrowing of a dashboard table; the CLI and MCP answer the whole list"
+	whyNoEdit           = "the CLI has no edit command: people edit pacto.yaml and run pacto validate"
+	whyNoCreateFlag     = "pacto init reads it from the service folder (Dockerfile, manifests, workload labels) instead of a flag"
+	whyStatusRoute      = "GET /api/fleet/status answers the whole summary with no filters; the dashboard narrows it in the page"
+	whySearchRoute      = "GET /api/fleet/services takes text, owner, scope, source, status and template only; the dashboard's Services page narrows with /api/fleet/entities"
+	whyNoApprove        = "MCP has no approve tool: people answer an operation, an agent never does"
+	whyNoLadder         = "a person signs the installation ladder keyless from a terminal; MCP has no ladder tool and the dashboard hands off this command"
+	whyCreateOnly       = "the dashboard writes and checks no contract files, and an MCP server over HTTP serves only pacto_schema of the contract tools"
+	whyImpactRefs       = "over HTTP and on a shared dashboard, both resolve only refs of revisions in the caller's view, pinned to their digest"
+	whyKeyedImpact      = "the dashboard's impact page compares two revisions of its published snapshot by key; the CLI and MCP name refs (GET /api/fleet/impact)"
+	whyAtServerStart    = "the MCP server and the dashboard take it once at startup (pacto mcp and pacto dashboard flags)"
+	whyRecordRef        = "a registry reference reads with the local machine's registry credentials, so only the CLI and the local MCP server take one; " +
 		"the remote MCP server and the dashboard read records through a Stage the caller can see"
 	whyStatsWindow  = "the Metrics page takes a closed window that ends now (GET /api/stats?window), with the same totals"
 	whyStatsPage    = "the Metrics page answers every service and environment at once and reads the stats repository pacto dashboard --stats-registry names"
@@ -268,11 +268,11 @@ func deliveryWriteRows() []surfaceRow {
 			"fulcio-url", "keyless", "timestamp-url"),
 		alike("delivery approve", "", "", "only the CLI approves from an intent record, signed keyless with the person's fresh login and no kubeconfig; MCP reads approval records and never writes one",
 			"intent", "signers"),
-		body("delivery plan", "", plan, whyMemberModeHub, "service", "environment"),
-		body("delivery propose", "", propose, whyMemberModeHub, "service", "environment"),
+		body("delivery plan", "pacto_delivery_operation_plan", plan, "", "service", "environment"),
+		body("delivery propose", "pacto_delivery_operation_propose", propose, whyMemberModePerson, "service", "environment"),
 		[]surfaceRow{
-			{"delivery plan --member", "", plan + " body.members", whyMemberModeHub},
-			{"delivery propose --member", "", propose + " body.members", whyMemberModeHub},
+			{"delivery plan --member", "pacto_delivery_operation_plan.members", plan + " body.members", ""},
+			{"delivery propose --member", "pacto_delivery_operation_propose.members", propose + " body.members", whyMemberModePerson},
 		},
 		alike("delivery plan", "", "", whyMemberSigning, "registry"),
 		alike("delivery propose", "", "", whyMemberSigning, "registry", "confirm", "issuer", "fulcio-url", "timestamp-url"),
@@ -297,6 +297,7 @@ func deliveryViewRows() []surfaceRow {
 		view("trust", "domain", "limit", "offset", "q", "service"),
 		[]surfaceRow{
 			{"delivery refusals", "pacto_delivery_refusals", "GET /api/delivery/refusals", ""},
+			{"delivery refusals --registry", "", "", "the dashboard and the MCP server read the members of the hub they run on; the CLI names the registry its members publish to"},
 			{"delivery caller", "pacto_delivery_caller", "GET /api/delivery/caller", ""},
 			{"delivery types", "pacto_delivery_operation_types", "", "the dashboard's propose panel lists the types it offers"},
 		},

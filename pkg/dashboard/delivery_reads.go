@@ -639,6 +639,8 @@ type environmentsOutput struct {
 		UnplacedHidden int           `json:"unplacedHidden,omitempty" doc:"How many such environments are hidden from the caller: those in a namespace they cannot list or, with unplacedUnreadable, every environment not placed across the installation"`
 		// UnplacedUnreadable marks the hidden count installation-wide.
 		UnplacedUnreadable bool `json:"unplacedUnreadable,omitempty" doc:"The caller may not read the placement rows: unplacedHidden then counts every environment not placed across the installation, which no filter narrows, since the count names no service"`
+		// Members are read only with service, on a hub with members.
+		Members []delivery.MemberPlan `json:"members,omitempty" doc:"With service, on a hub with approved members: per environment of the service (its Stages' in promotion order, then those a member takes requests for), the members a promote there is placed on, where that placement came from and the newest request a person signed for each member with what the member answered; only environments placed on a member. Absent on a hub with no members"`
 	}
 }
 
@@ -724,6 +726,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	out.Body.UnplacedUnreadable = out.Body.UnplacedHidden > 0 && !inst.readable
 	if in.Service != "" {
 		undoOffers(ctx, api, shown, out.Body.Environments, caller)
+		out.Body.Members = api.Members(ctx, in.Service, out.Body.EnvironmentNames)
 	}
 	narrowRows(ctx, api, out.Body.Environments, caller.Class, delivery.AccessMemo(shown, api.WorkloadAccess))
 	s.revisionLinks(ctx, out.Body.Environments)

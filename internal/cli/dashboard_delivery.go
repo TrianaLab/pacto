@@ -78,6 +78,9 @@ type dashboardIdentity struct {
 
 	mu        sync.Mutex
 	revisions map[string]delivery.Revision
+	// members reads the hub's members' plans and refusals; nil on a host
+	// that reads no members.
+	members *memberDelivery
 	// streams keeps verified record streams across requests (see app.StreamCache).
 	streams app.StreamCache
 	// reads keeps each caller's apiserver reads for a moment (see readCache).
@@ -262,6 +265,10 @@ func refusal(err error) error {
 	if errors.As(err, &stale) {
 		return &dashboard.DeliveryError{Status: http.StatusConflict, Code: "PlanStale", Detail: err.Error(), Plan: &stale.Plan, Differs: stale.Differs}
 	}
+	var hub *delivery.HubRefusalError
+	if errors.As(err, &hub) {
+		return dashboard.Refuse(http.StatusUnprocessableEntity, hub.Code, hub.Error())
+	}
 	var who *app.PrincipalError
 	if errors.As(err, &who) {
 		return dashboard.Refuse(http.StatusForbidden, who.Code, who.Why)
@@ -329,6 +336,9 @@ func (a dashDelivery) History(ctx context.Context, ns, stage string, listed *del
 }
 
 func (a dashDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
+	if memberRequest(req) {
+		return a.memberPlan(ctx, req)
+	}
 	p, _, err := a.act.Plan(ctx, req)
 	return p, refusal(err)
 }
@@ -380,7 +390,7 @@ func (a dashDelivery) Undo(ctx context.Context, ns, name, stage string) (*delive
 // the delivery trust config when one is set.
 func (a dashDelivery) PublishRefusals(ctx context.Context, ns string) (*dashboard.PublishRefusals, error) {
 	if a.d.Records == nil {
-		return nil, nil
+		return a.memberRefusals(ctx, nil), nil
 	}
 	stages, err := a.d.Stages(ctx, ns)
 	if err != nil {
@@ -421,7 +431,7 @@ func (a dashDelivery) PublishRefusals(ctx context.Context, ns string) (*dashboar
 			out.Completeness, out.Unreadable = "partial", append(out.Unreadable, ref.Name+": "+err.Error())
 		}
 	}
-	return out, nil
+	return a.memberRefusals(ctx, out), nil
 }
 
 // applyRefusalsOf appends the apply refusals of svc kept in the streams

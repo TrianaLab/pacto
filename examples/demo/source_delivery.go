@@ -1426,6 +1426,9 @@ const demoLeaf = "preview"
 // of a delivered service runs. checkout's preview environment is refused,
 // and fraud's runs where Helm owns it, so Pacto adds no applier there.
 // Everyone here may read every row.
+// Members: the demo is no hub yet, so it has no member plans.
+func (d *demoDelivery) Members(context.Context, string, []string) []delivery.MemberPlan { return nil }
+
 func (d *demoDelivery) Environments(context.Context) (*delivery.EnvironmentsView, []delivery.PlacementRow, bool, error) {
 	now := d.now()
 	declared := []delivery.LadderRung{

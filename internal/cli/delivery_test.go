@@ -596,7 +596,7 @@ func TestMCPDeliveryMode(t *testing.T) {
 		t.Fatalf("modes: %v", err)
 	}
 	c, _, _ := deliveryClient(cmd, deliveryDeps("alice", nil))
-	if p, err := (mcpDelivery{c}).Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: cliB}); err != nil || p.IntentDigest == "" {
+	if p, err := (mcpDelivery{Delivery: c}).Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: cliB}); err != nil || p.IntentDigest == "" {
 		t.Fatalf("adapter: %+v %v", p, err)
 	}
 	if newDeliveryRegistry("h") == nil {

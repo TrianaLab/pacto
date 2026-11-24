@@ -86,3 +86,29 @@ func TestMayUpdateWorkloadUsesClusterReviewer(t *testing.T) {
 		t.Errorf("a Pacto: %v %v %v", ok, err, got)
 	}
 }
+
+// TestViewerSeesAndReviewable: a member's own reviewer decides whether p
+// reads a namespace there; a member with no reviewer is not reviewable and
+// shows nothing; a failed review shows nothing.
+func TestViewerSeesAndReviewable(t *testing.T) {
+	var got []string
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"eu": func(_ context.Context, _ Person, ns string, res ResourceAttributes) (bool, error) {
+			got = append(got, ns+"/"+res.Resource+"/"+res.Verb)
+			if ns == "broken" {
+				return false, errors.New("down")
+			}
+			return ns == "billing", nil
+		}, "us": nil}
+	})
+	ctx := context.Background()
+	if !v.Reviewable(ctx, alice, "eu") || v.Reviewable(ctx, alice, "ap") {
+		t.Error("reviewable")
+	}
+	if !v.Sees(ctx, alice, "eu", "billing") || v.Sees(ctx, alice, "eu", "payments") || v.Sees(ctx, alice, "eu", "broken") || v.Sees(ctx, alice, "ap", "billing") {
+		t.Error("sees")
+	}
+	if len(got) != 3 || got[0] != "billing/pactos/" {
+		t.Errorf("reviews = %v", got)
+	}
+}

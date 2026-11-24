@@ -105,3 +105,28 @@ func memberHosts(s ClusterJoinState, env string, rule *PlacementRule) (evidence,
 	}
 	return "", ""
 }
+
+// MemberEnvironments are the environments a service's member placements
+// are read for: envs (the hub's own, in their order), then each environment
+// an approved member of states takes requests for that envs does not name
+// already, by canonical name, sorted.
+func MemberEnvironments(envs []string, states []ClusterJoinState) []string {
+	out := slices.Clone(envs)
+	seen := map[string]bool{}
+	for _, e := range envs {
+		seen[canonicalEnvironment(e)] = true
+	}
+	var more []string
+	for _, s := range states {
+		if s.State != JoinApproved || s.Requests == nil {
+			continue
+		}
+		for _, e := range s.Requests.Environments {
+			if c := canonicalEnvironment(e); !seen[c] {
+				seen[c], more = true, append(more, e)
+			}
+		}
+	}
+	slices.Sort(more)
+	return append(out, more...)
+}

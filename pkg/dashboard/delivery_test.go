@@ -32,6 +32,9 @@ const (
 
 // fakeDelivery is a cluster as one caller sees it.
 type fakeDelivery struct {
+	// members is what Members answers; membersAsked records each ask.
+	members      []delivery.MemberPlan
+	membersAsked []string
 	// policy is the published policy; nil is the acme one most tests use.
 	policy *delivery.ClassPolicy
 	caller delivery.Caller
@@ -94,6 +97,11 @@ type fakeDelivery struct {
 	placements         []delivery.PlacementRow
 	placementsReadable bool
 	ladderErr          error
+}
+
+func (f *fakeDelivery) Members(_ context.Context, service string, envs []string) []delivery.MemberPlan {
+	f.membersAsked = append(f.membersAsked, service+":"+strings.Join(envs, ","))
+	return f.members
 }
 
 func (f *fakeDelivery) Environments(context.Context) (*delivery.EnvironmentsView, []delivery.PlacementRow, bool, error) {
@@ -1343,6 +1351,61 @@ func TestRefusalsJSONKeepsFields(t *testing.T) {
 	m = nil
 	_ = json.Unmarshal(b, &m)
 	expect(t, m["namespace"] == "prod" && m["digest"] == "sha256:d" && m["code"] == "RawInfraInArtifact" && m["version"] == "", "promote keys: %v", m)
+	// A member row names the member; no other row carries cluster.
+	b, _ = json.Marshal(PublishRefusal{Service: "billing", Check: "member", Cluster: "us-prod", Reason: "r"})
+	m = nil
+	_ = json.Unmarshal(b, &m)
+	expect(t, m["cluster"] == "us-prod" && m["check"] == "member", "member keys: %v", m)
+	b, _ = json.Marshal(PublishRefusals{Completeness: "complete"})
+	expect(t, !strings.Contains(string(b), "hidden"), "hidden omitted: %s", b)
+}
+
+// TestRefusalsTotalCountsMemberRows: member rows are sorted, counted and
+// capped with the cluster's own, and keep the member's name.
+func TestRefusalsTotalCountsMemberRows(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := sampleCluster("acme:team-payments")
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	f.refusals = &PublishRefusals{Completeness: "complete", Hidden: 1}
+	for i := range 22 {
+		r := PublishRefusal{Service: "payments", Version: fmt.Sprintf("2.4.%d", i), Check: "version", At: fmt.Sprintf("2026-10-22T10:%02d:00Z", i)}
+		if i >= 20 {
+			r.Check, r.Cluster, r.Version = "member", "us-prod", ""
+		}
+		f.refusals.Refusals = append(f.refusals.Refusals, r)
+	}
+	_, r := call(t, http.MethodGet, base+"/api/delivery/refusals", nil)
+	list := r["refusals"].([]any)
+	first := list[0].(map[string]any)
+	expect(t, r["total"] == float64(22) && len(list) == recentRefusals && first["check"] == "member" && first["cluster"] == "us-prod" && r["hidden"] == float64(1),
+		"total %v, first %v", r["total"], first)
+}
+
+// TestDeliveryPlanRouteMemberMode: the plan route takes a member request
+// (service and environment, no Stage) in its body and answers members.
+func TestDeliveryPlanRouteMemberMode(t *testing.T) {
+	a := &authed{state: AuthState{SignedIn: true}}
+	f := &fakeDelivery{caller: person()}
+	base := startDelivery(t, f, a.auth(false, true), true, nil)
+	code, p := call(t, http.MethodPost, base+"/api/delivery/plan", delivery.Request{Service: "billing", Environment: "production", To: dNext, Members: []string{"aaaa"}})
+	got := f.planned[len(f.planned)-1]
+	expect(t, code == http.StatusOK && got.MemberMode() && got.Members[0] == "aaaa" && got.Stage == "", "plan %d %v %+v", code, p, got)
+}
+
+// TestEnvironmentsServiceCarriesMembers: with service, the board's answer
+// carries the member plans of the service's environments; without, none.
+func TestEnvironmentsServiceCarriesMembers(t *testing.T) {
+	f := sampleCluster("acme:team-payments")
+	f.members = []delivery.MemberPlan{{Service: delivery.ServiceRef{Name: "payments"}, Environment: "prod", Completeness: "complete",
+		Placement: delivery.MemberPlacementPlan{Source: delivery.PlacementUnconfirmed, Placed: []delivery.PlacedMember{{UID: "aaaa", Name: "eu-prod"}}}}}
+	base := startDelivery(t, f, (&authed{state: AuthState{SignedIn: true}}).auth(false, true), true, nil)
+	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments?service=payments", nil)
+	ms, _ := envs["members"].([]any)
+	expect(t, len(ms) == 1 && ms[0].(map[string]any)["environment"] == "prod" && len(f.membersAsked) == 1 && strings.HasPrefix(f.membersAsked[0], "payments:"),
+		"members %v asked %v", envs["members"], f.membersAsked)
+	_, envs = call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	_, has := envs["members"]
+	expect(t, !has && len(f.membersAsked) == 1, "no service, no members: %v", envs["members"])
 }
 
 // TestEnvironmentRowJSONKeepsFields: the shared row keeps every key the

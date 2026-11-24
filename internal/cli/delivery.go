@@ -74,7 +74,7 @@ func newDeliveryCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command
 		newDeliveryTargetsCommand(v, d),
 		newDeliveryLadderCommand(v, d),
 	)
-	cmd.AddCommand(newDeliveryViewCommands(d)...)
+	cmd.AddCommand(newDeliveryViewCommands(svc, d)...)
 	return cmd
 }
 
@@ -207,7 +207,7 @@ func requestFrom(cmd *cobra.Command, ns string) (delivery.Request, error) {
 	req := delivery.Request{Namespace: ns, Stage: get("stage"), Type: typ, To: get("to"), From: get("from"),
 		Undoes: get("undoes"), Record: get("record"), Reason: get("reason"), CorrelationID: get("correlation-id"), OnBehalfOf: get("on-behalf-of"),
 		Service: get("service"), Environment: get("environment"), Members: members}
-	if err := requestMode(req, get("registry")); err != nil {
+	if err := delivery.CheckRequestMode(req, get("registry")); err != nil {
 		return req, err
 	}
 	if raw := get("cause-verdict"); raw != "" {
@@ -218,22 +218,6 @@ func requestFrom(cmd *cobra.Command, ns string) (delivery.Request, error) {
 		req.Cause = &delivery.Cause{Verdict: &v}
 	}
 	return req, nil
-}
-
-// requestMode refuses a request that names both a Stage and members, or
-// neither, and a member request that is not a promote to a digest.
-func requestMode(req delivery.Request, registry string) error {
-	switch {
-	case req.Stage != "" && (req.Service != "" || req.Environment != "" || len(req.Members) > 0):
-		return delivery.HubRefusal(delivery.RefusalStageOrMembers, "pass --stage, or --service with --environment, not both", req, registry)
-	case req.Stage == "" && !req.MemberMode():
-		return delivery.HubRefusal(delivery.RefusalStageOrMembers, "name the Stage with --stage, or the service and environment with --service and --environment", req, registry)
-	case req.Stage == "" && req.Type != delivery.TypePromote:
-		return delivery.HubRefusal(delivery.RefusalStageOrMembers, "a member request is a promote only; change "+req.Type+" with --stage on the member itself", req, registry)
-	case req.Stage == "" && !strings.HasPrefix(req.To, "sha256:"):
-		return delivery.HubRefusal(delivery.RefusalDigestRequired, "member mode takes the digest of what to promote, never a version or tag", req, registry)
-	}
-	return nil
 }
 
 func newDeliveryPlanCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {

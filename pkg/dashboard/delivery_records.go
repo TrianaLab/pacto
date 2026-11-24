@@ -128,7 +128,9 @@ type PublishRefusal struct {
 	// Check is the check that refused it: version (the version rule), sign,
 	// lock, validation or conflict refuse a publish; manifests (the manifest
 	// inspector) refuses a promote.
-	Check string `json:"check" doc:"The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote"`
+	Check string `json:"check" doc:"The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote; member for a request a member refused or whose promote its gates rejected"`
+	// Cluster is set on a member row: the member's display name.
+	Cluster string `json:"cluster,omitempty" doc:"On a check member row: the member that refused it, by its display name"`
 	// Namespace, Stage, Digest, Code and Record are set on a refused promote:
 	// the Stage it was proposed on, the refused deploy artifact, the stable
 	// code of the refusal when it has one and the id of its operation record.
@@ -153,6 +155,7 @@ type PublishRefusals struct {
 	Completeness string           `json:"completeness" enum:"complete,partial"`
 	Note         string           `json:"note,omitempty" doc:"Where the refusals were read and what may be missing"`
 	Unreadable   []string         `json:"unreadable,omitempty" doc:"What could not be read, and why"`
+	Hidden       int              `json:"hidden,omitempty" doc:"How many members no live channel reviews for were not read for a reader whose access is restricted"`
 	Refusals     []PublishRefusal `json:"refusals"`
 }
 

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -218,6 +219,44 @@ func TestHubRefusal(t *testing.T) {
 		err := delivery.HubRefusal(code, "why", req, "zot/acme")
 		if !strings.HasPrefix(err.Error(), code+": why; next: ") || strings.HasSuffix(err.Error(), "next: ") {
 			t.Fatalf("%s: %v", code, err)
+		}
+	}
+}
+
+// TestMemberEnvironments: the hub's environments first, then those the
+// approved members take requests for that the hub does not name, sorted,
+// by canonical name; pending members and members without requests add none.
+func TestMemberEnvironments(t *testing.T) {
+	off := approvedMember("dddd", "off")
+	off.Requests = nil
+	states := append(members(), approvedMember("eeee", "qa", "qa", "staging"), off)
+	got := delivery.MemberEnvironments([]string{"staging", "prod"}, states)
+	if strings.Join(got, ",") != "staging,prod,qa" {
+		t.Fatalf("%v", got)
+	}
+	if got := delivery.MemberEnvironments(nil, nil); len(got) != 0 {
+		t.Fatalf("%v", got)
+	}
+}
+
+// TestCheckRequestMode: a Stage or a service and environment, never both
+// or neither; a member request is a promote to a digest.
+func TestCheckRequestMode(t *testing.T) {
+	for _, c := range []struct {
+		req  delivery.Request
+		code string
+	}{
+		{delivery.Request{Stage: "s", Service: "billing"}, delivery.RefusalStageOrMembers},
+		{delivery.Request{Service: "billing"}, delivery.RefusalStageOrMembers},
+		{delivery.Request{Service: "billing", Environment: "prod", Type: delivery.TypeRollback}, delivery.RefusalStageOrMembers},
+		{delivery.Request{Service: "billing", Environment: "prod", To: "1.5.0"}, delivery.RefusalDigestRequired},
+		{delivery.Request{Service: "billing", Environment: "prod", To: "sha256:ab"}, ""},
+		{delivery.Request{Stage: "s", To: "1.5.0"}, ""},
+	} {
+		err := delivery.CheckRequestMode(c.req, "r")
+		var hr *delivery.HubRefusalError
+		if c.code == "" && err != nil || c.code != "" && (!errors.As(err, &hr) || hr.Code != c.code || !strings.HasPrefix(err.Error(), c.code+": ")) {
+			t.Errorf("%+v: %v", c.req, err)
 		}
 	}
 }

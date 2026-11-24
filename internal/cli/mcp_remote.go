@@ -464,7 +464,7 @@ func perCallerBuild(version string, a pactomcp.Authoring, m pactomcp.Modes, read
 	return func(ctx context.Context) *mcpsdk.Server {
 		mm := m
 		if who := reviewedFrom(ctx); who.delivery != nil {
-			mm.Delivery = &pactomcp.DeliveryMode{API: mcpDelivery{who.delivery}, Writes: who.writes, Caller: who.caller,
+			mm.Delivery = &pactomcp.DeliveryMode{API: mcpDelivery{Delivery: who.delivery}, Writes: who.writes, Caller: who.caller,
 				Reads: reads(who.delivery, remoteCallerKey(who.person)), CallerAt: time.Now(), Installed: installed, InstalledAt: installedAt}
 		}
 		srv, _ := pactomcp.New(version, a, mm) // registered once at startup

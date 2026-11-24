@@ -201,7 +201,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 	}
 	m, err := mcpModes(cmd, svc, version, args, d)
 	if err == nil && deliveryMode {
-		m.Delivery, err = buildDeliveryMode(cmd, d, m.Fleet)
+		m.Delivery, err = buildDeliveryMode(cmd, svc, d, m.Fleet)
 	}
 	if err != nil {
 		return nil, err
@@ -381,7 +381,7 @@ func checkMCPMode(hasBundle, hasRoots, fleetMode, deliveryMode, publishMode bool
 // an agent must run under its own identity, and a person's credentials get
 // the read-only surface. The read tools run the dashboard's routes over fm,
 // the fleet mode when there is one.
-func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pactomcp.DeliveryMode, error) {
+func buildDeliveryMode(cmd *cobra.Command, svc *app.Service, d deps, fm *pactomcp.FleetMode) (*pactomcp.DeliveryMode, error) {
 	c, _, err := deliveryClient(cmd, d)
 	if err != nil {
 		return nil, err
@@ -392,15 +392,25 @@ func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pac
 	}
 	cluster, _ := d.clusterConfig() // nil: delivery reads skip discovery and cannot list namespaces
 	id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
+	// Over stdio the caller is this process's own user: members a hub
+	// detection names read unrestricted, as pacto delivery plan reads them.
+	id.members = newMemberDelivery(svc, mcpFleetOptions(cmd).ClusterJoins)
 	reads := mcpDeliveryReads(id, fm, deliveryNarrowing(flagNamespaces(cmd)))
-	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
+	return &pactomcp.DeliveryMode{API: mcpDelivery{c, id.members}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
 		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe(), InstalledAt: id.installedAt(), Refs: c}, nil
 }
 
-// mcpDelivery adapts app.Delivery to the MCP tools' interface.
-type mcpDelivery struct{ *app.Delivery }
+// mcpDelivery adapts app.Delivery to the MCP tools' interface. members
+// plans member requests, as the server's own user; nil reads no members.
+type mcpDelivery struct {
+	*app.Delivery
+	members *memberDelivery
+}
 
 func (m mcpDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
+	if memberRequest(req) {
+		return m.members.plan(ctx, req, func(*app.MemberPlanOptions) {})
+	}
 	p, _, err := m.Delivery.Plan(ctx, req)
 	return p, err
 }

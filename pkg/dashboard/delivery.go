@@ -69,6 +69,11 @@ type DeliveryAPI interface {
 	// promoter publishes none, and the per-service placement rows, which
 	// readable says whether the caller may read.
 	Environments(ctx context.Context) (view *delivery.EnvironmentsView, rows []delivery.PlacementRow, readable bool, err error)
+	// Members are the member plans of service on a hub, with no target, one
+	// per environment placed on a member (envs are the service's own, in
+	// promotion order), as the caller may see them; nil on a host with no
+	// members. What could not be read is in each plan's notes.
+	Members(ctx context.Context, service string, envs []string) []delivery.MemberPlan
 }
 
 // DeliveryError is a delivery answer that says no: the HTTP status, a stable
@@ -175,7 +180,7 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-environments", Method: http.MethodGet, Path: "/api/delivery/environments",
 		Summary: "Every Stage",
 		Description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. " +
-			"With service it also says, per Stage, which actions the caller may take and why, including freeze and undo."}), s.deliveryEnvironments)
+			"With service it also says, per Stage, which actions the caller may take and why, including freeze and undo, and, on a hub, which members a promote is placed on and what each did with the newest request."}), s.deliveryEnvironments)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-autonomy", Method: http.MethodGet, Path: "/api/delivery/autonomy",
 		Summary: "The path to autonomy",
 		Description: "How many of the services Pacto has seen have a contract, how many promotions in each Stage's window no person asked for " +
@@ -217,7 +222,7 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-refusals", Method: http.MethodGet, Path: "/api/delivery/refusals",
 		Summary: "Publishes and promotes Pacto refused",
 		Description: "Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs " +
-			"and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing."}), s.deliveryRefusals)
+			"and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). On a hub, the requests its members refused or whose promote their gates rejected (check member, with the member in cluster). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing."}), s.deliveryRefusals)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-operation", Method: http.MethodGet, Path: "/api/delivery/operations/{namespace}/{name}",
 		Summary:     "One change",
 		Description: "The explained operation (summary, verdicts with how to re-run each), the operation itself (plan, approvals, times) and the actions the caller may take."}), s.deliveryOperation)
@@ -227,7 +232,8 @@ func (s *Server) registerDeliveryOperations(api huma.API) {
 			"the candidate, a freeze or auto-hold, changes waiting for a person, its level and the promote planned for you and not proposed. " +
 			"It never proposes anything."}), s.deliveryProgress)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-plan", Method: http.MethodPost, Path: "/api/delivery/plan",
-		Summary: "Plan a change", Description: "What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you."}), s.deliveryPlan)
+		Summary: "Plan a change", Description: "What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you. " +
+			"With service, environment and a sha256 to instead of a Stage, on a hub: members, the placement over its members, where it came from, each member's state and the command a person runs to sign the requests."}), s.deliveryPlan)
 	huma.Register(api, reg(huma.Operation{OperationID: "delivery-propose", Method: http.MethodPost, Path: "/api/delivery/operations",
 		DefaultStatus: http.StatusCreated, Summary: "Propose a change",
 		Description: "Promote, roll back (with undoes), freeze or unfreeze, as the caller. Pass the plan's intent digest: anything that moved since fails with PlanStale and the fresh plan. Override stays in the CLI, for break-glass."}), s.deliveryPropose)
