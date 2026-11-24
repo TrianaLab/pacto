@@ -486,13 +486,15 @@ tests:
 
   - it: the default renders no state, inventory or identity flag, and cloudInventory defaults to off
     template: templates/deployment.yaml
+    chart:
+      version: 1.2.3
     asserts:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[*]
           pattern: ^--(terraform-state|cloud-inventory|workload-identity)
       - equal:
           path: spec.template.spec.containers[0].args
-          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--enable-probing=auto","--enable-metrics-observation=auto","--egress-gateway-logs=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-token-login","--dashboard-mcp","--dashboard-fingerprints-configmap=pacto-operator-fingerprints","--dashboard-index=auto"]
+          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--chart-version=1.2.3","--enable-probing=auto","--enable-metrics-observation=auto","--egress-gateway-logs=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-token-login","--dashboard-mcp","--dashboard-fingerprints-configmap=pacto-operator-fingerprints","--dashboard-index=auto"]
 
   - it: cloudInventory off, quoted or bare, renders no inventory flag
     template: templates/deployment.yaml
