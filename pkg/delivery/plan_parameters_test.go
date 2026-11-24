@@ -29,6 +29,14 @@ func offeringPlan(t *testing.T, prod string, extra fstest.MapFS) (Plan, Verdict)
 // offeringPlanWith is offeringPlan with edit applied to the plan's input.
 func offeringPlanWith(t *testing.T, prod string, extra fstest.MapFS, edit func(*PlanInput)) (Plan, Verdict) {
 	t.Helper()
+	p := offeringPlanFor(t, prod, extra, edit)
+	return p, verdict(t, p, GateEnvironment)
+}
+
+// offeringPlanFor is offeringPlanWith's plan, which may hold no
+// pacto.environment verdict.
+func offeringPlanFor(t *testing.T, prod string, extra fstest.MapFS, edit func(*PlanInput)) Plan {
+	t.Helper()
 	pg := bundle("postgresql", "16.1.0")
 	pg.Contract.PactoVersion, pg.Contract.Service.Offering = "2.5", "postgresql"
 	pg.Contract.Configurations = []contract.Configuration{{Name: "default", Schema: "schema.json"}}
@@ -52,8 +60,7 @@ func offeringPlanWith(t *testing.T, prod string, extra fstest.MapFS, edit func(*
 	in := PlanInput{Spec: promote(dA, dB), Stage: stage, From: from, To: to, Snapshot: snap, Class: ClassAgent,
 		Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}, Level: LevelAutonomous}}
 	edit(&in)
-	p := PlanFor(t.Context(), in)
-	return p, verdict(t, p, GateEnvironment)
+	return PlanFor(t.Context(), in)
 }
 
 // TestPlanEnvironmentRefusesTierNotTunable: an environment that changes a
@@ -121,5 +128,54 @@ func TestPlanInferredOfferingIsUnknown(t *testing.T) {
 	p, v := offeringPlan(t, "app:\n  storageGB: 100\n", fstest.MapFS{contract.InferredRecordFile: {Data: []byte("format: pacto.inferred/v1\n")}})
 	if v.Result != Unknown || !strings.Contains(v.Message, "the offering postgresql is inferred") || !p.Floor.Human || p.Predicted != PredictHeld {
 		t.Fatalf("verdict %+v, plan %+v", v, p)
+	}
+}
+
+// TestPlanParameterRefusalOutranksAnEarlyUnknown: a gate that stops before
+// pacto.environment to ask a person to accept an unknown (the running
+// version's contract or the publication cannot be read) still refuses values
+// outside the offering's parameter space, with nobody asked.
+func TestPlanParameterRefusalOutranksAnEarlyUnknown(t *testing.T) {
+	for name, edit := range map[string]func(*PlanInput){
+		"diff unknown":        func(in *PlanInput) { in.From = Revision{Digest: dA, Err: "garbage-collected"} },
+		"publication unknown": func(in *PlanInput) { in.To.ContractRef, in.To.Err = "", "registry down" },
+	} {
+		p, v := offeringPlanWith(t, "app:\n  storageGB: 100\n", nil, edit)
+		if v.Result != Fail || v.Citation["code"] != string(finding.CodeTierNotTunable) || p.Predicted != PredictRejected || p.Floor.Human || p.Question != "" {
+			t.Errorf("%s: verdict %+v, plan %+v", name, v, p)
+		}
+		// Values inside the space keep the question for the unknown.
+		if p := offeringPlanFor(t, "app:\n  replicas: 2\n", nil, edit); p.Floor.Decision != AcceptUnknown || p.Predicted != PredictHeld {
+			t.Errorf("%s: within the space: %+v", name, p)
+		}
+	}
+}
+
+// TestPlanObservedOtherValuesIsUnknown: with no inspection, values the
+// promoter observed the applier select for another environment read
+// Unknown, never Pass, and wait for a person.
+func TestPlanObservedOtherValuesIsUnknown(t *testing.T) {
+	for _, values := range []string{"values-staging.yaml", "overlays/staging", "a values file outside the chart"} {
+		p, v := offeringPlanWith(t, "app:\n  replicas: 2\n", nil, func(in *PlanInput) {
+			in.Status.Applier = &ApplierStatus{Values: values, AsOf: "2026-11-24T10:00:00Z", State: ApplierAdopted}
+		})
+		if v.Result != Unknown || !strings.Contains(v.Message, "the applier selects "+values+" (observed as of 2026-11-24T10:00:00Z) for environment prod") ||
+			p.Floor.Decision != AcceptUnknown {
+			t.Errorf("%s: verdict %+v, plan %+v", values, v, p)
+		}
+	}
+	for _, values := range []string{"", "values-prod.yaml", "deploy/overlays/prod"} {
+		_, v := offeringPlanWith(t, "app:\n  replicas: 2\n", nil, func(in *PlanInput) { in.Status.Applier = &ApplierStatus{Values: values, State: ApplierAdopted} })
+		if v.Result != Pass {
+			t.Errorf("%q: verdict %+v", values, v)
+		}
+	}
+	// An inspection reads the values itself; the observed string is not used.
+	_, v := offeringPlanWith(t, "app:\n  replicas: 2\n", nil, func(in *PlanInput) {
+		in.Status.Applier = &ApplierStatus{Values: "values-staging.yaml", State: ApplierAdopted}
+		in.InspectManifests, in.Manifests = true, func(context.Context) ManifestInspection { return ManifestInspection{Artifact: "chart", Namespace: "prod"} }
+	})
+	if v.Result != Pass {
+		t.Errorf("inspected: verdict %+v", v)
 	}
 }

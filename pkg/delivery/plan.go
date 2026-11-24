@@ -422,6 +422,9 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 		}
 	}
 	if pub.Result == Unknown {
+		if offeringRefused(in, p) {
+			return
+		}
 		p.Floor = Floor{Human: true, Decision: AcceptUnknown}
 		p.Question = "Pacto cannot tell whether pacto publish published " + short(p.To) + ": " + pub.Message + ". Accept the unknown?"
 		return
@@ -433,6 +436,9 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 		p.Verdicts = append(p.Verdicts, Verdict{Gate: GateImpact, Phase: "pre", Result: Unknown,
 			Message: "impact needs the contracts the diff could not read"})
 		if diffV.Result == Unknown {
+			if offeringRefused(in, p) {
+				return
+			}
 			p.Floor = Floor{Human: true, Decision: AcceptUnknown}
 			p.Question = "Pacto cannot see enough to judge " + short(p.To) + ": " + diffV.Message + ". Accept the unknown?"
 		}
@@ -500,7 +506,7 @@ func environmentGate(in PlanInput, p *Plan, ins ManifestInspection) bool {
 	default:
 		v.Message = "the values of environment " + env + " satisfy the configuration schemas"
 	}
-	switch why := a.unchecked(c, in.To.Bundle.FS, i, env); {
+	switch why := cmp.Or(a.unchecked(c, in.To.Bundle.FS, i, env), observedElsewhere(in, env)); {
 	case why != "":
 		v.Result, v.Message = Unknown, v.Message+"; "+why
 		holdFor(p, AcceptUnknown, why, "Pacto cannot verify the values of environment "+env+" in "+short(p.To)+": "+why+". Accept the unknown?")
@@ -510,6 +516,45 @@ func environmentGate(in PlanInput, p *Plan, ins ManifestInspection) bool {
 		v.Message += "; Argo CD applies the same values as " + v.Citation["checkedValues"]
 	}
 	return true
+}
+
+// offeringRefused runs pacto.environment's refusal of values outside a tiered
+// offering's parameter space on its own, for a gate that stops before
+// environmentGate to ask a person to accept an unknown: nobody can accept
+// values past the offering owner's space, so a refusal ends the plan with a
+// Fail. It needs only the version's own bundle, and reports whether it
+// refused.
+func offeringRefused(in PlanInput, p *Plan) bool {
+	if in.To.Bundle == nil || in.To.Bundle.Contract == nil {
+		return false
+	}
+	c, env := in.To.Bundle.Contract, in.Stage.Environment
+	i := slices.IndexFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env })
+	if i < 0 {
+		return false
+	}
+	errs, codes, _ := environmentFindings(c, in.To.Bundle.FS, in.To.ConfigRefs, i)
+	code, refused := parameterRefusal(codes)
+	if refused {
+		p.Verdicts = append(p.Verdicts, Verdict{Gate: GateEnvironment, Phase: "pre", Result: Fail, Message: strings.Join(errs, "; "),
+			Citation: map[string]string{"environment": env, "contract": in.To.ContractRef, "code": code}})
+	}
+	return refused
+}
+
+// observedElsewhere is why the values the applier selects, as the promoter
+// observed them on the applyRef object (status.applier.values), are another
+// selection than environment env's own, when pacto.manifests read nothing
+// itself; "" when they are env's own or nothing was observed.
+func observedElsewhere(in PlanInput, env string) string {
+	if in.InspectManifests && in.Manifests != nil || in.Status.Applier == nil {
+		return ""
+	}
+	v := in.Status.Applier.Values
+	if v == "" || v == "values-"+env+".yaml" || path.Base(path.Dir(v)) == "overlays" && path.Base(v) == env {
+		return ""
+	}
+	return "the applier selects " + v + " (observed as of " + in.Status.Applier.AsOf + ") for environment " + env + ", so Pacto has not checked the values that run"
 }
 
 // applied is the values file or overlay the applier applies, as
