@@ -1515,7 +1515,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Validation:           findingsPreview(rev.Validation),
 		Stages:               append([]ValidationStage{}, rev.Stages...),
 		Environments:         environmentsPreview(MarkExpired(rev.Environments, q.snap.GeneratedAt)),
-		Capabilities:         capabilitiesPreview(rev.Contract.Capabilities),
+		Capabilities:         capabilitiesPreview(rev.Contract.Capabilities, rev.Extensions),
 		Interfaces:           interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
 		Breaks:               q.breaksPreview(rev),
 		InferredUnreadable:   rev.recordUnreadable,

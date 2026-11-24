@@ -387,8 +387,21 @@ YAML
     "$PACTO" push "oci://$REG_HOST/demo/index-only-svc:1.0.0" -p "$(contract_dir index-only-svc 1.0.0 service)" \
     --index "$DASH_INDEX" 2>&1)" || fail "pushing index-only-svc failed: $pushed"
   grep -q "indexed as $DASH_INDEX:" <<<"$pushed" || fail "the push of index-only-svc wrote no entry in $DASH_INDEX: $pushed"
-  kubectl create clusterrole pacto-viewer-all --verb=get,list --resource=pactos.pacto.trianalab.io \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  # A service with no namespace shows only to a reader of everything: every
+  # Pacto and every workload and GitOps kind the dashboard reviews, cluster-wide.
+  kubectl apply -f - >/dev/null <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: pacto-viewer-all}
+rules:
+- {apiGroups: [pacto.trianalab.io], resources: [pactos], verbs: [get, list]}
+- {apiGroups: [apps], resources: [deployments, statefulsets, daemonsets], verbs: [get, list]}
+- {apiGroups: [batch], resources: [cronjobs], verbs: [get, list]}
+- {apiGroups: [argoproj.io], resources: [applications], verbs: [get, list]}
+- {apiGroups: [source.toolkit.fluxcd.io], resources: [gitrepositories], verbs: [get, list]}
+- {apiGroups: [kustomize.toolkit.fluxcd.io], resources: [kustomizations], verbs: [get, list]}
+- {apiGroups: [helm.toolkit.fluxcd.io], resources: [helmreleases], verbs: [get, list]}
+YAML
   kubectl -n rbac-open create serviceaccount index-reader --dry-run=client -o yaml | kubectl apply -f - >/dev/null
   kubectl create clusterrolebinding index-reader --clusterrole=pacto-viewer-all --serviceaccount=rbac-open:index-reader \
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null

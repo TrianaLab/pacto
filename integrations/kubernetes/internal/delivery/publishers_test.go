@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net/http"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -27,10 +28,14 @@ import (
 	"github.com/google/go-containerregistry/pkg/v1/random"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	orasregistry "oras.land/oras-go/v2/registry"
+	orasremote "oras.land/oras-go/v2/registry/remote"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"
@@ -96,6 +101,12 @@ type watchWorld struct {
 
 func newWatch(t *testing.T, cands delivery.Candidates, objs ...client.Object) *watchWorld {
 	t.Helper()
+	// The process probe cache is keyed by host:port and httptest reuses
+	// ports: a server that held this port earlier must not decide how this
+	// one, which serves no Referrers API, attaches referrers.
+	process := ocireferrer.Probes
+	ocireferrer.Probes = &ocireferrer.Prober{}
+	t.Cleanup(func() { ocireferrer.Probes = process })
 	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
 	t.Cleanup(srv.Close)
 	w := &watchWorld{t: t, host: strings.TrimPrefix(srv.URL, "http://"), ss: sigtest.New(t)}
@@ -561,5 +572,35 @@ func TestRootRefreshedKeepsLastGood(t *testing.T) {
 	w.reconcile()
 	if fetches != 3 {
 		t.Fatalf("a failed refresh is tried again after rootRetry: %d fetches", fetches)
+	}
+}
+
+// hostRewrite sends every request to host, whatever host the URL names.
+type hostRewrite string
+
+func (h hostRewrite) RoundTrip(req *http.Request) (*http.Response, error) {
+	req = req.Clone(req.Context())
+	req.URL.Host = string(h)
+	return http.DefaultTransport.RoundTrip(req)
+}
+
+// TestWatchIgnoresAProbeOfAnEarlierServer: the process probe cache is keyed
+// by host:port, and httptest reuses ports. A registry with the Referrers API
+// that held the watch registry's port earlier never makes the watch, whose
+// registry serves no Referrers API, read signatures through that API.
+func TestWatchIgnoresAProbeOfAnEarlierServer(t *testing.T) {
+	process := ocireferrer.Probes
+	w := newWatch(t, registryAt("-"))
+	native := newTestRegistry(t)
+	earlier := &orasremote.Repository{
+		Reference: orasregistry.Reference{Registry: w.host, Repository: "apps/payments"},
+		PlainHTTP: true, Client: &http.Client{Transport: hostRewrite(native.host)},
+	}
+	if caps, err := process.Probe(t.Context(), earlier, native.to, false); err != nil || caps.Referrers != capabilities.ReferrersNative {
+		t.Fatalf("probe of the earlier server: %+v %v", caps, err)
+	}
+	d := w.push("1.0.0", acmeRepo, w.ci(acmeSubject, acmeRepo))
+	if v := watchVerdict(t, w.reconcile(), d); v.Verdict != delivery.VerdictAccepted {
+		t.Fatalf("verdict %+v", v)
 	}
 }

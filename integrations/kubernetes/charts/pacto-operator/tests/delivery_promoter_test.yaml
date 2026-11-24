@@ -31,6 +31,9 @@ tests:
             - --auth-freshness=0
             - --controller-user=system:serviceaccount:pacto-delivery:d-pacto-operator-delivery
             - --identities=/etc/pacto/identities/policy.json
+            - --environments=true
+            - --environment-ladder=staging,production
+            - --environment-retire-after=168h
             - --admission-policies=d-pacto-operator-delivery-operation,d-pacto-operator-delivery-cancel,d-pacto-operator-delivery-approval,d-pacto-operator-delivery-pointer,d-pacto-operator-delivery-applier,d-pacto-operator-delivery-promoter-writes,d-pacto-operator-delivery-status
 
   - it: passes a login freshness to the promoter when one is set

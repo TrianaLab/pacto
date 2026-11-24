@@ -424,3 +424,73 @@ func TestComparedEnvironments(t *testing.T) {
 		t.Errorf("one declared environment compares nothing: %v", got)
 	}
 }
+
+// TestFilelessEnvironmentReadsNoFile: an environment with no file reads no
+// file; each configuration is checked on its defaults, so only the required
+// configuration with no valid defaults is reported.
+func TestFilelessEnvironmentReadsNoFile(t *testing.T) {
+	if st := EnvironmentStage(envContract(""), envFS(nil)); codes(st) != "ENVIRONMENT_VALUES_MISSING" || !strings.Contains(st.Errors[0].Message, "chart needs ingress") {
+		t.Fatalf("got %+v", st.Errors)
+	}
+}
+
+// TestFilelessEnvironmentUsesDefaults: a file-less environment passes when
+// every required configuration's defaults satisfy its schema.
+func TestFilelessEnvironmentUsesDefaults(t *testing.T) {
+	c := envContract("")
+	c.Configurations[1].Values = map[string]any{"ingress": map[string]any{"host": "x.example.com"}}
+	if st := EnvironmentStage(c, envFS(nil)); st.Status != StagePass || codes(st) != "" {
+		t.Fatalf("got %+v", st)
+	}
+}
+
+// TestFilelessEnvironmentRequiredWithoutDefaultIsMissing: a required key the
+// defaults leave out is missing, at environments[i], naming the key.
+func TestFilelessEnvironmentRequiredWithoutDefaultIsMissing(t *testing.T) {
+	c := envContract("")
+	c.Configurations[1].Values = map[string]any{"ingress": map[string]any{}}
+	st := EnvironmentStage(c, envFS(nil))
+	if codes(st) != "ENVIRONMENT_VALUES_MISSING" {
+		t.Fatalf("got %+v", st.Errors)
+	}
+	e := st.Errors[0]
+	if e.Path != "environments[0]" || e.File != "" || e.Message != "environment staging declares no values file: chart needs ingress.host" {
+		t.Fatalf("got %+v", e)
+	}
+	// A default of the wrong type is not a missing key: the schema's message.
+	c.Configurations[1].Values = map[string]any{"ingress": map[string]any{"host": 1}}
+	if st := EnvironmentStage(c, envFS(nil)); codes(st) != "ENVIRONMENT_VALUES_MISSING" || !strings.Contains(st.Errors[0].Message, "its defaults fail its schema") {
+		t.Fatalf("got %+v", st.Errors)
+	}
+}
+
+// TestFilelessEnvironmentNoBundleFSIsNotUnverified: with no bundle files a
+// file-less environment has no file left unread; only a schema it cannot
+// read leaves its configuration unverified.
+func TestFilelessEnvironmentNoBundleFSIsNotUnverified(t *testing.T) {
+	c := envContract("")
+	c.Configurations = c.Configurations[:1] // app: not required, nothing to check
+	if st := EnvironmentStage(c, nil); st.Status != StagePass || codes(st) != "" {
+		t.Fatalf("got %+v", st)
+	}
+	st := EnvironmentStage(envContract(""), nil)
+	if st.Status != StageSkip || st.Reason != "could not verify: staging/chart" || codes(st) != "ENVIRONMENT_VALUES_UNVERIFIED" ||
+		st.Warnings[0].Path != "environments[0]" || strings.Contains(st.Warnings[0].Message, "no bundle files to read  from") {
+		t.Fatalf("got %+v", st)
+	}
+}
+
+// TestEnvironmentDifferencesFileless: a file-less environment compares on
+// the defaults, even with no bundle files.
+func TestEnvironmentDifferencesFileless(t *testing.T) {
+	c := diffContract()
+	c.Environments = []contract.Environment{{Name: "pr-412"}, {Name: "dev", File: "dev.yaml"}}
+	got, err := EnvironmentDifferences(c, diffFiles, nil)
+	if err != nil || diffRows(got) != "app.LOG_LEVEL,app.gone,app.tags,chart.only" {
+		t.Fatalf("got %s, %v", diffRows(got), err)
+	}
+	c.Environments = []contract.Environment{{Name: "a"}, {Name: "b"}}
+	if got, err := EnvironmentDifferences(c, nil, nil); err != nil || len(got) != 0 {
+		t.Fatalf("two file-less environments agree: %v, %v", got, err)
+	}
+}

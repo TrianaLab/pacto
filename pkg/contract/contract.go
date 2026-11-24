@@ -581,6 +581,14 @@ func (cap Capability) AssertionKey() string {
 	return cap.Type
 }
 
+// NamespacedRef reports whether ref is a namespaced identity: it holds a "/" and its first segment
+// holds a ".". It is the namespaced identity an extension capability and a trust-config extension
+// grant share.
+func NamespacedRef(ref string) bool {
+	first, _, ok := strings.Cut(ref, "/")
+	return ok && strings.Contains(first, ".")
+}
+
 // PolicyTarget constants.
 const (
 	PolicyTargetContract = "contract"

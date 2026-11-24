@@ -23,7 +23,7 @@ func clusterRecord(subject, cluster string) Record {
 // targetsBody serves h over recs and returns the raw GET /targets body.
 func targetsBody(t *testing.T, recs []Record, cluster *ClusterDTO) string {
 	t.Helper()
-	h := NewHandler(NewAcceptor(nil, fakeResolver{}, healthStore{recs: recs, health: SourceHealth{Status: HealthReady}}, fixedNow), nil, nil).WithCluster(cluster)
+	h := NewHandler(NewAcceptor(extTrust, fakeResolver{}, healthStore{recs: recs, health: SourceHealth{Status: HealthReady}}, fixedNow), nil, nil).WithCluster(cluster)
 	mux := http.NewServeMux()
 	h.Routes(mux)
 	srv := httptest.NewServer(mux)

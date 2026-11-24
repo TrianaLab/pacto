@@ -87,7 +87,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `environments` | `static-only` | - | - | - | NEEDS_PACTO_2_3 in a 2.0, 2.1 or 2.2 contract; the environments stage skips with no environments declared |
 | `environments[]` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `environments[].name` | `not-applicable` | - | - | - | SCHEMA_VIOLATION, DUPLICATE_ENVIRONMENT_NAME |
-| `environments[].file` | `static-only` | - | - | - | FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING; ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref |
+| `environments[].file` | `static-only` | - | - | - | FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING; ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref; SCHEMA_VIOLATION when absent before 2.6 |
 | `environments[].lifetime` | `static-only` | - | - | - | SCHEMA_VIOLATION; NEEDS_PACTO_2_4 in an older contract |
 | `environments[].expires` | `static-only` | - | - | - | INVALID_ENVIRONMENT_EXPIRES, ENVIRONMENT_EXPIRES_NOT_TEMPORARY; NEEDS_PACTO_2_4 in an older contract |
 | `environments[].owner` | `static-only` | - | - | - | SCHEMA_VIOLATION when empty; NEEDS_PACTO_2_4 in an older contract |
@@ -137,7 +137,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | `state.dataCriticality` | `static-only` | - | - | - | SCHEMA_VIOLATION |
 | `workload` | `verified` | `verified` | `unverified` | `unverified` | Compliant; WORKLOAD_MISMATCH (error); Unknown codes when no workload target; SCHEMA_VIOLATION statically |
 | `capabilities` | `not-applicable` | - | - | - | PARSE_ERROR when not a list |
-| `capabilities[]` | `partial` | `partial` | `partial` | `partial` | Compliant; CAPABILITY_ABSENT (error); HEALTH_FAILING (unknown) when the health check answers and reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified; DUPLICATE_CAPABILITY statically |
+| `capabilities[]` | `partial` | `partial` | `partial` | `partial` | Compliant; CAPABILITY_ABSENT (error); HEALTH_FAILING (unknown) when the health check answers and reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified until a granted producer reports them; DUPLICATE_CAPABILITY statically |
 | `capabilities[].type` | `partial` | `partial` | `partial` | `partial` | Compliant, CAPABILITY_ABSENT or Unknown codes; SCHEMA_VIOLATION statically |
 | `capabilities[].ref` | `static-only` | - | - | - | CAPABILITY_REF_INVALID, SCHEMA_VIOLATION |
 | `capabilities[].binding` | `partial` | `partial` | `partial` | `partial` | OBSERVATION_UNSUPPORTED when missing; SCHEMA_VIOLATION on an extension |
@@ -203,14 +203,14 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Contract format version; selects the JSON Schema the contract is validated against. |
 | Runtime | `not-applicable` |
 | Evidence | none: the field has no runtime counterpart |
-| Rule | parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4" and "2.5" before any other layer runs; the version selects the schema; an absent version is the newest the CLI supports, and pack, push and publish write it into the bundled pacto.yaml |
+| Rule | parse rejects anything but "2.0", "2.1", "2.2", "2.3", "2.4", "2.5" and "2.6" before any other layer runs; the version selects the schema; an absent version is the newest the CLI supports, and pack, push and publish write it into the bundled pacto.yaml |
 | Outcomes | PARSE_ERROR when unsupported |
-| Limitations | 2.0, 2.1, 2.2, 2.3 and 2.4 have their own schemas without the fields later versions add; this inventory walks 2.5, the superset |
+| Limitations | 2.0, 2.1, 2.2, 2.3, 2.4 and 2.5 have their own schemas without the fields and relaxations later versions add; this inventory walks 2.6, the superset |
 | Tests | unit: `pkg/contract/parse_test.go:TestParse_UnsupportedVersion`, `pkg/contract/parse_test.go:TestParseImplicitVersionIsCurrent`, `pkg/contract/pin_test.go:TestPinVersionAddsLine`, `pkg/validation/structural_test.go:TestValidateStructuralRaw_UnsupportedVersion_V10`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/absent-is-current` |
 
 | Value | Runtime | Meaning | Rule | Outcomes | Limitations | Tests |
 | --- | --- | --- | --- | --- | --- | --- |
-| `2.5` | `static-only` | the newest Operational Contract format; 2.0, 2.1, 2.2, 2.3 and 2.4 contracts keep working unchanged | - | - | - | unit: `pkg/validation/structural_test.go:TestValidateStructural_V25AcceptsV24Body`, `pkg/validation/structural_test.go:TestPactoVersion24`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
+| `2.6` | `static-only` | the newest Operational Contract format; 2.0, 2.1, 2.2, 2.3, 2.4 and 2.5 contracts keep working unchanged | - | - | - | unit: `pkg/validation/structural_test.go:TestValidateStructural_V26AcceptsV25Body`, `pkg/validation/structural_test.go:TestValidateStructural_V25AcceptsV24Body`, `pkg/validation/structural_test.go:TestPactoVersion24`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.5`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.4`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.3`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.2`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.1`, `tests/integration/field_coverage_test.go:TestFieldCoverage/pactoVersion=2.0` |
 
 ### `service`
 
@@ -1009,13 +1009,13 @@ A runtime check never turns "could not look" into a violation. A check with no u
 
 | Key | Value |
 | --- | --- |
-| Meaning | Bundle file mapping each configuration name to the values this environment uses for it. |
+| Meaning | Bundle file mapping each configuration name to the values this environment uses for it; optional from 2.6. |
 | Runtime | `static-only` |
 | Evidence | none: the values are checked against each configuration schema when the contract is validated |
-| Rule | cross-field: a path in the bundle and the file exists; environments stage: every configuration it names is declared and its values merged over the defaults, a null removing its key, satisfy the schema; a required configuration it omits is satisfied by its defaults |
-| Outcomes | FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING; ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref |
+| Rule | cross-field: a path in the bundle and the file exists; environments stage: every configuration it names is declared and its values merged over the defaults, a null removing its key, satisfy the schema; a required configuration it omits is satisfied by its defaults; absent (2.6): no values of its own, checked on the defaults |
+| Outcomes | FILE_NOT_FOUND, ENVIRONMENT_UNKNOWN_CONFIGURATION, ENVIRONMENT_VALUES_INVALID, ENVIRONMENT_VALUES_MISSING; ENVIRONMENT_VALUES_UNVERIFIED (warning) for a configuration whose schema is behind a ref; SCHEMA_VIOLATION when absent before 2.6 |
 | Limitations | a configuration declared by ref has no schema in the bundle, so its values stay unverified |
-| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateEnvironmentFiles`, `pkg/validation/environments_test.go:TestEnvironmentStage_InvalidValueIsLocatedInTheValuesFile`, `pkg/validation/environments_test.go:TestEnvironmentStage_Unverified`, `pkg/validation/environments_test.go:TestEnvironmentStage_NullDeletesAKey`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/invalid` |
+| Tests | unit: `pkg/validation/crossfield_test.go:TestValidateEnvironmentFiles`, `pkg/validation/environments_test.go:TestEnvironmentStage_InvalidValueIsLocatedInTheValuesFile`, `pkg/validation/environments_test.go:TestEnvironmentStage_Unverified`, `pkg/validation/environments_test.go:TestEnvironmentStage_NullDeletesAKey`, `pkg/validation/structural_test.go:TestValidateStructural_V26AllowsFilelessEnvironment`, `pkg/validation/structural_test.go:TestValidateStructural_V25StillRequiresEnvironmentFile`, `pkg/contract/environment_test.go:TestEnvironmentFileOmittedWhenEmpty`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/invalid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/absent`, `tests/integration/field_coverage_test.go:TestFieldCoverage/environments[].file/absent-before-2.6` |
 
 ### `environments[].lifetime`
 
@@ -1723,8 +1723,8 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Runtime | `partial` |
 | Evidence | CapabilityObserved from a health probe or a metrics scrape on the bound endpoint |
 | Rule | an absent endpoint contradicts |
-| Outcomes | Compliant; CAPABILITY_ABSENT (error); HEALTH_FAILING (unknown) when the health check answers and reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified; DUPLICATE_CAPABILITY statically |
-| Limitations | extension capabilities have no evaluator |
+| Outcomes | Compliant; CAPABILITY_ABSENT (error); HEALTH_FAILING (unknown) when the health check answers and reports it is not healthy; OBSERVATION_UNSUPPORTED when unbound; extensions listed under coverage.unverified until a granted producer reports them; DUPLICATE_CAPABILITY statically |
+| Limitations | extension capabilities have no built-in evaluator; a granted producer's report checks them |
 | Tests | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension`, `pkg/validation/evaluate_health_test.go:TestEvaluateHealthFailingIsUnknown`, `pkg/validation/crossfield_test.go:TestValidateCapabilities_DuplicateStandard`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[]/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[]/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:health-capability`, `tests/acceptance/kind/runtime-conformance.sh:health-failing`, `tests/acceptance/kind/runtime-conformance.sh:metrics-capability` |
 
 | Platform | Evidence | Why | Tests |
@@ -1740,7 +1740,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | Meaning | Kind of capability. |
 | Runtime | `partial` |
 | Evidence | CapabilityObservation.Present |
-| Rule | health and metrics are observed; extension is never observed |
+| Rule | health and metrics are observed; an extension is checked by a granted producer's report |
 | Outcomes | Compliant, CAPABILITY_ABSENT or Unknown codes; SCHEMA_VIOLATION statically |
 | Limitations | metrics needs --enable-metrics-observation |
 | Tests | unit: `pkg/validation/structural_test.go:TestStructural_V20CapabilityTypes`, `pkg/contract/contract_test.go:TestCapability_StandardTypes`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type/valid`, `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type/invalid`; e2e: `tests/acceptance/kind/runtime-conformance.sh:health-capability`, `tests/acceptance/kind/runtime-conformance.sh:health-failing`, `tests/acceptance/kind/runtime-conformance.sh:metrics-capability` |
@@ -1755,7 +1755,7 @@ A runtime check never turns "could not look" into a violation. A check with no u
 | --- | --- | --- | --- | --- | --- | --- |
 | `health` | `verified` | A health endpoint. | tier A: an active probe of binding.path answers; tier B (probing off): an httpGet readiness probe on the bound port whose path equals binding.path, with ready endpoints. A 5xx other than 501, or that readiness probe with no ready endpoint, reports HEALTH_FAILING: the check answered and reports it is not healthy | Compliant, CAPABILITY_ABSENT, HEALTH_FAILING (compliance Unknown) or EVIDENCE_INSUFFICIENT | tier B infers health from the readiness probe instead of calling it | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension`, `pkg/validation/evaluate_health_test.go:TestEvaluateHealthFailingIsUnknown`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=health`; e2e: `tests/acceptance/kind/runtime-conformance.sh:health-capability`, `tests/acceptance/kind/runtime-conformance.sh:health-failing` |
 | `metrics` | `partial` | A Prometheus metrics endpoint. | a scrape of the discovered endpoint (ServiceMonitor, PodMonitor, annotations, named port, then binding.path) returns metrics | Compliant, CAPABILITY_ABSENT or Unknown codes | only with --enable-metrics-observation; only the first metrics capability is observed | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ContradictionPerDimension`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=metrics`; e2e: `tests/acceptance/kind/runtime-conformance.sh:metrics-capability` |
-| `extension` | `static-only` | A namespaced, vendor-defined capability. | no evaluator is registered | listed under coverage.unverified as capabilities[ref=&lt;ref&gt;]; never a finding and never counted as required | Pacto cannot verify an extension, so a Compliant verdict says nothing about it; read coverage.unverified | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ExtensionCapability`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=extension` |
+| `extension` | `static-only` | A namespaced, vendor-defined capability. | a producer the trust config grants the ref reports present or absent | listed under coverage.unverified as capabilities[ref=&lt;ref&gt;] until a granted producer reports it; Compliant when reported present; CAPABILITY_ABSENT (error) when reported absent; Unknown when the report is not Observed | Pacto has no built-in evaluator for an extension; without a granted producer's report a Compliant verdict says nothing about it, so read coverage.unverified | unit: `pkg/validation/evaluate_test.go:TestEvaluate_ExtensionCapability`, `pkg/validation/evaluate_test.go:TestEvaluateExtensionObservedTable`; integration: `tests/integration/field_coverage_test.go:TestFieldCoverage/capabilities[].type=extension` |
 
 ### `capabilities[].ref`
 

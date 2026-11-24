@@ -1,0 +1,3 @@
+app:
+  replicas: 4
+  logLevel: warn

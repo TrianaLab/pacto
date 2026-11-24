@@ -42,11 +42,10 @@ type Options struct {
 	// Domain is service.domain, such as payments; it raises pactoVersion to 2.4.
 	Domain   string
 	Registry string
-	// Delivery also plans the Pacto resource, a Stage per environment and the
-	// Flux OCIRepository and Kustomization each one applies through.
+	// Delivery also plans the Pacto resource that ships inside every version;
+	// the promoter creates each environment's Stage from the installation
+	// ladder.
 	Delivery bool
-	// Environments are the Stages, in promotion order. Empty means test, prod.
-	Environments []string
 	// FleetRoots are folders of other services' contracts, searched for the
 	// services that declare this one as a dependency.
 	FleetRoots []string
@@ -60,12 +59,13 @@ type Options struct {
 	// belong in the public transparency log (a throwaway key, or offline
 	// signing).
 	NoTransparencyLog bool
-	// InsecureRegistry makes the Flux OCIRepositories Delivery writes read the
-	// registry over plain HTTP (spec.insecure), for a local registry only.
+	// InsecureRegistry says the registry speaks plain HTTP: Delivery's next
+	// steps say how the Pacto resource reads its contract from it, for a
+	// local registry only.
 	InsecureRegistry bool
-	// RegistrySecret names the docker-registry Secret, in each environment's
-	// namespace, that Delivery's Flux OCIRepositories and Pacto resource log
-	// in to a private registry with.
+	// RegistrySecret names the docker-registry Secret, in the namespace of
+	// delivery/pacto.yaml, that Delivery's Pacto resource logs in to a
+	// private registry with.
 	RegistrySecret string
 	// Inferred are dependencies seen at runtime (pacto init --cluster). Every
 	// one is written with compatibility unknown; one with Versions gets a
@@ -251,8 +251,7 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	envs, err := environments(opts)
-	if err != nil {
+	if err := checkDeliveryOptions(opts); err != nil {
 		return nil, err
 	}
 	r := &Result{Dir: dir, Path: filepath.Join(dir, "pacto.yaml"), Service: name, Mode: modeBlank,
@@ -263,7 +262,7 @@ func plan(ctx context.Context, opts Options) (*Result, error) {
 	case sc.Dockerfile != "" || len(sc.Manifests) > 0:
 		r.Mode = modePactify
 	}
-	p := &planner{r: r, sc: sc, opts: opts, envs: envs}
+	p := &planner{r: r, sc: sc, opts: opts}
 	if err := p.readFleet(ctx); err != nil {
 		return nil, err
 	}
@@ -292,34 +291,24 @@ func (p *planner) finish(ctx context.Context) error {
 	return p.validateTemplate(ctx)
 }
 
-// environments checks the delivery options and returns the environments,
-// test and prod unless the caller named others.
-func environments(opts Options) ([]string, error) {
-	envs := opts.Environments
-	if len(envs) == 0 {
-		envs = []string{"test", "prod"}
-	}
-	for _, e := range envs {
-		if !nameRE.MatchString(e) {
-			return nil, fmt.Errorf("environment %q is not a valid namespace name", e)
-		}
-	}
+// checkDeliveryOptions refuses delivery options that do not go together.
+func checkDeliveryOptions(opts Options) error {
 	if opts.DescribeOnly && opts.Delivery {
-		return nil, fmt.Errorf("describe-only writes no Stages or Pacto resource: drop one of the two")
+		return fmt.Errorf("describe-only writes no Pacto resource: drop one of the two")
 	}
 	if opts.NoTransparencyLog && (opts.DescribeOnly || opts.Template == nil) {
-		return nil, fmt.Errorf("transparencyLog goes under a golden path's publish.sign: drop it, or create the service from one; to keep a key's signatures out of the log, pass --sign-key and --no-transparency-log to pacto publish")
+		return fmt.Errorf("transparencyLog goes under a golden path's publish.sign: drop it, or create the service from one; to keep a key's signatures out of the log, pass --sign-key and --no-transparency-log to pacto publish")
 	}
 	if opts.InsecureRegistry && !opts.Delivery {
-		return nil, fmt.Errorf("an insecure registry changes only the Flux OCIRepositories that delivery writes, so it needs delivery")
+		return fmt.Errorf("an insecure registry matters only to the Pacto resource that delivery writes, so it needs delivery")
 	}
 	if opts.RegistrySecret != "" && !opts.Delivery {
-		return nil, fmt.Errorf("a registry Secret is named only in the cluster pieces that delivery writes, so it needs delivery")
+		return fmt.Errorf("a registry Secret is named only in the Pacto resource that delivery writes, so it needs delivery")
 	}
 	if opts.RegistrySecret != "" && !nameRE.MatchString(opts.RegistrySecret) {
-		return nil, fmt.Errorf("registry Secret %q is not a valid Secret name (lowercase letters, digits and hyphens)", opts.RegistrySecret)
+		return fmt.Errorf("registry Secret %q is not a valid Secret name (lowercase letters, digits and hyphens)", opts.RegistrySecret)
 	}
-	return envs, nil
+	return nil
 }
 
 // serviceName is the caller's name, else the workload's, else the folder's
@@ -343,7 +332,6 @@ type planner struct {
 	r    *Result
 	sc   *discover.Scan
 	opts Options
-	envs []string
 	// pub is the publish section the contract declares, or the one pacto ci
 	// --publish derives (pubDerived); the cluster pieces read it.
 	pub             *contract.Publish

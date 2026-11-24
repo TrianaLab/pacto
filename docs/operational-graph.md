@@ -167,7 +167,7 @@ reads no gRPC or AsyncAPI document. The gaps are:
   only when at least one target source is configured, every target source is
   available and your view sees every target;
 - **Unverified capability**: the current revision declares an extension
-  capability that no evaluator verifies.
+  capability that no evaluator or trusted producer checks.
 
 A service whose contract or OpenAPI document Pacto cannot read, whose
 summaries or business domains conflict or whose placement Pacto cannot see is

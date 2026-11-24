@@ -284,9 +284,17 @@ fleet_applier() {
 pass "the applier entry reads none found, and pacto fleet status prints its hint: $HINT"
 
 section "people: alice proposes and carol approves in every service's namespace"
-kubectl create clusterrole delivery-planner --verb=list \
-  --resource=pactos.pacto.trianalab.io,kustomizations.kustomize.toolkit.fluxcd.io,helmreleases.helm.toolkit.fluxcd.io \
-  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+# Written out, not `kubectl create clusterrole`: that validates every resource
+# through discovery, and Flux's CRDs do not exist until STEP 4.
+kubectl apply -f - >/dev/null <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: delivery-planner}
+rules:
+- {apiGroups: [pacto.trianalab.io], resources: [pactos], verbs: [list]}
+- {apiGroups: [kustomize.toolkit.fluxcd.io], resources: [kustomizations], verbs: [list]}
+- {apiGroups: [helm.toolkit.fluxcd.io], resources: [helmreleases], verbs: [list]}
+YAML
 kubectl create clusterrolebinding delivery-planner --clusterrole=delivery-planner --user=alice --user=carol \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 for n in orders checkout payments; do

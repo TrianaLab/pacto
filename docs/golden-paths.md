@@ -147,14 +147,13 @@ its own credentials.
 
 ## Plan its delivery
 
-`--delivery` also plans the cluster pieces from the new contract, as
+`--delivery` also plans the Pacto resource from the new contract, as
 [`pacto init --delivery`](pactify.md#4-connect-the-service-to-your-cluster)
-does, with `--env`, `--registry-secret` and `--insecure-registry`. An agent
+does, with `--registry-secret` and `--insecure-registry`. An agent
 passes `delivery` to `pacto_create`. It needs a path that publishes manifests
 under `publish.deploy`. Without it, the delivery step says `unknown` and names
 the missing field. The demo's `http-service` path publishes no manifests, so it
-plans none. A Stage also needs the version that runs: in a new folder, with no
-workload manifest, only `delivery/pacto.yaml` is planned and the step says why.
+plans none. Pacto creates each environment's Stage once delivery is on.
 Files already there are kept as they are, and the path's own `delivery/` files
 are left out.
 

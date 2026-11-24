@@ -85,6 +85,11 @@ type OperationReconciler struct {
 	// Stats receives every operation once its conclusion is written, for run
 	// records; nil records none. It must not block.
 	Stats func(op *dv1.Operation)
+	// Environments, when the installation ladder runs, unsuspends the Flux
+	// objects it created for a managed Stage once a promote wrote their
+	// first digest and a person's approval confirmed the placement; nil
+	// unsuspends nothing.
+	Environments *EnvironmentReconciler
 	// heldChecks is when the verify gates last ran for each operation held on
 	// a running version, by uid.
 	// ponytail: in memory, so a restart runs them once early.
@@ -487,6 +492,10 @@ func (r *OperationReconciler) running(ctx context.Context, op *dv1.Operation, st
 			return r.save(ctx, op)
 		}
 		return r.requeue()
+	}
+	if err := r.Environments.confirmPlacement(ctx, op, stage); err != nil {
+		op.Status.Message = err.Error()
+		return r.save(ctx, op)
 	}
 	ok, failed, msg, err := r.Cluster.applied(ctx, op.Namespace, a, to)
 	switch {

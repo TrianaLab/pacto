@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"maps"
 	"slices"
 	"strconv"
@@ -203,6 +204,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 		Providers:    []fleet.Provider{crdRow, demoKernelEgressRow()},
 		Targets:      targets,
 		Provisioning: demoProvisioning(src),
+		Extensions:   demoExtensionRecords(src),
 		Usage:        demoUsage(src),
 		ExternalUses: demoExternalUses(demoNow()),
 		// The kernel observer names a caller with no contract by its workload,
@@ -537,6 +539,33 @@ func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 			Outcome: string(evidence.Observed), Producer: "security-adapter", ObservedAt: at},
 	}
 }
+
+// demoExtensions is what two trusted producers report on the extension
+// capabilities payments-service declares. The dispute auditor reports 2.0.1's
+// payments.trianalab.com/dispute present, with its last audit time as its own
+// details, so that revision reads covered; the refund checker reports 1.2.1's
+// payments.trianalab.com/refund absent, so that revision reads failing. No
+// target runs either revision and neither is the current one, so neither
+// check moves payments-service's status. Both are marked Verified because
+// the WASM demo stands in for the Evidence Server, which accepts only signed
+// extension reports from a key granted the ref. They are dated off the demo
+// clock, so they stay current.
+func demoExtensions(src *EmbedSource) []fleet.RawExtension {
+	at := demoNow().Add(-20 * time.Minute)
+	present, absent := true, false
+	return []fleet.RawExtension{
+		{Service: "payments-service", Digest: demoDigest(src, "payments-service", "2.0.1"), Ref: "payments.trianalab.com/dispute",
+			Present: &present, Details: json.RawMessage(`{"lastAudit":"` + at.Format(time.RFC3339) + `"}`), Outcome: string(evidence.Observed),
+			Producer: "dispute-auditor", ProducerKeyID: "dispute-auditor-2026", ObservedAt: at, Verified: true},
+		{Service: "payments-service", Digest: demoDigest(src, "payments-service", "1.2.1"), Ref: "payments.trianalab.com/refund",
+			Present: &absent, Outcome: string(evidence.Observed), Producer: "refund-checker", ProducerKeyID: "refund-checker-2026",
+			ObservedAt: at, Verified: true},
+	}
+}
+
+// demoExtensionRecords is demoExtensions; TestDemoExtensionChecks swaps it to
+// build the demo without extension reports and compare the tallies.
+var demoExtensionRecords = demoExtensions
 
 // demoUsage is what the platform adapter reports about the usage and cost of
 // catalog-service 1.3.0's database in production. It is marked Verified because

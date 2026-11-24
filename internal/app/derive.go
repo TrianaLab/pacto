@@ -27,6 +27,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // derivedImage is the name of the image artifact a derived publish section
@@ -269,8 +270,9 @@ func deriveSection(ctx context.Context, dir string, b *contract.Bundle, opts Pub
 		d, err := detectBuilds(ctx, dir, c.Publish, opts.Getenv, run)
 		return b, d, err
 	}
-	if cur, behind := contract.Behind(c.PactoVersion); behind {
-		return nil, nil, fmt.Errorf("%s declares no publish section; Pacto derives one for pactoVersion %s: set pactoVersion: %q", c.Service.Name, cur, cur)
+	if validation.InferredRecordNeedsRaise(c.PactoVersion) {
+		cur := contract.Current()
+		return nil, nil, fmt.Errorf("%s declares no publish section; Pacto derives one from pactoVersion 2.5: set pactoVersion: %q", c.Service.Name, cur)
 	}
 	sc, err := discover.Dir(dir)
 	if err != nil {

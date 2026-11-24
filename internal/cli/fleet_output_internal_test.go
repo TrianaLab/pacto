@@ -948,3 +948,21 @@ func TestFleetGetTargetPrintsReportedBy(t *testing.T) {
 	out = printed(t, func(c *cobra.Command) error { return printFleetTarget(c, tv, "text") })
 	expect(t, !strings.Contains(out, "Reported by"), "a target-state target names a reporter:\n%s", out)
 }
+
+func TestFleetGetPrintsExtensionChecks(t *testing.T) {
+	at := time.Date(2026, 11, 22, 3, 0, 0, 0, time.UTC)
+	revs := []*fleet.ContractRevision{
+		{Version: "1.2.0", Extensions: []fleet.ExtensionCheck{{Ref: "x.acme.io/backup", State: fleet.ExtensionFailing, Producer: "acme-backup", AsOf: &at, Reason: "reported absent by acme-backup"}}},
+		{Version: "1.3.0", Extensions: []fleet.ExtensionCheck{
+			{Ref: "x.acme.io/backup", State: fleet.ExtensionCovered, Producer: "acme-backup", AsOf: &at, CountsTowardStatus: true},
+			{Ref: "x.acme.io/restore", State: fleet.ExtensionUnknown, CountsTowardStatus: true, Reason: "the last report is for a revision you cannot see"},
+		}},
+	}
+	var buf bytes.Buffer
+	printExtensionChecks(&buf, revs)
+	want := "Extension x.acme.io/backup (v1.3.0): covered by acme-backup (as of 2026-11-22T03:00:00Z)\n" +
+		"Extension x.acme.io/restore (v1.3.0): unknown: the last report is for a revision you cannot see\n"
+	if buf.String() != want {
+		t.Errorf("got:\n%s\nwant:\n%s", buf.String(), want)
+	}
+}

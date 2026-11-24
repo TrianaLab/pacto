@@ -14,7 +14,8 @@ The Pacto resource ships inside every version and names its own target, so
 workload the Stage says the service runs: `spec.workload` (`kind` and `name`
 in the Stage's namespace), or the Deployment named `spec.service.name` when
 it is empty. A Pacto that checked another workload, a decoy a version shipped
-for example, is Unknown. `pacto init --delivery` writes `spec.workload`.
+for example, is Unknown. A Stage Pacto creates from the installation ladder
+sets `spec.workload`.
 
 ## Add checks to a Stage
 

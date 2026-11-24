@@ -1,11 +1,8 @@
 package pactify
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -13,13 +10,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
-	"testing/fstest"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
-	"github.com/trianalab/pacto/v4/pkg/delivery"
-	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // writeTree writes files (slash paths relative to dir) and returns dir.
@@ -101,8 +95,7 @@ func TestPactifyFraud(t *testing.T) {
 		"first publish: 1.0.0 is the image tag in k8s/deployment.yaml; declare service.version to publish it, or pacto ci --publish derives 1.0.0",
 		"registry registry.example/story, from the image registry.example/story/images/fraud:1.0.0"}
 	wantUnknown := []string{"interfaces: fraud listens on port 8080, but no OpenAPI file describes it",
-		"who uses fraud: no other services' contracts were given (--fleet), so none were looked at",
-		"who publishes fraud: set spec.verify.matchOIDCIdentity in delivery/<env>.yaml to the identity pacto ci --publish prints"}
+		"who uses fraud: no other services' contracts were given (--fleet), so none were looked at"}
 	if !slices.Equal(r.Found, wantFound) || !slices.Equal(r.Unknown, wantUnknown) || len(r.Dependencies) != 0 {
 		t.Fatalf("findings: %+v", r)
 	}
@@ -126,11 +119,20 @@ func checkFraudDelivery(t *testing.T, r *Result) {
 		!strings.Contains(res, "  target:\n    serviceName: fraud\n    workloadRef:\n") {
 		t.Fatalf("the Pacto resource does not name the contract and fraud's Service:\n%s", res)
 	}
-	checkStages(t, file(t, r, "delivery/test.yaml").Content, file(t, r, "delivery/prod.yaml").Content)
-	if !hasLine(r.Next, "every promote to prod waits for a person") || !hasLine(r.Next, "so it promotes on its own at a level above advise") ||
-		!hasLine(r.Next, "remove spec.ref from that OCIRepository in git (on Argo CD, ignoreDifferences on targetRevision) and label it delivery.pacto.trianalab.io/apply-ref=fraud") ||
-		!hasLine(r.Next, "pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage <stage> --to advise") {
-		t.Fatalf("init does not say how prod earns autonomy: %+v", r.Next)
+	checkNoClusterPieces(t, r)
+	if !hasLine(r.Next, "Pacto creates each environment's Stage once delivery is on") {
+		t.Fatalf("init does not say the promoter creates the Stages: %+v", r.Next)
+	}
+}
+
+// checkNoClusterPieces: --delivery plans the Pacto resource and nothing
+// else under delivery/, and no environment values file.
+func checkNoClusterPieces(t *testing.T, r *Result) {
+	t.Helper()
+	for _, f := range r.Files {
+		if (strings.HasPrefix(f.Path, "delivery/") && f.Path != "delivery/pacto.yaml") || strings.HasPrefix(f.Path, "environments/") {
+			t.Fatalf("init plans %s: the promoter creates environments and Stages", f.Path)
+		}
 	}
 }
 
@@ -154,158 +156,17 @@ func checkSecondRunAddsNothing(t *testing.T, opts Options) {
 }
 
 // fraudContract is what init writes for fraud: who owns it, its workload and
-// the environments --delivery declares, with no service.version and no
-// publish section, which pacto ci --publish derives.
+// no environments, with no service.version and no publish section, which
+// pacto ci --publish derives.
 const fraudContract = `# Written by pacto init from Dockerfile, k8s/deployment.yaml, k8s/service.yaml.
 # Check it, then see what publishing would do: pacto ci
-pactoVersion: "2.5"
+pactoVersion: "2.6"
 service:
   name: fraud
   owner:
     team: risk
 workload: service
-environments:
-  - name: test
-    file: environments/test.yaml
-  - name: prod
-    file: environments/prod.yaml
 `
-
-// checkObserves fails unless a generated Stage file starts on observe with
-// the applyRef pinned to the tag and unlabelled.
-func checkObserves(t *testing.T, text string) {
-	t.Helper()
-	if strings.Contains(text, "apply-ref:") || strings.Contains(text, "labels:") || !strings.Contains(text, "  ref:\n    tag: 1.0.0\n") || !strings.Contains(text, "  startLevel: observe\n") || strings.Contains(text, "auto:") {
-		t.Fatalf("not observe by default:\n%s", text)
-	}
-}
-
-// checkStages decodes every Stage strictly into the real type, and checks the
-// promotion order: test takes new versions from its candidate OCIRepository,
-// prod takes what test verified.
-func checkStages(t *testing.T, test, prod string) {
-	t.Helper()
-	stage := func(text string) (delivery.StageSpec, map[string]bool) { return decodeStage(t, text) }
-	ts, tk := stage(test)
-	ps, pk := stage(prod)
-	if ts.Candidates.OCIRepositoryRef == nil || ts.Candidates.OCIRepositoryRef.Name != "fraud-candidates" || ts.Environment != "test" || ts.ApplyRef.Name != "fraud" {
-		t.Fatalf("test Stage: %+v", ts)
-	}
-	checkWorkload(t, ts)
-	if ps.Candidates.UpstreamStage == nil || *ps.Candidates.UpstreamStage != (delivery.StageRef{Name: "fraud", Namespace: "test"}) {
-		t.Fatalf("prod Stage: %+v", ps)
-	}
-	// Autonomy in prod is earned: every promote there waits for a person
-	// until a health check exists; test promotes on its own.
-	if !ps.Approval.Always || ts.Approval.Always {
-		t.Fatalf("approval: test %+v prod %+v", ts.Approval, ps.Approval)
-	}
-	if !tk["OCIRepository"] || !tk["Kustomization"] || !pk["Kustomization"] {
-		t.Fatalf("pieces: test %v prod %v", tk, pk)
-	}
-	// Observe by default: GitOps keeps writing the applyRef, pinned to the tag
-	// the team deploys, and nothing labels it for Pacto to write.
-	checkObserves(t, test)
-	checkObserves(t, prod)
-	// Flux must not report a version applied before it rolls out, or the
-	// verify gates judge the old pods.
-	if !strings.Contains(test, "  wait: true\n") {
-		t.Fatalf("the Kustomization does not wait for the rollout:\n%s", test)
-	}
-	checkDeployer(t, test, "test")
-	checkDeployer(t, prod, "prod")
-}
-
-// checkWorkload: the Stage names the workload its checks judge, so a Pacto a
-// version ships cannot point them at a decoy.
-func checkWorkload(t *testing.T, s delivery.StageSpec) {
-	t.Helper()
-	if w := s.WorkloadOf(); w.Kind != "Deployment" || w.Name != "fraud" || s.Workload == nil {
-		t.Fatalf("the Stage does not name the workload its checks judge: %+v", s.Workload)
-	}
-}
-
-// checkDeployer: Flux applies each version as a namespaced deployer, never as
-// kustomize-controller itself, and that deployer gets no cluster-wide kind,
-// no RBAC and nothing of Flux or Pacto delivery, so a version cannot ship a
-// ClusterRoleBinding and have it applied.
-func checkDeployer(t *testing.T, text, env string) {
-	t.Helper()
-	dec := yaml.NewDecoder(strings.NewReader(text))
-	kinds := map[string]map[string]any{}
-	for {
-		var doc map[string]any
-		if dec.Decode(&doc) != nil {
-			break
-		}
-		kinds[doc["kind"].(string)] = doc
-	}
-	ks := kinds["Kustomization"]["spec"].(map[string]any)
-	if ks["serviceAccountName"] != "fraud-deployer" {
-		t.Fatalf("the Kustomization in %s applies as kustomize-controller: %v", env, ks)
-	}
-	for _, k := range []string{"ServiceAccount", "Role", "RoleBinding"} {
-		if kinds[k] == nil || kinds[k]["metadata"].(map[string]any)["namespace"] != env {
-			t.Fatalf("no namespaced %s in %s:\n%s", k, env, text)
-		}
-	}
-	if kinds["ClusterRole"] != nil || kinds["ClusterRoleBinding"] != nil {
-		t.Fatalf("the deployer in %s reaches cluster-wide:\n%s", env, text)
-	}
-	for _, r := range kinds["Role"]["rules"].([]any) {
-		for _, g := range r.(map[string]any)["apiGroups"].([]any) {
-			if g == "*" || strings.Contains(g.(string), "rbac") || strings.Contains(g.(string), "toolkit.fluxcd.io") || strings.HasPrefix(g.(string), "delivery.") {
-				t.Fatalf("the deployer in %s may write %s", env, g)
-			}
-		}
-	}
-	checkHealthReads(t, kinds["Role"]["rules"].([]any), text, env)
-}
-
-// checkHealthReads: Flux checks the rollout's health as the deployer, and
-// kstatus lists the Deployment's ReplicaSets and their Pods.
-func checkHealthReads(t *testing.T, rules []any, text, env string) {
-	t.Helper()
-	for _, want := range []string{"replicasets", "pods"} {
-		if !slices.ContainsFunc(rules, func(r any) bool {
-			rule := r.(map[string]any)
-			return slices.Contains(rule["resources"].([]any), any(want)) && slices.Contains(rule["verbs"].([]any), any("list"))
-		}) {
-			t.Fatalf("the deployer in %s cannot list %s, so Flux's health check fails:\n%s", env, want, text)
-		}
-	}
-}
-
-// decodeStage returns the Stage spec in text, decoded strictly, and the kinds
-// of every object there.
-func decodeStage(t *testing.T, text string) (delivery.StageSpec, map[string]bool) {
-	t.Helper()
-	var spec delivery.StageSpec
-	kinds := map[string]bool{}
-	dec := yaml.NewDecoder(strings.NewReader(text))
-	for {
-		var doc map[string]any
-		if err := dec.Decode(&doc); err == io.EOF {
-			break
-		} else if err != nil {
-			t.Fatal(err)
-		}
-		kinds[doc["kind"].(string)] = true
-		if doc["kind"] != "Stage" {
-			continue
-		}
-		// ponytail: StageSpec gains StartLevel with the ladder; until then the
-		// strict decode skips it and checkStages reads it from the text.
-		delete(doc["spec"].(map[string]any), "startLevel")
-		raw, _ := json.Marshal(doc["spec"])
-		jd := json.NewDecoder(bytes.NewReader(raw))
-		jd.DisallowUnknownFields()
-		if err := jd.Decode(&spec); err != nil {
-			t.Fatalf("Stage spec: %v\n%s", err, raw)
-		}
-	}
-	return spec, kinds
-}
 
 // TestDependenciesFromEnvironment: a workload's environment names the
 // services it calls. Its own Services, itself, localhost and anything outside
@@ -424,7 +285,7 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 		"root.yaml":                 "apiVersion: v1\nkind: ConfigMap\nmetadata: {name: r}\n",
 		".pactoignore":              "*.key",
 	})
-	r, err := Init(context.Background(), Options{Dir: dir, Registry: "oci://ghcr.io/acme/", Delivery: true, Environments: []string{"dev"}, Plan: true}, os.WriteFile)
+	r, err := Init(context.Background(), Options{Dir: dir, Registry: "oci://ghcr.io/acme/", Delivery: true, Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -439,12 +300,12 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 	}
 	// No Service in the folder, so the target names none: workloadRef follows target directly.
 	for _, want := range [][2]string{{"delivery/pacto.yaml", "  target:\n    workloadRef:\n      name: report\n      kind: CronJob\n"},
-		{"delivery/pacto.yaml", "oci: oci://ghcr.io/acme/report:@PACTO_VERSION@"}, {"delivery/dev.yaml", "url: oci://ghcr.io/acme/deploy/report\n"},
-		{"delivery/dev.yaml", "ociRepositoryRef"}, {"delivery/dev.yaml", "  ref:\n    tag: 1.2.0\n"}} {
+		{"delivery/pacto.yaml", "oci: oci://ghcr.io/acme/report:@PACTO_VERSION@"}} {
 		if !strings.Contains(file(t, r, want[0]).Content, want[1]) {
 			t.Fatalf("%s lacks %q", want[0], want[1])
 		}
 	}
+	checkNoClusterPieces(t, r)
 	if ig := file(t, r, ".pactoignore"); ig.Action != Append || ig.Content != "delivery/\n" {
 		t.Fatalf(".pactoignore: %+v", ig)
 	}
@@ -460,9 +321,8 @@ func TestPactifyReadsWhatIsThere(t *testing.T) {
 }
 
 // TestDeliveryFromTheUsersContract: with a contract already there, the
-// cluster pieces follow its publish section: a keyless identity becomes
-// Flux's matchOIDCIdentity, a keyless sign with no identity or no sign at all
-// is Unknown, and the Pacto resource still has to be added to its build.
+// Pacto resource follows its publish section and still has to be added to
+// its build; no Stage is planned, whatever the contract signs with.
 func TestDeliveryFromTheUsersContract(t *testing.T) {
 	contractWith := func(sign string) string {
 		return `pactoVersion: "2.1"
@@ -474,34 +334,21 @@ publish:
     - {name: manifests, type: manifests, ref: oci://ghcr.io/acme/deploy/payments, build: {command: [make, manifests]}}
 ` + sign
 	}
-	cases := []struct {
-		name, sign string
-		check      func(r *Result) bool
-	}{
-		{"keyless", "  sign: {keyless: true, identity: 'https://github.com/acme/payments/.github/workflows/release.yml@refs/heads/main', issuer: 'https://token.actions.githubusercontent.com'}\n",
-			func(r *Result) bool {
-				return strings.Contains(file(t, r, "delivery/test.yaml").Content, `- issuer: '^https://token\.actions\.githubusercontent\.com$'`) && !hasLine(r.Unknown, "who publishes")
-			}},
-		{"keyless without identity", "  sign: {keyless: true}\n", func(r *Result) bool { return hasLine(r.Unknown, "who publishes payments") }},
-		{"no sign", "", func(r *Result) bool { return hasLine(r.Unknown, "who publishes payments") }},
-		{"key outside the folder", "  sign: {key: /keys/cosign.key}\n", func(r *Result) bool {
-			return hasLine(r.Next, "create the Secret cosign-pub") && file(t, r, ".pactoignore").Content == "delivery/\n"
-		}},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": contractWith(tc.sign), "k8s/deploy.yaml": payments200})
+	for name, sign := range map[string]string{"no sign": "", "key outside the folder": "  sign: {key: /keys/cosign.key}\n"} {
+		t.Run(name, func(t *testing.T) {
+			dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": contractWith(sign), "k8s/deploy.yaml": payments200})
 			r, err := Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true}, os.WriteFile)
 			if err != nil {
 				t.Fatal(err)
 			}
 			if r.Mode != modePactify || r.Service != "payments" || file(t, r, "pacto.yaml").Action != Keep || !hasLine(r.Next, "ship delivery/pacto.yaml") ||
-				!strings.Contains(file(t, r, "delivery/test.yaml").Content, "url: oci://ghcr.io/acme/deploy/payments") || !tc.check(r) {
+				!strings.Contains(file(t, r, "delivery/pacto.yaml").Content, "oci: oci://ghcr.io/acme/payments:@PACTO_VERSION@") ||
+				file(t, r, ".pactoignore").Content != "delivery/\n" || hasLine(r.Unknown, "who publishes") || hasLine(r.Next, "cosign-pub") {
 				t.Fatalf("plan: %+v", r)
 			}
+			checkNoClusterPieces(t, r)
 		})
 	}
-
 }
 
 // TestDeliveryChartWritesNoApplier: a contract that deploys a chart gets no
@@ -528,55 +375,6 @@ publish:
 
 const payments200 = "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: payments}\nspec:\n  template:\n    spec:\n      containers: [{name: payments, image: ghcr.io/acme/payments:2.0.0}]\n"
 
-// TestDeliveryWithoutADeployedTag: with no image tag that is a version,
-// nothing says what the team deploys, and an OCIRepository with no ref
-// follows latest, so no environment's pieces are written.
-func TestDeliveryWithoutADeployedTag(t *testing.T) {
-	for _, files := range []map[string]string{
-		{"pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: payments, version: 2.0.0}\npublish:\n  bundle: oci://ghcr.io/acme/payments\n  deploy: manifests\n  sign: {key: cosign.key}\n  artifacts:\n    - {name: manifests, type: manifests, ref: oci://ghcr.io/acme/deploy/payments, build: {command: [make, manifests]}}\n"},
-		{"k8s/deploy.yaml": strings.Replace(payments200, ":2.0.0", ":latest", 1)},
-	} {
-		r, err := Init(context.Background(), Options{Dir: writeTree(t, t.TempDir(), files), Delivery: true, Plan: true}, os.WriteFile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !hasLine(r.Next, "delivery/test.yaml, delivery/prod.yaml was not written: no workload image tag is a version") ||
-			slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == "delivery/test.yaml" || f.Path == "delivery/prod.yaml" }) ||
-			file(t, r, "delivery/pacto.yaml").Action != Add {
-			t.Fatalf("plan: %+v", r)
-		}
-	}
-}
-
-// TestDeliveryEnvironmentAdded: adding an environment in front of kept ones
-// leaves the old first Stage reading the registry, and dropping the first
-// leaves the new first reading a Stage that is gone; both are Next.
-func TestDeliveryEnvironmentAdded(t *testing.T) {
-	dir := fraudDir(t)
-	if _, err := Init(context.Background(), Options{Dir: dir, Owner: "risk", Delivery: true}, os.WriteFile); err != nil {
-		t.Fatal(err)
-	}
-	r, err := Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true, Environments: []string{"dev", "test", "prod"}}, os.WriteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if file(t, r, "delivery/dev.yaml").Action != Add || !hasLine(r.Next, "delivery/test.yaml was left as it is, but its Stage takes candidates from the registry, not the Stage in dev") ||
-		hasLine(r.Next, "delivery/prod.yaml was left") {
-		t.Fatalf("plan: %+v", r)
-	}
-	r, err = Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true, Environments: []string{"prod"}}, os.WriteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !hasLine(r.Next, "delivery/prod.yaml was left as it is, but its Stage takes candidates from the Stage in test, not the registry") {
-		t.Fatalf("plan: %+v", r)
-	}
-	writeTree(t, dir, map[string]string{"delivery/prod.yaml": "kind: [\n"})
-	if r, _ = Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true, Environments: []string{"prod"}}, os.WriteFile); hasLine(r.Next, "was left as it is") {
-		t.Fatalf("an unreadable file says nothing: %+v", r)
-	}
-}
-
 // TestDeliveryWithoutManifests: a contract with no publish section, or one
 // that cannot be read, plans no cluster pieces; an unreadable contract is
 // Unknown, not an error.
@@ -591,7 +389,7 @@ func TestDeliveryWithoutManifests(t *testing.T) {
 	// A 2.0 contract, the installed base: init says how to reach pacto ci
 	// --publish instead of that there is nothing to add.
 	dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.0\"\nservice: {name: p, version: 1.0.0}\n"})
-	if r, _ := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); !hasLine(r.Next, `pacto.yaml declares no publish section, and pacto ci --publish derives one only for pactoVersion 2.5: set pactoVersion: "2.5"`) {
+	if r, _ := Init(context.Background(), Options{Dir: dir, Plan: true}, os.WriteFile); !hasLine(r.Next, `pacto.yaml declares no publish section, and pacto ci --publish derives one only from pactoVersion 2.5: set pactoVersion: "2.6"`) {
 		t.Fatalf("next: %v", r.Next)
 	}
 	dir = writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": "pactoVersion: \"2.1\"\nservice: {name: p, version: 1.0.0}\n" +
@@ -647,20 +445,19 @@ func TestConsumersFromFleet(t *testing.T) {
 	}
 }
 
-// TestOfflineSigningAndPlainHTTP: InsecureRegistry sets spec.insecure on
-// every OCIRepository and is refused without delivery; NoTransparencyLog is
-// refused without a golden path, the only contract init writes a publish
-// section for.
+// TestOfflineSigningAndPlainHTTP: InsecureRegistry names the registry in a
+// next step, so the Pacto resource reads its contract over plain HTTP, and is
+// refused without delivery; NoTransparencyLog is refused without a golden
+// path, the only contract init writes a publish section for.
 func TestOfflineSigningAndPlainHTTP(t *testing.T) {
 	r, err := Init(context.Background(), Options{Dir: fraudDir(t), Owner: "risk", Delivery: true, InsecureRegistry: true, Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for env, want := range map[string]int{"test": 2, "prod": 1} {
-		if n := insecureRepositories(file(t, r, "delivery/"+env+".yaml").Content); n != want {
-			t.Errorf("%s: %d insecure OCIRepositories, want %d", env, n, want)
-		}
+	if !hasLine(r.Next, "the registry registry.example speaks plain HTTP: list it in the chart value insecureRegistries") {
+		t.Fatalf("next: %v", r.Next)
 	}
+	checkNoClusterPieces(t, r)
 	for _, dir := range []string{fraudDir(t), t.TempDir()} {
 		if _, err := Init(context.Background(), Options{Dir: dir, Name: "p", NoTransparencyLog: true, Plan: true}, os.WriteFile); err == nil ||
 			!strings.Contains(err.Error(), "transparencyLog goes under a golden path's publish.sign") {
@@ -669,25 +466,6 @@ func TestOfflineSigningAndPlainHTTP(t *testing.T) {
 	}
 	if _, err := Init(context.Background(), Options{Dir: fraudDir(t), InsecureRegistry: true, Plan: true}, os.WriteFile); err == nil || !strings.Contains(err.Error(), "needs delivery") {
 		t.Fatalf("insecure without delivery: %v", err)
-	}
-}
-
-// insecureRepositories counts the OCIRepositories in a YAML stream that set
-// spec.insecure.
-func insecureRepositories(text string) int {
-	var n int
-	dec := yaml.NewDecoder(strings.NewReader(text))
-	for {
-		var doc struct {
-			Kind string
-			Spec struct{ Insecure bool }
-		}
-		if dec.Decode(&doc) != nil {
-			return n
-		}
-		if doc.Kind == "OCIRepository" && doc.Spec.Insecure {
-			n++
-		}
 	}
 }
 
@@ -708,7 +486,6 @@ func TestRefusals(t *testing.T) {
 		{"unreadable", Options{Dir: locked, Name: "x"}, "reading"},
 		{"unreadable .pactoignore", Options{Dir: writeTree(t, t.TempDir(), map[string]string{".pactoignore/x": ""}), Name: "x"}, ".pactoignore: "},
 		{"bad name", Options{Dir: t.TempDir(), Name: "Bad_Name"}, "not a valid service name"},
-		{"bad environment", Options{Dir: t.TempDir(), Name: "x", Environments: []string{"Prod"}}, "not a valid namespace name"},
 		{"bad owner", Options{Dir: fraudDir(t), Owner: "the risk team"}, "is not valid"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -786,37 +563,17 @@ func TestDefaultFolder(t *testing.T) {
 	}
 }
 
-// TestPrivateRegistry: RegistrySecret names the registry login on every Flux
-// OCIRepository (spec.secretRef) and on the Pacto resource
-// (spec.contractRef.pullSecretRef), and Next says to create it and to give
-// delivery's promoter one; without delivery, or with a bad name, it is refused.
+// TestPrivateRegistry: RegistrySecret names the registry login on the Pacto
+// resource (spec.contractRef.pullSecretRef), and Next says to create it and
+// to give delivery's promoter one; without delivery, or with a bad name, it
+// is refused.
 func TestPrivateRegistry(t *testing.T) {
 	dir := fraudDir(t)
 	r, err := Init(context.Background(), Options{Dir: dir, Owner: "risk", Delivery: true, RegistrySecret: "registry-creds", Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for env, want := range map[string]int{"test": 2, "prod": 1} {
-		n := 0
-		dec := yaml.NewDecoder(strings.NewReader(file(t, r, "delivery/"+env+".yaml").Content))
-		for {
-			var doc struct {
-				Kind string
-				Spec struct {
-					SecretRef struct{ Name string } `yaml:"secretRef"`
-				}
-			}
-			if dec.Decode(&doc) != nil {
-				break
-			}
-			if doc.Kind == "OCIRepository" && doc.Spec.SecretRef.Name == "registry-creds" {
-				n++
-			}
-		}
-		if n != want {
-			t.Errorf("%s: %d OCIRepositories log in with registry-creds, want %d", env, n, want)
-		}
-	}
+	checkNoClusterPieces(t, r)
 	var res struct {
 		Spec struct {
 			ContractRef struct {
@@ -827,7 +584,7 @@ func TestPrivateRegistry(t *testing.T) {
 	if err := yaml.Unmarshal([]byte(file(t, r, "delivery/pacto.yaml").Content), &res); err != nil || res.Spec.ContractRef.PullSecretRef != "registry-creds" {
 		t.Fatalf("the Pacto resource does not log in with registry-creds: %v\n%s", err, file(t, r, "delivery/pacto.yaml").Content)
 	}
-	if !hasLine(r.Next, "kubectl -n <env> create secret docker-registry registry-creds") || !hasLine(r.Next, "promoter.registryCredentials.secretName") {
+	if !hasLine(r.Next, "kubectl -n <namespace> create secret docker-registry registry-creds") || !hasLine(r.Next, "promoter.registryCredentials.secretName") {
 		t.Fatalf("next: %v", r.Next)
 	}
 	for _, opts := range []Options{{Dir: dir, RegistrySecret: "registry-creds"}, {Dir: dir, Delivery: true, RegistrySecret: "Bad_Name"}} {
@@ -991,7 +748,7 @@ func planBlank(t *testing.T, opts Options) (*Result, *contract.Contract) {
 // --publish's to resolve.
 func TestBlankHonoursOwnerDomainRegistry(t *testing.T) {
 	r, c := planBlank(t, Options{Owner: "billing", Domain: "payments", Registry: "oci://ghcr.io/acme/"})
-	if c.PactoVersion != "2.5" || c.Service.Owner.Team != "billing" || c.Service.Domain != "payments" || c.Publish != nil {
+	if c.PactoVersion != "2.6" || c.Service.Owner.Team != "billing" || c.Service.Domain != "payments" || c.Publish != nil {
 		t.Fatalf("contract: %+v", c)
 	}
 	if slices.ContainsFunc(r.Files, func(f File) bool { return f.Path == ".pactoignore" }) {
@@ -1012,7 +769,7 @@ func TestBlankHonoursOwnerDomainRegistry(t *testing.T) {
 // comment, named in Unknown.
 func TestBlankWithoutOwnerIsUnknown(t *testing.T) {
 	r, c := planBlank(t, Options{})
-	if c.PactoVersion != "2.5" || c.Service.Owner.Team != "" || c.Service.Domain != "" || c.Publish != nil {
+	if c.PactoVersion != "2.6" || c.Service.Owner.Team != "" || c.Service.Domain != "" || c.Publish != nil {
 		t.Fatalf("contract: %+v", c)
 	}
 	if !strings.Contains(file(t, r, "pacto.yaml").Content, "  # owner:\n") || !hasLine(r.Unknown, "owner: no team was given; pass --owner") {
@@ -1057,94 +814,49 @@ func TestPactifiedWritesDomain(t *testing.T) {
 		t.Fatalf("plan: %+v %v", r, err)
 	}
 	c, err := contract.Parse(strings.NewReader(file(t, r, "pacto.yaml").Content))
-	if err != nil || c.PactoVersion != "2.5" || c.Service.Domain != "payments" {
+	if err != nil || c.PactoVersion != "2.6" || c.Service.Domain != "payments" {
 		t.Fatalf("contract: %+v %v", c, err)
 	}
 }
 
-const envFileContent = "# Values %s uses for each configuration, by configuration name.\n{}\n"
-
-// checkDeclaredEnvironments fails unless the plan declares each env in
-// pacto.yaml at version, plans its values file holding {}, and the contract
-// passes validation with the pacto.environment gate applicable.
-func checkDeclaredEnvironments(t *testing.T, r *Result, version string, envs ...string) {
-	t.Helper()
-	files := map[string]string{}
-	_ = filepath.WalkDir(r.Dir, func(p string, d fs.DirEntry, err error) error {
-		if err == nil && !d.IsDir() {
-			data, _ := os.ReadFile(p)
-			rel, _ := filepath.Rel(r.Dir, p)
-			files[filepath.ToSlash(rel)] = string(data)
-		}
-		return nil
-	})
-	for _, f := range r.Files {
-		files[f.Path] = f.Content
-	}
-	c, err := contract.Parse(strings.NewReader(files["pacto.yaml"]))
+// TestInitDeliveryWritesNoEnvironments: the contract --delivery writes,
+// blank or read from the folder, declares no environments and plans no
+// values file: the promoter creates environments from the installation
+// ladder. The contract still validates.
+func TestInitDeliveryWritesNoEnvironments(t *testing.T) {
+	blank, _ := planBlank(t, Options{Delivery: true, Domain: "payments"})
+	fraud, err := Init(context.Background(), Options{Dir: fraudDir(t), Owner: "risk", Delivery: true, Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	var names []string
-	for _, e := range c.Environments {
-		names = append(names, e.Name)
-		if e.File != "environments/"+e.Name+".yaml" || files[e.File] != strings.Replace(envFileContent, "%s", e.Name, 1) {
-			t.Errorf("environment %+v, file %q", e, files[e.File])
+	invoices, err := Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), Owner: "billing", Domain: "billing", Delivery: true, Plan: true}, os.WriteFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range []*Result{blank, fraud, invoices} {
+		text := file(t, r, "pacto.yaml").Content
+		if strings.Contains(text, "environments:") {
+			t.Fatalf("pacto.yaml declares environments:\n%s", text)
 		}
-	}
-	if c.PactoVersion != version || !slices.Equal(names, envs) {
-		t.Fatalf("contract %s %v, want %s %v", c.PactoVersion, names, version, envs)
-	}
-	fsys := fstest.MapFS{}
-	for p, data := range files {
-		fsys[p] = &fstest.MapFile{Data: []byte(data)}
-	}
-	if err := validate(files["pacto.yaml"], files); err != nil {
-		t.Fatalf("validate: %v", err)
-	}
-	if st := validation.EnvironmentStageWith(c, fsys, nil); st.Status != validation.StagePass {
-		t.Fatalf("environment gate: %+v", st)
+		checkNoClusterPieces(t, r)
 	}
 }
 
-// TestDeliveryDeclaresEnvironments: --delivery declares each --env in the
-// contract init writes, blank or read from the folder, with an empty values
-// file.
-func TestDeliveryDeclaresEnvironments(t *testing.T) {
-	r, _ := planBlank(t, Options{Delivery: true, Environments: []string{"test", "pr-1"}})
-	checkDeclaredEnvironments(t, r, "2.5", "test", "pr-1")
-	r, _ = planBlank(t, Options{Delivery: true, Domain: "payments"})
-	checkDeclaredEnvironments(t, r, "2.5", "test", "prod")
-
+// TestInitDeliveryWritesNoStage: --delivery plans delivery/pacto.yaml and no
+// delivery/<env>.yaml, and a contract already there gets no environment hint.
+func TestInitDeliveryWritesNoStage(t *testing.T) {
 	r, err := Init(context.Background(), Options{Dir: fraudDir(t), Owner: "risk", Delivery: true, Plan: true}, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	checkDeclaredEnvironments(t, r, "2.5", "test", "prod")
-	r, err = Init(context.Background(), Options{Dir: fixtureDir(t, "invoices"), Owner: "billing", Domain: "billing", Delivery: true, Environments: []string{"dev"}, Plan: true}, os.WriteFile)
-	if err != nil {
-		t.Fatal(err)
+	if file(t, r, "delivery/pacto.yaml").Action != Add {
+		t.Fatalf("no Pacto resource: %+v", r.Files)
 	}
-	checkDeclaredEnvironments(t, r, "2.5", "dev")
-}
-
-// TestDeliveryExistingContractSuggestsEnvironments: a contract already there
-// is never rewritten; init names the --env it does not declare.
-func TestDeliveryExistingContractSuggestsEnvironments(t *testing.T) {
-	text := "pactoVersion: \"2.3\"\nservice: {name: payments, version: 2.0.0}\nenvironments:\n  - {name: test, file: environments/test.yaml}\n"
-	dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": text, "environments/test.yaml": "{}\n"})
-	r, err := Init(context.Background(), Options{Dir: dir, Delivery: true, Environments: []string{"test", "pr-1", "prod"}, Plan: true}, os.WriteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if file(t, r, "pacto.yaml").Action != Keep || !hasLine(r.Next, "pacto.yaml declares no environment pr-1, prod: add them with pacto_edit add_environments") {
-		t.Fatalf("plan: %+v", r)
-	}
-	if slices.ContainsFunc(r.Files, func(f File) bool { return strings.HasPrefix(f.Path, "environments/") }) {
-		t.Fatalf("environment files planned for a kept contract: %+v", r.Files)
-	}
-	if r, _ = Init(context.Background(), Options{Dir: dir, Delivery: true, Environments: []string{"test"}, Plan: true}, os.WriteFile); hasLine(r.Next, "declares no environment") {
-		t.Fatalf("every environment declared: %v", r.Next)
+	checkNoClusterPieces(t, r)
+	text := "pactoVersion: \"2.3\"\nservice: {name: payments, version: 2.0.0}\n"
+	dir := writeTree(t, t.TempDir(), map[string]string{"pacto.yaml": text})
+	if r, err = Init(context.Background(), Options{Dir: dir, Delivery: true, Plan: true}, os.WriteFile); err != nil || hasLine(r.Next, "declares no environment") {
+		t.Fatalf("plan: %+v %v", r, err)
 	}
 }
 

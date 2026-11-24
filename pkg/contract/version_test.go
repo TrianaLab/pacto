@@ -59,6 +59,23 @@ func TestBehind(t *testing.T) {
 	}
 }
 
+// TestBehind25: 2.5 is behind 2.6.
+func TestBehind25(t *testing.T) {
+	if c, behind := Behind("2.5"); c != "2.6" || !behind {
+		t.Fatalf("Behind(2.5) = %q, %v", c, behind)
+	}
+}
+
+// TestUpgradeRaises25To26: a 2.5 contract whose environments all carry a
+// file raises to 2.6 with no Kept finding.
+func TestUpgradeRaises25To26(t *testing.T) {
+	const doc = "pactoVersion: \"{v}\"\nservice: {name: s, version: 1.0.0}\nenvironments: [{name: staging, file: environments/staging.yaml}]\n"
+	up, err := Upgrade(fixture(doc, "2.5"), "2.6", clean)
+	if err != nil || up.Kept != nil || up.From != "2.5" || up.To != "2.6" || !bytes.Equal(up.Raw, fixture(doc, "2.6")) {
+		t.Fatalf("Upgrade: %+v %v", up, err)
+	}
+}
+
 func TestOlder(t *testing.T) {
 	prev := SupportedVersions[len(SupportedVersions)-2]
 	if !Older(prev, Current()) || Older(Current(), prev) || Older(Current(), Current()) || !Older("9.9", prev) {

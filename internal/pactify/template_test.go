@@ -444,43 +444,23 @@ func TestTemplateDelivery(t *testing.T) {
 	}
 	wantLines(t, "unknown", r.Unknown, "publishes no manifests (publish.deploy)")
 
-	// publish.deploy in a new folder: the Pacto resource only, no Stage.
+	// publish.deploy: the Pacto resource only; the promoter creates the Stages.
 	r, _ = mustFromPath(t, goldenPath(deployPath), Options{Delivery: true}, override.Overrides{})
-	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusUnknown || !strings.Contains(s.Detail, "the Pacto resource only: delivery/pacto.yaml; no Stage") {
-		t.Errorf("no tag: %+v", s)
+	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusPlanned || s.Detail != "the Pacto resource: delivery/pacto.yaml"+stagesLater {
+		t.Errorf("deploy: %+v", s)
 	}
 	if !slices.ContainsFunc(r.Files, func(f File) bool {
 		return f.Path == "delivery/pacto.yaml" && strings.Contains(f.Content, "oci://registry.example/gift-cards")
 	}) {
 		t.Errorf("files: %+v", r.Files)
 	}
-
-	// A folder whose workload runs a version: every Stage is planned, a
-	// Stage already there is kept and left unchecked, so applying leaves the
-	// step unknown rather than done.
-	dir, opts := taggedFolder(t, "delivery/qa.yaml")
-	r, err := Init(context.Background(), opts, os.WriteFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusUnknown || s.Detail != "the Pacto resource and Stages: delivery/pacto.yaml, delivery/prod.yaml; "+
-		"delivery files already exist and were kept; Pacto did not write or check them: delivery/qa.yaml" {
-		t.Errorf("stages: %+v", s)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "delivery/qa.yaml")); string(b) != "mine\n" {
-		t.Errorf("overwrote delivery/qa.yaml: %q", b)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, "delivery/prod.yaml")); !strings.Contains(string(b), "name: creds") {
-		t.Errorf("prod stage: %s", b)
-	}
-	if b, _ := os.ReadFile(filepath.Join(dir, ".pactoignore")); !strings.Contains(string(b), "delivery/") {
-		t.Errorf(".pactoignore: %s", b)
-	}
-
+	checkNoClusterPieces(t, r)
 }
 
+const stagesLater = "; Pacto creates each environment's Stage once delivery is on"
+
 // taggedFolder is a folder whose workload runs a version, holding the
-// delivery files named, and the --delivery options for qa and prod.
+// delivery files named, and the --delivery options.
 func taggedFolder(t *testing.T, delivery ...string) (string, Options) {
 	t.Helper()
 	files := map[string]string{"k8s/app.yaml": "apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: gift-cards}\nspec:\n  template:\n    spec:\n      containers: [{name: api, image: ghcr.io/acme/gift-cards:0.1.0}]\n"}
@@ -488,30 +468,39 @@ func taggedFolder(t *testing.T, delivery ...string) (string, Options) {
 		files[f] = "mine\n"
 	}
 	dir := writeTree(t, filepath.Join(t.TempDir(), "gift-cards"), files)
-	return dir, Options{Dir: dir, Owner: "checkout", Delivery: true, Environments: []string{"qa", "prod"}, RegistrySecret: "creds",
+	return dir, Options{Dir: dir, Owner: "checkout", Delivery: true, RegistrySecret: "creds",
 		Template: &Template{FS: goldenPath(deployPath), Ref: "oci://ghcr.io/platform/http-service:1.0.0", Digest: pathDigest, Find: notInstalled}}
 }
 
 // TestTemplateDeliveryKept: the delivery step is done only for files this
-// run wrote. Delivery files already there are kept and never checked, so
-// the step stays unknown and says so.
+// run wrote. A Pacto resource already there is kept and never checked, so
+// the step stays unknown and says so; another delivery file is left alone.
 func TestTemplateDeliveryKept(t *testing.T) {
-	_, opts := taggedFolder(t, "delivery/pacto.yaml", "delivery/qa.yaml", "delivery/prod.yaml")
+	dir, opts := taggedFolder(t, "delivery/pacto.yaml", "delivery/qa.yaml")
 	r, err := Init(context.Background(), opts, os.WriteFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusUnknown || s.Detail != "delivery files already exist and were kept; "+
-		"Pacto did not write or check them: delivery/pacto.yaml, delivery/qa.yaml, delivery/prod.yaml" {
-		t.Errorf("all kept: %+v", s)
+		"Pacto did not write or check them: delivery/pacto.yaml"+stagesLater {
+		t.Errorf("kept: %+v", s)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "delivery/qa.yaml")); string(b) != "mine\n" {
+		t.Errorf("overwrote delivery/qa.yaml: %q", b)
 	}
 
-	_, opts = taggedFolder(t)
+	dir, opts = taggedFolder(t)
 	if r, err = Init(context.Background(), opts, os.WriteFile); err != nil {
 		t.Fatal(err)
 	}
-	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusDone || s.Detail != "the Pacto resource and Stages: delivery/pacto.yaml, delivery/qa.yaml, delivery/prod.yaml" {
-		t.Errorf("all added: %+v", s)
+	if s := deliveryStepOf(t, r); s.Status != fleet.StepStatusDone || s.Detail != "the Pacto resource: delivery/pacto.yaml"+stagesLater {
+		t.Errorf("added: %+v", s)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "delivery/pacto.yaml")); !strings.Contains(string(b), "pullSecretRef: creds") {
+		t.Errorf("Pacto resource: %s", b)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, ".pactoignore")); !strings.Contains(string(b), "delivery/") {
+		t.Errorf(".pactoignore: %s", b)
 	}
 }
 
@@ -534,20 +523,22 @@ func TestTemplateHelpers(t *testing.T) {
 	}
 }
 
-// TestTemplateDeliveryAddsMissingEnvironments: with --delivery, each --env
-// the golden path does not declare is added with an empty values file; the
-// ones it declares stay as the path wrote them.
-func TestTemplateDeliveryAddsMissingEnvironments(t *testing.T) {
+// TestInitFromGoldenPathDeliveryWritesNoEnvironments: with --delivery, a
+// service created from a golden path gets no environment the path does not
+// declare and no values file; the ones the path declares stay as it wrote
+// them.
+func TestInitFromGoldenPathDeliveryWritesNoEnvironments(t *testing.T) {
+	r, c := mustFromPath(t, goldenPath(deployPath), Options{Delivery: true}, override.Overrides{})
+	if len(c.Environments) != 0 || strings.Contains(file(t, r, "pacto.yaml").Content, "environments:") {
+		t.Fatalf("environments %+v", c.Environments)
+	}
+	checkNoClusterPieces(t, r)
 	text := pathContract + "environments:\n  - {name: test, file: environments/test.yaml, lifetime: persistent}\n"
 	fsys := goldenPath(text)
 	fsys["environments/test.yaml"] = &fstest.MapFile{Data: []byte("default: {size: 2}\n")}
-	r, c := mustFromPath(t, fsys, Options{Delivery: true, Environments: []string{"test", "pr-1"}}, override.Overrides{})
-	want := []contract.Environment{{Name: "test", File: "environments/test.yaml", Lifetime: contract.EnvironmentPersistent}, {Name: "pr-1", File: "environments/pr-1.yaml"}}
-	if !slices.Equal(namesOf(c.Environments), namesOf(want)) || c.Environments[0].Lifetime != contract.EnvironmentPersistent || c.Environments[1].File != want[1].File {
+	r, c = mustFromPath(t, fsys, Options{Delivery: true}, override.Overrides{})
+	if !slices.Equal(namesOf(c.Environments), []string{"test"}) || c.Environments[0].Lifetime != contract.EnvironmentPersistent {
 		t.Fatalf("environments %+v", c.Environments)
-	}
-	if f := file(t, r, "environments/pr-1.yaml"); f.Content != "# Values pr-1 uses for each configuration, by configuration name.\n{}\n" {
-		t.Fatalf("pr-1 file %q", f.Content)
 	}
 	if f := file(t, r, "environments/test.yaml"); f.Content != "default: {size: 2}\n" {
 		t.Fatalf("test file %q", f.Content)

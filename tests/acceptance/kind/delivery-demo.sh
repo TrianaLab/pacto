@@ -664,7 +664,7 @@ publish() {
 # ENV, on autonomous when AUTO is true and on advise otherwise (an admin may
 # create a Stage on any level; the ladder itself is the browser demo's story),
 # and the Stage that decides which version runs there, in the shape
-# pacto init --delivery writes (the registry speaks plain HTTP, hence insecure),
+# pacto init --delivery used to write (the registry speaks plain HTTP, hence insecure),
 # plus a health check on the Deployment: Flux calls a version applied only once
 # its rollout is done, so the verify gates never judge the old pods (HANDOFF).
 environment() {
@@ -815,22 +815,21 @@ story_pactify() {
   local dir="$WORK/fraud"
   rm -rf "$dir"; cp -R "$STORY/plain/fraud" "$dir"
   perl -pi -e "s#registry\\.example/story#${REG_HOST}/story#g" "$dir/k8s/deployment.yaml"
-  # The demo's registry speaks plain HTTP: an init flag. pacto init writes no
-  # publish section, so pacto publish derives one.
+  # The demo's registry speaks plain HTTP: an init flag that names it in a next
+  # step. pacto init writes no publish section, so pacto publish derives one.
   echo "  \$ pacto init --delivery --owner risk --insecure-registry"
   (cd "$dir" && "$PACTO" init --delivery --owner risk --insecure-registry) | sed 's/^/    /'
-  [ -s "$dir/delivery/test.yaml" ] || fail "pacto init --delivery wrote no Stage for test"
-  # The Stages verify an identity that matches nothing until a person names
-  # the publisher: here the demo key, whose public half is cosign-pub.
-  perl -0pi -e 's/  verify:\n    provider: cosign\n    matchOIDCIdentity:\n      - issuer: [^\n]*\n        subject: [^\n]*\n/  verify:\n    provider: cosign\n    secretRef:\n      name: cosign-pub\n/g' "$dir/delivery/test.yaml" "$dir/delivery/prod.yaml"
-  grep -q 'name: cosign-pub' "$dir/delivery/test.yaml" || fail "delivery/test.yaml has no spec.verify to point at the demo key"
+  [ -s "$dir/delivery/pacto.yaml" ] || fail "pacto init --delivery wrote no Pacto resource"
+  grep -q 'kind: Pacto$' "$dir/delivery/pacto.yaml" || fail "delivery/pacto.yaml holds no Pacto resource"
+  [ ! -e "$dir/delivery/test.yaml" ] || fail "pacto init --delivery wrote a Stage for test: the promoter creates environments"
   git -C "$dir" init -q && git -C "$dir" add -A && git -C "$dir" -c user.email=demo@example.com -c user.name=demo commit -qm "pactify fraud"
   local out d
   # A throwaway key outside the folder, kept out of the public transparency log.
   out="$(cd "$dir" && reg "$PACTO" publish --registry "${REG_HOST}/story" --sign-key "$KEYS/cosign.key" --no-transparency-log 2>&1)" || { echo "$out" >&2; fail "pacto publish fraud failed"; }
   d="$(grep -oE "^Deploy: .*@sha256:[0-9a-f]{64}" <<<"$out" | sed 's/.*@//')"
   remember fraud 1.0.0 "$d"
-  kubectl apply -f "$dir/delivery/test.yaml" -f "$dir/delivery/prod.yaml" >/dev/null
+  # fraud's Stages are hand-written, verifying the demo key (cosign-pub).
+  kubectl apply -f "$IDP_FIXTURES/fraud-stages.yaml" >/dev/null
   # Both Stages start on observe: Flux applies the tag, and Pacto only notes
   # what it would have done with each version it saw.
   # The first plan may refuse on an applier Pacto could not tell yet (the
@@ -847,7 +846,7 @@ story_pactify() {
   [[ "$img" == "${REG_HOST}/story/images/fraud@sha256:"* ]] || fail "fraud runs $img in test, not the image pacto publish built, pinned by digest"
   no_fraud_ops() { [ "$(ops test | jq '[.items[] | select(.spec.stage == "fraud")] | length')" = 0 ] && [ "$(ops prod | jq '[.items[] | select(.spec.stage == "fraud")] | length')" = 0 ]; }
   always 5 no_fraud_ops || fail "a Stage on observe raised an operation for fraud"
-  pass "fraud is pactified: pacto publish derived and signed 1.0.0 with the demo key; its contract, Pacto resource and Stages come from pacto init, both Stages observe, and Pacto noted it would have shipped 1.0.0 to test"
+  pass "fraud is pactified: pacto publish derived and signed 1.0.0 with the demo key; its contract and Pacto resource come from pacto init, its hand-written Stages both observe, and Pacto noted it would have shipped 1.0.0 to test"
 }
 
 story_b1() {

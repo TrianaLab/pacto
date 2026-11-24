@@ -24,7 +24,7 @@ rollbacks or [break-glass](glossary.md#break-glass) overrides.
 
 | Field | Meaning |
 |---|---|
-| `spec.startLevel` | Level a new Stage starts on, read once while `status.level` is empty. Default `observe`. Any level is accepted, because creating a Stage is an admin action. A Stage whose status is lost seeds back to this level, so an automatic start level comes back automatic. `pacto init --delivery` always writes `observe` |
+| `spec.startLevel` | Level a new Stage starts on, read once while `status.level` is empty. Default `observe`. Any level is accepted, because creating a Stage is an admin action. A Stage whose status is lost seeds back to this level, so an automatic start level comes back automatic. A Stage Pacto creates from the installation ladder starts on `observe`, or on `autonomous` with every promote held for a person when its applier is guarded |
 | `spec.autonomy.proposeAfter` | How many qualifying changes earn a proposal. Default 10, from 1 to 20 |
 | `status.level` | Current level. After the start, only `delivery.pacto.trianalab.io/autonomy` operations change it |
 | `status.observedRevision` | On observe: the digest the GitOps source reports and since when Pacto saw it |

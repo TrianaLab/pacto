@@ -1117,3 +1117,10 @@ func TestUnscopedKeyRejectsInferredProvider(t *testing.T) {
 		t.Fatalf("unscoped inferred provider = %v, want ErrProviderNotAllowed", err)
 	}
 }
+
+func TestClassifyAcceptErrorExtensionNotAllowed(t *testing.T) {
+	status, code, _ := classifyAcceptError(fmt.Errorf("verify: %w", evidenceenvelope.ErrExtensionNotAllowed))
+	if status != http.StatusUnauthorized || code != "unauthorized_producer" {
+		t.Errorf("classify = %d %s, want 401 unauthorized_producer", status, code)
+	}
+}

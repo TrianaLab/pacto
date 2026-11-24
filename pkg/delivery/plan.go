@@ -494,7 +494,7 @@ func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.C
 	st := validation.EnvironmentStageWith(c, bundleFS, refs)
 	for _, e := range st.Errors {
 		if under(e.Path) {
-			loc := e.File
+			loc := cmp.Or(e.File, e.Path) // a file-less environment's finding is at environments[i]
 			if e.Line > 0 {
 				loc += ":" + strconv.Itoa(e.Line)
 			}

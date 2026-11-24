@@ -493,7 +493,7 @@ func TestDeriveSectionRefusals(t *testing.T) {
 	behind := sectionless(t, "1.0.0", "", nil)
 	writeFiles(t, behind, map[string]string{"pacto.yaml": "pactoVersion: \"2.4\"\nservice:\n  name: payments\n  version: 1.0.0\n"})
 	for dir, want := range map[string]string{
-		behind:                           "payments declares no publish section; Pacto derives one for pactoVersion 2.5: set pactoVersion: \"2.5\"",
+		behind:                           "payments declares no publish section; Pacto derives one from pactoVersion 2.5: set pactoVersion: \"2.6\"",
 		sectionless(t, "1.0.0", "", nil): "no registry to publish to: pass --registry",
 	} {
 		_, err := publishService(&fakeRun{}, reg).Publish(t.Context(), PublishOptions{Path: dir, Revision: "r1"})

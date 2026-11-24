@@ -2,6 +2,7 @@ package app
 
 import (
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -130,17 +131,17 @@ func TestCIPlanUnreadBaselineLine(t *testing.T) {
 	}
 }
 
-// TestCIPublishKeptWithoutSectionNamesKeptReason: a kept behind contract with
-// no publish section fails with the reason the raise was refused, never
-// advice to make that raise.
+// TestCIPublishKeptWithoutSectionNamesKeptReason: a kept contract older than
+// 2.5 with no publish section fails with the reason the raise was refused,
+// never advice to make that raise.
 func TestCIPublishKeptWithoutSectionNamesKeptReason(t *testing.T) {
 	cur := contract.Current()
-	b := &contract.Bundle{Contract: &contract.Contract{PactoVersion: prevVersion}}
+	b := &contract.Bundle{Contract: &contract.Contract{PactoVersion: keptFrom}}
 	reason := "ENVIRONMENT_VALUES_MISSING at environments[0] from " + cur
-	cp := &ciPublisher{bundles: map[string]*contract.Bundle{"legacy": b}, migrations: map[string]CIMigration{"legacy": {From: prevVersion, To: prevVersion, State: migrationKept, Reason: reason}}}
+	cp := &ciPublisher{bundles: map[string]*contract.Bundle{"legacy": b}, migrations: map[string]CIMigration{"legacy": {From: keptFrom, To: keptFrom, State: migrationKept, Reason: reason}}}
 	r := ci.Row{Dir: "legacy", Changed: "yes"}
 	cp.row(t.Context(), &r)
-	if r.State != ci.StateFailed || r.Reason != "declares no publish section, and pactoVersion stays at "+prevVersion+" ("+reason+"): fix that or declare publish" {
+	if r.State != ci.StateFailed || r.Reason != "declares no publish section, and pactoVersion stays at "+keptFrom+" ("+reason+"): fix that or declare publish" {
 		t.Fatalf("row %+v", r)
 	}
 }
@@ -154,7 +155,7 @@ func keptLegacy(t *testing.T, e *ciPubEnv) {
 	t.Helper()
 	extra := "configurations:\n  - {name: db, ref: \"oci://" + e.host + "/acme/pg:16.1.0\", required: true}\n"
 	e.write(t, map[string]string{
-		"legacy/pacto.yaml": strings.Replace(e.contract("legacy", "1.0.0", extra, e.deployPub("legacy")), `"2.5"`, `"`+keptFrom+`"`, 1),
+		"legacy/pacto.yaml": strings.Replace(e.contract("legacy", "1.0.0", extra, e.deployPub("legacy")), strconv.Quote(contract.Current()), strconv.Quote(keptFrom), 1),
 		"legacy/render.sh":  "#!/bin/sh\n",
 	})
 }

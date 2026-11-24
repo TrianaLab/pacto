@@ -256,9 +256,10 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	hideUnreadable(s, visible, clusters, hiddenNS)
 	restricted := !visible("", "")
 	hiddenTargets := unreadableClusterTargets(s, readable, visible)
+	extensionRecords := readableExtensionRecords(s, readable, visible)
 	linkedNames := linkedKindHidden(s, workloadHidden(hiddenNS, workloadVisible), clusters, hiddenTargets)
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, hiddenTargets, restricted, workloadVisible)
-	if len(hiddenNS)+len(hiddenSvc)+len(offeringOnly)+len(hiddenTargets)+len(linkedNames) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
+	if len(hiddenNS)+len(hiddenSvc)+len(offeringOnly)+len(hiddenTargets)+len(linkedNames)+len(s.extensionRecords)-len(extensionRecords) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
 		if !providersNarrowed(s, visible, workloadVisible, clusters) {
 			return q
 		}
@@ -292,6 +293,10 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 		}
 	}
 	restrictRevalidation(&out, append(slices.Clone(s.Relationships), s.templateEdges...), hiddenSvc, dropped)
+	// A check is derived evidence: read again without the records of clusters
+	// the caller may not read, so they neither show nor move a status.
+	out.extensionRecords = extensionRecords
+	deriveExtensionChecks(&out, false)
 	hiddenDeps, hiddenDependents, hiddenConsumers, hiddenReferrers := restrictRelationships(&out, s.Relationships, hiddenSvc, dropped)
 	dropHiddenDeclarationEdges(&out)
 	restrictInferredEvidence(&out)
@@ -351,16 +356,27 @@ func (q *Query) hiddenPairs(visible func(cluster, namespace string) bool) (hidde
 }
 
 // unreadableClusterTargets is the targets of s other than Kubernetes targets
-// that carry a cluster the caller may read nothing in: no pair of the cluster
-// is in readable and visible(cluster, "") says no.
+// that carry a cluster the caller may read nothing in (see clusterUnreadable).
 func unreadableClusterTargets(s *FleetSnapshot, readable map[string]bool, visible func(cluster, namespace string) bool) map[TargetKey]bool {
 	out := map[TargetKey]bool{}
 	for k, t := range s.Targets {
-		if c := t.Cluster; c != "" && !kubeTarget(t) && !readable[c] && !visible(c, "") {
+		if !kubeTarget(t) && clusterUnreadable(t.Cluster, readable, visible) {
 			out[k] = true
 		}
 	}
 	return out
+}
+
+// readableExtensionRecords is s's extension records but those accepted in a
+// cluster the caller may read nothing in.
+func readableExtensionRecords(s *FleetSnapshot, readable map[string]bool, visible func(cluster, namespace string) bool) []extensionRecord {
+	return slices.DeleteFunc(slices.Clone(s.extensionRecords), func(rec extensionRecord) bool { return clusterUnreadable(rec.cluster, readable, visible) })
+}
+
+// clusterUnreadable reports whether c names a cluster the caller may read
+// nothing in: no pair of it is in readable and visible(c, "") says no.
+func clusterUnreadable(c string, readable map[string]bool, visible func(cluster, namespace string) bool) bool {
+	return c != "" && !readable[c] && !visible(c, "")
 }
 
 // linkedKindHidden adds to hiddenTargets the linked targets whose workload

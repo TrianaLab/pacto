@@ -212,11 +212,7 @@ func EnvironmentValueNames(c *contract.Contract, bundleFS fs.FS) map[string]bool
 		return out
 	}
 	for _, env := range c.Environments {
-		raw, err := fs.ReadFile(bundleFS, env.File)
-		if err != nil {
-			continue
-		}
-		values, _ := contract.ParseEnvironmentValues(raw)
+		_, values, _ := contract.ReadEnvironmentValues(bundleFS, env) // a file-less environment gives none
 		for name := range values {
 			out[name] = true
 		}

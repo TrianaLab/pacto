@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"sort"
@@ -50,6 +51,20 @@ func Evaluate(c contract.Contract, ev evidence.EvidenceSet) ([]finding.Finding, 
 	return e.findings, e.cov
 }
 
+// EvaluateExtensions is the Evidence Server's evaluator for an extension report: it judges, by the
+// extension rule of [Evaluate], exactly the extension capabilities of c that ev names. It never lists an
+// unnamed extension as unverified: whether another producer checks it is the fleet's business, not this
+// report's.
+func EvaluateExtensions(c contract.Contract, ev evidence.EvidenceSet) ([]finding.Finding, Coverage) {
+	var named []contract.Capability
+	for _, cap := range c.Capabilities {
+		if cap.Type == contract.CapabilityExtension && findObservation(ev.Observations, evidence.CapabilityObserved, cap.Ref) != nil {
+			named = append(named, cap)
+		}
+	}
+	return Evaluate(contract.Contract{Service: c.Service, Capabilities: named}, ev)
+}
+
 // evaluator carries one Evaluate pass: the evidence it reads and the findings and coverage it builds.
 type evaluator struct {
 	ev         evidence.EvidenceSet
@@ -90,14 +105,15 @@ func (e *evaluator) interfaces(ifaces []contract.Interface) {
 	}
 }
 
-// Capabilities: health/metrics are required + observable. An extension has no evaluator, so it is listed
-// as unverified coverage rather than counted as a required assertion nothing could ever satisfy: that kept
-// every contract declaring one at Unknown forever.
+// Capabilities: health/metrics are required + observable. An extension has no built-in evaluator: a
+// producer's report checks it (extension), and without one it is listed as unverified coverage rather
+// than counted as a required assertion nothing could ever satisfy: that kept every contract declaring
+// one at Unknown forever.
 func (e *evaluator) capabilities(caps []contract.Capability) {
 	for _, cap := range caps {
 		key := cap.AssertionKey() // "health"/"metrics" for standard, the namespaced ref for extension
 		if cap.Type == contract.CapabilityExtension {
-			e.unverified[fmt.Sprintf("capabilities[ref=%s]", key)] = true
+			e.extension(key)
 			continue
 		}
 		path := fmt.Sprintf("capabilities[type=%s]", key)
@@ -117,6 +133,22 @@ func (e *evaluator) capabilities(caps []contract.Capability) {
 					fmt.Sprintf("capability %q is absent at runtime", key)
 			})
 	}
+}
+
+// extension judges an extension capability by the uniform assert rule when an observation names it:
+// reported present is evaluated, reported absent is CAPABILITY_ABSENT naming the producer and any other
+// outcome is Unknown. With no observation the extension stays listed as unverified.
+func (e *evaluator) extension(ref string) {
+	if findObservation(e.ev.Observations, evidence.CapabilityObserved, ref) == nil {
+		e.unverified[fmt.Sprintf("capabilities[ref=%s]", ref)] = true
+		return
+	}
+	e.assert(evidence.CapabilityObserved, "capability", ref, "capabilities[ref="+ref+"]", true,
+		func(o evidence.Observation) (bool, finding.Code, string) {
+			p, _ := o.GetCapabilityObservation()
+			return !p.Present, finding.CodeCapabilityAbsent,
+				fmt.Sprintf("extension capability %q is reported absent by %s", ref, cmp.Or(e.evRef.Source, "its producer"))
+		})
 }
 
 // healthFailing reports whether obs is an Observed capability whose own check answered not healthy.

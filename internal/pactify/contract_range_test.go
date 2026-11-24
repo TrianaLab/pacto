@@ -169,10 +169,10 @@ func TestPactoVersionRaisedForUndeclaredRange(t *testing.T) {
 		opts Options
 		want string
 	}{
-		{"dependency", Options{Dir: fixtureDir(t, "invoices")}, "2.5"},
-		{"none", Options{Dir: plain}, "2.5"},
-		{"domain without dependency", Options{Dir: plain, Domain: "payments"}, "2.5"},
-		{"blank with inferred", Options{Dir: t.TempDir(), Name: "blank", Inferred: inferred}, "2.5"},
+		{"dependency", Options{Dir: fixtureDir(t, "invoices")}, "2.6"},
+		{"none", Options{Dir: plain}, "2.6"},
+		{"domain without dependency", Options{Dir: plain, Domain: "payments"}, "2.6"},
+		{"blank with inferred", Options{Dir: t.TempDir(), Name: "blank", Inferred: inferred}, "2.6"},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			tt.opts.Plan, tt.opts.DescribeOnly = true, true
