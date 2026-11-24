@@ -146,7 +146,7 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class', 'declaration', 'cluster'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class', 'declaration', 'cluster', 'consumable'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -192,6 +192,32 @@ export function installScaleFixture(): void {
       } else if (ag && !narrowed && Number(q.get('limit') || 25) > 1) {
         offeringAgg(ag, LIST_TOTAL.offering);
       }
+    }
+    // 515-S9: consumable offering rows at their longest, a 200-character version, long
+    // classes, tunable fields and publisher, and more providers than the row lists. The
+    // demo may consume none, so stand-ins fill an empty page. A consumable row is never
+    // past sunset and lists only the providers you may see.
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'offering' && q.get('consumable')) {
+      let ents = doc.entities as Record<string, unknown>[];
+      if (!ents.length) {
+        ents = Array.from({ length: 4 }, (_, i) => ({ kind: 'offering', key: `load-consumable-${i}`, label: longName(`load-consumable-${i}`), offering: `load-consumable-${i}`,
+          owner: longName(`owner-${i}`), services: 14, consumers: 30 + i, failedRequests: 0, availability: 'available', availabilityProvenance: 'observed', href: `/fleet/offerings/load-consumable-${i}` }));
+        doc.entities = ents;
+        doc.count = ents.length;
+        page(doc, ents.length);
+      }
+      ents.forEach((r, i) => {
+        r.lifecycle = i % 2 ? 'deprecated' : 'supported';
+        for (const k of ['hiddenConsumers', 'hiddenProviders', 'targetsUnknown']) delete r[k];
+        const version = `17.0.0-${'rc.'.repeat(70)}`.slice(0, 200);
+        r.consumable = { providersTotal: 14, providersTruncated: true, providers: [{
+          version, digest: `sha256:${'4c1e5a'.repeat(11)}`, acceptance: 'publisher', lifecycle: r.lifecycle,
+          publisher: `${signer.subject}-${i}`,
+          classes: Array.from({ length: 6 }, (_, j) => longName(`class-${i}-${j}`).slice(0, 63)),
+          parameters: Array.from({ length: 8 }, (_, j) => ({ configuration: 'provisioning', path: longName(`spec.parameters.tunable-field-${j}`), tier: j % 2 ? 'contract' : 'tunable', required: true, sensitive: false })),
+          parametersTotal: 8, parametersTruncated: false, guarantees: [], schemaPaths: ['configuration/provisioning.schema.json'],
+        }] };
+      });
     }
     // 515-S4: the inferred offering rows at their longest, a 63-character offering read
     // from a long source object with a dozen classes; and, behind a flag, no declared
@@ -2876,6 +2902,7 @@ export const ROUTES: Route[] = [
   { name: 'offerings', list: true, hash: '#/fleet/offerings' },
   { name: 'offerings failed', list: true, hash: '#/fleet/offerings?failed=1' },
   { name: 'offerings deprecated', list: true, hash: '#/fleet/offerings?lifecycle=deprecated' },
+  { name: 'offerings consumable', list: true, hash: '#/fleet/offerings?consumable=1' },
   { name: 'sources', list: true, hash: '#/fleet/sources' },
   // 509-S12: Needs attention is the rail beside the Overview's map; its links land filtered.
   { name: 'overview attention filtered', hash: '#/fleet/attention?category=health' },

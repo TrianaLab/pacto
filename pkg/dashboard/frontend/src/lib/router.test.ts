@@ -829,6 +829,16 @@ describe('offerings list routes', () => {
     expect(fleetOfferingsUrl({ inferred: false })).toBe('#/fleet/offerings');
   });
 
+  it('fleetOfferingsUrl carries consumable', () => {
+    expect(fleetOfferingsUrl({ consumable: true })).toBe('#/fleet/offerings?consumable=1');
+    expect(fleetOfferingsUrl({ consumable: false })).toBe('#/fleet/offerings');
+  });
+
+  it('parses #/fleet/offerings?consumable=1 into route.params.consumable', () => {
+    expect(parseHash('#/fleet/offerings?consumable=1')).toEqual({ view: 'fleet-offerings', params: { consumable: '1' } });
+    expect(parseHash('#/fleet/owners?consumable=1&text=a').params).toEqual({ text: 'a' });
+  });
+
   it('keeps lifecycle, failed and inferred off the other group lists', () => {
     for (const list of ['owners', 'sources', 'domains', 'golden-paths']) {
       expect(parseHash(`#/fleet/${list}?lifecycle=deprecated&failed=1&inferred=1&text=a`).params).toEqual({ text: 'a' });

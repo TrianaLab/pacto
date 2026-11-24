@@ -94,6 +94,27 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(rows.locator('[data-label="Lifecycle"] .badge-warn')).toHaveText('deprecated');
   });
 
+  test('lists only the offerings you may consume', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings');
+    await page.addStyleTag({ content: WIDE_FONT });
+    await expect(page.getByTestId('offering-list')).toBeVisible({ timeout: T });
+    await page.getByTestId('offering-consumable-filter').check();
+    await expect(page).toHaveURL(/#\/fleet\/offerings\?consumable=1$/);
+    await expect(page.locator('.filter-chips')).toContainText('Consumable');
+    // objectstore is the offering a person declared and the demo registry accepted; the
+    // other providers are not checked, so the answer is partial and says so.
+    const rows = page.getByTestId('offering-list').locator('tbody tr');
+    await expect(rows).toHaveCount(1, { timeout: T });
+    await expect(rows.locator('a.entity-link[href$="/fleet/offerings/objectstore"]')).toBeVisible();
+    const line = rows.getByTestId('offering-consumable');
+    await expect(line).toHaveText('1.0.0 · classes archive, standard');
+    await expect(line).toHaveAttribute('title', /^1\.0\.0 · classes archive, standard; publisher \S+, as of /);
+    await expect(page.locator('.knowledge').first()).toBeVisible();
+    await audit(page, 'consumable offerings');
+    expect(await noSideScroll(page)).toBe(true);
+  });
+
   test('the postgresql page shows its providers, a consume snippet and its consumers', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 800 });
     await page.goto('/#/fleet/offerings/postgresql');
