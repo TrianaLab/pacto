@@ -619,8 +619,8 @@ export const api = {
     unwrap(client.GET('/api/delivery/blame', { params: { query: { namespace, stage, digest: digest || undefined, cluster: cluster || undefined } } })),
   deliveryUndo: (namespace: string, name: string, stage = ''): Promise<DeliveryUndo> =>
     unwrap(client.GET('/api/delivery/undo', { params: { query: { namespace, name, stage: stage || undefined } } })),
-  deliveryProgress: (namespace: string, stage: string): Promise<DeliveryProgress> =>
-    unwrap(client.GET('/api/delivery/progress', { params: { query: { namespace, stage } } })),
+  deliveryProgress: (namespace: string, stage: string, cluster?: string): Promise<DeliveryProgress> =>
+    unwrap(client.GET('/api/delivery/progress', { params: { query: { namespace, stage, cluster: cluster || undefined } } })),
   deliveryLifecycle: (query: DeliveryQuery<'/api/delivery/lifecycle'>): Promise<DeliveryLifecycle> =>
     unwrap(client.GET('/api/delivery/lifecycle', { params: { query } })),
   deliveryRecord: (namespace: string, stage: string, id: string, cluster?: string): Promise<DeliveryRecord> =>

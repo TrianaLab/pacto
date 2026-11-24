@@ -1943,11 +1943,14 @@ export function installScaleFixture(): void {
     return [...rows, ...rows.slice(0, 2).map((r) => ({ ...(r as T), cluster: CL_LONG, ...extra }))] as T[];
   };
   const deliveryClusters = (route: string, doc: Record<string, unknown>, cluster: string) => {
-    if (route === '/api/delivery/inbox' || route === '/api/delivery/environments' || route === '/api/delivery/history') {
+    // A one-Stage history of another cluster names only that cluster beside the dashboard's own, as the server does.
+    if (route === '/api/delivery/history' && cluster) {
+      Object.assign(doc, { clusters: [deliveryClusterListing()[0], { id: cluster, name: clName('production-eu-central-1'), completeness: 'complete', asOf: ago(0) }] });
+    } else if (route === '/api/delivery/inbox' || route === '/api/delivery/environments' || route === '/api/delivery/history') {
       Object.assign(doc, { clusters: deliveryClusterListing(), hiddenClusters: 1, completeness: 'partial' });
     }
     if (route === '/api/delivery/inbox') {
-      const next = { readOnly: true, next: `pacto delivery approve ${longName('payments-promote')} --context ${clName('production-eu-central-1')}` };
+      const next = { readOnly: true, next: `kubectl config use-context ${clName('production-eu-central-1')} && pacto delivery approve ${longName('payments-promote')} -n prod` };
       doc.held = twin(doc.held, next) ?? doc.held;
       doc.errored = twin(doc.errored, next) ?? doc.errored;
       doc.frozen = twin(doc.frozen) ?? doc.frozen;
@@ -3751,7 +3754,7 @@ export const ROUTES: Route[] = [
   },
   { name: 'delivery clusters environments', list: true, open: deliveryClustersRoute('#/delivery/environments', '[data-testid="listing-clusters"]') },
   { name: 'delivery clusters inbox', list: true, open: deliveryClustersRoute('#/delivery/inbox', '[data-testid="listing-clusters"]') },
-  { name: 'delivery clusters history', list: true, open: deliveryClustersRoute('#/delivery/history?namespace=prod&stage=payments&cluster=9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34', '[data-testid="listing-clusters"]') },
+  { name: 'delivery clusters history', list: true, open: deliveryClustersRoute('#/delivery/history?namespace=prod&stage=payments&cluster=9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34', 'h1:has-text("production-eu-central-1")') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

@@ -37,7 +37,8 @@
   {:else}
     {#if c}
       <p class="t-body" data-testid="blame-change">
-        <a href={deliveryChangeUrl(namespace, c.operation)}>{typeLabel(c.type)}</a>
+        <!-- A change of another cluster only reads here: text, never this cluster's change page. -->
+        <svelte:element this={cluster ? 'span' : 'a'} href={cluster ? undefined : deliveryChangeUrl(namespace, c.operation)} title={cluster ? 'A change in another cluster: open it there' : undefined}>{typeLabel(c.type)}</svelte:element>
         by <strong><Person user={c.actor} people={blame?.people} /></strong>{#if actorBadge(c.actorClass)}{@const ab = actorBadge(c.actorClass)}{' '}<span class="badge {ab.tone}" data-testid="actor-badge">{ab.label}</span>{' '}<span class="t-meta" data-testid="actor-source">({classSourceLabel(c.actorClassifiedBy)})</span>{/if}{#if blame.onBehalfOf}, for <strong><Person user={blame.onBehalfOf} people={blame?.people} /></strong>{/if}{#if c.from}, from {versionLabel(c.from, blame.versions)}{/if}{#if c.finished}, finished <time datetime={c.finished}>{timeLabel(c.finished)}</time>{/if}.
         {#if blame.intentReason}Why: “{blame.intentReason}”.{/if}
       </p>

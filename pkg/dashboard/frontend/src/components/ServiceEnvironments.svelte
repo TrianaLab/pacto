@@ -9,6 +9,7 @@
   import { timeLabel } from '../lib/delivery.ts';
   import { fleetEntityListUrl, deliveryHistoryUrl, hashForHref, serviceChangesUrl } from '../lib/router.ts';
   import { cap } from '../lib/cap.svelte.ts';
+  import { stageKey } from '../lib/envFigure.ts';
 
   // A service's environments on its page (#467): one row per environment the current
   // revision declares or a target you can see reports, joined by exact name. Each fact
@@ -49,7 +50,7 @@
 {#snippet stageLink(r)}
   <span class="sv-line">
     <EnvMark state={r.state} word />
-    <a href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })} title={`Stage ${r.namespace}/${r.stage}`}><bdi>Stage {r.namespace}/{r.stage}</bdi></a>
+    <a href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage, cluster: r.cluster || undefined })} title={`Stage ${r.namespace}/${r.stage}${r.cluster ? ` in cluster ${r.cluster}` : ''}`}><bdi>Stage {r.namespace}/{r.stage}</bdi></a>
     <span class="t-meta">state observed, environment declared by a Stage (admin)</span>
   </span>
 {/snippet}
@@ -131,7 +132,7 @@
           <div class="sv-cell" data-cell="stage">
             <span class="sv-k">Stage</span>
             {#if stages.length}
-              {#each stages as r (`${r.namespace}/${r.stage}`)}{@render stageLink(r)}{/each}
+              {#each stages as r (stageKey(r))}{@render stageLink(r)}{/each}
             {:else if stagesCompleteness === 'partial'}
               <span class="sv-line t-meta">Stages unknown: partial listing</span>
             {:else if g.environment}
@@ -154,7 +155,7 @@
         </div>
         <div class="sv-cell" data-cell="stage">
           <span class="sv-k">Stage</span>
-          {#each stagesOf(env) as r (`${r.namespace}/${r.stage}`)}{@render stageLink(r)}{/each}
+          {#each stagesOf(env) as r (stageKey(r))}{@render stageLink(r)}{/each}
         </div>
       </li>
     {/each}

@@ -106,17 +106,18 @@ func (s *Server) refuseRemote(ctx context.Context, cluster, command string) erro
 		": act there with "+r.next(command))
 }
 
-// namedCluster is the listing row that names remote cluster, so a one-Stage
-// answer says which cluster it read; none for the dashboard's own ("").
+// namedCluster are the listing rows of the dashboard's own cluster and of
+// remote cluster, so a one-Stage answer says which cluster it read; none for
+// the dashboard's own ("").
 func (s *Server) namedCluster(ctx context.Context, cluster string) []delivery.ClusterListing {
-	var out []delivery.ClusterListing
-	_, remotes := s.remotes(ctx)
+	home, remotes := s.remotes(ctx)
+	asOf := time.Now().UTC().Format(time.RFC3339)
 	for _, r := range remotes {
 		if r.Cluster.ID == cluster && cluster != "" {
-			out = append(out, clusterRow(r, time.Now().UTC().Format(time.RFC3339)))
+			return []delivery.ClusterListing{{ID: home.ID, Name: home.Name, Completeness: "complete", AsOf: asOf}, clusterRow(r, asOf)}
 		}
 	}
-	return out
+	return nil
 }
 
 // clusterRow is r's listing row, read completely at asOf unless r says when

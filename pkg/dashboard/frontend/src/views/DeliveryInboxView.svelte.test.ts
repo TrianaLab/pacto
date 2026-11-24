@@ -60,7 +60,7 @@ beforeEach(() => {
 describe('inbox across clusters', () => {
   const held = { namespace: 'prod', name: 'op1', stage: 'pay', type: 'delivery.pacto.trianalab.io/promote', to: D2, phase: 'Held', decision: 'approve', owners: ['team-checkout'], consumers: ['checkout'] };
   it('keeps same-named operations of two clusters apart and shows a remote one read-only with its command', async () => {
-    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [held, { ...held, cluster: US, readOnly: true, next: 'pacto delivery approve op1 -n prod --context us-prod' }] });
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [held, { ...held, cluster: US, readOnly: true, next: 'kubectl config use-context us-prod && pacto delivery approve op1 -n prod' }] });
     const { target, destroy } = render(DeliveryInboxView);
     await settle();
     const rows = [...target.querySelectorAll('[data-testid="inbox-held"] > li')];
@@ -71,7 +71,7 @@ describe('inbox across clusters', () => {
     // The remote item: no Decide, no link to this cluster's change page, the command in the action slot.
     expect(rows[1].querySelector('a.btn-primary')).toBeNull();
     expect(rows[1].querySelector('a[href="#/delivery/changes/prod/op1"]')).toBeNull();
-    expect(text(rows[1].querySelector('[data-testid="inbox-next"]')!)).toBe('Decide there: pacto delivery approve op1 -n prod --context us-prod');
+    expect(text(rows[1].querySelector('[data-testid="inbox-next"]')!)).toBe('Decide there: kubectl config use-context us-prod && pacto delivery approve op1 -n prod');
     expect(rows[1].querySelector('.dl-title')?.getAttribute('title')).toBe(`Cluster us-prod (${US})`);
     for (const l of target.querySelectorAll('.dl-title')) expect(l.textContent).not.toMatch(UID);
     destroy();

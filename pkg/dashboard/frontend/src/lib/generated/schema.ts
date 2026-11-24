@@ -6726,6 +6726,11 @@ export interface components {
             classification: string;
             /** @description The clusters the answer read, with their status and age. Absent with one cluster */
             clusters?: components["schemas"]["Fleet.ClusterSummary"][] | null;
+            /**
+             * Format: int64
+             * @description How many clusters the answer read that clusters leaves out: it lists at most fleet.MaxMetaClusters
+             */
+            clustersTruncated?: number;
             completeness: string;
             /** @description How the organization index was read: which repository, how many services it lists and how many depend on the changed service. Absent when no index was read, such as for local folders, over HTTP or in the dashboard */
             consumerIndex?: components["schemas"]["Impact.ConsumerIndex"];

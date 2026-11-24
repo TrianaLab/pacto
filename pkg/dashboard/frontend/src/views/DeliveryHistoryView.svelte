@@ -62,6 +62,9 @@
   const by = $derived({ cause, correlationID, cluster: (one && cluster) || undefined });
   // An answer read from several clusters names each Stage's cluster before it.
   const pre = (h) => clusterPrefix(h.cluster, data?.clusters);
+  // A change of another cluster only reads here: its label is text, never a link to this
+  // cluster's change page, and its title says where it is.
+  const elsewhere = (h) => (h.cluster ? `A change in ${clusterTitle(h.cluster, data?.clusters) || `cluster ${h.cluster}`}: open it in that cluster` : undefined);
   const filtered = $derived(!!(q || cause || correlationID));
   // The window in words, when there is one.
   const windowText = $derived(timed && (since || until) ? `with a time${since ? ` at or after ${timeLabel(since)}` : ''}${since && until ? ' and' : ''}${until ? ` before ${timeLabel(until)}` : ''}`
@@ -283,7 +286,7 @@
 
 <div class="product-page">
   <PageHeader
-    title={stage ? `History of ${namespace}/${stage}` : 'History'}
+    title={stage ? `History of ${clusterPrefix(cluster, data?.clusters)}${namespace}/${stage}` : 'History'}
     asOf={data?.asOf}
     revalidating={!!data && loader.loading}
     paging={answer.paging}
@@ -364,7 +367,7 @@
                 <td data-label="Newest change">
                   {#if en}
                     <div class="cell-stack">
-                      <span>{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</span>
+                      <span>{#if en.operation}<svelte:element this={h.cluster ? 'span' : 'a'} href={h.cluster ? undefined : deliveryChangeUrl(h.namespace, en.operation)} title={elsewhere(h)}>{changeLabel(en)}</svelte:element>{:else}{changeLabel(en)}{/if}</span>
                       {#if en.from || en.to}<span class="t-meta cell-clip" title={moveTitle(en)}>{move(en)}</span>{/if}
                       {@render undoCell(h, en)}
                     </div>
@@ -435,7 +438,7 @@
                     <tr class:hv-run-more={run && runs.start[i] !== i}>
                       <td data-label="Change">
                         <div class="cell-stack">
-                          <span>{#if en.seq}<span class="hv-seq">#{en.seq}</span>{' '}{/if}{#if en.operation}<a href={deliveryChangeUrl(h.namespace, en.operation)}>{changeLabel(en)}</a>{:else}{changeLabel(en)}{/if}</span>
+                          <span>{#if en.seq}<span class="hv-seq">#{en.seq}</span>{' '}{/if}{#if en.operation}<svelte:element this={h.cluster ? 'span' : 'a'} href={h.cluster ? undefined : deliveryChangeUrl(h.namespace, en.operation)} title={elsewhere(h)}>{changeLabel(en)}</svelte:element>{:else}{changeLabel(en)}{/if}</span>
                           {@render undoCell(h, en)}
                           {#if run && runs.start[i] === i}<button type="button" class="btn btn-sm hv-fold" data-testid="history-run" aria-expanded={runOpen}
                             aria-label={runOpen ? 'Fold the changes like this one' : `Show ${formatCount(run - 1)} more changes like this one`}

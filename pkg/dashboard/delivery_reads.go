@@ -1276,7 +1276,7 @@ func (s *Server) historyTargets(ctx context.Context, in *historyInput, out *hist
 			in.Cluster = ""
 		}
 		out.Body.Page = Page{Total: 1, Limit: 1}
-		out.Body.Listing.Clusters = s.namedCluster(ctx, in.Cluster)
+		out.Body.Clusters = s.namedCluster(ctx, in.Cluster)
 		st, err := api.Stage(ctx, in.Namespace, in.Stage)
 		if err != nil {
 			st = &delivery.StageObject{Metadata: delivery.ObjectMeta{Namespace: in.Namespace, Name: in.Stage}}

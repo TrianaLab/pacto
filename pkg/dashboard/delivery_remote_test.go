@@ -324,7 +324,7 @@ func TestOneStageRemoteHistoryNamesCluster(t *testing.T) {
 	base := startRemotes(t, sampleCluster(), eu(remote))
 	_, hist := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&cluster="+euID, nil)
 	cls, _ := hist["clusters"].([]any)
-	expect(t, len(cls) == 1 && cls[0].(map[string]any)["name"] == "eu-prod", "clusters %v", hist)
+	expect(t, len(cls) == 2 && cls[0].(map[string]any)["name"] == "hub" && cls[1].(map[string]any)["name"] == "eu-prod", "clusters %v", hist)
 	for _, q := range []string{"stage=payments&cluster=" + euID, "cluster=" + euID} {
 		code, body := call(t, http.MethodGet, base+"/api/delivery/history?"+q, nil)
 		expect(t, code == http.StatusBadRequest && body["code"] == "ClusterNeedsStage", "%s: %d %v", q, code, body)

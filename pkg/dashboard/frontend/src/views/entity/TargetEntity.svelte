@@ -20,6 +20,7 @@
   import TargetFigure from '../../components/figure/TargetFigure.svelte';
   import StageOffers from '../../components/StageOffers.svelte';
   import { CLUSTER_NAME_SOURCES } from '../../lib/clusters.ts';
+  import { stageKey } from '../../lib/envFigure.ts';
 
   // The deployment/target page. It makes the TWO identity dimensions
   // immediately understandable and independent:
@@ -68,12 +69,16 @@
       if (ask.service === svcName && ask.environment === envName) delivery = { data: r };
     }, (err) => { delivery = err?.code === 'DeliveryNotInstalled' ? null : { error: err }; });
   });
-  const deliveryRows = $derived((delivery?.data?.environments ?? [])
-    .filter((x) => x.service === svcName && x.environment === envName && (!x.domain || x.domain === svcDomain)));
   // The cluster that reported this target (514-S1). The UID is the identity; the name
   // is display only, so it always says where it came from, and who reported it when
   // this process did not read it itself.
   const cluster = $derived(d.cluster ?? null);
+  // With several clusters a Stage delivers this target only in the target's own cluster:
+  // the listing names the dashboard's own cluster first, and its rows carry no cluster.
+  const homeID = $derived(delivery?.data?.clusters?.[0]?.id ?? '');
+  const inTargetCluster = (x) => !delivery?.data?.clusters?.length || (x.cluster || homeID) === (cluster?.id || homeID);
+  const deliveryRows = $derived((delivery?.data?.environments ?? [])
+    .filter((x) => x.service === svcName && x.environment === envName && (!x.domain || x.domain === svcDomain) && inTargetCluster(x)));
   const clusterHow = $derived.by(() => {
     if (!cluster) return '';
     const how = CLUSTER_NAME_SOURCES[cluster.nameSource] ?? CLUSTER_NAME_SOURCES.uid;
@@ -162,8 +167,8 @@
         <span class="te-k">Delivery</span>
         {#if deliveryRows.length}
           <!-- Several Stages deliver this environment: each link names its Stage, so no two read alike (WCAG 2.4.4). -->
-          {#each deliveryRows as row (row.namespace + '/' + row.stage)}<a href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })} title={`${row.namespace}/${row.stage}`}>Delivery in {envName}{#if deliveryRows.length > 1}{' '}(<bdi>{row.namespace}/{row.stage}</bdi>){/if}</a>{/each}
-          <div class="te-offers"><StageOffers rows={deliveryRows} service={svcName} onlyAvailable labelPrefix="Plan" {correlation} /></div>
+          {#each deliveryRows as row (stageKey(row))}<a href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage, cluster: row.cluster || undefined })} title={`${row.namespace}/${row.stage}`}>Delivery in {envName}{#if deliveryRows.length > 1}{' '}(<bdi>{row.namespace}/{row.stage}</bdi>){/if}</a>{/each}
+          <div class="te-offers"><StageOffers rows={deliveryRows.filter((x) => !x.cluster)} service={svcName} onlyAvailable labelPrefix="Plan" {correlation} /></div>
         {:else if delivery.error}
           <span class="te-note">Pacto could not read the Stages of this service: {delivery.error.message || String(delivery.error)}</span>
         {:else}

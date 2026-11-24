@@ -101,3 +101,15 @@ test('a member cluster consumer blocks the breaking change, named by its cluster
   // Every label reads a display name: the uid lives only in titles and hrefs.
   expect(await page.locator('main').innerText()).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
 });
+
+// 514-S7: a Stage of another cluster reads here only. Its history names the cluster in
+// the title and links no change to this cluster's change page, which reads the
+// dashboard's own cluster.
+test('a history of another cluster names it and links no change to this cluster', async ({ page }) => {
+  await page.addInitScript(installScaleFixture);
+  await page.addInitScript(() => { (window as unknown as { __pactoDeliveryClusters?: boolean }).__pactoDeliveryClusters = true; });
+  await appReady(page);
+  await page.goto('/#/delivery/history?namespace=prod&stage=payments&cluster=9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34');
+  await expect(page.getByTestId('page-title')).toContainText('production-eu-central-1', { timeout: 30_000 });
+  await expect(page.locator('main a[href^="#/delivery/changes"]')).toHaveCount(0);
+});

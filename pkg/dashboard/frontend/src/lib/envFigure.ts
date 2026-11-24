@@ -182,18 +182,27 @@ export function upstreamText(r: Pick<Row, 'namespace' | 'stage' | 'upstream'>): 
   return s && s.kind !== 'unknown' ? `Source: ${s.label}, ${s.sub}` : '';
 }
 
+/**
+ * stageKey is a Stage's key as the server keys it (delivery.StageKey): namespace/stage in
+ * the dashboard's own cluster, cluster/namespace/stage in another, so same-named Stages of
+ * two clusters stay two.
+ */
+export function stageKey(x: { cluster?: string; namespace: string; stage: string }): string {
+  return x.cluster ? `${x.cluster}/${x.namespace}/${x.stage}` : `${x.namespace}/${x.stage}`;
+}
+
 export function promotionModel(service: string, graph: Graph, rows: Row[]) {
   const nodes = graph.nodes ?? [], edges = graph.edges ?? [];
-  const byKey = new Map(rows.map((r) => [`${r.namespace}/${r.stage}`, r]));
+  const byKey = new Map(rows.map((r) => [stageKey(r), r]));
   const fedBy = new Map(edges.map((e) => [e.to, e.from]));
-  const src = (n: GNode, shownKeys: string[]) => sourceOf(n, shownKeys.includes(fedBy.get(`${n.namespace}/${n.stage}`) ?? ''), fedBy.has(`${n.namespace}/${n.stage}`));
+  const src = (n: GNode, shownKeys: string[]) => sourceOf(n, shownKeys.includes(fedBy.get(stageKey(n)) ?? ''), fedBy.has(stageKey(n)));
   const envCount = new Map<string, number>();
   for (const n of nodes) envCount.set(n.environment, (envCount.get(n.environment) ?? 0) + 1);
   const shown: GNode[] = [];
   let marks = 0;
   for (const n of nodes) {
-    const key = `${n.namespace}/${n.stage}`;
-    const shownKeys = shown.map((s) => `${s.namespace}/${s.stage}`);
+    const key = stageKey(n);
+    const shownKeys = shown.map(stageKey);
     const fed = shownKeys.includes(fedBy.get(key) ?? '');
     const from = src(n, shownKeys);
     const cost = 1 + (fed ? 1 : 0) + (from ? (from.kind === 'unknown' ? 1 : 2) : 0);
@@ -201,17 +210,18 @@ export function promotionModel(service: string, graph: Graph, rows: Row[]) {
     shown.push(n);
     marks += cost;
   }
-  const keys = shown.map((n) => `${n.namespace}/${n.stage}`);
+  const keys = shown.map(stageKey);
   const levels = [...new Set(shown.map((n) => n.level))].sort((a, b) => a - b);
   const hasSource = shown.some((n) => src(n, keys));
   const rowIn = new Map<number, number>();
   const stations: PromoStation[] = shown.map((n) => {
-    const key = `${n.namespace}/${n.stage}`;
+    const key = stageKey(n);
     const r = byKey.get(key);
     const row = (rowIn.get(n.level) ?? 0) + 1;
     rowIn.set(n.level, row);
     return {
-      key, env: n.environment, stage: (envCount.get(n.environment) ?? 0) > 1 ? key : '',
+      // The label never shows a cluster uid: the key does, the label is namespace/stage.
+      key, env: n.environment, stage: (envCount.get(n.environment) ?? 0) > 1 ? `${n.namespace}/${n.stage}` : '',
       col: levels.indexOf(n.level) + 1 + (hasSource ? 1 : 0), row, stageRow: r, state: r ? rowState(r) : null,
       version: r ? r.version || (r.pointer ? r.pointer.slice(0, 19) : '') : '',
       source: src(n, keys), cycle: !!n.cycle, promoted: '',
