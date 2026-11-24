@@ -59,7 +59,7 @@ jobs:
       # stale generated docs. docs-generate runs `go run .../cmd --help` + a pyyaml
       # script — kept here (push-only job) so the release-version-test clone stays
       # dependency-free.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       # docs-generate shells out to `go run ./cmd/pacto --help`. This job is
@@ -137,7 +137,7 @@ jobs:
       # image build noticed. Only the operator units (and the delivery image, built
       # from the same module) read that go.sum, so a recovery
       # narrowed to core-line units (e.g. units=cli) is not held hostage by it.
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         if: steps.d.outputs.release == 'true' && (contains(fromJSON(steps.d.outputs.units_json), 'k8s-module') || contains(fromJSON(steps.d.outputs.units_json), 'operator-image') || contains(fromJSON(steps.d.outputs.units_json), 'delivery-image'))
         with:
           go-version-file: go.mod
@@ -241,7 +241,7 @@ jobs:
       - name: Install crane
         uses: ./.github/actions/setup-crane
       - name: Install ORAS
-        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
+        uses: oras-project/setup-oras@ac735097e22fe643015b0d19645f7c9a69942128 # v2
       - name: Log in to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -368,7 +368,7 @@ jobs:
       - name: Install crane
         uses: ./.github/actions/setup-crane
       - name: Install ORAS
-        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
+        uses: oras-project/setup-oras@ac735097e22fe643015b0d19645f7c9a69942128 # v2
       - name: Install Cosign
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -463,7 +463,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.source_sha }}
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       - name: Install syft
@@ -471,7 +471,7 @@ jobs:
       - name: Install crane
         uses: ./.github/actions/setup-crane
       - name: Install ORAS
-        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
+        uses: oras-project/setup-oras@ac735097e22fe643015b0d19645f7c9a69942128 # v2
       - name: Log in to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -525,7 +525,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.source_sha }}
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       - name: Warm the module cache (retried)
@@ -533,7 +533,7 @@ jobs:
       - name: Install crane
         uses: ./.github/actions/setup-crane
       - name: Install ORAS
-        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
+        uses: oras-project/setup-oras@ac735097e22fe643015b0d19645f7c9a69942128 # v2
       - name: Install Cosign
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Log in to GHCR
@@ -580,7 +580,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.source_sha }}
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       # publish-demo-bundles.sh runs `go run ./publishbundles` twice, after the
@@ -588,7 +588,7 @@ jobs:
       - name: Warm the module cache (retried)
         run: bash release/scripts/retry.sh go mod download
       - name: Install ORAS
-        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
+        uses: oras-project/setup-oras@ac735097e22fe643015b0d19645f7c9a69942128 # v2
       - name: Log in to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -658,7 +658,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.detect.outputs.source_sha }}
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       # `go run ./tests/acceptance/scenario/project` projects the application
@@ -675,7 +675,7 @@ jobs:
         # NOT for the Compose artifact — Compose publishes that (see the job
         # comment). For the release LEDGER, which this job reads below and writes
         # through publish-oci-unit.sh, and which ledger.sh pulls with oras.
-        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
+        uses: oras-project/setup-oras@ac735097e22fe643015b0d19645f7c9a69942128 # v2
       - name: Log in to GHCR
         uses: docker/login-action@8aa5831fb8d48d8f76594c7ddde61ae58019f550 # v4.8.0
         with:
@@ -881,7 +881,7 @@ jobs:
       - name: Install crane
         uses: ./.github/actions/setup-crane
       - name: Install ORAS
-        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
+        uses: oras-project/setup-oras@ac735097e22fe643015b0d19645f7c9a69942128 # v2
       - name: Install Cosign
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
@@ -1037,7 +1037,7 @@ jobs:
       - name: Install Cosign
         uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
       - name: Install ORAS
-        uses: oras-project/setup-oras@5e2f2482b30b0cb3e14e67f89a80c88c659a7c63 # v2
+        uses: oras-project/setup-oras@ac735097e22fe643015b0d19645f7c9a69942128 # v2
       - name: Install crane
         uses: ./.github/actions/setup-crane
       - name: Log in to GHCR (Helm)
@@ -1145,7 +1145,7 @@ jobs:
           cache: pip
           cache-dependency-path: docs/requirements.txt
       - run: pip install -r docs/requirements.txt
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       # This job compiles Go twice — the WASM demo, and the CLI that
@@ -1206,7 +1206,7 @@ jobs:
           # HEAD at dispatch time (on push these are the same commit).
           ref: ${{ needs.detect.outputs.source_sha }}
           fetch-depth: 0
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
         with:
           go-version-file: go.mod
       # Warm the module cache through a retry before anything compiles.
