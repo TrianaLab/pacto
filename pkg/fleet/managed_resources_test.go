@@ -60,7 +60,7 @@ func mClusterB() *Cluster { return &Cluster{ID: "uid-b", Name: "prod-b"} }
 func TestManagedResourceCreatesExternal(t *testing.T) {
 	snap := buildManaged(t, managedSource("managed", []RawManagedResource{ordersDB("")}, nil))
 	rec := snap.Externals[ordersDBID]
-	if rec == nil || rec.Class != externalcatalog.ClassManagedCloud || rec.ConsumersTotal != 0 || len(rec.Resources) != 1 || rec.ResourcesTotal != 1 {
+	if rec == nil || rec.Class != externalcatalog.ClassManagedCloud || rec.ConsumersTotal != 0 || rec.Label != "orders-db" || len(rec.Resources) != 1 || rec.ResourcesTotal != 1 {
 		t.Fatalf("record = %+v", rec)
 	}
 	r := rec.Resources[0]

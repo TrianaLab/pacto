@@ -3405,6 +3405,9 @@ func finalizeExternal(rec *ExternalRecord) {
 	if i := slices.IndexFunc(rec.Sources, func(s ExternalSource) bool { return s.Dependency != "" }); rec.Label == "" && i >= 0 {
 		rec.Label = rec.Sources[i].Dependency
 	}
+	if segs := externalid.ID(rec.Key).Segments(); rec.Label == "" && len(segs) == 5 {
+		rec.Label = segs[4] // a managed resource reads by its id; the identity stays in Key
+	}
 	if rec.Label == "" {
 		rec.Label = string(rec.Key) // only observed or inferred sources: they name no dependency
 	}
