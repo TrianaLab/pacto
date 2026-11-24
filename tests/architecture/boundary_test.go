@@ -321,6 +321,17 @@ var joinListReaders = map[string]string{
 	"pkg/delivery/clustercandidates.go": "matches the hub's candidate clusters to its join list by stated UID; it reads no fleet view",
 }
 
+// clusterAttribution are the impact files that name where a consumer runs:
+// the answer's cluster summaries, each consumer's cluster ids and the
+// stale-cluster rule, which reads a cluster's source status and age (the same
+// for every reader) and only ever lowers a verdict to unknown. Access marks,
+// cluster records and the Cluster filter stay banned there.
+var clusterAttribution = map[string]string{
+	"pkg/impact/clusters.go": "attributes consumers to clusters and turns compatible unknown on a stale cluster",
+	"pkg/impact/impact.go":   "declares Result.Clusters and AffectedConsumer.Clusters",
+	"pkg/impact/product.go":  "copies a consumer's cluster ids",
+}
+
 // TestNoGateReadsClusterAccess keeps cluster access marks, per-cluster
 // summaries and the Cluster list filter out of every gate: they describe what
 // one reader may see, so a gate that read them would pass or fail by who asked.
@@ -359,8 +370,9 @@ func clusterViewReads(t *testing.T, path, rel string) []string {
 		switch n := n.(type) {
 		case *ast.SelectorExpr:
 			x, ok := n.X.(*ast.Ident)
-			joinList := joinListReaders[rel] != "" && n.Sel.Name == "Clusters"
-			if (ok && x.Name == "fleet" && slices.Contains(clusterViewSymbols, n.Sel.Name)) || (n.Sel.Name == "Clusters" && !joinList) || n.Sel.Name == "ClustersTruncated" {
+			allowed := (joinListReaders[rel] != "" || clusterAttribution[rel] != "") && n.Sel.Name == "Clusters"
+			summary := ok && x.Name == "fleet" && n.Sel.Name == "ClusterSummary" && clusterAttribution[rel] != ""
+			if (ok && x.Name == "fleet" && slices.Contains(clusterViewSymbols, n.Sel.Name) && !summary) || (n.Sel.Name == "Clusters" && !allowed) || n.Sel.Name == "ClustersTruncated" {
 				at(n)
 			}
 		case *ast.CompositeLit:

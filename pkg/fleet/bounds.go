@@ -148,7 +148,7 @@ func BoundLimitations(ls []Limitation) ([]Limitation, bool) {
 // keptPastCap says whether l is about the whole answer and survives the cap.
 func keptPastCap(l Limitation) bool {
 	switch l.Code {
-	case LimitationHiddenByPermissions, LimitationK8sNamespaceScoped, LimitationK8sNamespaceUnreadable:
+	case LimitationHiddenByPermissions, LimitationK8sNamespaceScoped, LimitationK8sNamespaceUnreadable, LimitationClustersUnread:
 		return true
 	}
 	return false

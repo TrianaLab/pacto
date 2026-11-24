@@ -81,6 +81,12 @@ const SourceKindLinked = "kubernetes-linked"
 // records and lists it nowhere: it is no source a reader configured.
 const SourceKindMemberLinks = "member-links"
 
+// SourceKindClusterJoins is the Kind of the hub's carrier of the unread
+// cluster count ([Collection.UnreadClusters]): clusters that publish to its
+// targets repository and are not members. Build copies the count and the
+// carrier's limitations and lists it nowhere: it reads no runtime.
+const SourceKindClusterJoins = "cluster-joins"
+
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
 	// "local", or a named environment like "production-eu"). Used as provenance.
@@ -183,6 +189,10 @@ type Collection struct {
 	// ClusterLinks are member link facts by cluster id, read only from a
 	// [SourceKindMemberLinks] source.
 	ClusterLinks map[string]ClusterLink
+	// UnreadClusters counts clusters that publish to the hub's targets
+	// repository and are not members, read only from a
+	// [SourceKindClusterJoins] source.
+	UnreadClusters int
 }
 
 // RawServiceFact is what a source outside every contract (an IDP's catalog)

@@ -3322,6 +3322,11 @@ export interface components {
              * @enum {string}
              */
             access?: "no-access" | "review-failed" | "not-reviewable";
+            /**
+             * Format: date-time
+             * @description The oldest last successful read among the sources that reported the cluster. Absent when none was ever read.
+             */
+            asOf?: string;
             /** @description The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified. */
             id: string;
             /** @description The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel. */
@@ -4250,6 +4255,11 @@ export interface components {
                 [key: string]: components["schemas"]["Fleet.TargetRecord"];
             };
             uncontractedCallers?: components["schemas"]["Fleet.UncontractedCaller"][] | null;
+            /**
+             * Format: int64
+             * @description How many clusters publish to this hub's targets repository and are not members, so consumers there are unknown. Never names a cluster.
+             */
+            unreadClusters?: number;
             usage?: components["schemas"]["Fleet.UsageRecord"][] | null;
         };
         "Fleet.GraphNode": {
@@ -6389,6 +6399,8 @@ export interface components {
             break?: components["schemas"]["Impact.BreakState"];
             /** @description For an external answer: the client library and major the consumer's inferred record names; absent when none names a major */
             client?: components["schemas"]["Fleet.ExternalClient"];
+            /** @description The ids of the clusters this consumer's targets run in; names and status are in the answer's clusters. Absent with one cluster */
+            clusters?: string[] | null;
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -6668,6 +6680,8 @@ export interface components {
             /** @description The canonical owner key of the changed service */
             changedOwnerKey?: string;
             classification: string;
+            /** @description The clusters the answer read, with their status and age. Absent with one cluster */
+            clusters?: components["schemas"]["Fleet.ClusterSummary"][] | null;
             completeness: string;
             /** @description How the organization index was read: which repository, how many services it lists and how many depend on the changed service. Absent when no index was read, such as for local folders, over HTTP or in the dashboard */
             consumerIndex?: components["schemas"]["Impact.ConsumerIndex"];
@@ -6717,6 +6731,11 @@ export interface components {
             targetSnapshots?: components["schemas"]["Fleet.SourceState"][] | null;
             /** @description The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each */
             templates?: string[] | null;
+            /**
+             * Format: int64
+             * @description How many clusters publish to this hub and are not members, so consumers there are unknown: a BREAKING change stays unverified. Never names a cluster
+             */
+            unreadClusters?: number;
         };
         "Impact.RunningBaseline": {
             /** @description The running revisions with the new revision's digest, left out of the baseline: a revision is never its own baseline */
@@ -7543,6 +7562,8 @@ export interface components {
             break?: components["schemas"]["Impact.BreakState"];
             /** @description For an external answer: the client library and major the consumer's inferred record names; absent when none names a major */
             client?: components["schemas"]["Fleet.ExternalClient"];
+            /** @description The ids of the clusters this consumer's targets run in; names and status are in meta.clusters. Absent with one cluster */
+            clusters?: string[] | null;
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;

@@ -445,9 +445,16 @@ func ingestCollection(snap *FleetSnapshot, src Source, col *Collection, now time
 	if col == nil {
 		col = &Collection{}
 	}
-	if src.Kind() == SourceKindMemberLinks {
-		// A carrier of link facts: no records, no source state, never listed.
+	switch src.Kind() {
+	case SourceKindMemberLinks, SourceKindClusterJoins:
+		// A carrier of link facts or of the unread cluster count: no records,
+		// no source state, never listed.
 		applyClusterLinks(snap, col.ClusterLinks)
+		snap.UnreadClusters += col.UnreadClusters
+		for _, l := range col.Limitations {
+			l.Source = cmp.Or(l.Source, src.ID())
+			snap.Limitations = append(snap.Limitations, l)
+		}
 		return nil
 	}
 	revCount, targetCount := 0, 0

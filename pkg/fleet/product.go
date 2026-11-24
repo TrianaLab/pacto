@@ -352,17 +352,34 @@ type ClusterSummary struct {
 	Access     string       `json:"access,omitempty" enum:"no-access,review-failed,not-reviewable" doc:"Why a restricted view shows nothing of this cluster; empty when it shows what you may read."`
 	Targets    int          `json:"targets" doc:"The targets of this cluster the answer shows."`
 	Link       *ClusterLink `json:"link,omitempty" doc:"The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel."`
+	AsOf       *time.Time   `json:"asOf,omitempty" doc:"The oldest last successful read among the sources that reported the cluster. Absent when none was ever read."`
 }
 
 // clusterSummaries is the per-cluster status of s, nil when s knows no
 // cluster, capped at MaxMetaClusters (least healthy kept first).
 func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
-	if len(s.Clusters) == 0 {
-		return nil, false
+	out := allClusterSummaries(s)
+	if len(out) <= MaxMetaClusters {
+		return out, false
 	}
-	status := map[string]SourceStatus{}
+	sort.SliceStable(out, func(i, j int) bool { return sourceHealthRank(out[i].Status) < sourceHealthRank(out[j].Status) })
+	return out[:MaxMetaClusters], true
+}
+
+// ClusterSummaries is the status of every cluster the snapshot knows,
+// uncapped, so a reader of one cluster's status (impact's stale-cluster
+// rule) never loses it to the meta cap.
+func (q *Query) ClusterSummaries() []ClusterSummary { return allClusterSummaries(q.snap) }
+
+// allClusterSummaries is the per-cluster status of s, nil when s knows no
+// cluster.
+func allClusterSummaries(s *FleetSnapshot) []ClusterSummary {
+	if len(s.Clusters) == 0 {
+		return nil
+	}
+	byID := map[string]SourceState{}
 	for _, st := range s.Sources {
-		status[st.ID] = st.Status
+		byID[st.ID] = st
 	}
 	targets := map[string]int{}
 	for _, t := range s.Targets {
@@ -374,7 +391,9 @@ func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
 		sum := ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable, Access: c.Access, Targets: targets[c.ID], Link: c.Link}
 		for _, src := range c.Sources {
 			named[src] = true
-			sum.Status = worseStatus(sum.Status, status[src])
+			st := byID[src]
+			sum.Status = worseStatus(sum.Status, st.Status)
+			sum.AsOf = olderSync(sum.AsOf, st.LastSuccessfulSync)
 		}
 		at[c.ID] = len(out)
 		out = append(out, sum)
@@ -388,14 +407,18 @@ func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
 			// cluster's status.
 			out = foldFailedSource(out, at, st)
 		case st.Kind == SourceKindKubernetes:
-			out = append(out, ClusterSummary{Name: st.ID, Status: st.Status})
+			out = append(out, ClusterSummary{Name: st.ID, Status: st.Status, AsOf: copyTime(st.LastSuccessfulSync)})
 		}
 	}
-	if len(out) <= MaxMetaClusters {
-		return out, false
+	return out
+}
+
+// olderSync is the older of a and b, a copy; nil only when both are nil.
+func olderSync(a, b *time.Time) *time.Time {
+	if b == nil || (a != nil && a.Before(*b)) {
+		return a
 	}
-	sort.SliceStable(out, func(i, j int) bool { return sourceHealthRank(out[i].Status) < sourceHealthRank(out[j].Status) })
-	return out[:MaxMetaClusters], true
+	return copyTime(b)
 }
 
 // worseStatus is the less healthy of a and b.
@@ -416,6 +439,7 @@ func foldFailedSource(out []ClusterSummary, at map[string]int, st SourceState) [
 		out = append(out, ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable})
 	}
 	out[i].Status = worseStatus(out[i].Status, st.Status)
+	out[i].AsOf = olderSync(out[i].AsOf, st.LastSuccessfulSync)
 	return out
 }
 

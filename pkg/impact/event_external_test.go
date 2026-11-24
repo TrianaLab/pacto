@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -581,5 +582,34 @@ func TestImpactExternalSubjectClaimantsNamesNoClaim(t *testing.T) {
 	want := "external stripe is claimed by 2 services, so no claim counts until all but one are retracted"
 	if !reflect.DeepEqual(res.Notes, []string{want}) {
 		t.Errorf("notes %q", res.Notes)
+	}
+}
+
+// TestExternalEventConsumerClusters: on two clusters each consumer of an
+// external system names the clusters of its uses: an observed or pod-spec use
+// its target's, a declared use every target the consumer runs on.
+func TestExternalEventConsumerClusters(t *testing.T) {
+	use := func(svc string) fleet.RawExternalUse {
+		return fleet.RawExternalUse{Service: svc, Namespace: "prod", Identity: "stripe", Class: "vendor-api", Confidence: "likely", Kind: "env",
+			Where: "deployment/" + svc + " env STRIPE_API_BASE", Host: "api.stripe.com"}
+	}
+	eu := clusterSource(euID, "eu-prod", fleet.ClusterNameFromApproval, evidenceNow, "checkout", "payments", "ledger")
+	us := clusterSource(usID, "us-prod", fleet.ClusterNameFromContext, evidenceNow, "ledger", "payments")
+	for src, user := range map[fleet.Source]string{eu: "checkout", us: "ledger"} {
+		col, _ := src.Collect(context.Background())
+		col.ExternalUses = []fleet.RawExternalUse{use(user)}
+		for i := range col.Targets {
+			col.Targets[i].Kind = fleet.SourceKindKubernetes // a pod-spec use names its Kubernetes target
+		}
+	}
+	snap := clusterFleet(t, []fleet.RawRevision{clusterRev("checkout"), clusterRev("ledger"), rev("payments", stripeUse(true))}, eu, us)
+	res := externalEvent(snap, EventChanged, "stripe")
+	if len(res.Clusters) != 2 {
+		t.Fatalf("clusters %+v", res.Clusters)
+	}
+	for name, want := range map[string][]string{"checkout": {euID}, "ledger": {usID}, "payments": {usID, euID}} {
+		if got := rowOf(t, res, name).Clusters; !slices.Equal(got, want) {
+			t.Errorf("%s clusters %v, want %v", name, got, want)
+		}
 	}
 }

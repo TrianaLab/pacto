@@ -695,6 +695,11 @@ const (
 	// so its empty list says nothing about that cluster. Completeness is
 	// unchanged.
 	LimitationClusterFilterUnknown = "CLUSTER_FILTER_UNKNOWN"
+	// LimitationClustersUnread: clusters publish to this hub's targets
+	// repository and are not members, so consumers there are unknown.
+	// Informational: it counts clusters and never names one; gates read
+	// [FleetSnapshot.UnreadClusters].
+	LimitationClustersUnread = "CLUSTERS_UNREAD"
 	// LimitationInferredIdentityMismatch: a contract under pacto-inferred
 	// names no external, or another external than its repository path, so it
 	// is attached to no external system and is no service either.
@@ -1775,6 +1780,9 @@ type FleetSnapshot struct {
 	// Clusters are the clusters any source reported, sorted by id. Target keys
 	// carry a cluster component only when there are two or more.
 	Clusters []ClusterRecord `json:"clusters,omitempty"`
+	// UnreadClusters counts the clusters that publish to this hub's targets
+	// repository and are not members: consumers there are unknown.
+	UnreadClusters int `json:"unreadClusters,omitempty" doc:"How many clusters publish to this hub's targets repository and are not members, so consumers there are unknown. Never names a cluster."`
 	// clusterKeyed: Build keyed targets by cluster (two or more clusters). It
 	// survives Restrict, which may leave one cluster visible under 4-part keys.
 	clusterKeyed bool

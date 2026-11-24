@@ -75,6 +75,9 @@ type ProductConsumer struct {
 	Targets      []fleet.EntityRef `json:"targets,omitempty" doc:"The targets the consumer was reported on, at most 20; staleTargets names those whose evidence is not current"`
 	TargetsTotal int               `json:"targetsTotal,omitempty" doc:"How many targets the consumer was reported on, including those beyond the bound"`
 	StaleTargets []string          `json:"staleTargets,omitempty" doc:"The keys of the listed targets whose evidence is older than 24h before asOf, has no time, is marked stale by its source or is missing from the snapshot"`
+	// Clusters are the ids of the clusters the consumer's targets run in,
+	// as [AffectedConsumer.Clusters]; names are in the meta's clusters.
+	Clusters []string `json:"clusters,omitempty" doc:"The ids of the clusters this consumer's targets run in; names and status are in meta.clusters. Absent with one cluster"`
 	// OwnerKey and OwnerRef name the owner canonically; Owner is its label.
 	OwnerKey string           `json:"ownerKey,omitempty" doc:"The canonical owner key (for example team:shop); owner is the display label"`
 	OwnerRef *fleet.EntityRef `json:"ownerRef,omitempty" doc:"A reference to the owner's page"`
@@ -403,6 +406,7 @@ func productConsumer(snap *fleet.FleetSnapshot, res *Result, c AffectedConsumer)
 		Targets:              targets,
 		TargetsTotal:         len(c.Targets),
 		StaleTargets:         stale,
+		Clusters:             slices.Clone(c.Clusters),
 		OwnerKey:             c.OwnerKey,
 		OwnerRef:             ownerRef(c.OwnerKey),
 		Effect:               c.Effect,
