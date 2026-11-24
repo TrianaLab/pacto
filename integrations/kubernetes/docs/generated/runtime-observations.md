@@ -110,6 +110,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `CONFIG_REF_UNRESOLVED` | `UnresolvedReference` |
 | `CONFIG_REF_VERSION_OUTSIDE_RANGE` | `InvalidReference` |
 | `CONFIG_VALUES_VALIDATION_FAILED` | `ConfigurationViolation` |
+| `ClassNotOffered` | `ConfigurationViolation` |
 | `DECLARATION_ACCEPTED_MISMATCH` | `InvalidFile` |
 | `DECLARATION_EXTERNAL_MISMATCH` | `InvalidFile` |
 | `DECLARATION_OFFERING_MISMATCH` | `InvalidFile` |
@@ -165,9 +166,12 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `POLICY_VIOLATION` | `PolicyViolation` |
 | `PUBLISH_NEEDS_SERVICE_NAME` | `SchemaViolation` |
 | `PUBLISH_NEEDS_SERVICE_VERSION` | `InvalidVersion` |
+| `ParameterNotDeclared` | `ConfigurationViolation` |
+| `ParameterOutOfRange` | `ConfigurationViolation` |
 | `SCHEMA_ERROR` | `SchemaViolation` |
 | `SCHEMA_VIOLATION` | `SchemaViolation` |
 | `STATELESS_PERSISTENT_CONFLICT` | `StateMismatch` |
+| `TierNotTunable` | `ConfigurationViolation` |
 | `UNSUPPORTED_PACTO_VERSION` | `InvalidVersion` |
 | `VALUES_WITHOUT_SCHEMA` | `MissingConfiguration` |
 | `WORKLOAD_MISMATCH` | `RuntimeDrift` |
