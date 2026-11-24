@@ -1839,7 +1839,7 @@ pacto fleet neighborhood <service> [flags]
 
 ### `pacto fleet offerings`
 
-Lists the declared platform offerings, with a drift line under an offering accepted from an inferred one whose source changed or that Pacto cannot check, and how many inferred offerings --inferred lists. With --inferred it lists the inferred offerings producers contributed instead: never declared, never consumable and never a gate, each with its source object, producer, classes and the pacto declare offering:&lt;name&gt; command a person runs to accept it.
+Lists the declared platform offerings, with a drift line under an offering accepted from an inferred one whose source changed or that Pacto cannot check, and how many inferred offerings --inferred lists. With --inferred it lists the inferred offerings producers contributed instead: never declared, never consumable and never a gate, each with its source object, producer, classes and the pacto declare offering:&lt;name&gt; command a person runs to accept it. With --consumable it lists the offerings you may consume: accepted, with a closed parameter schema and visible to you, each provider with its version, digest, publisher, classes, contract fields (set once, the same in every environment), tunable fields with their bounds, guarantees and a snippet (in --output-format json) to add to a contract. Acceptance covers the listed digest; run pacto lock to pin it. A partial answer leaves a missing offering unknown.
 
 ```
 pacto fleet offerings [flags]
@@ -1848,10 +1848,11 @@ pacto fleet offerings [flags]
 **Flags:**
 
 ```
-  -h, --help[=true|false]       help for offerings
-      --inferred[=true|false]   list the inferred offerings producers contributed instead of the declared ones (pacto fleet entities --kind offering --declaration inferred)
-      --limit int               maximum results (0 = 100, capped at 500)
-      --offset int              result offset for paging
+      --consumable[=true|false]   only the offerings you may consume: accepted, with a closed parameter schema, visible to you, each with its version, digest, publisher, parameters, guarantees and a snippet; partial when Pacto could not check one. Acceptance covers the listed digest; run pacto lock to pin it
+  -h, --help[=true|false]         help for offerings
+      --inferred[=true|false]     list the inferred offerings producers contributed instead of the declared ones (pacto fleet entities --kind offering --declaration inferred)
+      --limit int                 maximum results (0 = 100, capped at 500)
+      --offset int                result offset for paging
 ```
 
 ### `pacto fleet overview`

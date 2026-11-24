@@ -11575,6 +11575,8 @@ export interface operations {
                 lifecycle?: "deprecated" | "sunset";
                 /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
                 failed?: boolean;
+                /** @description Keeps the offerings the viewer may consume and fills each row's consumable (offering entities); with no kinds it lists offerings */
+                consumable?: boolean;
                 /** @description Keeps the external systems of this class (external entities) */
                 class?: "vendor-api" | "managed-cloud" | "legacy" | "unclassified" | "other-egress";
                 /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings and external systems with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
