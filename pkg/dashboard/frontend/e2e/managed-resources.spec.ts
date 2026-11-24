@@ -66,9 +66,9 @@ test.describe('WASM demo — managed resources', () => {
     await expect(list).toBeVisible({ timeout: T });
     await page.getByTestId('external-outside-contract').click();
     await expect(page).toHaveURL(/outsideContract=1/);
-    await expect(list.locator(`a.entity-link[href*="/fleet/externals/${TICKETING_DB}"]`)).toHaveCount(0, { timeout: T });
-    await expect(list.locator(`a.entity-link[href*="/fleet/externals/${ORDERS_DB}"]`)).toHaveCount(1);
-    await expect(list.locator(`a.entity-link[href*="/fleet/externals/${ORDER_EVENTS}"]`)).toHaveCount(1);
+    await expect(list.locator(`a.entity-link[href*="/fleet/externals/${encodeURIComponent(TICKETING_DB)}"]`)).toHaveCount(0, { timeout: T });
+    await expect(list.locator(`a.entity-link[href*="/fleet/externals/${encodeURIComponent(ORDERS_DB)}"]`)).toHaveCount(1);
+    await expect(list.locator(`a.entity-link[href*="/fleet/externals/${encodeURIComponent(ORDER_EVENTS)}"]`)).toHaveCount(1);
     await expect(list.locator('tbody tr')).toHaveCount(2);
   });
 
@@ -83,7 +83,8 @@ test.describe('WASM demo — managed resources', () => {
     await expect.poll(() => page.evaluate((k) => (window as unknown as { __fleetMap: { select: (k: string) => boolean } }).__fleetMap.select(k), ORDERS_DB), { timeout: T }).toBe(true);
     await expect(page.getByTestId('fleet-map-selection')).toContainText('1 resource outside contract');
     await expect(page.getByTestId('fleet-map-live')).toContainText('1 resource outside contract');
-    await expect(page.getByTestId('fleet-map')).toContainText('Resources outside contract');
+    // The legend sits under the map, outside its frame.
+    await expect(page.getByRole('list', { name: 'Legend' })).toContainText('Resources outside contract');
   });
 
   test('Data sources lists the three managed readers, cloud inventory off with its opt-in', async ({ page }) => {

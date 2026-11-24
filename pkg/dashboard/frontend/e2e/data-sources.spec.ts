@@ -449,8 +449,9 @@ test.describe('a source page answers about itself', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
 
     // `edge-cluster` reports a failure and so has three sections -- enough for the
-    // navigator. `local` has two and gets none. Both must fill the row they are in.
-    for (const [source, expectRail] of [['edge-cluster', true], ['local', false]] as Array<[string, boolean]>) {
+    // navigator. `partner-registry` has two and gets none (`local` carries
+    // newsletter-service's catalog mismatch, a third). Both must fill the row they are in.
+    for (const [source, expectRail] of [['edge-cluster', true], ['partner-registry', false]] as Array<[string, boolean]>) {
       await boot(page, `#/fleet/sources/${source}`);
       const layout = page.locator('.page-toc-layout');
       await expect(layout).toBeVisible();
