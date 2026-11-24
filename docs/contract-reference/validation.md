@@ -259,9 +259,13 @@ file against the schema of every configuration it names. It runs when the
 structural, cross-field and policy layers passed, whatever the
 configuration-refs stage reported, and reports `SKIP no environments declared`
 for a contract without `environments`. [Environments](environments.md#how-values-are-checked)
-lists the rules and the codes it reports: `ENVIRONMENT_UNKNOWN_CONFIGURATION`,
-`ENVIRONMENT_VALUES_INVALID`, `ENVIRONMENT_VALUES_MISSING` and the
-`ENVIRONMENT_VALUES_UNVERIFIED` warning.
+lists the rules and the codes it reports:
+
+- `ENVIRONMENT_UNKNOWN_CONFIGURATION`, `ENVIRONMENT_VALUES_INVALID`,
+  `ENVIRONMENT_VALUES_MISSING` and the `ENVIRONMENT_VALUES_UNVERIFIED` warning;
+- `TierNotTunable`, `ParameterOutOfRange`, `ParameterNotDeclared` and
+  `ClassNotOffered` for values outside the parameters of an offering whose
+  schema declares tiers; see [Offering parameters](environments.md#offering-parameters).
 
 An error in an environment's file carries that file in `file`, with `line` and
 `column` pointing into it, also when `--set` or `-f` is given. The stage passes
