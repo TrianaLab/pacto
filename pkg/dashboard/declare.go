@@ -46,8 +46,8 @@ type DeclareWorkload struct {
 	// alone, and from no list RepositoryUnknown says is incomplete.
 	Repositories      []fleet.InferredRepository
 	RepositoryUnknown string
-	// View is the viewer's restricted fleet, set for an external system: a
-	// claim plan names nothing it hides.
+	// View is the viewer's restricted fleet, set for an external system and
+	// an inferred offering: a claim or acceptance plan names nothing it hides.
 	View *fleet.Query
 	// Offering, From and Source are set for an inferred offering a producer
 	// contributed (Key its contributed service): the offering it offers, the
@@ -352,7 +352,7 @@ func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorklo
 	snap := q.SnapshotForSerialization()
 	rec := snap.Services[fleet.ServiceKey(key)]
 	if c := offeringContribution(rec); c != nil {
-		w := DeclareWorkload{Key: key, Name: rec.Name, Cluster: c.Cluster, Offering: rec.Offering, From: c.Ref}
+		w := DeclareWorkload{Key: key, Name: rec.Name, Cluster: c.Cluster, Offering: rec.Offering, From: c.Ref, View: q}
 		w.Source, w.SourceUnread = fleet.ContributionSource(snap, rec)
 		return w, nil
 	}

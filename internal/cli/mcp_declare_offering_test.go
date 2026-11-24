@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -22,6 +23,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -266,5 +268,24 @@ func TestOfferingHiddenByRepositoryKey(t *testing.T) {
 		if got := offeringHidden(c.q, "ghcr.io/acme/team-b/", "xbucket", c.p, c.err); got != c.want {
 			t.Errorf("%s: hidden = %v", name, got)
 		}
+	}
+}
+
+func TestOfferingAcceptanceRedactedOnBothSurfaces(t *testing.T) {
+	held := &app.DeclarePlan{Service: "offering:xbucket", Baseline: &app.DeclareBaseline{}}
+	req := app.DeclareRequest{Service: "offering:xbucket", Registry: "ghcr.io/acme/team-b"}
+	w := dashboard.DeclareWorkload{Name: "xbucket", Offering: "xbucket"}
+	if r := claimRedacted(w, req, held, nil); r == nil || r.Code != string(pactomcp.RefusalNotAllowed) || r.Message != offeringHiddenMessage {
+		t.Fatalf("dashboard: %+v", r)
+	}
+	if r := claimRedacted(w, req, &app.DeclarePlan{}, nil); r != nil {
+		t.Fatalf("an empty repository was redacted: %+v", r)
+	}
+	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://ghcr.io/acme/team-b"}, nil)
+	a := pactomcp.DeclareArgs{Service: "offering:xbucket", Registry: "ghcr.io/acme/team-b"}
+	p, err := rd.redact(context.Background(), a, held, nil)
+	var de *app.DeclareError
+	if p != nil || !errors.As(err, &de) || de.Code != string(pactomcp.RefusalNotAllowed) || de.Message != offeringHiddenMessage {
+		t.Fatalf("mcp: %+v %v", p, err)
 	}
 }

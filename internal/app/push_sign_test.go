@@ -413,6 +413,20 @@ func TestPushContributionRefusesDeclaredFields(t *testing.T) {
 	if _, err := e.svc.Push(ctx, PushOptions{Ref: "oci://" + repo, Path: dir}); err == nil || !strings.Contains(err.Error(), "it declares service.summary") {
 		t.Fatalf("a declared summary: %v", err)
 	}
+	// An offering contribution named otherwise than its offering is refused too.
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: checkout\n  version: 1.0.0\n  offering: payments\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.Push(ctx, PushOptions{Ref: "oci://" + repo, Path: dir}); err == nil || !strings.Contains(err.Error(), "an offering contribution is named after its offering") {
+		t.Fatalf("an offering named otherwise: %v", err)
+	}
+	// One that does not validate is refused before the contribution checks.
+	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.5\"\nservice:\n  name: Not_A_Name\n  version: 1.0.0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.svc.Push(ctx, PushOptions{Ref: "oci://" + repo, Path: dir}); err == nil || strings.Contains(err.Error(), "contribution declares") {
+		t.Fatalf("an invalid contribution: %v", err)
+	}
 	if tags, _ := e.reg.Tags(ctx, repo); len(tags) != 0 {
 		t.Errorf("tags = %v", tags)
 	}

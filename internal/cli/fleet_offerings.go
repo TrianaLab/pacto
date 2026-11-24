@@ -99,9 +99,6 @@ func offeringsAnswer(snap *fleet.FleetSnapshot, res *fleet.EntityList) *fleetOff
 // newestRevision is s's newest readable revision; nil for none.
 func newestRevision(snap *fleet.FleetSnapshot, s *fleet.ServiceRecord) *fleet.ContractRevision {
 	var newest *fleet.ContractRevision
-	if s == nil {
-		return nil
-	}
 	for _, rk := range s.Revisions {
 		if r := snap.Revisions[rk]; r != nil && (newest == nil || fleet.LessRevisionChrono(newest, r)) {
 			newest = r

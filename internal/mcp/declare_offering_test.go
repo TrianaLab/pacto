@@ -88,7 +88,7 @@ func TestMCPDeclareOfferingVerbAndCommand(t *testing.T) {
 func TestDeclareToolNamesOffering(t *testing.T) {
 	tool := listTools(t, mustNew("test", Authoring{Declare: stubDeclarer{}}, Modes{}))["pacto_declare"]
 	schema, _ := json.Marshal(tool.InputSchema)
-	if !strings.Contains(tool.Description, "pacto declare offering:<name> --from-draft draft-<n> --yes") || !strings.Contains(string(schema), `"version"`) ||
+	if !strings.Contains(tool.Description, "acceptCLI (pacto declare offering:<name> --from <ref> --detected <detection> --registry <registry> --version <version> --from-draft draft-<n> --yes)") || !strings.Contains(string(schema), `"version"`) ||
 		!strings.Contains(string(schema), `"from"`) {
 		t.Fatalf("%s\n%s", tool.Description, schema)
 	}
