@@ -413,7 +413,8 @@ func TestViewedMembersHideClustersTheReaderMayNotSee(t *testing.T) {
 		}
 		return out
 	}
-	named := viewedMembers(v, members, func(context.Context) (authn.Person, bool) { return dave, true })(t.Context(), "prod", nil)
+	id := &dashboardIdentity{state: func(context.Context) authn.State { return authn.State{Person: dave} }}
+	named := viewedMembers(v, members, id.personOf(httptest.NewRequest(http.MethodGet, "/", nil)))(t.Context(), "prod", nil)
 	expect(t, slices.Equal(ids(named), []string{"member-uid-eu", delivery.MembersHiddenID}), "dave sees eu, not us: %v", ids(named))
 	nobody := viewedMembers(v, members, personFrom)(t.Context(), "prod", nil)
 	expect(t, slices.Equal(ids(nobody), []string{delivery.MembersHiddenID}), "an unnamed request sees no member: %v", ids(nobody))
