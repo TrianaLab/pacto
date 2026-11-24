@@ -212,12 +212,12 @@ func (mp *memberPlanning) read(ctx context.Context, placed delivery.MemberPlacem
 		mp.note("the hub's approver signers could not be read, so no request was read: "+err.Error(), true)
 		return out
 	}
-	repo, _ := openTargets(mp.list.Repository) // ClusterJoins opened it
 	var mu sync.Mutex
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(joinReadsAtOnce)
 	for _, m := range placed.Placed {
 		g.Go(func() error {
+			repo, _ := openTargets(mp.list.Repository) // ClusterJoins opened it; its own client: a tag listing sets the page size
 			r := mp.readMember(gctx, repo, policy, m.UID)
 			mu.Lock()
 			out[m.UID] = r
@@ -547,12 +547,12 @@ func (s *Service) MemberRefusals(ctx context.Context, opts MemberPlanOptions) Me
 		return out
 	}
 	mp := &memberPlanning{s: s, opts: opts, list: list, trust: delivery.JoinTrust(list.Clusters)}
-	repo, _ := openTargets(list.Repository) // ClusterJoins opened it
 	var mu sync.Mutex
 	g, gctx := errgroup.WithContext(ctx)
 	g.SetLimit(joinReadsAtOnce)
 	for _, c := range members {
 		g.Go(func() error {
+			repo, _ := openTargets(list.Repository) // ClusterJoins opened it; its own client: a tag listing sets the page size
 			rows, unread := mp.refusalsOf(gctx, repo, policy, c)
 			mu.Lock()
 			defer mu.Unlock()
