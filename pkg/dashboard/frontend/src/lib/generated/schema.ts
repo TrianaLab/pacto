@@ -1393,6 +1393,8 @@ export interface components {
             auth: components["schemas"]["CapabilityAuth"];
             /** @description This caller can plan declaring an inferred service: the host declares and knows who the caller is */
             declare: boolean;
+            /** @description This caller may accept a golden path a catalog holds: on a shared host, update pactos in the installation namespace */
+            declareTemplate: boolean;
             /** @description The delivery views and actions are served */
             delivery: boolean;
             /** @description The operational-graph (fleet) endpoints are served */
@@ -1815,10 +1817,10 @@ export interface components {
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
             /** @description The offering acceptance the plan was made for */
-            offering?: components["schemas"]["OfferingInput"];
+            offeringAcceptance?: components["schemas"]["OfferingInput"];
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
-            /** @description The inferred service to declare, or external:<identity> to claim an external system */
+            /** @description The inferred service to declare, or external:<identity> to claim an external system, or template:<namespace>/<name> for a golden path a catalog holds */
             serviceKey: string;
         };
         DeclareAnswer: {
@@ -1870,10 +1872,10 @@ export interface components {
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
             /** @description Set to accept the inferred offering serviceKey names as a declared offering; the server takes the record it is accepted from from your view of the fleet */
-            offering?: components["schemas"]["OfferingInput"];
+            offeringAcceptance?: components["schemas"]["OfferingInput"];
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
-            /** @description The inferred service to declare, or external:<identity> to claim an external system */
+            /** @description The inferred service to declare, or external:<identity> to claim an external system, or template:<namespace>/<name> for a golden path a catalog holds */
             serviceKey: string;
         };
         DeclarePlan: {
@@ -1929,10 +1931,10 @@ export interface components {
         };
         DeclareRefusal: {
             /**
-             * @description The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)
+             * @description The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed, DraftNotOffered (a shared dashboard claims only with the person's own signature) and TemplateSourceUnverified (a golden path is accepted only from the catalog the installation configured)
              * @enum {string}
              */
-            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "OfferingSchemaOpen" | "OfferingSourceInvalid" | "OfferingSourceUnverified" | "OfferingMismatch" | "VersionRequired" | "DraftNotOffered";
+            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "OfferingInvalid" | "OfferingSchemaOpen" | "OfferingSourceInvalid" | "OfferingSourceUnverified" | "OfferingMismatch" | "VersionRequired" | "DraftNotOffered" | "TemplateNotFound" | "TemplateCatalogUnset" | "TemplateCatalogUnavailable" | "TemplateNameInvalid" | "TemplateNameTaken" | "TemplateSourceUnverified";
             /** @description The command a person runs about it */
             command?: string;
             message: string;
@@ -3982,7 +3984,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); connectionSecret (a managed resource's connection Secret a workload references); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -4043,6 +4045,10 @@ export interface components {
             at?: string;
             /** @description True only when this installation's operator signed both revisions; an unchecked change raises no attention */
             checked: boolean;
+            /** @description The observed engines the older revision records, set when the observed engine set moved */
+            engineFrom?: string;
+            /** @description The observed engines the newer revision records, set when the observed engine set moved */
+            engineTo?: string;
             /** @description The version of the older revision */
             from: string;
             /** @description The vendor OpenAPI document the older revision links, set when the digest moved */
@@ -4099,6 +4105,11 @@ export interface components {
              */
             hiddenConsumers?: number;
             /**
+             * Format: int64
+             * @description How many of its managed resources the caller's permissions hide
+             */
+            hiddenResources?: number;
+            /**
              * @description How its consumers join it, the strongest match among its sources: identity, catalog-alias, host or normalized-name (joined by name only)
              * @enum {string}
              */
@@ -4109,6 +4120,13 @@ export interface components {
             label: string;
             /** @description The inferred contract published for it under pacto-inferred; never a service, and a range is never checked against it */
             provider?: components["schemas"]["Fleet.ExternalProvider"];
+            /** @description The managed resources sources read for it: a cluster object, a Terraform state entry or a cloud inventory item; at most 20 */
+            resources?: components["schemas"]["Fleet.ManagedResource"][] | null;
+            /**
+             * Format: int64
+             * @description How many managed resources were read for it
+             */
+            resourcesTotal?: number;
             /** @description The evidence that names this external system, one per consumer and dependency position, each with its own provenance */
             sources: components["schemas"]["Fleet.ExternalSource"][] | null;
             /**
@@ -4130,7 +4148,7 @@ export interface components {
              * @enum {string}
              */
             kind: "contract" | "observed" | "pod-spec" | "repository";
-            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest), resource (a Terraform resource or Crossplane object) or its inferred contract (a ref to its pacto-inferred repository) */
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest), resource (a Terraform resource, a Crossplane object or a managed resource's connection Secret) or its inferred contract (a ref to its pacto-inferred repository) */
             match: string;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred";
@@ -4238,6 +4256,8 @@ export interface components {
             /** Format: date-time */
             generatedAt: string;
             inferredRelationships?: components["schemas"]["Fleet.Relationship"][] | null;
+            /** @description Golden paths catalogs outside every registry hold, inferred: never services, never signed or declared, never offered for creation until a person accepts one */
+            inferredTemplates?: components["schemas"]["Fleet.InferredTemplate"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             providers?: components["schemas"]["Fleet.Provider"][] | null;
             provisioning?: components["schemas"]["Fleet.ProvisioningRecord"][] | null;
@@ -4437,7 +4457,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); connectionSecret (a managed resource's connection Secret a workload references); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -4452,6 +4472,67 @@ export interface components {
             target?: string;
             /** @description The object and key it was found in, never a value */
             where?: string;
+        };
+        "Fleet.InferredTemplate": {
+            /** @description The source is one an operator configured, so a person may accept the template as a golden path */
+            acceptable: boolean;
+            /** @description The key of the declared golden path holding the same name; such an item is never listed or counted as inferred, it only gives that golden path its link */
+            declaredAs?: string;
+            /** @description The catalog's own reference, such as template:default/springboot-service */
+            entity: string;
+            /** @description Where the template was read, as the source writes it */
+            from: string;
+            /** @description The catalog's name for the template, the service.name accepting it gives the golden path */
+            name: string;
+            /** @description A service that is no golden path already holds the name; the template is never offered for acceptance */
+            nameTaken?: boolean;
+            /**
+             * Format: date-time
+             * @description When the source read the template
+             */
+            observedAt?: string;
+            /** @description The owner the catalog names; shown, never declared */
+            owner?: string;
+            /** @description The canonical key of the owner the catalog names */
+            ownerKey?: string;
+            /**
+             * @description Always inferred
+             * @enum {string}
+             */
+            provenance: "inferred";
+            /** @description The id of the source that read the template */
+            source: string;
+            /** @description The catalog's description, cut to 200 characters */
+            summary?: string;
+            /** @description The catalog's display title */
+            title?: string;
+            /** @description The catalog's template type, such as service or website */
+            type?: string;
+            /** @description Where a person opens the template; empty when the source gives no address a browser opens */
+            url?: string;
+        };
+        "Fleet.InferredTemplateList": {
+            /**
+             * Format: date-time
+             * @description When the oldest listed template was read, else when a source last listed templates
+             */
+            asOf?: string;
+            /**
+             * @description Partial when a source that lists templates could not read them all or the list was capped; a missing template is then unknown
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /** @description Catalog templates a declared golden path holds the name of: the link of that golden path, never listed or counted as inferred */
+            declared?: components["schemas"]["Fleet.InferredTemplate"][] | null;
+            /** @description The inferred golden paths, sorted by name; never paged */
+            items: components["schemas"]["Fleet.InferredTemplate"][] | null;
+            /** @description Why the list is partial and which templates were left out */
+            limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            /**
+             * Format: int64
+             * @description How many inferred golden paths are listed; the ones a declared golden path holds the name of are not counted
+             */
+            total: number;
         };
         "Fleet.InferredValue": {
             /** @description The object path Pacto read the value from */
@@ -4761,6 +4842,48 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.ManagedResource": {
+            /** @description The verified claim, <Kind> <namespace>/<name> */
+            claim?: string;
+            /** @description The cluster id of the cluster that read it; empty for a state file the CLI read */
+            cluster?: string;
+            /** @description A display name for the cluster that read it; never an identity */
+            clusterName?: string;
+            /**
+             * @description offering when a verified, current provisioning record from the offering provider a consumer uses names it; outside for every other resource
+             * @enum {string}
+             */
+            contract?: "offering" | "outside";
+            /** @description The engine and version the resource reports it runs */
+            engine?: string;
+            /** @description The engine and version the resource requests, when it reports none it runs */
+            engineRequested?: string;
+            /** @description The producer and time of that provisioning record, never its body */
+            evidence?: string;
+            /** @description The state URL or file name, never its contents */
+            location?: string;
+            /** @description The identity segments that were not read, so the system is its catalog entry's identity */
+            missing?: string[] | null;
+            /** @description The object name, the Terraform address or the inventory id */
+            name: string;
+            namespace?: string;
+            /**
+             * Format: date-time
+             * @description When the source last read it
+             */
+            observedAt?: string;
+            /** @description The offering whose provider's provisioning record names it; absent outside contract */
+            offering?: components["schemas"]["Fleet.EntityRef"];
+            /** @enum {string} */
+            provenance: "inferred";
+            /**
+             * @description The reader: a cluster object of Crossplane, ACK, Config Connector or ASO, a Terraform state or a cloud inventory
+             * @enum {string}
+             */
+            source: "crossplane" | "ack" | "config-connector" | "aso" | "terraform" | "aws-resource-explorer" | "gcp-cloud-asset" | "azure-resource-graph";
+            /** @description The <group>/<Kind> of a cluster object, the Terraform type or the inventory type */
+            type: string;
+        };
         "Fleet.MapAttention": {
             /** Format: int64 */
             errors: number;
@@ -4827,6 +4950,11 @@ export interface components {
             missing?: components["schemas"]["Fleet.SectionCount"][] | null;
             /**
              * Format: int64
+             * @description Managed resources of the group's external systems no offering produced
+             */
+            outsideContract?: number;
+            /**
+             * Format: int64
              * @description Mean contract completeness of the group's judged services; absent when none is judged
              */
             percentComplete?: number;
@@ -4869,6 +4997,11 @@ export interface components {
              * @description Visible services it depends on
              */
             out?: number;
+            /**
+             * Format: int64
+             * @description Managed resources of this external system no offering produced
+             */
+            outsideContract?: number;
             owner?: string;
             /** Format: int64 */
             percentComplete?: number;
@@ -5016,6 +5149,8 @@ export interface components {
              * @description Matched services and dependencies over those Pacto can observe, rounded down; absent when Pacto observes none
              */
             percent?: number;
+            /** @description The managed resources an offering produced over those discovered, fleet-wide; absent when none was discovered */
+            resources?: components["schemas"]["Fleet.ResourceCoverage"];
             /** @description Services that are no golden path, by match state; an inferred service is observed-only */
             services: components["schemas"]["Fleet.MatchCounts"];
         };
@@ -5786,6 +5921,23 @@ export interface components {
             state: "reported" | "unknown" | "not-reported";
             verified?: boolean;
         };
+        "Fleet.ResourceCoverage": {
+            /**
+             * Format: int64
+             * @description Managed resources the sources read
+             */
+            discovered: number;
+            /**
+             * Format: int64
+             * @description throughOfferings over discovered, rounded down
+             */
+            percent?: number;
+            /**
+             * Format: int64
+             * @description Managed resources a verified, current provisioning record of an offering provider names
+             */
+            throughOfferings: number;
+        };
         "Fleet.RevisionCapabilities": {
             revision: string;
             skills?: string[] | null;
@@ -6334,7 +6486,7 @@ export interface components {
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
-            /** @description Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set) */
+            /** @description Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set) or managed resources (resources set) */
             sources: components["schemas"]["SourceInfo"][] | null;
         };
         GlobalGraph: {
@@ -7438,6 +7590,8 @@ export interface components {
              * @description When external systems are listed, how many only hidden services declare; never named
              */
             hidden?: number;
+            /** @description With template only: golden paths catalogs hold that no registry publishes, inferred and listed apart from the declared ones; declaration declared leaves them out */
+            inferredTemplates?: components["schemas"]["Fleet.InferredTemplateList"];
             /**
              * Format: int64
              * @description When declared offerings are listed: how many inferred offerings declaration=inferred lists under the same text filter; never counted in total
@@ -7793,6 +7947,11 @@ export interface components {
              * @description Visible services it depends on
              */
             out?: number;
+            /**
+             * Format: int64
+             * @description Managed resources of this external system no offering produced
+             */
+            outsideContract?: number;
             owner?: string;
             /** Format: int64 */
             percentComplete?: number;
@@ -9080,10 +9239,10 @@ export interface components {
             name: string;
         };
         SourceInfo: {
-            /** @description The cluster an egress row describes, when its source names one; set on egress rows only */
+            /** @description The cluster an egress or resources row describes, when its source names one; set on those rows only */
             cluster?: string;
             /**
-             * @description How much of the calls leaving the cluster an egress row read; set on egress rows only
+             * @description How much an egress or resources row read; set on those rows only
              * @enum {string}
              */
             coverage?: "complete" | "partial" | "unavailable";
@@ -9091,7 +9250,9 @@ export interface components {
             egress?: boolean;
             enabled: boolean;
             reason?: string;
-            /** @description The fleet source that reported an egress row; set on egress rows only */
+            /** @description Set on a row projected from a detected provider that reads managed resources; such a row is not a data source */
+            resources?: boolean;
+            /** @description The fleet source that reported an egress or resources row; set on those rows only */
             source?: string;
             type: string;
         };
@@ -11585,7 +11746,7 @@ export interface operations {
                 service?: string;
                 /** @description Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template */
                 template?: "only" | "exclude";
-                /** @description Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; with kinds=offering it lists only the inferred offerings producers contribute, as service rows carrying inferredOffering, never consumable; declared leaves them out. Absent lists every service, inferred ones marked */
+                /** @description Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; with kinds=offering it lists only the inferred offerings producers contribute, as service rows carrying inferredOffering, never consumable; declared leaves them out. Absent lists every service, inferred ones marked; with template only, inferred lists the golden paths a catalog holds (inferredTemplates) and declared leaves them out */
                 declaration?: "declared" | "inferred";
                 /** @description Group filter for inferred service entities: the workload.group.key of an inferred service; with no kinds it lists services only */
                 group?: string;
@@ -11601,6 +11762,8 @@ export interface operations {
                 failed?: boolean;
                 /** @description Keeps the external systems of this class (external entities) */
                 class?: "vendor-api" | "managed-cloud" | "legacy" | "unclassified" | "other-egress";
+                /** @description Keeps the external systems with a managed resource no offering produced (external entities) */
+                outsideContract?: boolean;
                 /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings and external systems with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
                 sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers" | "gaps";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
