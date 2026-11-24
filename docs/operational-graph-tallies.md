@@ -41,7 +41,7 @@ declare no owner; a service whose contract Pacto cannot read counts in
 | `knowledge` | `described`, `withGaps`, `unknown` | Partitions `services`. A service with two gaps counts in two kinds and once in `withGaps` |
 | `knowledge.gaps` | `noSummary`, `noDomain`, `noInterfaceDocs`, `noReadiness`, `notDeployed`, `unverifiedCapability` | Services per gap kind. `notDeployed` counts only when every source reporting targets is complete |
 | `knowledgeItems` | | How many `knowledge` attention items the gaps and recent takeovers raise; the count on the overview tile |
-| `match` | `services`, `dependencies`, each `matched` · `expectedOnly` · `observedOnly` · `insufficient`; `percent`, `coverage`, `completeness` | How far what the contracts declare is from what runs. `percent` is matched over what Pacto can observe and `coverage` is what Pacto can observe over everything counted; both are absent when their base is 0. An inferred service and a runtime call no contract declares are `observedOnly`; a stale or quarantined target is never proof a service runs |
+| `match` | `services`, `dependencies`, each `matched` · `expectedOnly` · `observedOnly` · `insufficient`; `percent`, `coverage`, `completeness`; `resources` (see [resources through offerings](#resources-through-offerings)) | How far what the contracts declare is from what runs. `percent` is matched over what Pacto can observe and `coverage` is what Pacto can observe over everything counted; both are absent when their base is 0. An inferred service and a runtime call no contract declares are `observedOnly`; a stale or quarantined target is never proof a service runs |
 | `crossEnvironmentCalls` | | How many `cross-environment` attention items there are; the count on the overview tile |
 | `coverage` | `evaluated`, `required`, `reporting`, `notReporting` | Assertions summed over the targets that report coverage; `notReporting` counts targets whose source reported none |
 | `staleCompliantTargets` | | Of `compliantTargets`, how many rest on stale evidence |
@@ -70,6 +70,31 @@ is `matched` when its revision declares the environment or declares none, and
 declares an environment it runs nowhere in is `expectedOnly` only when Pacto
 sees every place it could run, else `insufficient`. A dependency counts in an
 environment when both ends run there; its observation stays per service.
+
+## Resources through offerings
+
+Each [managed resource](inferred-contracts.md#managed-resources) of an
+external system is **through an offering** only when a verified, current
+`ResourceProvisioned` record names it, by its object, its verified Crossplane
+claim or its full identity, and comes from the provider of the offering its
+consumer uses. An object or claim matches only a record whose environment
+places the consumer on the resource's cluster. Every other resource is
+**outside contract**, including one whose record is stale, unsigned or from
+another provider, so an unknown never counts as through an offering.
+
+When a source read any managed resource, the overview's `match` carries
+`resources`: `throughOfferings` over `discovered`, with `percent`, which the
+Overview reads as "Resources through offerings: 3 of 7". The
+[fleet map](fleet-map.md) badges an external system that has resources
+outside contract, and `pacto fleet entities --outside-contract` (MCP
+`outside_contract`) lists those systems.
+
+Two paths lead into a contract, both through `pacto claim --offering` or the
+External page: join an offering that already has providers, or propose a new
+one. The claim records the offering as intent in
+`run.pacto.external.offering`, never as `service.offering`, and joining an
+offering another team provides writes a `draft-<n>` that team accepts. The
+resource stays outside contract until the offering's adapter reports it.
 
 ## Contract completeness
 

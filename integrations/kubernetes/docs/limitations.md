@@ -53,6 +53,12 @@ never `NonCompliant`. That happens for:
   `interfaceBindings` entry (and name-match discovery is off), or when a
   capability's owning interface has no binding.
 
+[Managed resources](detection.md#managed-resources) stop at three boundaries.
+A namespace-scoped install (`controller.watchNamespaces`) reads none, and its
+`managed-resources` row reads `unknown`. A kind no `crossplane` row of the
+default external catalog names is never read. A claim is read only through its
+composite, so a claim label no composite's `spec.claimRef` confirms is ignored.
+
 ## Opt-in features
 
 Some observation runs only where someone turns it on, because it costs cluster
