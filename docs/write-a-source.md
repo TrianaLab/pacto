@@ -108,8 +108,9 @@ The first run creates the key; hand `my-idp__my-idp-2026.pub` to the platform.
 
 A record may also carry an [inferred offering](inferred-offerings.md): a
 platform offering your tool already describes, which a person reviews and
-accepts. Its `pacto.yaml` adds `service.offering`, `service.summary` and one
-configuration with a closed parameter schema; `source/object.yaml` names the
+accepts. Its `pacto.yaml` adds `service.offering`, set to its `service.name`,
+`service.summary` and one configuration with a closed parameter schema;
+`source/object.yaml` names the
 object your tool read it from. It uses the same key, grant and repository:
 
 ```bash

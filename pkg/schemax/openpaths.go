@@ -13,7 +13,8 @@ import (
 // property with no enum. Paths start at "schema" and follow the keywords,
 // such as schema.properties.backups. It walks
 // properties, items, prefixItems and the members of allOf, anyOf and oneOf
-// of a node that has no type, enum or const of its own.
+// of a node that has no type, enum or const of its own. An array with no
+// items, or items: true, is open at its items.
 // ponytail: $ref is not resolved, so a node that only refers reads open; a
 // resolver if refs ever appear in offering schemas.
 func OpenPaths(doc any) []string {
@@ -46,8 +47,11 @@ func openWalk(node any, path string, out *[]string) {
 			openWalk(v, p, out)
 		}
 	}
-	if items, ok := m["items"].(map[string]any); ok {
-		openWalk(items, path+".items", out)
+	switch items, set := m["items"]; {
+	case set:
+		openWalk(items, path+".items", out) // items: true is open, false closed
+	case isType(m["type"], "array"):
+		*out = append(*out, path+".items") // no items admits any value past prefixItems
 	}
 	keys := []string{"prefixItems", "allOf", "anyOf", "oneOf"}
 	if constrained(m) {

@@ -45,12 +45,15 @@ func Close(doc any) {
 }
 
 // isObject reports whether a schema type is "object" or a list holding it.
-func isObject(t any) bool {
+func isObject(t any) bool { return isType(t, "object") }
+
+// isType reports whether a type keyword is or lists name.
+func isType(t any, name string) bool {
 	switch v := t.(type) {
 	case string:
-		return v == "object"
+		return v == name
 	case []any:
-		return slices.Contains(v, any("object"))
+		return slices.Contains(v, any(name))
 	}
 	return false
 }

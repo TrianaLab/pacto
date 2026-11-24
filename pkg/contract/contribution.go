@@ -21,6 +21,15 @@ func ContributionRefusal(b *Bundle, rec *InferredRecord) string {
 		return "it declares " + field + "; a contribution declares only service.name and service.version " +
 			"(with service.offering also service.summary and configurations of name, schema and required): move the rest to pacto.inferred.yaml"
 	}
+	// An accepted offering's inferredFrom names the contribution's service,
+	// which must be the offering it accepts: an offering contribution is
+	// named after its offering.
+	var doc struct {
+		Service struct{ Name, Offering string } `yaml:"service"`
+	}
+	if data, err := b.Raw(); err == nil && yaml.Unmarshal(data, &doc) == nil && doc.Service.Offering != "" && doc.Service.Name != doc.Service.Offering {
+		return "its service.name " + doc.Service.Name + " is not its service.offering " + doc.Service.Offering + ": an offering contribution is named after its offering"
+	}
 	return ""
 }
 

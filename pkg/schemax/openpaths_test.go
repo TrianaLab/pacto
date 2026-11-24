@@ -24,12 +24,16 @@ func TestOpenPathsNamesEachOpenPath(t *testing.T) {
 		"extra":{"type":"object","additionalProperties":false,"x-kubernetes-preserve-unknown-fields":true},
 		"zones":{"type":"array","items":{"type":"object"}},
 		"pair":{"type":"array","prefixItems":[{"type":"string"},true]},
+		"anyList":{"type":"array"},
+		"trueList":{"type":["array","null"],"items":true},
+		"tuple":{"type":"array","prefixItems":[{"type":"string"}],"items":false},
 		"mode":{"anyOf":[{"const":"a"},{"type":"object","additionalProperties":false}]},
 		"never":false,
 		"size":{"enum":["s","m"]}
 	}}`)
-	want := []string{"schema", "schema.properties.backups", "schema.properties.class", "schema.properties.extra",
-		"schema.properties.labels", "schema.properties.pair.prefixItems[1]", "schema.properties.tags", "schema.properties.zones.items"}
+	want := []string{"schema", "schema.properties.anyList.items", "schema.properties.backups", "schema.properties.class", "schema.properties.extra",
+		"schema.properties.labels", "schema.properties.pair.items", "schema.properties.pair.prefixItems[1]", "schema.properties.tags",
+		"schema.properties.trueList.items", "schema.properties.zones.items"}
 	if got := OpenPaths(doc); !slices.Equal(got, want) {
 		t.Fatalf("got %v\nwant %v", got, want)
 	}

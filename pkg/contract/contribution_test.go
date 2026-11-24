@@ -44,6 +44,13 @@ func TestContributionAllowsOfferingSection(t *testing.T) {
 	}
 }
 
+func TestContributionOfferingNamedAfterItsOffering(t *testing.T) {
+	yml := strings.Replace(offeringYAML, "name: xbucket", "name: pg-offering", 1)
+	if got := ContributionRefusal(&Bundle{RawYAML: []byte(yml)}, nil); !strings.Contains(got, "service.name pg-offering is not its service.offering xbucket") {
+		t.Fatalf("got %q", got)
+	}
+}
+
 func TestContributionOfferingSectionNeedsOffering(t *testing.T) {
 	for name, yml := range map[string]string{
 		"no offering":    strings.Replace(offeringYAML, "  offering: xbucket\n", "", 1),
