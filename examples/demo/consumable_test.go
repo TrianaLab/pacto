@@ -27,30 +27,10 @@ func TestDemoConsumableOfferings(t *testing.T) {
 	if p := rows["objectstore"].Providers; len(p) != 1 || p[0].Acceptance != "declaration" || p[0].Publisher != "dana@acme.example" {
 		t.Fatalf("objectstore providers = %+v", p)
 	}
-	pg := rows["postgresql"]
-	if len(pg.Providers) != 1 {
-		t.Fatalf("postgresql providers = %+v", pg.Providers)
+	if p := rows["postgresql"].Providers; len(p) != 1 {
+		t.Fatalf("postgresql providers = %+v", p)
 	}
-	p := pg.Providers[0]
-	if p.Version != "17.0.0" || p.Acceptance != "publisher" || len(p.Classes) != 0 {
-		t.Fatalf("postgresql provider = %+v", p)
-	}
-	tiers := map[string]string{}
-	for _, par := range p.Parameters {
-		tiers[par.Path] = par.Tier
-	}
-	for _, f := range []string{"size", "storageGi", "highAvailability", "backups.retentionDays"} {
-		if tiers[f] != "contract" {
-			t.Errorf("%s tier = %q, want contract", f, tiers[f])
-		}
-	}
-	if len(tiers) != 4 {
-		t.Errorf("parameters = %v, want 4", tiers)
-	}
-	cfgs := p.Snippet.Entries.Configurations
-	if len(cfgs) != 1 || cfgs[0].Values["size"] != "small" || fmt.Sprint(cfgs[0].Values["storageGi"]) != "10" || len(cfgs[0].MissingValues) != 0 {
-		t.Fatalf("snippet configurations = %+v", cfgs)
-	}
+	checkDemoPostgresql(t, rows["postgresql"].Providers[0])
 	if res.Meta.Completeness != fleet.CompletenessPartial {
 		t.Fatalf("completeness = %s, want partial", res.Meta.Completeness)
 	}
@@ -62,5 +42,26 @@ func TestDemoConsumableOfferings(t *testing.T) {
 	}
 	if !strings.Contains(unknown, "7 providers") {
 		t.Fatalf("OFFERING_ACCEPTANCE_UNKNOWN = %q, want 7 providers", unknown)
+	}
+}
+
+// checkDemoPostgresql: postgresql 17.0.0 is accepted by its publisher, its four
+// untiered fields read contract, it has no class and its snippet needs nothing.
+func checkDemoPostgresql(t *testing.T, p fleet.ConsumableProvider) {
+	t.Helper()
+	if p.Version != "17.0.0" || p.Acceptance != "publisher" || len(p.Classes) != 0 {
+		t.Fatalf("postgresql provider = %+v", p)
+	}
+	tiers := map[string]string{}
+	for _, par := range p.Parameters {
+		tiers[par.Path] = par.Tier
+	}
+	want := map[string]string{"size": "contract", "storageGi": "contract", "highAvailability": "contract", "backups.retentionDays": "contract"}
+	if fmt.Sprint(tiers) != fmt.Sprint(want) {
+		t.Errorf("parameter tiers = %v, want %v", tiers, want)
+	}
+	cfgs := p.Snippet.Entries.Configurations
+	if len(cfgs) != 1 || fmt.Sprint(cfgs[0].Values) != "map[size:small storageGi:10]" || len(cfgs[0].MissingValues) != 0 {
+		t.Fatalf("snippet configurations = %+v", cfgs)
 	}
 }
