@@ -269,7 +269,9 @@ type Result struct {
 	// many publish to this hub without being members.
 	Clusters       []fleet.ClusterSummary `json:"clusters,omitempty" doc:"The clusters the answer read, with their status and age. Absent with one cluster"`
 	UnreadClusters int                    `json:"unreadClusters,omitempty" doc:"How many clusters publish to this hub and are not members, so consumers there are unknown: a BREAKING change stays unverified. Never names a cluster"`
-	Limitations    []fleet.Limitation     `json:"limitations,omitempty"`
+	// ClustersTruncated counts the clusters read past the bound on Clusters.
+	ClustersTruncated int                `json:"clustersTruncated,omitempty" doc:"How many clusters the answer read that clusters leaves out: it lists at most fleet.MaxMetaClusters"`
+	Limitations       []fleet.Limitation `json:"limitations,omitempty"`
 	// LimitationsTruncated reports that the snapshot and analysis produced more
 	// limitations than the answer carries.
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`

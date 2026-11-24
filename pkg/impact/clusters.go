@@ -20,8 +20,10 @@ func (r *Result) attributeClusters(snap *fleet.FleetSnapshot, q *fleet.Query, me
 	}
 	r.Clusters = meta.Clusters
 	// The uncapped list: the meta cap never hides a stale cluster.
+	all := q.ClusterSummaries()
+	r.ClustersTruncated = len(all) - len(meta.Clusters)
 	statuses := map[string]fleet.ClusterSummary{}
-	for _, c := range q.ClusterSummaries() {
+	for _, c := range all {
 		statuses[c.ID] = c
 	}
 	for i := range r.Consumers {

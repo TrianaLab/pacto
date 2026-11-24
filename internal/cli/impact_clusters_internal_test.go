@@ -61,6 +61,18 @@ func TestImpactPrintsClustersRead(t *testing.T) {
 	wantLines(t, impactText(t, res), "Clusters read: 2 clusters are not members yet\n")
 }
 
+func TestImpactCountsClustersPastTheCap(t *testing.T) {
+	res := multiClusterResult()
+	res.ClustersTruncated = 10
+	if got := impactText(t, res); !strings.Contains(got, "; 10 more clusters;") {
+		t.Fatalf("no count of the clusters left out:\n%s", got)
+	}
+	res.ClustersTruncated = 1
+	if got := impactText(t, res); !strings.Contains(got, "; 1 more cluster;") {
+		t.Fatalf("no count of the cluster left out:\n%s", got)
+	}
+}
+
 func TestImpactPrintsConsumerClusters(t *testing.T) {
 	got := impactText(t, multiClusterResult())
 	wantLines(t, got, "    clusters: eu-prod\n", "    clusters: us-prod (stale 14m)\n")
