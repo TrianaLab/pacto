@@ -63,11 +63,11 @@ func TestImpactPrintsClustersRead(t *testing.T) {
 
 func TestImpactCountsClustersPastTheCap(t *testing.T) {
 	res := multiClusterResult()
-	res.ClustersTruncated = 10
+	res.ClustersPastBound = 10
 	if got := impactText(t, res); !strings.Contains(got, "; 10 more clusters;") {
 		t.Fatalf("no count of the clusters left out:\n%s", got)
 	}
-	res.ClustersTruncated = 1
+	res.ClustersPastBound = 1
 	if got := impactText(t, res); !strings.Contains(got, "; 1 more cluster;") {
 		t.Fatalf("no count of the cluster left out:\n%s", got)
 	}

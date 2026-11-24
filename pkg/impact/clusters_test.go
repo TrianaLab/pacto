@@ -199,8 +199,8 @@ func TestStaleClusterPastCapStillCounts(t *testing.T) {
 	if slices.ContainsFunc(res.Clusters, func(c fleet.ClusterSummary) bool { return c.ID == usID }) {
 		t.Fatal("the stale cluster is within the cap")
 	}
-	if res.ClustersTruncated != 1 {
-		t.Fatalf("clusters past the cap: %d", res.ClustersTruncated)
+	if res.ClustersPastBound != 1 {
+		t.Fatalf("clusters past the cap: %d", res.ClustersPastBound)
 	}
 	if c := rowOf(t, res, "ledger"); c.CompatibilityVerdict != CompatibilityUnknown {
 		t.Fatalf("ledger %+v", c)

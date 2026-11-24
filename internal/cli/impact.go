@@ -622,7 +622,7 @@ func printClustersRead(w io.Writer, result *impact.Result) {
 		}
 		parts = append(parts, strings.Join(words, ", "))
 	}
-	if n := result.ClustersTruncated; n > 0 {
+	if n := result.ClustersPastBound; n > 0 {
 		parts = append(parts, fmt.Sprintf("%d more %s", n, map[bool]string{true: "cluster", false: "clusters"}[n == 1]))
 	}
 	if n := result.UnreadClusters; n > 0 {
