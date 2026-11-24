@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-delivery-environments test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
-       test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review test-acceptance-kind-delivery-member ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -134,7 +134,8 @@ test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrad
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
 	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
 	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-delivery-environments test-acceptance-kind-least-privilege \
-	test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review
+	test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review \
+	test-acceptance-kind-delivery-member
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -189,6 +190,17 @@ test-acceptance-kind-cluster-join:
 # token is logged and the member may not impersonate.
 test-acceptance-kind-member-review:
 	bash tests/acceptance/kind/member-review.sh
+
+# Deliver to a remote cluster through its member on two kind clusters and an
+# authenticated zot: a person's signed request on the member's request stream
+# raises a held promote as the member's operator on that person's behalf, a
+# person approves it from the hub's intent record and it ships through the
+# member's Flux with the hub down; a forged version is rejected by
+# pacto.published and listed as a member refusal; requests outside the
+# allowlist, without a grant or from an unlisted issuer are refused or never
+# answered; the apply survives the member's Pacto stopping and the registry going.
+test-acceptance-kind-delivery-member:
+	bash tests/acceptance/kind/delivery-member.sh
 
 # Operator-managed OFFLINE observation packaging: a declared Helm observation
 # source becomes a read-only mount whose stable Data Source identity and observed
