@@ -53,6 +53,10 @@ type dashboardIdentity struct {
 	// viewer narrows the fleet views to what the signed-in person's Kubernetes
 	// RBAC lets them read; nil outside shared mode with sign-in.
 	viewer *authn.Viewer
+	// entries are the resolved contexts the fleet reads, kept a minute: the
+	// delivery of each other cluster is read beside the dashboard's own (see
+	// remotes); nil reads only the dashboard's own.
+	entries func(context.Context) []app.K8sEntry
 	// homeUID is the sign-in cluster's cached id (homeCluster.UID), set with
 	// viewer; nil reads as unknown.
 	homeUID func(context.Context) (string, bool)

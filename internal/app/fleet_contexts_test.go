@@ -353,3 +353,16 @@ func TestMeshReadOncePerIntervalAcrossBuilds(t *testing.T) {
 		t.Errorf("another scope read %d times, %v; want its own read", c.meshReads, err)
 	}
 }
+
+func TestK8sEntryClusterName(t *testing.T) {
+	svc := contextService("", map[string]*fakeFleetK8sClient{"eu-prod": clusterFake(clusterA)}, map[string]string{"eu-prod": "https://eu"})
+	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
+		return &fakeFleetK8sClient{identity: kubecluster.Identity{ID: clusterA, Name: "Europe"}}, nil
+	}
+	if got := svc.ResolveK8sContexts(context.Background(), false, []string{"eu-prod"})[0].ClusterName(); got != "Europe" {
+		t.Errorf("named = %q", got)
+	}
+	if got := (K8sEntry{Name: "us-prod"}).ClusterName(); got != "us-prod" {
+		t.Errorf("unread = %q", got)
+	}
+}

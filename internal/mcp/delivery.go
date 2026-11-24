@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -87,7 +88,7 @@ const manifestsNote = " When the installation turns the manifest inspector on, a
 // identity, so a person's credentials in an agent's hands propose nothing
 // through this server.
 // refs, when set, adds a ref argument to the record tools.
-func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool, refs RecordReader) {
+func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool, refs RecordReader, reads DeliveryReads) {
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_delivery_operation_types",
 		Annotations: readOnly(true),
@@ -164,65 +165,7 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool, refs 
 		e, err := api.Explain(ctx, a.Namespace, a.Name)
 		return resultOrError(e, err)
 	})
-	addTool(server, &mcpsdk.Tool{
-		Name:        "pacto_delivery_history",
-		Annotations: readOnly(true),
-		Description: "List what happened on a Stage. With the recorder installed it is read from the Stage's signed records in the " +
-			"registry (source records), plus the operations not recorded yet; otherwise from the operations still in the cluster " +
-			"(source status, always partial). The answer says asOf, completeness, problems (missing seqs, forks, hidden changes) " +
-			"and what was unreadable: when completeness is partial, a change missing from it may still have happened. Leave stage " +
-			"empty to walk every Stage in the namespace (or, with no namespace, every Stage you can list) for a fleet audit; that " +
-			"answer is complete only when every Stage was read and every history is complete. Pass since and until (an RFC 3339 " +
-			"time or a duration before now such as 2h) to list the changes around a time, such as the hour before a problem " +
-			"started; a change running across that time, or whose time is unknown, is always listed. Pass cause (text in the " +
-			"cause's reason, operation or cited verdict, ignoring case) or correlation_id (exact) to keep only the changes tied " +
-			"to an incident; both narrow the timeline too. A line with no record carries a cause read from the Operation, " +
-			"unsigned. A line from a record carries impact, the pacto.impact verdict that record holds: it is signed only when " +
-			"the history is verified, and a line read from an Operation's status has none. revisions maps each artifact digest " +
-			"named to its fleet revision key, derived from the contract's digest and name and not checked against a fleet; an " +
-			"artifact that could not be read, or whose contract names another service than the Stage, has none. Pass at (the " +
-			"same forms as since) to ask which revision each Stage ran at that time instead: each Stage says state known (a " +
-			"signed record names it and nothing after it is missing or unsigned), partial (a record names it, but a later move may " +
-			"be missing, is not signed or the signatures were not checked) or unknown (no record before that time, or the Stage " +
-			"could not be read), with the version, owner, business domain and derived revision key its contract declares; the " +
-			"answer is complete only when every Stage is known and every namespace was read. Read-only." + noApprove,
-		InputSchema: historySchema(),
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
-		return historyTool(ctx, api, a)
-	})
-	addTool(server, &mcpsdk.Tool{
-		Name:        "pacto_delivery_blame",
-		Annotations: readOnly(true),
-		Description: "Say who put a version in place on a Stage (by default the one it runs): the newest change that moved the " +
-			"Stage to it, who asked and how they were classified, on whose behalf (asserted), why, who approved with what let them decide " +
-			"and what every gate said, from the records. " +
-			"No change with completeness partial means unknown, never nobody. revision is the digest's fleet revision key, derived " +
-			"from the contract's digest and name and not checked against a fleet; it is empty when the artifact could not be read " +
-			"or names another service than the Stage. Read-only." + noApprove,
-		InputSchema: stageSchema("digest"),
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a stageArgs) (*mcpsdk.CallToolResult, any, error) {
-		b, err := api.BlameWithRevision(ctx, a.Namespace, a.Stage, a.Digest)
-		return resultOrError(b, err)
-	})
-	addTool(server, &mcpsdk.Tool{
-		Name:        "pacto_delivery_undo_plan",
-		Annotations: readOnly(true),
-		Description: "Plan how to undo an operation and propose nothing: a rollback bound to it when it is the change the Stage " +
-			"runs now, a promote back to the version it replaced when something changed since (every gate runs), or nothing " +
-			"when it moved nothing. To act, review the plan and propose it yourself with its intent digest. Read-only." + noApprove,
-		InputSchema: inputSchema(map[string]property{
-			"namespace": {Type: "string", Description: "Namespace of the operation"},
-			"name":      {Type: "string", Description: "Operation name"},
-			"stage":     {Type: "string", Description: "Its Stage, needed only when the Operation was deleted and must be found in the records"},
-		}, []string{"namespace", "name"}),
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
-		Namespace string `json:"namespace"`
-		Name      string `json:"name"`
-		Stage     string `json:"stage"`
-	}) (*mcpsdk.CallToolResult, any, error) {
-		u, err := api.Undo(ctx, a.Namespace, a.Name, a.Stage)
-		return resultOrError(u, err)
-	})
+	registerHistoryReads(server, api, reads)
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_delivery_record_verify",
 		Annotations: readOnly(true),
@@ -454,7 +397,7 @@ type stageArgs struct {
 	Digest    string `json:"digest"`
 }
 
-// stageSchema is a Stage input, with digest for blame.
+// stageSchema is a Stage input, with digest and cluster for blame.
 func stageSchema(extra ...string) map[string]any {
 	props := map[string]property{
 		"namespace": {Type: "string", Description: "Namespace of the Stage"},
@@ -462,6 +405,7 @@ func stageSchema(extra ...string) map[string]any {
 	}
 	if len(extra) > 0 {
 		props["digest"] = property{Type: "string", Description: "The version (sha256:...) to blame; defaults to the one the Stage runs"}
+		props["cluster"] = clusterProperty
 	}
 	return inputSchema(props, []string{"namespace", "stage"})
 }
@@ -476,6 +420,7 @@ type historyArgs struct {
 	Cause         string `json:"cause"`
 	CorrelationID string `json:"correlation_id"`
 	At            string `json:"at"`
+	Cluster       string `json:"cluster"`
 }
 
 // historySchema is the audit schema plus a time window and, for a walk, a
@@ -493,7 +438,109 @@ func historySchema() map[string]any {
 		"domain":         {Type: "string", Description: "With service: its registry domain; a Stage that names none matches any"},
 		"at": {Type: "string", Description: "Past RFC 3339 time, or a duration before now such as 2h: answer which revision each Stage ran at " +
 			"that time instead of listing changes; it takes no since, until, cause or correlation_id"},
+		"cluster": clusterProperty,
 	}, nil)
+}
+
+// registerHistoryReads adds the history, blame and undo plan tools, which
+// read another cluster through the dashboard's route when cluster is set.
+func registerHistoryReads(server *mcpsdk.Server, api DeliveryAPI, reads DeliveryReads) {
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_history",
+		Annotations: readOnly(true),
+		Description: "List what happened on a Stage. With the recorder installed it is read from the Stage's signed records in the " +
+			"registry (source records), plus the operations not recorded yet; otherwise from the operations still in the cluster " +
+			"(source status, always partial). The answer says asOf, completeness, problems (missing seqs, forks, hidden changes) " +
+			"and what was unreadable: when completeness is partial, a change missing from it may still have happened. Leave stage " +
+			"empty to walk every Stage in the namespace (or, with no namespace, every Stage you can list) for a fleet audit; that " +
+			"answer is complete only when every Stage was read and every history is complete. Pass since and until (an RFC 3339 " +
+			"time or a duration before now such as 2h) to list the changes around a time, such as the hour before a problem " +
+			"started; a change running across that time, or whose time is unknown, is always listed. Pass cause (text in the " +
+			"cause's reason, operation or cited verdict, ignoring case) or correlation_id (exact) to keep only the changes tied " +
+			"to an incident; both narrow the timeline too. A line with no record carries a cause read from the Operation, " +
+			"unsigned. A line from a record carries impact, the pacto.impact verdict that record holds: it is signed only when " +
+			"the history is verified, and a line read from an Operation's status has none. revisions maps each artifact digest " +
+			"named to its fleet revision key, derived from the contract's digest and name and not checked against a fleet; an " +
+			"artifact that could not be read, or whose contract names another service than the Stage, has none. Pass at (the " +
+			"same forms as since) to ask which revision each Stage ran at that time instead: each Stage says state known (a " +
+			"signed record names it and nothing after it is missing or unsigned), partial (a record names it, but a later move may " +
+			"be missing, is not signed or the signatures were not checked) or unknown (no record before that time, or the Stage " +
+			"could not be read), with the version, owner, business domain and derived revision key its contract declares; the " +
+			"answer is complete only when every Stage is known and every namespace was read." + clusterDoc + " Read-only." + noApprove,
+		InputSchema: historySchema(),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
+		if a.Cluster != "" {
+			if a != (historyArgs{Namespace: a.Namespace, Stage: a.Stage, Cluster: a.Cluster}) || a.Stage == "" {
+				return errorResult(errors.New("cluster reads one Stage: pass only namespace, stage and cluster")), nil, nil
+			}
+			return clusterRoute(ctx, reads, "history", url.Values{"namespace": {a.Namespace}, "stage": {a.Stage}, "cluster": {a.Cluster}})
+		}
+		return historyTool(ctx, api, a)
+	})
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_blame",
+		Annotations: readOnly(true),
+		Description: "Say who put a version in place on a Stage (by default the one it runs): the newest change that moved the " +
+			"Stage to it, who asked and how they were classified, on whose behalf (asserted), why, who approved with what let them decide " +
+			"and what every gate said, from the records. " +
+			"No change with completeness partial means unknown, never nobody. revision is the digest's fleet revision key, derived " +
+			"from the contract's digest and name and not checked against a fleet; it is empty when the artifact could not be read " +
+			"or names another service than the Stage." + clusterDoc + " Read-only." + noApprove,
+		InputSchema: stageSchema("digest"),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
+		stageArgs
+		Cluster string `json:"cluster"`
+	}) (*mcpsdk.CallToolResult, any, error) {
+		if a.Cluster != "" {
+			return clusterRoute(ctx, reads, "blame", url.Values{"namespace": {a.Namespace}, "stage": {a.Stage}, "digest": {a.Digest}, "cluster": {a.Cluster}})
+		}
+		b, err := api.BlameWithRevision(ctx, a.Namespace, a.Stage, a.Digest)
+		return resultOrError(b, err)
+	})
+	addTool(server, &mcpsdk.Tool{
+		Name:        "pacto_delivery_undo_plan",
+		Annotations: readOnly(true),
+		Description: "Plan how to undo an operation and propose nothing: a rollback bound to it when it is the change the Stage " +
+			"runs now, a promote back to the version it replaced when something changed since (every gate runs), or nothing " +
+			"when it moved nothing. To act, review the plan and propose it yourself with its intent digest." + clusterDoc + " Read-only." + noApprove,
+		InputSchema: inputSchema(map[string]property{
+			"namespace": {Type: "string", Description: "Namespace of the operation"},
+			"name":      {Type: "string", Description: "Operation name"},
+			"stage":     {Type: "string", Description: "Its Stage, needed only when the Operation was deleted and must be found in the records"},
+			"cluster":   clusterProperty,
+		}, []string{"namespace", "name"}),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
+		Namespace string `json:"namespace"`
+		Name      string `json:"name"`
+		Stage     string `json:"stage"`
+		Cluster   string `json:"cluster"`
+	}) (*mcpsdk.CallToolResult, any, error) {
+		if a.Cluster != "" {
+			return clusterRoute(ctx, reads, "undo", url.Values{"namespace": {a.Namespace}, "name": {a.Name}, "stage": {a.Stage}, "cluster": {a.Cluster}})
+		}
+		u, err := api.Undo(ctx, a.Namespace, a.Name, a.Stage)
+		return resultOrError(u, err)
+	})
+}
+
+// clusterDoc says how a read tool reads another cluster.
+const clusterDoc = " Pass cluster (a cluster id as pacto_delivery_inbox or pacto_delivery_environments names it) to read a Stage or change " +
+	"of another cluster this server reads: it is answered through the dashboard's route, reviewed for you in that cluster, and only read."
+
+// clusterProperty is the cluster argument of the read tools that take one.
+var clusterProperty = property{Type: "string", Description: "The cluster id of the Stage or change, as a multi-cluster answer names it; empty for this server's own cluster"}
+
+// clusterRoute answers a read of another cluster through the dashboard's
+// route, in process, with the caller's own identity.
+func clusterRoute(ctx context.Context, reads DeliveryReads, route string, q url.Values) (*mcpsdk.CallToolResult, any, error) {
+	if reads == nil {
+		return errorResult(errors.New("this server reads no other cluster")), nil, nil
+	}
+	body, err := reads(ctx, route, q)
+	if err != nil {
+		return errorResult(err), nil, nil
+	}
+	return textResult(string(body)), nil, nil
 }
 
 // historyTool answers pacto_delivery_history: one Stage's history, or a walk

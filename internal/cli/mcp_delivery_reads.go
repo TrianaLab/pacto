@@ -45,6 +45,18 @@ func mcpDeliveryReads(id *dashboardIdentity, fm *pactomcp.FleetMode, narrowed st
 			}
 		}
 	}
+	if id.entries != nil {
+		// Each caller reads the other clusters as themselves: the person the
+		// apiserver reviewed for the request, never this process; without a
+		// viewer, the kubeconfig user each context names.
+		opts.DeliveryRemotes = func(r *http.Request) (fleet.Cluster, []dashboard.RemoteDelivery) {
+			p, reviewed := personFrom(r.Context())
+			if id.viewer != nil && !reviewed {
+				return fleet.Cluster{}, nil
+			}
+			return id.remotesFor(r.Context(), p)
+		}
+	}
 	h := dashboard.NewServer(opts).APIHandler()
 	return func(act *app.Delivery, who string) pactomcp.DeliveryReads {
 		api := newDashDelivery(id, act, who)

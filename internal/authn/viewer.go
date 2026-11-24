@@ -133,6 +133,14 @@ var EnvironmentLadderResource = ResourceAttributes{Group: "delivery.pacto.triana
 // PactoResource is the resource every fleet answer is reviewed against.
 var PactoResource = reviewable("Pacto")
 
+// StageResource and OperationResource are the delivery objects a person must
+// be allowed to list (or get, for one object) to read them in a cluster
+// other than the dashboard's own.
+var (
+	StageResource     = ResourceAttributes{Group: "delivery.pacto.trianalab.io", Resource: "stages"}
+	OperationResource = ResourceAttributes{Group: "delivery.pacto.trianalab.io", Resource: "operations"}
+)
+
 // workloadResources maps the workload kind of an inferred service to the
 // resource a person must be allowed to list to see it.
 var workloadResources = reviewables("Deployment", "StatefulSet", "DaemonSet", "CronJob")
@@ -720,14 +728,22 @@ func (v *Viewer) MayUpdateWorkload(ctx context.Context, p Person, cluster, names
 	if !ok {
 		return false, nil
 	}
+	res.Name = name
+	return v.MayList(ctx, p, cluster, namespace, res, "update")
+}
+
+// MayList asks the reviewer of cluster (the only one when cluster is empty)
+// whether p may verb res (res.Name only, when set) in namespace, kept a
+// minute per cluster, person, resource, verb and namespace; a failure is not
+// kept. A cluster nobody reviews p in is ErrClusterNotReviewable.
+func (v *Viewer) MayList(ctx context.Context, p Person, cluster, namespace string, res ResourceAttributes, verb string) (bool, error) {
 	m := v.reviews(ctx)
 	key, ok := v.router(ctx, m, p)(cluster)
 	if !ok {
 		return false, ErrClusterNotReviewable
 	}
-	res.Verb, res.Name = "update", name
-	who := reviewer(p)
-	return v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, who, namespace, res)
+	res.Verb = verb
+	return v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, reviewer(p), namespace, res)
 }
 
 // ask is one cached review in w's cluster. Failures are not cached.

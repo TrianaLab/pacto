@@ -150,3 +150,46 @@ func TestDeliveryReadParams(t *testing.T) {
 		t.Error("history is not a read tool route")
 	}
 }
+
+// TestDeliveryToolsReadAnotherClusterThroughRoute: history, blame and the
+// undo plan of another cluster run the dashboard's route with cluster, and
+// never the server's own client.
+func TestDeliveryToolsReadAnotherClusterThroughRoute(t *testing.T) {
+	r := &stubReads{}
+	server := mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Reads: r.reads}})
+	for _, c := range []struct {
+		tool, route string
+		args        map[string]any
+		want        url.Values
+	}{
+		{"pacto_delivery_history", "history", map[string]any{"namespace": "prod", "stage": "payments", "cluster": "uid-eu"},
+			url.Values{"namespace": {"prod"}, "stage": {"payments"}, "cluster": {"uid-eu"}}},
+		{"pacto_delivery_blame", "blame", map[string]any{"namespace": "prod", "stage": "payments", "digest": "sha256:a", "cluster": "uid-eu"},
+			url.Values{"namespace": {"prod"}, "stage": {"payments"}, "digest": {"sha256:a"}, "cluster": {"uid-eu"}}},
+		{"pacto_delivery_undo_plan", "undo", map[string]any{"namespace": "prod", "name": "op-1", "cluster": "uid-eu"},
+			url.Values{"namespace": {"prod"}, "name": {"op-1"}, "stage": {""}, "cluster": {"uid-eu"}}},
+	} {
+		res := callToolOn(t, server, c.tool, c.args)
+		if res.IsError || r.route != c.route || r.q.Encode() != c.want.Encode() || resultText(t, res) != `{"route":"`+c.route+`"}` {
+			t.Errorf("%s: route %s %v -> %s", c.tool, r.route, r.q, resultText(t, res))
+		}
+	}
+	res := callToolOn(t, server, "pacto_delivery_history", map[string]any{"stage": "payments", "cluster": "uid-eu", "since": "2h"})
+	if !res.IsError || !strings.Contains(resultText(t, res), "pass only namespace, stage and cluster") {
+		t.Errorf("a filter with cluster: %s", resultText(t, res))
+	}
+	res = callToolOn(t, server, "pacto_delivery_history", map[string]any{"cluster": "uid-eu"})
+	if !res.IsError {
+		t.Errorf("a walk with cluster: %s", resultText(t, res))
+	}
+	r.err = errors.New("ClusterUnknown: no cluster uid-eu is read here")
+	if res := callToolOn(t, server, "pacto_delivery_blame", map[string]any{"namespace": "prod", "stage": "payments", "cluster": "uid-eu"}); !res.IsError ||
+		!strings.Contains(resultText(t, res), "ClusterUnknown") {
+		t.Errorf("a refused route: %s", resultText(t, res))
+	}
+	alone := mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}}})
+	if res := callToolOn(t, alone, "pacto_delivery_undo_plan", map[string]any{"namespace": "prod", "name": "op-1", "cluster": "uid-eu"}); !res.IsError ||
+		!strings.Contains(resultText(t, res), "reads no other cluster") {
+		t.Errorf("no reads: %s", resultText(t, res))
+	}
+}

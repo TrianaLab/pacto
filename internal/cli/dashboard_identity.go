@@ -68,6 +68,7 @@ func newDashboardIdentity(v *viper.Viper, host string, cluster *rest.Config, ent
 	}
 	id := baseDashboardIdentity(cluster, d, trust, v.GetString("dashboard.delivery-namespace"))
 	id.loginName = v.GetString("dashboard.oidc-display-name")
+	id.entries = memoEntries(entries)
 	life := authn.Lifetime{Idle: v.GetDuration("dashboard.session-idle-timeout"), Max: v.GetDuration("dashboard.session-max-age")}
 	// nil: no cluster to ask who a token is. bearer names an ID token and
 	// builds its client per call, so a dashboard without token sign-in builds
@@ -153,6 +154,9 @@ func (id *dashboardIdentity) options(o *dashboard.Options) {
 	if id.cluster != nil {
 		o.Delivery = id.delivery
 		o.DeliveryInstalled, o.DeliveryCheckedAt = id.deliveryInstalled, id.deliveryCheckedAt
+		if id.entries != nil {
+			o.DeliveryRemotes = id.remotes
+		}
 	}
 }
 
