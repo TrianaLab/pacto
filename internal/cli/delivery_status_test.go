@@ -21,7 +21,7 @@ func statusDeps(fields map[string]any) deps {
 	plain := d.newDynamic
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
-		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}).Namespace("prod")
+		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}).Namespace("prod")
 		s, _ := stages.Get(context.Background(), "payments-prod", metav1.GetOptions{})
 		for k, v := range fields {
 			_ = unstructured.SetNestedField(s.Object, v, "status", k)

@@ -119,7 +119,7 @@ spec:
   wait: true
   timeout: 2m
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata:
   name: fraud
@@ -243,7 +243,7 @@ spec:
   wait: true
   timeout: 2m
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata:
   name: fraud

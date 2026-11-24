@@ -329,7 +329,7 @@ pass "$TARGETS holds Deployment/payments linked by image-digest"
 
 section "8 a hand-written Pacto CR for ledger wins over its link"
 kubectl apply -f - > /dev/null << YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: { name: ledger, namespace: $APP_NS }
 spec:

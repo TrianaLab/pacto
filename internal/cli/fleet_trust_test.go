@@ -25,7 +25,7 @@ func publishersIn(ns, registry string) dynamic.Interface {
 	cm := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap",
 		"metadata": map[string]any{"namespace": ns, "name": delivery.PolicyConfigMap},
 		"data":     map[string]any{delivery.PublishersKey: `{"registry":"` + registry + `"}`}}}
-	lists := map[schema.GroupVersionResource]string{{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}: "StageList"}
+	lists := map[schema.GroupVersionResource]string{{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}: "StageList"}
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, cm)
 }
 

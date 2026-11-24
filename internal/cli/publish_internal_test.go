@@ -169,7 +169,7 @@ func TestPublishCommandFailures(t *testing.T) {
 	fromUpstream.newDynamic = func() (dynamic.Interface, error) {
 		c, err := cluster()
 		c.(*dynamicfake.FakeDynamicClient).PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
-			return true, u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
+			return true, u("delivery.pacto.trianalab.io/v1", "Stage", "payments-prod", map[string]any{
 				"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"},
 					"candidates": map[string]any{"upstreamStage": map[string]any{"name": "payments-test"}}}}), nil
 		})
@@ -280,7 +280,7 @@ func TestWaitPublishedRegistry(t *testing.T) {
 		d.newDynamic = func() (dynamic.Interface, error) {
 			c, err := cluster()
 			c.(*dynamicfake.FakeDynamicClient).PrependReactor("get", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
-				return true, u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
+				return true, u("delivery.pacto.trianalab.io/v1", "Stage", "payments-prod", map[string]any{
 					"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"},
 						"candidates": map[string]any{"registry": map[string]any{}}},
 					"status": map[string]any{"published": published}}), nil

@@ -33,7 +33,7 @@ const (
 	argoPlugin      = "argocd-cmp-pacto.yaml"
 	argoPatch       = "argocd-repo-server-pacto-patch.yaml"
 	argoPreSync     = "argocd-presync-pacto-impact.yaml"
-	pactoAPIVersion = "pacto.trianalab.io/v1alpha1"
+	pactoAPIVersion = "pacto.trianalab.io/v1"
 )
 
 // gitopsFixture is a fixture's path relative to the repository root.

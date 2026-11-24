@@ -198,7 +198,7 @@ kubectl -n "$DEMO_NS" rollout status deployment/orders --timeout=90s
 # The dependency ref is matched against sibling Pacto CRs' resolvedRef, never
 # fetched, so no registry is needed for the declared edge to exist.
 kubectl apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: { name: checkout, namespace: ${DEMO_NS} }
 spec:
@@ -211,7 +211,7 @@ spec:
       state: {type: stateless, persistence: {scope: local, durability: ephemeral}, dataCriticality: low}
   target: {workloadRef: {name: checkout, kind: Deployment}}
 ---
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: { name: orders, namespace: ${DEMO_NS} }
 spec:

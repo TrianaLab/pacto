@@ -21,14 +21,12 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 )
-
-// deliveryGroupVersion is the API the chart's delivery section installs.
-const deliveryGroupVersion = "delivery.pacto.trianalab.io/v1alpha1"
 
 // dashboardIdentity is how the dashboard identifies callers and acts for them.
 type dashboardIdentity struct {
@@ -75,6 +73,9 @@ type dashboardIdentity struct {
 	checked   time.Time
 	installed bool
 	probeErr  error
+	// version is the version the cluster serves the delivery group at (see
+	// servedVersion); "" until asked or when it serves none.
+	version string
 
 	mu        sync.Mutex
 	revisions map[string]delivery.Revision
@@ -124,10 +125,34 @@ func (id *dashboardIdentity) deliveryInstalled(context.Context) (bool, error) {
 	if now.Sub(id.checked) > ttl {
 		cfg := rest.CopyConfig(id.cluster)
 		cfg.Timeout = discoveryTimeout
-		id.installed, id.probeErr = id.served(cfg, deliveryGroupVersion)
+		id.version, id.probeErr = servedVersion(id.served, cfg)
+		id.installed = id.version != ""
 		id.checked = now
 	}
 	return id.installed && id.probeErr == nil, id.probeErr
+}
+
+// servedVersion is the version the cluster serves the delivery group at:
+// v1, else the deprecated v1alpha1 a chart-6 cluster serves; "" for neither.
+func servedVersion(served func(*rest.Config, string) (bool, error), cfg *rest.Config) (string, error) {
+	for _, v := range []string{"v1", "v1alpha1"} {
+		if ok, err := served(cfg, deliveryGroup+"/"+v); err != nil || ok {
+			return v, err
+		}
+	}
+	return "", nil
+}
+
+// versions maps both Pacto groups to the version deliveryInstalled found:
+// one chart serves both at the same version. nil before it found one, so
+// the client addresses v1.
+func (id *dashboardIdentity) versions() map[string]string {
+	id.probe.Lock()
+	defer id.probe.Unlock()
+	if id.version == "" || id.probeErr != nil {
+		return nil
+	}
+	return map[string]string{deliveryGroup: id.version, k8sclient.PactoGroup: id.version}
 }
 
 // deliveryCheckedAt is when deliveryInstalled last asked discovery.
@@ -175,7 +200,8 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		return nil, err
 	}
 	act := &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope, Infra: id.infra}
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope, Infra: id.infra,
+		Versions: id.versions()}
 	out := newDashDelivery(id, act, who)
 	if s := id.sharedReads(); s != nil && token != "" {
 		c, sc := *act, sharedClient{Interface: dyn, s: s, token: token}
@@ -202,7 +228,7 @@ func (id *dashboardIdentity) sharedReads() *sharedReads {
 		cfg := rest.CopyConfig(id.cluster)
 		cfg.QPS, cfg.Burst = sarQPS, sarBurst
 		if sa, err := id.newClient(cfg); err == nil { // a config that fails here fails every person's client too
-			id.shared = newSharedReads(context.Background(), sa, id.reads.wrote)
+			id.shared = newSharedReads(context.Background(), sa, id.versions()[deliveryGroup], id.reads.wrote)
 		}
 	})
 	return id.shared

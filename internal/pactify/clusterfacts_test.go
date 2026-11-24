@@ -40,7 +40,7 @@ func invoicesShop(now time.Time) []runtime.Object {
 		service("shop", "ledger", "10.0.0.60"),
 		pactoCR("shop", "ledger-a", "ledger", "ledger", "oci://reg.io/acme/contracts/ledger", "2.4.0", 1, 1),
 		pactoCR("shop", "ledger-b", "ledger", "ledger", "oci://reg.io/acme/contracts/ledger", "2.3.1", 1, 1),
-		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+		obj("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
 			"nodeName": "node-1", "publishIntervalSeconds": int64(30), "lastPublished": now.Add(-10 * time.Second).UTC().Format(time.RFC3339),
 			"collection": map[string]any{"state": "Running"},
 			"pods": []any{map[string]any{"uid": "u-invoices-7f-a", "connections": []any{
@@ -501,7 +501,7 @@ func TestClusterNoRunningPodNeverCallsNothing(t *testing.T) {
 // whether a Pacto describes it is unknown; read in full, it is skipped.
 func TestClusterPactosCutNeverSilentDraft(t *testing.T) {
 	now := time.Now()
-	objs := append(invoicesShop(now), obj("pacto.trianalab.io/v1alpha1", "Pacto", "shop", "invoices", map[string]any{
+	objs := append(invoicesShop(now), obj("pacto.trianalab.io/v1", "Pacto", "shop", "invoices", map[string]any{
 		"spec": map[string]any{"target": map[string]any{"serviceName": "invoices", "workloadRef": map[string]any{"name": "invoices", "kind": "Deployment"}}}}))
 	c := ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), Now: func() time.Time { return now }}
 	b, err := Cluster(context.Background(), fakeCluster(objs...), Options{Plan: true}, c, nil)

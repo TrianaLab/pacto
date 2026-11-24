@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -267,4 +268,59 @@ func TestDeliveryWireTypesAreStable(t *testing.T) {
 	if strings.Contains(doc, "Experimental: not covered") {
 		t.Error("pkg/delivery's package doc still says it is Experimental")
 	}
+}
+
+// v1alpha1Allowed lists the tracked paths (a trailing "/" is a prefix) that
+// may still address the Pacto groups at the deprecated version, each with
+// the reason. A stale entry fails, as in deadcode_test.go.
+var v1alpha1Allowed = map[string]string{
+	"integrations/kubernetes/api/v1alpha1/":                       "the deprecated pacto.trianalab.io package itself",
+	"integrations/kubernetes/api/delivery/v1alpha1/":              "the deprecated delivery.pacto.trianalab.io package itself",
+	"tests/acceptance/kind/fixtures/pacto-operator-v4/":           "the published v4 chart the upgrade scenario installs first",
+	"tests/acceptance/kind/upgrade-v4-v5.sh":                      "addresses the v4 cluster before the upgrade",
+	"integrations/kubernetes/config/crd/bases/":                   "the generated v1alpha1 deprecationWarning",
+	"integrations/kubernetes/charts/pacto-operator/files/crds/":   "the chart copies of the generated CRDs (deprecationWarning)",
+	"integrations/kubernetes/charts/pacto-operator/tests/golden/": "the default render carries the CRDs (deprecationWarning)",
+	"tests/architecture/testdata/crd-v1-drift/":                   "drift fixtures for compareVersions carry the deprecationWarning",
+	"MIGRATION.md":                          "release history",
+	"release/units/k8s-module/CHANGELOG.md": "release history",
+}
+
+// TestNothingAddressesV1alpha1: no tracked file creates, reads or documents
+// the Pacto groups at v1alpha1 outside the allowlist, so a file merged late
+// from a parallel chain fails here instead of shipping deprecation warnings.
+func TestNothingAddressesV1alpha1(t *testing.T) {
+	old := "v1" + "alpha1" // split so this file never matches itself
+	pattern := strings.Join([]string{
+		`pacto\.trianalab\.io/` + old,
+		`(pacto\.trianalab\.io"|deliveryGroup|PactoGroup)[^)]{0,40}Version: *"` + old + `"`,
+		`pacto\.trianalab\.io", *"` + old + `"`,
+		`integrations/kubernetes/v[0-9]+/api/(delivery/)?` + old + `"`,
+	}, "|")
+	out, err := exec.Command("git", "-C", repoRoot(t), "grep", "-I", "-l", "-E", pattern).Output()
+	if err != nil && len(out) != 0 {
+		t.Fatalf("git grep: %v", err)
+	}
+	used := map[string]bool{}
+	for _, path := range strings.Fields(string(out)) {
+		if entry, ok := v1alpha1Entry(path); ok {
+			used[entry] = true
+			continue
+		}
+		t.Errorf("%s addresses a Pacto group at %s; use v1", path, old)
+	}
+	for entry, reason := range v1alpha1Allowed {
+		if !used[entry] {
+			t.Errorf("stale allowlist entry %s (%s): nothing there matches any more", entry, reason)
+		}
+	}
+}
+
+func v1alpha1Entry(path string) (string, bool) {
+	for entry := range v1alpha1Allowed {
+		if path == entry || (strings.HasSuffix(entry, "/") && strings.HasPrefix(path, entry)) {
+			return entry, true
+		}
+	}
+	return "", false
 }

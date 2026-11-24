@@ -27,7 +27,7 @@ const acmeIssuer = "https://idp.acme.example"
 // approvals repository in mode, with a keyless signer configured for acme.
 func signedEnv(t *testing.T, mode capabilities.ReferrersMode) *recordEnv {
 	t.Helper()
-	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
+	op := obj("delivery.pacto.trianalab.io/v1", "Operation", "prod", "p1", map[string]any{
 		"spec": map[string]any{"intentDigest": "sha256:i", "stage": "payments-prod", "actor": map[string]any{"user": "bob"}},
 		"status": map[string]any{"phase": "Held", "stageUID": "uid-stage", "guarded": true,
 			"times": map[string]any{"held": "2020-01-01T00:00:00Z"}},
@@ -130,7 +130,7 @@ func TestApproveSignedRefusesWithoutApprovalsRepository(t *testing.T) {
 	if _, err := e.d.ApproveSigned(context.Background(), "prod", "gone", delivery.Approve, "", edSigner(e.key), acmeIssuer, "alice@acme.example"); err == nil {
 		t.Fatal("approved a missing operation")
 	}
-	orphan := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p2", map[string]any{"spec": map[string]any{"stage": "gone"}})
+	orphan := obj("delivery.pacto.trianalab.io/v1", "Operation", "prod", "p2", map[string]any{"spec": map[string]any{"stage": "gone"}})
 	if _, err := e.c.Resource(gvrOperations).Namespace("prod").Create(context.Background(), orphan, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}

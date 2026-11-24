@@ -26,11 +26,11 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/logging"
 )
 
+// DeliveryGroup is the API group of the delivery CRDs.
+const DeliveryGroup = "delivery.pacto.trianalab.io"
+
 // Delivery resources the client reads and writes.
 var (
-	gvrStages        = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}
-	gvrOperations    = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}
-	gvrApprovals     = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "approvals"}
 	gvrOCIRepository = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "ocirepositories"}
 	gvrKustomization = schema.GroupVersionResource{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}
 	gvrHelmRelease   = schema.GroupVersionResource{Group: "helm.toolkit.fluxcd.io", Version: "v2", Resource: "helmreleases"}
@@ -87,6 +87,15 @@ type Delivery struct {
 	// Infra tells which kinds are infrastructure Crossplane manages
 	// (DiscoveryScope); nil tells them by group only.
 	Infra delivery.InfraFunc
+	// Versions maps an API group (DeliveryGroup, k8sclient.PactoGroup) to the
+	// version the cluster serves; a group it leaves out is addressed at v1.
+	// A chart-6 cluster serves only v1alpha1.
+	Versions map[string]string
+}
+
+// gvr is resource of group at the version the cluster serves (Versions).
+func (d *Delivery) gvr(group, resource string) schema.GroupVersionResource {
+	return schema.GroupVersionResource{Group: group, Version: cmp.Or(d.Versions[group], "v1"), Resource: resource}
 }
 
 // Caller is who the apiserver says is calling, and when they last logged in.
@@ -133,7 +142,7 @@ func (d *Delivery) Can(ctx context.Context, verb, resource, ns string) (bool, er
 	review := &unstructured.Unstructured{Object: map[string]any{
 		"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
 		"spec": map[string]any{"resourceAttributes": map[string]any{
-			"namespace": ns, "verb": verb, "group": gvrStages.Group, "resource": resource}},
+			"namespace": ns, "verb": verb, "group": DeliveryGroup, "resource": resource}},
 	}}
 	out, err := d.Dynamic.Resource(gvrSelfAccess).Create(ctx, review, metav1.CreateOptions{})
 	if err != nil {
@@ -299,7 +308,7 @@ func listInto[T any](ctx context.Context, r dynamic.NamespaceableResourceInterfa
 
 // Stages lists the Stages in a namespace, or in every namespace for "".
 func (d *Delivery) Stages(ctx context.Context, ns string) ([]delivery.StageObject, error) {
-	return listInto[delivery.StageObject](ctx, d.Dynamic.Resource(gvrStages), ns, "Stages")
+	return listInto[delivery.StageObject](ctx, d.Dynamic.Resource(d.gvr(DeliveryGroup, "stages")), ns, "Stages")
 }
 
 // OperationsNotSucceeded lists the Operations in ns ("" for all) that did
@@ -317,7 +326,7 @@ func (d *Delivery) OperationsNotSucceeded(ctx context.Context, ns string) ([]del
 // selector; the whole list is then filtered here, so the answer is the same
 // either way.
 func (d *Delivery) operationsWhere(ctx context.Context, ns string, sel fields.Selector, keep func(delivery.OperationObject) bool) ([]delivery.OperationObject, error) {
-	r := d.Dynamic.Resource(gvrOperations)
+	r := d.Dynamic.Resource(d.gvr(DeliveryGroup, "operations"))
 	ops, err := listInto[delivery.OperationObject](ctx, r, ns, "Operations", sel.String())
 	if apierrors.IsBadRequest(err) {
 		ops, err = listInto[delivery.OperationObject](ctx, r, ns, "Operations")
@@ -338,7 +347,7 @@ func (d *Delivery) Describe(ctx context.Context, stage *delivery.StageObject, di
 // Stage reads one Stage.
 func (d *Delivery) Stage(ctx context.Context, ns, name string) (*delivery.StageObject, error) {
 	s := &delivery.StageObject{}
-	if err := getInto(ctx, d.Dynamic.Resource(gvrStages).Namespace(ns), name, s); err != nil {
+	if err := getInto(ctx, d.Dynamic.Resource(d.gvr(DeliveryGroup, "stages")).Namespace(ns), name, s); err != nil {
 		return nil, fmt.Errorf("reading Stage %s/%s: %w", ns, name, err)
 	}
 	return s, nil
@@ -347,7 +356,7 @@ func (d *Delivery) Stage(ctx context.Context, ns, name string) (*delivery.StageO
 // Get reads one Operation.
 func (d *Delivery) Get(ctx context.Context, ns, name string) (*delivery.OperationObject, error) {
 	o := &delivery.OperationObject{}
-	if err := getInto(ctx, d.Dynamic.Resource(gvrOperations).Namespace(ns), name, o); err != nil {
+	if err := getInto(ctx, d.Dynamic.Resource(d.gvr(DeliveryGroup, "operations")).Namespace(ns), name, o); err != nil {
 		return nil, fmt.Errorf("reading Operation %s/%s: %w", ns, name, err)
 	}
 	return o, nil
@@ -703,7 +712,7 @@ func (d *Delivery) ociRepo(ctx context.Context, ns, name string) (string, []stri
 }
 
 func (d *Delivery) pactos(ctx context.Context) ([]delivery.PactoView, error) {
-	list, err := d.Dynamic.Resource(k8sclient.PactosGVR).List(ctx, metav1.ListOptions{})
+	list, err := d.Dynamic.Resource(d.gvr(k8sclient.PactoGroup, k8sclient.PactosGVR.Resource)).List(ctx, metav1.ListOptions{})
 	if err != nil {
 		return nil, err
 	}
@@ -749,9 +758,9 @@ func (d *Delivery) Propose(ctx context.Context, req delivery.Request) (*delivery
 	var specMap map[string]any
 	_ = json.Unmarshal(specJSON, &specMap)
 	obj := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "delivery.pacto.trianalab.io/v1alpha1", "kind": "Operation", "metadata": meta, "spec": specMap,
+		"apiVersion": d.gvr(DeliveryGroup, "operations").GroupVersion().String(), "kind": "Operation", "metadata": meta, "spec": specMap,
 	}}
-	created, err := d.Dynamic.Resource(gvrOperations).Namespace(req.Namespace).Create(ctx, obj, metav1.CreateOptions{})
+	created, err := d.Dynamic.Resource(d.gvr(DeliveryGroup, "operations")).Namespace(req.Namespace).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		return nil, plan, fmt.Errorf("creating the Operation: %w", err)
 	}
@@ -765,7 +774,7 @@ func (d *Delivery) Propose(ctx context.Context, req delivery.Request) (*delivery
 // moved yet. Admission refuses once the pointer moved, and refuses an agent
 // cancelling an operation it did not propose itself.
 func (d *Delivery) Cancel(ctx context.Context, ns, name string) error {
-	if err := d.Dynamic.Resource(gvrOperations).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+	if err := d.Dynamic.Resource(d.gvr(DeliveryGroup, "operations")).Namespace(ns).Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
 		return fmt.Errorf("cancelling Operation %s/%s: %w", ns, name, err)
 	}
 	return nil
@@ -824,9 +833,9 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 		return "", errors.New("the promoter would not count this decision, so none was recorded: " + why)
 	}
 	obj := &unstructured.Unstructured{Object: map[string]any{
-		"apiVersion": "delivery.pacto.trianalab.io/v1alpha1", "kind": "Approval",
+		"apiVersion": d.gvr(DeliveryGroup, "approvals").GroupVersion().String(), "kind": "Approval",
 		"metadata": map[string]any{"namespace": ns, "generateName": name + "-",
-			"ownerReferences": []any{map[string]any{"apiVersion": "delivery.pacto.trianalab.io/v1alpha1", "kind": "Operation",
+			"ownerReferences": []any{map[string]any{"apiVersion": d.gvr(DeliveryGroup, "operations").GroupVersion().String(), "kind": "Operation",
 				"name": name, "uid": op.Metadata.UID}}},
 		"spec": map[string]any{"operation": name, "operationUID": op.Metadata.UID, "intentDigest": op.Spec.IntentDigest,
 			"decision": string(decision), "note": note, "by": caller.User, "groups": anySlice(caller.Groups)},
@@ -834,7 +843,7 @@ func (d *Delivery) Approve(ctx context.Context, ns, name string, decision delive
 	if caller.AuthTime != "" { // a login the cluster cannot date is not dated
 		obj.Object["spec"].(map[string]any)["authTime"] = caller.AuthTime
 	}
-	created, err := d.Dynamic.Resource(gvrApprovals).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{})
+	created, err := d.Dynamic.Resource(d.gvr(DeliveryGroup, "approvals")).Namespace(ns).Create(ctx, obj, metav1.CreateOptions{})
 	if err != nil {
 		return "", fmt.Errorf("creating the Approval: %w", err)
 	}

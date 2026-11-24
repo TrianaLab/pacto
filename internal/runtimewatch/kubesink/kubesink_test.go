@@ -108,7 +108,7 @@ func TestPublish_Existing(t *testing.T) {
 	if string(got) != want {
 		t.Fatalf("status:\n got  %s\n want %s", got, want)
 	}
-	if (*seen)[0].obj["kind"] != "NodeRuntimeObservation" || (*seen)[0].obj["apiVersion"] != "pacto.trianalab.io/v1alpha1" {
+	if (*seen)[0].obj["kind"] != "NodeRuntimeObservation" || (*seen)[0].obj["apiVersion"] != "pacto.trianalab.io/v1" {
 		t.Fatalf("object = %+v", (*seen)[0].obj)
 	}
 }

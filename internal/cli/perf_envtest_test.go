@@ -56,9 +56,9 @@ var (
 	gvrCRole     = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterroles"}
 	gvrRB        = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "rolebindings"}
 	gvrCRB       = schema.GroupVersionResource{Group: "rbac.authorization.k8s.io", Version: "v1", Resource: "clusterrolebindings"}
-	gvrPerfStage = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}
-	gvrPerfOp    = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}
-	gvrPerfAppr  = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "approvals"}
+	gvrPerfStage = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}
+	gvrPerfOp    = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}
+	gvrPerfAppr  = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "approvals"}
 	gvrPerfOCI   = schema.GroupVersionResource{Group: "source.toolkit.fluxcd.io", Version: "v1", Resource: "ocirepositories"}
 )
 
@@ -325,7 +325,7 @@ func seedStages(t testing.TB, ctx context.Context, adm dynamic.Interface, w *wor
 	}
 	parallel(t, len(add), func(i int) error {
 		st := add[i]
-		u := toU(st, "delivery.pacto.trianalab.io/v1alpha1", "Stage")
+		u := toU(st, "delivery.pacto.trianalab.io/v1", "Stage")
 		if err := create(ctx, adm.Resource(gvrPerfStage).Namespace(st.Metadata.Namespace), u, true); err != nil {
 			return err
 		}
@@ -381,7 +381,7 @@ func seedOps(t testing.TB, ctx context.Context, adm dynamic.Interface, w *world,
 	}
 	parallel(t, len(add), func(i int) error {
 		o := add[i].op
-		u := toU(o, "delivery.pacto.trianalab.io/v1alpha1", "Operation")
+		u := toU(o, "delivery.pacto.trianalab.io/v1", "Operation")
 		ri := adm.Resource(gvrPerfOp).Namespace(o.Metadata.Namespace)
 		if err := create(ctx, ri, u, true); err != nil {
 			return fmt.Errorf("operation %s: %w", o.Metadata.Name, err)
@@ -389,7 +389,7 @@ func seedOps(t testing.TB, ctx context.Context, adm dynamic.Interface, w *world,
 		if !add[i].approval {
 			return nil
 		}
-		a := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "delivery.pacto.trianalab.io/v1alpha1", "kind": "Approval",
+		a := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "delivery.pacto.trianalab.io/v1", "kind": "Approval",
 			"metadata": map[string]any{"name": o.Metadata.Name + "-ok", "namespace": o.Metadata.Namespace},
 			"spec": map[string]any{"operation": o.Metadata.Name, "operationUID": "uid-" + o.Metadata.Name, "intentDigest": o.Spec.IntentDigest,
 				"decision": "approve", "by": perfIssuer + "#bob", "groups": []any{"team-b"}}}}

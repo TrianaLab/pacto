@@ -81,7 +81,7 @@ func newKeylessEnv(t *testing.T, mode capabilities.ReferrersMode, email string) 
 	e.d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
 		fc := c.(*dynamicfake.FakeDynamicClient)
-		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}).Namespace("prod")
+		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}).Namespace("prod")
 		s, _ := stages.Get(context.Background(), "payments-prod", metav1.GetOptions{})
 		_ = unstructured.SetNestedField(s.Object, e.stage, "status", "stream")
 		_, _ = stages.Update(context.Background(), s, metav1.UpdateOptions{})
@@ -209,7 +209,7 @@ func TestApproveKeepsClusterPathOnFreshnessStage(t *testing.T) {
 	plain := e.d.newDynamic
 	e.d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
-		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}).Namespace("prod")
+		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}).Namespace("prod")
 		s, _ := stages.Get(context.Background(), "payments-prod", metav1.GetOptions{})
 		_ = unstructured.SetNestedField(s.Object, "15m0s", "status", "authFreshness")
 		_, _ = stages.Update(context.Background(), s, metav1.UpdateOptions{})

@@ -367,7 +367,7 @@ func TestProvenanceUnguardedCapsUnknown(t *testing.T) {
 func TestInstallationTrustPinRollback(t *testing.T) {
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	streams := e.host + "/delivery/streams"
-	stage := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "payments-reg", map[string]any{
+	stage := obj("delivery.pacto.trianalab.io/v1", "Stage", "prod", "payments-reg", map[string]any{
 		"spec": map[string]any{"service": map[string]any{"name": "payments"}, "candidates": map[string]any{"registry": map[string]any{}}},
 		"status": map[string]any{"publisher": map[string]any{"source": "policy", "policyDigest": "sha256:p", "policyAt": "2026-11-18T00:00:00Z",
 			"pinAt": "2026-11-18T00:00:00Z"}}})

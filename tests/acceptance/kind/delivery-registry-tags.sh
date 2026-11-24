@@ -87,7 +87,7 @@ spec:
   targetNamespace: $G
   healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: receipts, namespace: $G}]
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: receipts}
 spec:

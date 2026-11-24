@@ -30,7 +30,7 @@ func statusStage(ns, name, service, env, upNS, upName string, status map[string]
 	if status == nil {
 		status = map[string]any{}
 	}
-	return obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", ns, name, map[string]any{"spec": spec, "status": status})
+	return obj("delivery.pacto.trianalab.io/v1", "Stage", ns, name, map[string]any{"spec": spec, "status": status})
 }
 
 // statusFixture is the delivery fixture for alice, whose RBAC lets her

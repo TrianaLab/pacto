@@ -72,20 +72,20 @@ func deliveryDeps(user string, dynErr error) deps {
 	d.newDeliveryRegistry = func(...string) app.DeliveryRegistry { return cliRegistry{} }
 	d.newDynamic = func() (dynamic.Interface, error) {
 		lists := map[schema.GroupVersionResource]string{
-			{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}: "OperationList",
-			{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}:     "StageList",
-			{Group: "pacto.trianalab.io", Version: "v1alpha1", Resource: "pactos"}:              "PactoList",
-			{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}:   "KustomizationList",
+			{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}:     "OperationList",
+			{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}:         "StageList",
+			{Group: "pacto.trianalab.io", Version: "v1", Resource: "pactos"}:                  "PactoList",
+			{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}: "KustomizationList",
 		}
 		c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists,
-			u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
+			u("delivery.pacto.trianalab.io/v1", "Stage", "payments-prod", map[string]any{
 				"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"},
 					"candidates": map[string]any{"ociRepositoryRef": map[string]any{"name": "payments"}}},
 				"status": map[string]any{"level": "autonomous", "pointer": cliA, "verified": []any{cliA}, "published": []any{cliB}, "frozen": true, "frozenReason": "a rollback failed",
 					"autoHold": true, "lastCheck": map[string]any{"operation": "uid-x", "digest": cliA, "at": "2026-10-20T10:00:00Z",
 						"verdicts": []any{map[string]any{"gate": "health", "phase": "verify", "result": "Unknown", "message": "too few spans"}}}}}),
 			u("source.toolkit.fluxcd.io/v1", "OCIRepository", "payments", map[string]any{"spec": map[string]any{"url": "oci://reg/apps/payments"}}),
-			u("delivery.pacto.trianalab.io/v1alpha1", "Operation", "held", map[string]any{
+			u("delivery.pacto.trianalab.io/v1", "Operation", "held", map[string]any{
 				"spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "intentDigest": "sha256:i"},
 				"status": map[string]any{"phase": "Held", "question": "Approve?", "reason": "AwaitingHuman", "message": "m",
 					"times": map[string]any{"approvalDeadline": "2026-10-30T09:00:00Z"},
@@ -121,7 +121,7 @@ func approveDeps(user string, dynErr error) deps {
 	plain := d.newDynamic
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
-		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}).Namespace("prod")
+		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}).Namespace("prod")
 		s, _ := stages.Get(context.Background(), "payments-prod", metav1.GetOptions{})
 		_ = unstructured.SetNestedField(s.Object, "15m0s", "status", "authFreshness")
 		_, _ = stages.Update(context.Background(), s, metav1.UpdateOptions{})
@@ -234,10 +234,10 @@ func TestDeliveryHistoryWindowAndService(t *testing.T) {
 	plain := d.newDynamic
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
-		ops := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}).Namespace("prod")
+		ops := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}).Namespace("prod")
 		for i, name := range []string{"one-hour-ago", "three-hours-ago"} {
 			finished := time.Now().Add(-time.Duration(1+2*i) * time.Hour).UTC().Format(time.RFC3339)
-			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1alpha1", "Operation", name, map[string]any{
+			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1", "Operation", name, map[string]any{
 				"spec":   map[string]any{"type": delivery.TypePromote, "stage": "payments-prod"},
 				"status": map[string]any{"phase": "Concluded", "seq": int64(i + 1), "times": map[string]any{"applied": finished, "finished": finished}}}),
 				metav1.CreateOptions{})
@@ -351,14 +351,14 @@ func historyOps(d deps) deps {
 	plain := d.newDynamic
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
-		ops := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}).Namespace("prod")
+		ops := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}).Namespace("prod")
 		at := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 		for i, op := range []map[string]any{
 			{"name": "tied", "spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "correlationID": "INC-1",
 				"cause": map[string]any{"reason": "Latency alert"}}},
 			{"name": "untied", "spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod"}},
 		} {
-			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1alpha1", "Operation", op["name"].(string), map[string]any{
+			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1", "Operation", op["name"].(string), map[string]any{
 				"spec":   op["spec"],
 				"status": map[string]any{"phase": "Concluded", "seq": int64(i + 1), "times": map[string]any{"applied": at, "finished": at}}}),
 				metav1.CreateOptions{})

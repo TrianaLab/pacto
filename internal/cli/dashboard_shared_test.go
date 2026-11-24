@@ -26,12 +26,12 @@ import (
 )
 
 var (
-	gvrTestStages = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}
-	gvrTestOps    = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}
+	gvrTestStages = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}
+	gvrTestOps    = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}
 )
 
 func deliveryObj(kind, ns, name string, fields map[string]any) *unstructured.Unstructured {
-	o := map[string]any{"apiVersion": "delivery.pacto.trianalab.io/v1alpha1", "kind": kind,
+	o := map[string]any{"apiVersion": "delivery.pacto.trianalab.io/v1", "kind": kind,
 		"metadata": map[string]any{"namespace": ns, "name": name, "managedFields": []any{map[string]any{"manager": "x"}}}}
 	for k, v := range fields {
 		o[k] = v
@@ -83,7 +83,7 @@ func newSharedWorld(t *testing.T) *sharedWorld {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	w.s = newSharedReads(ctx, w.sa, func(b string) bool { return w.wrote.Load() && b == "Bearer alice" })
+	w.s = newSharedReads(ctx, w.sa, "", func(b string) bool { return w.wrote.Load() && b == "Bearer alice" })
 	w.s.now = func() time.Time { return w.now }
 	for _, inf := range w.s.informers {
 		if !cache.WaitForCacheSync(ctx.Done(), inf.HasSynced) {

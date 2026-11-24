@@ -725,7 +725,7 @@ func hasCode(lims []fleet.Limitation, code string) bool {
 }
 
 func TestK8sCRDRowServed(t *testing.T) {
-	src := NewK8sSource("prod", &fleet.Cluster{ID: "c1", Name: "eu-prod"}, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"}, listData: []byte(pactoIn("shop", "cart"))}, nil)
+	src := NewK8sSource("prod", &fleet.Cluster{ID: "c1", Name: "eu-prod"}, &fakeK8sClient{disc: &k8sclient.CRDDiscovery{Found: true, Version: "v1", ResourceName: "pactos"}, listData: []byte(pactoIn("shop", "cart"))}, nil)
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, src)
 	if err != nil {
 		t.Fatal(err)
@@ -736,7 +736,7 @@ func TestK8sCRDRowServed(t *testing.T) {
 	}
 	// The evidence carries no count: the count is the source's targetCount,
 	// which a restricted view recounts (one target read, no "1" anywhere).
-	if row.Evidence != "served (pacto.trianalab.io/v1alpha1)" || row.Name != "Pacto CRD" {
+	if row.Evidence != "served (pacto.trianalab.io/v1)" || row.Name != "Pacto CRD" {
 		t.Errorf("row = %+v", row)
 	}
 	if !slices.Equal(row.UsedFor, []string{fleet.UseDeclaredTargets}) || row.Status != fleet.SourceAvailable || row.Source != "prod" || row.Cluster != "eu-prod" {

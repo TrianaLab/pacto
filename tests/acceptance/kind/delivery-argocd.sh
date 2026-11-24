@@ -154,7 +154,7 @@ spec:
       containers: [{name: app, image: "${PAUSE_IMG%@*}"}]
 YAML
   cat > "$tree/pacto.yaml" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: payments}
 spec:
@@ -269,7 +269,7 @@ spec:
   destination: {server: https://kubernetes.default.svc, namespace: $APP_NS}
   syncPolicy: {automated: {}}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments}
 spec:

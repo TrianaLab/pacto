@@ -175,7 +175,7 @@ helm install pacto-operator "$PACTO_CHART" -n "$NS" --kube-context "$CTX_M" "${S
   --wait --timeout 180s >/dev/null
 kubectl --context "$CTX_M" create ns "$APP_NS" --dry-run=client -o yaml | kubectl --context "$CTX_M" apply -f - >/dev/null
 kubectl --context "$CTX_M" apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: ledger

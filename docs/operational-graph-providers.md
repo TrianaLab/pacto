@@ -15,7 +15,7 @@ the evidence names objects. The evidence never names a namespace.
 Each cluster reports at least two rows, from two sources: the Kubernetes
 source (such as `prod`) and its workload source (`prod-workloads`).
 
-- **Pacto CRD**: `served (pacto.trianalab.io/v1alpha1)` or `not installed`.
+- **Pacto CRD**: `served (pacto.trianalab.io/v1)` or `not installed`.
   Pacto uses it for declared targets.
 - **Kubernetes workloads**: how many Deployments, StatefulSets, DaemonSets and
   CronJobs the [workload source](operational-graph-inferred.md) listed. A kind
@@ -62,7 +62,7 @@ source (such as `prod`) and its workload source (`prod-workloads`).
 ```bash
 $ pacto fleet providers --k8s
 PROVIDER              EVIDENCE                                             USED FOR
-Pacto CRD             served (pacto.trianalab.io/v1alpha1)                 declared targets
+Pacto CRD             served (pacto.trianalab.io/v1)                       declared targets
 Kubernetes workloads  412 Deployments, DaemonSets unreadable, 31 CronJobs  inferred services (partial: source prod-workloads could not list DaemonSets in any namespace: forbidden)
 ```
 

@@ -176,7 +176,7 @@ YAML
 # pacto_cr NAME REF — the Pacto that runs NAME's contract REF.
 pacto_cr() {
   cat <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $1, namespace: $APP_NS}
 spec:

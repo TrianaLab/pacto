@@ -136,7 +136,7 @@ YAML
   # assertable: without an explicit kind the operator reports EVIDENCE_INSUFFICIENT
   # (Unknown) rather than WORKLOAD_MISMATCH, and the gate would never close.
   cat > "$tree/staging/pacto.yaml" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: { name: orders, namespace: $APP_NS }
 spec:

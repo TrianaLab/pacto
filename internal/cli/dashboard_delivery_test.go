@@ -361,3 +361,29 @@ func TestDashDeliveryEnvironmentsRefusal(t *testing.T) {
 	expect(t, errors.As(err, &de) && de.Status == http.StatusForbidden && v == nil && rows == nil && !readable && asked == "ops/"+delivery.EnvironmentsConfigMap,
 		"refused: %v %q", err, asked)
 }
+
+// TestDashboardDeliveryFollowsTheServedVersion: a chart-6 cluster serves the
+// delivery group at v1alpha1 only. The dashboard finds it there and its
+// client addresses both Pacto groups at that version; a cluster serving
+// neither has no delivery and no versions.
+func TestDashboardDeliveryFollowsTheServedVersion(t *testing.T) {
+	id := identityFor(t, viper.New(), "127.0.0.1", &rest.Config{Host: "https://k"})
+	served := map[string]bool{deliveryGroup + "/v1alpha1": true}
+	var asked []string
+	id.served = func(_ *rest.Config, gv string) (bool, error) {
+		asked = append(asked, gv)
+		return served[gv], nil
+	}
+	expect(t, id.versions() == nil, "nothing asked yet: %v", id.versions())
+	ok, err := id.deliveryInstalled(context.Background())
+	expect(t, ok && err == nil && strings.Join(asked, ",") == deliveryGroup+"/v1,"+deliveryGroup+"/v1alpha1",
+		"installed %v %v, asked %v", ok, err, asked)
+	want := map[string]string{deliveryGroup: "v1alpha1", "pacto.trianalab.io": "v1alpha1"}
+	expect(t, fmt.Sprint(id.versions()) == fmt.Sprint(want), "versions %v", id.versions())
+	api, err := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
+	expect(t, err == nil && fmt.Sprint(api.(dashDelivery).act.Versions) == fmt.Sprint(want), "client versions: %v", err)
+	served = nil
+	id.checked = time.Time{}
+	ok, err = id.deliveryInstalled(context.Background())
+	expect(t, !ok && err == nil && id.versions() == nil, "served at neither: %v %v %v", ok, err, id.versions())
+}

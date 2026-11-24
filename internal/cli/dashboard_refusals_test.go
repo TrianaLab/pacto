@@ -27,7 +27,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
-var gvrStagesTest = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}
+var gvrStagesTest = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}
 
 func signedRefusal(t *testing.T, key ed25519.PrivateKey, service, version, at string) []byte {
 	t.Helper()
@@ -75,7 +75,7 @@ func refusalsFixture(t *testing.T) (*httptest.Server, *remote.Repository, *dashb
 				"status": map[string]any{"pointer": cliA}},
 		} {
 			name := "a-" + st["spec"].(map[string]any)["service"].(map[string]any)["name"].(string)
-			_, _ = c.Resource(gvrStagesTest).Namespace("prod").Create(ctx, u("delivery.pacto.trianalab.io/v1alpha1", "Stage", name, st), metav1.CreateOptions{})
+			_, _ = c.Resource(gvrStagesTest).Namespace("prod").Create(ctx, u("delivery.pacto.trianalab.io/v1", "Stage", name, st), metav1.CreateOptions{})
 		}
 		return c, err
 	}

@@ -52,10 +52,10 @@ func readDeps(tune func(*dynamicfake.FakeDynamicClient)) deps {
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
 		f := c.(*dynamicfake.FakeDynamicClient)
-		st := u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "orders-staging", map[string]any{
+		st := u("delivery.pacto.trianalab.io/v1", "Stage", "orders-staging", map[string]any{
 			"spec": map[string]any{"service": map[string]any{"name": "orders"}, "applyRef": map[string]any{"name": "orders"}, "environment": "staging"}})
 		st.SetNamespace("staging")
-		_, _ = f.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}).
+		_, _ = f.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}).
 			Namespace("staging").Create(context.Background(), st, metav1.CreateOptions{})
 		if tune != nil {
 			tune(f)

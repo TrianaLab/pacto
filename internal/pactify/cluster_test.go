@@ -75,6 +75,13 @@ var clusterLists = map[schema.GroupVersionResource]string{
 	k8sclient.WorkloadGVRs["Deployment"]: "DeploymentList", k8sclient.WorkloadGVRs["StatefulSet"]: "StatefulSetList", k8sclient.WorkloadGVRs["DaemonSet"]: "DaemonSetList",
 	k8sclient.WorkloadGVRs["CronJob"]: "CronJobList", gvrServices: "ServiceList", gvrPods: "PodList", gvrReplicaSets: "ReplicaSetList", gvrJobs: "JobList",
 	gvrEndpointSlices: "EndpointSliceList", k8sclient.PactosGVR: "PactoList", kubesink.GVR: "NodeRuntimeObservationList",
+	v1alpha1(k8sclient.PactosGVR): "PactoList", v1alpha1(kubesink.GVR): "NodeRuntimeObservationList",
+}
+
+// v1alpha1 is r at the deprecated version a chart-6 cluster serves.
+func v1alpha1(r schema.GroupVersionResource) schema.GroupVersionResource {
+	r.Version = "v1alpha1"
+	return r
 }
 
 // shopCluster is a namespace with checkout calling payments, which a Pacto
@@ -101,15 +108,15 @@ func shopCluster(now time.Time) []runtime.Object {
 			"spec":     map[string]any{"containers": []any{map[string]any{"name": "ledger", "image": "reg.io/acme/ledger:3.0.0"}}}}}}),
 		controlled(obj("v1", "Pod", "shop", "ledger-0", nil), "StatefulSet", "ledger", "u-ledger"),
 		obj("v1", "Service", "shop", "legacy", map[string]any{"spec": map[string]any{"clusterIP": "10.0.0.40", "ports": []any{map[string]any{"port": int64(80)}}}}),
-		obj("pacto.trianalab.io/v1alpha1", "Pacto", "shop", "ghost", map[string]any{"spec": map[string]any{"target": map[string]any{"serviceName": "legacy"}}}),
+		obj("pacto.trianalab.io/v1", "Pacto", "shop", "ghost", map[string]any{"spec": map[string]any{"target": map[string]any{"serviceName": "legacy"}}}),
 		obj("discovery.k8s.io/v1", "EndpointSlice", "shop", "fraud-x", map[string]any{
 			"metadata":  map[string]any{"labels": map[string]any{"kubernetes.io/service-name": "fraud"}},
 			"endpoints": []any{map[string]any{"addresses": []any{"10.1.0.31"}}}, "ports": []any{map[string]any{"port": int64(8080)}}}),
 		obj("discovery.k8s.io/v1", "EndpointSlice", "shop", "other", map[string]any{"metadata": map[string]any{"labels": map[string]any{"kubernetes.io/service-name": "checkout"}}}),
-		obj("pacto.trianalab.io/v1alpha1", "Pacto", "shop", "payments", map[string]any{
+		obj("pacto.trianalab.io/v1", "Pacto", "shop", "payments", map[string]any{
 			"spec":   map[string]any{"contractRef": map[string]any{"oci": "oci://reg.io/acme/contracts/payments:2.3.0"}, "target": map[string]any{"serviceName": "payments", "workloadRef": map[string]any{"name": "payments", "kind": "Deployment"}}},
 			"status": map[string]any{"contract": map[string]any{"serviceName": "payments", "version": "2.3.0", "resolvedRef": "oci://reg.io/acme/contracts/payments@sha256:aa"}}}),
-		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+		obj("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
 			"nodeName": "node-1",
 			"pods": []any{
 				map[string]any{"uid": "u-checkout", "connections": []any{call("10.0.0.20", 80, now.Add(-time.Minute)), call("10.1.0.31", 8080, now.Add(-time.Minute)), call("10.0.0.99", 80, now)}},
@@ -325,7 +332,7 @@ func TestClusterStaleObservations(t *testing.T) {
 			"status": map[string]any{"startTime": now.Add(-time.Hour).UTC().Format(time.RFC3339)}}), "StatefulSet", name, "u-"+name)
 	}
 	nro := func(node string, published time.Time, state string, pods ...any) runtime.Object {
-		return obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", node, map[string]any{"status": map[string]any{
+		return obj("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", node, map[string]any{"status": map[string]any{
 			"nodeName": node, "publishIntervalSeconds": int64(30), "lastPublished": published.UTC().Format(time.RFC3339),
 			"collection": map[string]any{"state": state}, "pods": pods}})
 	}
@@ -367,7 +374,7 @@ func TestClusterCrossNamespaceCall(t *testing.T) {
 		controlled(obj("apps/v1", "ReplicaSet", "demo", "checkout-7f", nil), "Deployment", "checkout", ""),
 		controlled(obj("v1", "Pod", "demo", "checkout-7f-a", map[string]any{"metadata": map[string]any{"labels": map[string]any{"app": "checkout"}}}), "ReplicaSet", "checkout-7f", "u-checkout"),
 		service("shop", "payments", "10.0.0.20"),
-		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+		obj("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
 			"nodeName": "node-1", "pods": []any{map[string]any{"uid": "u-checkout", "connections": []any{
 				map[string]any{"address": "10.0.0.20", "port": int64(80), "successes": int64(1), "lastSuccessAt": now.UTC().Format(time.RFC3339)}}}}}}),
 	}
@@ -635,7 +642,7 @@ func TestClusterDraftURLLiterals(t *testing.T) {
 // name at ref and version, at metadata.generation gen and
 // status.observedGeneration observed.
 func pactoCR(ns, name, svc, contractName, ref, version string, gen, observed int64) *unstructured.Unstructured {
-	return obj("pacto.trianalab.io/v1alpha1", "Pacto", ns, name, map[string]any{
+	return obj("pacto.trianalab.io/v1", "Pacto", ns, name, map[string]any{
 		"metadata": map[string]any{"generation": gen},
 		"spec":     map[string]any{"contractRef": map[string]any{"oci": ref + ":" + version}, "target": map[string]any{"serviceName": svc}},
 		"status": map[string]any{"observedGeneration": observed,
@@ -718,7 +725,7 @@ func twoPaymentServices(now time.Time, canaryRef string, bothPods bool) []runtim
 		controlled(obj("v1", "Pod", "shop", "checkout-7f-b", map[string]any{"metadata": map[string]any{"labels": map[string]any{"app": "checkout"}}}), "ReplicaSet", "checkout-7f", "u-b"),
 		pactoCR("shop", "payments", "payments", "payments", paymentsRef, "2.4.0", 1, 1),
 		pactoCR("shop", "payments-canary", "payments-canary", "payments", canaryRef, "2.3.1", 1, 1),
-		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+		obj("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
 			"nodeName": "node-1",
 			"pods": []any{
 				map[string]any{"uid": "u-a", "connections": []any{call("10.0.0.20"), call("10.0.0.21")}},
@@ -840,7 +847,7 @@ func TestMergeConflictNotedOnce(t *testing.T) {
 // one with no usable ref adds a note.
 func TestProviderUnreadPactoJoinsAgreement(t *testing.T) {
 	failed := func(name, ref string) unstructured.Unstructured {
-		return *obj("pacto.trianalab.io/v1alpha1", "Pacto", "shop", name, map[string]any{
+		return *obj("pacto.trianalab.io/v1", "Pacto", "shop", name, map[string]any{
 			"metadata": map[string]any{"generation": int64(1)},
 			"spec":     map[string]any{"contractRef": map[string]any{"oci": ref}, "target": map[string]any{"serviceName": "payments"}},
 			"status":   map[string]any{"observedGeneration": int64(1)}})
@@ -943,15 +950,51 @@ func TestReadClusterKeepsGoingAfterListError(t *testing.T) {
 	}
 }
 
-// TestReadClusterMissingCRDComplete: a Pacto CRD that is not installed is a
-// complete source with nothing in it, never a failure.
-func TestReadClusterMissingCRDComplete(t *testing.T) {
+// TestReadClusterNoPactoCRDHasNoRows: a Pacto CRD served at neither v1 nor
+// v1alpha1 is not installed: a complete source with nothing in it, never a
+// failure.
+func TestReadClusterNoPactoCRDHasNoRows(t *testing.T) {
 	cl := failing(fakeCluster(deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0")), "pactos", errNotFound("pactos"))
+	var versions []string
+	cl.PrependReactor("list", "pactos", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		versions = append(versions, a.GetResource().Version)
+		return false, nil, nil
+	})
 	b, err := Cluster(context.Background(), cl, Options{Plan: true}, ClusterOptions{Out: t.TempDir()}, nil)
-	if err != nil || coverage(t, b, "pactos").State != contract.CoverageComplete ||
+	if err != nil || !slices.Equal(versions, []string{"v1", "v1alpha1"}) || coverage(t, b, "pactos").State != contract.CoverageComplete ||
 		coverage(t, b, "runtime-calls") != (contract.InferredCoverage{Source: "runtime-calls", State: contract.CoverageFailed, Reason: "no node runtime observations"}) {
 		t.Fatalf("coverage %+v: %v", b.Coverage, err)
 	}
+}
+
+// TestReadClusterPactosFallsBackToV1alpha1: a chart-6 cluster serves the
+// Pacto and observation CRDs at v1alpha1 only. They are read there, so the
+// Pactos source is complete because its rows were read, never because the
+// v1 list found nothing.
+func TestReadClusterPactosFallsBackToV1alpha1(t *testing.T) {
+	now := time.Now()
+	objs := shopCluster(now)
+	for _, o := range objs {
+		if u := o.(*unstructured.Unstructured); u.GetAPIVersion() == k8sclient.PactoGroup+"/v1" {
+			u.SetAPIVersion(k8sclient.PactoGroup + "/v1alpha1")
+		}
+	}
+	cl := fakeCluster(objs...)
+	for _, r := range []string{"pactos", "noderuntimeobservations"} {
+		cl.PrependReactor("list", r, func(a k8stesting.Action) (bool, runtime.Object, error) {
+			if a.GetResource().Version == "v1" {
+				return true, nil, errNotFound(r)
+			}
+			return false, nil, nil
+		})
+	}
+	c := ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), Now: func() time.Time { return now }}
+	b, err := Cluster(context.Background(), cl, Options{Plan: true}, c, nil)
+	if err != nil || !slices.Equal(b.Skipped, []string{"shop/Deployment/payments"}) ||
+		coverage(t, b, "pactos").State != contract.CoverageComplete || coverage(t, b, "runtime-calls").State != contract.CoverageComplete {
+		t.Fatalf("drafts %+v: %v", b, err)
+	}
+	checkCheckoutDraft(t, result(t, b, "checkout"), c.Out)
 }
 
 // listErrors are list errors and the coverage reason each gives.
@@ -1004,7 +1047,7 @@ func TestCoverageReasonsNameNothing(t *testing.T) {
 // fails the runtime calls and is skipped; the others are still read.
 func TestReadClusterMalformedObservation(t *testing.T) {
 	now := time.Now()
-	bad := obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-2", map[string]any{"status": map[string]any{"surprise": true}})
+	bad := obj("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", "node-2", map[string]any{"status": map[string]any{"surprise": true}})
 	b, err := Cluster(context.Background(), fakeCluster(append(shopCluster(now), bad)...), Options{Plan: true},
 		ClusterOptions{Namespaces: []string{"shop"}, Out: t.TempDir(), Now: func() time.Time { return now }}, nil)
 	want := contract.InferredCoverage{Source: "runtime-calls", State: contract.CoverageFailed, Reason: "listing failed (malformed observation)"}
@@ -1117,7 +1160,7 @@ func TestClusterCallWindowConfigurable(t *testing.T) {
 	objs := []runtime.Object{
 		deployment("shop", "checkout", "reg.io/acme/checkout:1.4.0"), service("shop", "payments", "10.0.0.20"),
 		controlled(obj("v1", "Pod", "shop", "checkout-0", nil), "Deployment", "checkout", "u-checkout"),
-		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+		obj("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
 			"nodeName": "node-1", "pods": []any{map[string]any{"uid": "u-checkout", "connections": []any{map[string]any{
 				"address": "10.0.0.20", "port": int64(80), "successes": int64(1), "lastSuccessAt": now.Add(-30 * time.Hour).UTC().Format(time.RFC3339)}}}}}}),
 	}
@@ -1193,7 +1236,7 @@ func viewerShop(now time.Time) []runtime.Object {
 		deployment("vault", "kms", "reg.io/acme/kms:1.0.0"), service("vault", "kms", "10.0.0.50"),
 		pod("vault", "agent-a", "kms"), pod("vault", "agent-b", "kms"), pod("vault", "agent-old", "kms"),
 		pactoCR("vault", "kms", "kms", "kms", "oci://reg.io/acme/contracts/kms", "1.2.0", 1, 1),
-		obj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+		obj("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
 			"nodeName": "node-1", "pods": []any{
 				map[string]any{"uid": "u-invoices-0", "connections": call("10.0.0.50", now)},
 				map[string]any{"uid": "u-agent-a", "connections": call("10.0.0.30", now)},

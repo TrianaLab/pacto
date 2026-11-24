@@ -32,9 +32,11 @@ import (
 // PactoGroup is the API group of the operator's Pacto CRD.
 const PactoGroup = "pacto.trianalab.io"
 
-// PactosGVR is the operator's Pacto resource at the version it serves, for
-// callers that read it directly rather than through DiscoverCRD.
-var PactosGVR = schema.GroupVersionResource{Group: PactoGroup, Version: "v1alpha1", Resource: "pactos"}
+// PactosGVR is the operator's Pacto resource at v1, the version chart 7
+// serves, for callers that read it directly rather than through DiscoverCRD.
+// A chart-6 cluster serves only v1alpha1, so a reader that must reach it
+// too resolves the served version first or retries there on NotFound.
+var PactosGVR = schema.GroupVersionResource{Group: PactoGroup, Version: "v1", Resource: "pactos"}
 
 // K8sClient abstracts the Kubernetes API operations Pacto needs to read Pacto
 // CRD status.

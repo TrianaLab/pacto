@@ -58,7 +58,7 @@ func (e *declareE2E) addAudit(t *testing.T) {
 	objs := map[schema.GroupVersionResource]*unstructured.Unstructured{
 		gvr("", "v1", "services"): kubeObject("v1", "Service", "billing", "audit", map[string]any{"spec": map[string]any{"clusterIP": "10.0.0.70",
 			"clusterIPs": []any{"10.0.0.70"}, "selector": map[string]any{"app": "audit"}, "ports": []any{map[string]any{"port": int64(80), "targetPort": int64(8080)}}}}),
-		gvr("pacto.trianalab.io", "v1alpha1", "pactos"): kubeObject("pacto.trianalab.io/v1alpha1", "Pacto", "billing", "audit", map[string]any{
+		gvr("pacto.trianalab.io", "v1", "pactos"): kubeObject("pacto.trianalab.io/v1", "Pacto", "billing", "audit", map[string]any{
 			"metadata": map[string]any{"generation": int64(1)},
 			"spec":     map[string]any{"contractRef": map[string]any{"oci": "oci://reg.io/acme/contracts/audit:1.4.0"}, "target": map[string]any{"serviceName": "audit"}},
 			"status": map[string]any{"observedGeneration": int64(1), "contract": map[string]any{"serviceName": "audit", "version": "1.4.0",
@@ -69,7 +69,7 @@ func (e *declareE2E) addAudit(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	nro := e.dyn.Resource(gvr("pacto.trianalab.io", "v1alpha1", "noderuntimeobservations")).Namespace("pacto-system")
+	nro := e.dyn.Resource(gvr("pacto.trianalab.io", "v1", "noderuntimeobservations")).Namespace("pacto-system")
 	node, err := nro.Get(ctx, "node-1", metav1.GetOptions{})
 	if err != nil {
 		t.Fatal(err)

@@ -147,7 +147,7 @@ spec:
       containers: [{name: app, image: "${PAUSE_IMG%@*}"}]
 YAML
 cat > "\$PACTO_OUT/pacto.yaml" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $1}
 spec:
@@ -269,7 +269,7 @@ deployment() {
 # pacto_cr NS NAME REF — a Pacto of NAME targeting the Deployment NAME.
 pacto_cr() {
   kubectl -n "$1" apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $2}
 spec:
@@ -295,7 +295,7 @@ for p in orders-staging/orders pr-412/checkout ledger-staging/ledger; do
   eventually 60 read_contract "${p%/*}" "${p#*/}" || fail "the Pacto $p never read its contract: $(kubectl -n "${p%/*}" get pacto "${p#*/}" -o jsonpath='{.status}')"
 done
 kubectl -n orders-staging apply -f - >/dev/null <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: orders}
 spec:
@@ -412,11 +412,11 @@ approve() {
   decision="$(field "$3" "$4" plan.floor.decision)"
   groups="$(KUBECONFIG="$kc" kubectl auth whoami -o json | jq -c '.status.userInfo.groups')"
   KUBECONFIG="$kc" kubectl -n "$3" create -f - >/dev/null <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Approval
 metadata:
   generateName: $4-
-  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1alpha1, kind: Operation, name: "$4", uid: "$uid"}]
+  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1, kind: Operation, name: "$4", uid: "$uid"}]
 spec: {operation: "$4", operationUID: "$uid", intentDigest: "$intent", decision: $decision, note: "the kind run approves", by: "$1", authTime: "$at", groups: $groups}
 YAML
 }

@@ -61,7 +61,7 @@ func declareCluster() *dynamicfake.FakeDynamicClient {
 		gvr("apps", "v1", "deployments"): "DeploymentList", gvr("apps", "v1", "statefulsets"): "StatefulSetList", gvr("apps", "v1", "daemonsets"): "DaemonSetList",
 		gvr("batch", "v1", "cronjobs"): "CronJobList", gvr("", "v1", "services"): "ServiceList", gvr("", "v1", "pods"): "PodList",
 		gvr("apps", "v1", "replicasets"): "ReplicaSetList", gvr("batch", "v1", "jobs"): "JobList", gvr("discovery.k8s.io", "v1", "endpointslices"): "EndpointSliceList",
-		gvr("pacto.trianalab.io", "v1alpha1", "pactos"): "PactoList", gvr("pacto.trianalab.io", "v1alpha1", "noderuntimeobservations"): "NodeRuntimeObservationList",
+		gvr("pacto.trianalab.io", "v1", "pactos"): "PactoList", gvr("pacto.trianalab.io", "v1", "noderuntimeobservations"): "NodeRuntimeObservationList",
 		gvr("", "v1", "configmaps"): "ConfigMapList",
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -83,13 +83,13 @@ func declareCluster() *dynamicfake.FakeDynamicClient {
 		kubeObject("apps/v1", "ReplicaSet", "billing", "invoices-7f", map[string]any{"metadata": owner("Deployment", "invoices")}),
 		kubeObject("v1", "Pod", "billing", "invoices-7f-a", map[string]any{"metadata": podMeta}),
 		svc("invoices", "10.0.0.30"), svc("ledger", "10.0.0.60"),
-		kubeObject("pacto.trianalab.io/v1alpha1", "Pacto", "billing", "ledger", map[string]any{
+		kubeObject("pacto.trianalab.io/v1", "Pacto", "billing", "ledger", map[string]any{
 			"metadata": map[string]any{"generation": int64(1)},
 			"spec":     map[string]any{"contractRef": map[string]any{"oci": "oci://reg.io/acme/contracts/ledger:2.3.1"}, "target": map[string]any{"serviceName": "ledger"}},
 			"status": map[string]any{"observedGeneration": int64(1), "contract": map[string]any{"serviceName": "ledger", "version": "2.3.1",
 				"resolvedRef": "oci://reg.io/acme/contracts/ledger@sha256:aa"}}}),
 		kubeObject("v1", "Namespace", "", "kube-system", map[string]any{"metadata": map[string]any{"uid": "3f1c-uid"}}),
-		kubeObject("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+		kubeObject("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
 			"nodeName": "node-1", "pods": []any{map[string]any{"uid": "u-invoices", "connections": []any{
 				map[string]any{"address": "10.0.0.60", "port": int64(80), "successes": int64(2), "lastSuccessAt": now}}}}}}),
 	}

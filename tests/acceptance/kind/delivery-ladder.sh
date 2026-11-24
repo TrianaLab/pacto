@@ -75,7 +75,7 @@ spec:
   healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: wallet, namespace: $L}]
 ---
 # No startLevel: a Stage starts on observe.
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: wallet}
 spec:

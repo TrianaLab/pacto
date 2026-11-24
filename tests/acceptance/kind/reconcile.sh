@@ -77,7 +77,7 @@ kubectl create namespace demo --dry-run=client -o yaml | kubectl apply -f - >/de
 kubectl -n demo create deployment orders --image=registry.k8s.io/pause:3.9@sha256:7031c1b283388d2c2e09b57badb803c05ebed362dc88d84b480cc47f72a21097 >/dev/null 2>&1 || true
 kubectl -n demo rollout status deployment/orders --timeout=90s
 kubectl apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: orders, namespace: demo}
 spec:

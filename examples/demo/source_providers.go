@@ -62,7 +62,7 @@ func demoRegistryRow(caps capabilities.Capabilities, revs []fleet.RawRevision) f
 // namespace; pkg/fleet words its evidence, so the demo copies no wording.
 func demoProviders(targets []fleet.RawTarget, inferred []fleet.RawInferredService) (crd, workloads fleet.Provider) {
 	crd = fleet.Provider{
-		ID: fleet.ProviderPactoCRD, Name: "Pacto CRD", Evidence: "served (pacto.trianalab.io/v1alpha1)",
+		ID: fleet.ProviderPactoCRD, Name: "Pacto CRD", Evidence: "served (pacto.trianalab.io/v1)",
 		UsedFor: []string{fleet.UseDeclaredTargets},
 		Objects: []fleet.ProviderObject{{Kind: "CustomResourceDefinition", Name: "pactos.pacto.trianalab.io"}},
 	}
