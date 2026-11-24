@@ -121,7 +121,7 @@ func TestDeclareInputKeepsClaimOfferingApartFromAcceptance(t *testing.T) {
 	body := map[string]any{"serviceKey": "external:stripe", "owner": "team-pay", "offering": "postgresql", "offeringAcceptance": map[string]any{"version": "1.0.0"}}
 	var plan DeclareInput
 	raw, _ := json.Marshal(body)
-	if err := json.Unmarshal(raw, &plan); err != nil || plan.ClaimInput.Offering != "postgresql" || plan.OfferingAcceptance == nil || plan.OfferingAcceptance.Version != "1.0.0" {
+	if err := json.Unmarshal(raw, &plan); err != nil || plan.Offering != "postgresql" || plan.OfferingAcceptance == nil || plan.OfferingAcceptance.Version != "1.0.0" {
 		t.Fatalf("plan %+v, %v", plan, err)
 	}
 	d := &fakeDeclarer{write: true}
@@ -136,7 +136,7 @@ func TestDeclareInputKeepsClaimOfferingApartFromAcceptance(t *testing.T) {
 	body["intentDigest"], body["mode"] = "sha256:i", "sign"
 	var acc DeclareAcceptAnswer
 	postJSON(t, base+"/api/fleet/declare/accept", body, http.StatusOK, &acc)
-	if got.ClaimInput.Offering != "postgresql" || got.OfferingAcceptance == nil || got.OfferingAcceptance.Version != "1.0.0" {
+	if got.Offering != "postgresql" || got.OfferingAcceptance == nil || got.OfferingAcceptance.Version != "1.0.0" {
 		t.Fatalf("accept got %+v", got)
 	}
 }
