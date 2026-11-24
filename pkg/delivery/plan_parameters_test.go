@@ -173,7 +173,9 @@ func TestPlanObservedOtherValuesIsUnknown(t *testing.T) {
 	// An inspection reads the values itself; the observed string is not used.
 	_, v := offeringPlanWith(t, "app:\n  replicas: 2\n", nil, func(in *PlanInput) {
 		in.Status.Applier = &ApplierStatus{Values: "values-staging.yaml", State: ApplierAdopted}
-		in.InspectManifests, in.Manifests = true, func(context.Context) ManifestInspection { return ManifestInspection{Artifact: "chart", Namespace: "prod"} }
+		in.InspectManifests, in.Manifests = true, func(context.Context) ManifestInspection {
+			return ManifestInspection{Artifact: "chart", Namespace: "prod"}
+		}
 	})
 	if v.Result != Pass {
 		t.Errorf("inspected: verdict %+v", v)
