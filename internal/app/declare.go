@@ -331,6 +331,8 @@ type declaration struct {
 	// owner is the owner change a person's signature must have the right
 	// to make; nil when the owner does not change.
 	owner *ownerCheck
+	// joins is the offering an accepted claim draft joins; nil for none.
+	joins *offeringJoin
 	// reg is the registry the plan read and the run writes through.
 	reg publish.Registry
 }
@@ -401,6 +403,7 @@ type declarePlanner struct {
 	baseSigner *delivery.PublisherIdentity
 	judged     map[string]bool
 	owned      *ownerCheck
+	joins      *offeringJoin
 	// tags and root are the bundle repository's tags and the trusted root
 	// findBaseline read them with (root only when it holds a version).
 	tags []string
@@ -1060,7 +1063,7 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	if err != nil {
 		return nil, err
 	}
-	d.owner = pl.owned
+	d.owner, d.joins = pl.owned, pl.joins
 	p.Version, p.Ranges = version, ranges(d.bundle.Contract, rec, accepted)
 	p.IntentDigest = intentDigest(p, raw, accepted, "")
 	d.input = publish.Input{Bundle: d.bundle, Revision: "declare:" + p.IntentDigest, ContractOnly: true, BaselineDeploy: strings.TrimSuffix(p.Deploy, "none"),
@@ -1329,6 +1332,9 @@ func (s *Service) Declare(ctx context.Context, req DeclareRequest) (*DeclareResu
 // who logged in has no right to: before anything is built or pushed. An
 // agent's on_behalf_of is never an input.
 func (s *Service) ownerRight(req DeclareRequest, plan *DeclarePlan, d *declaration, c signerChoice) error {
+	if err := d.joins.refusal(plan.Service, c.Identity, s.env().now()); err != nil {
+		return err
+	}
 	if d.owner == nil {
 		return nil
 	}

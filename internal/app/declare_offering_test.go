@@ -1,11 +1,15 @@
 package app
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
+	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -83,9 +87,26 @@ func TestClaimOfferingOtherOwnerIsDraft(t *testing.T) {
 		!hasNote(res.Plan.Notes, "intends offering postgresql (1 provider, owner team-data): the claim is written as a draft, and a person among team-data members accepts it with pacto claim stripe --registry "+e.host+"/acme --from-draft <tag>") {
 		t.Fatalf("%+v", res.Plan)
 	}
-	// Accepting it keeps the draft's offering, and is no draft again.
+	// The claimer, a default approver but no team-data member, may not
+	// accept joining team-data's offering.
 	acc := e.claimDraft("draft-1")
 	acc.Fleet = req.Fleet
+	_, err := e.svc.Declare(t.Context(), acc)
+	if de := refusal(t, err); de.Code != "OWNER_SIGNER_NOT_ALLOWED" || !strings.Contains(de.Message, "no member of team-data") {
+		t.Fatalf("%+v", de)
+	}
+	// A team-data member who may also set the owner accepts it: it keeps
+	// the draft's offering, and is no draft again.
+	p := filepath.Join(t.TempDir(), "policy.json")
+	body := `{"defaultApprovers":[{"name":"platform-admins","issuer":"` + personIssuer + `","subject":"^admin@acme\\.com$"}],` +
+		`"teams":{"team-data":[{"name":"admin","issuer":"` + personIssuer + `","subject":"^admin@acme\\.com$"}]}}`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e.svc.OwnerPolicyPath = p
+	if p, _ := e.plan(t, acc); !hasNote(p.Notes, "intends offering postgresql (1 provider, owner team-data): only a person among team-data members may accept it") {
+		t.Fatalf("%v", p.Notes)
+	}
 	got := e.declare(t, acc)
 	if got.Draft || got.Tag != firstDeclaration {
 		t.Fatalf("%+v", got.Plan)
@@ -107,10 +128,41 @@ func TestClaimOfferingProposesNew(t *testing.T) {
 		t.Fatalf("%+v", p)
 	}
 	// With no fleet given, the registry's offerings are read; unread, the
-	// providers are unknown, never none.
+	// providers are unknown, never none, and the claim is a draft.
 	req.Fleet = nil
-	if p, _ := e.plan(t, req); !hasNote(p.Notes, "intends offering postgresql-legacy (its providers are unknown: the offerings under "+e.host+"/acme were not all read)") {
-		t.Fatalf("%v", p.Notes)
+	if p, _ := e.plan(t, req); p.State != contract.DeclarationDraft || !hasNote(p.Notes, "intends offering postgresql-legacy (its providers are unknown: the offerings under "+e.host+"/acme were not all read)"+
+		": the claim is written as a draft, and a person among the offering's owners (once they are read) accepts it with pacto claim stripe --registry "+e.host+"/acme --from-draft <tag>") {
+		t.Fatalf("%+v", p)
+	}
+}
+
+// A partial fleet that finds some providers says at least that many, and
+// the owners it did not read may be another team's: a draft, whose accept
+// nobody is known to be allowed.
+func TestClaimOfferingPartialFleetIsDraft(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.withOwnerPolicy(t)
+	e.login(personToken("admin@acme.com"))
+	req := e.claimReq("team-platform")
+	snap := *offeringFleet(t, "team-platform")
+	snap.Completeness = fleet.CompletenessPartial
+	req.Offering, req.Fleet = "postgresql", &snap
+	res := e.declare(t, req)
+	if !res.Draft || !hasNote(res.Plan.Notes, "intends offering postgresql (at least 1 provider, owner team-platform; the offerings under "+e.host+"/acme were not all read): the claim is written as a draft") {
+		t.Fatalf("%+v", res.Plan)
+	}
+	acc := e.claimDraft("draft-1")
+	acc.Fleet = req.Fleet
+	_, err := e.svc.Declare(t.Context(), acc)
+	if de := refusal(t, err); de.Code != "OWNER_SIGNER_NOT_ALLOWED" || !strings.Contains(de.Message, "who may accept joining offering postgresql is unknown") {
+		t.Fatalf("%+v", de)
+	}
+}
+
+func TestOfferingJoinNoPolicy(t *testing.T) {
+	j := &offeringJoin{offering: "pg", teams: []string{"team-data"}, from: "none mounted"}
+	if de := refusal(t, j.refusal("stripe", delivery.PublisherIdentity{Subject: "a@b.c", Class: delivery.ClassHuman}, time.Now())); de.Code != "OWNER_POLICY_UNVERIFIED" {
+		t.Fatalf("%+v", de)
 	}
 }
 
