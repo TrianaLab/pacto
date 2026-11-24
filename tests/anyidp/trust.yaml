@@ -1,0 +1,8 @@
+apiVersion: pacto.dev/evidence-trust/v1
+keys:
+  - keyId: acme-portal-2026
+    producerId: acme-portal
+    publicKeyFile: acme-portal__acme-portal-2026.pub
+    allowedContractRepos: [$REGISTRY/checkout, $REGISTRY/pacto-inferred/acme-portal]
+    allowedObservationKinds: [WorkloadObserved, DependencyReachable, ResourceProvisioned]
+    allowedProviderRepos: [$REGISTRY/postgresql]

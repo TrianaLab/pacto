@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing/fstest"
 
 	"github.com/trianalab/pacto/v4/internal/discover"
@@ -322,7 +323,7 @@ func loadAndValidateLocal(ctx context.Context, dir string, overrides override.Ov
 	result := validation.Validate(bundle.Contract, bundle.RawYAML, bundle.FS)
 	if !result.IsValid() {
 		logging.LoggerFromContext(ctx).Debug("local validation failed", "errors", len(result.Errors))
-		return nil, nil, nil, fmt.Errorf("contract validation failed with %d error(s)", len(result.Errors))
+		return nil, nil, nil, validationFailed(result)
 	}
 
 	logging.LoggerFromContext(ctx).Debug("local validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)
@@ -345,6 +346,16 @@ func loadAndValidateFull(ctx context.Context, dir string, overrides override.Ove
 	return validatedFull(ctx, dir, bundle, store, deriveVersion)
 }
 
+// validationFailed is the error for an invalid result, naming each error so
+// a refused push or pack says what to fix without a second validate run.
+func validationFailed(result validation.ValidationResult) error {
+	msgs := make([]string, len(result.Errors))
+	for i := range result.Errors {
+		msgs[i] = result.Errors[i].Error()
+	}
+	return fmt.Errorf("contract validation failed with %d error(s): %s", len(result.Errors), strings.Join(msgs, "; "))
+}
+
 // validatedFull is the second half of loadAndValidateFull: the bundle read
 // from dir validated with full remote ref resolution and made publishable.
 func validatedFull(ctx context.Context, dir string, bundle *contract.Bundle, store oci.BundleStore, deriveVersion bool) (*contract.Contract, []byte, fs.FS, error) {
@@ -355,7 +366,7 @@ func validatedFull(ctx context.Context, dir string, bundle *contract.Bundle, sto
 	result := validation.ValidateWithResolver(ctx, bundle.Contract, bundle.RawYAML, bundle.FS, resolver)
 	if !result.IsValid() {
 		logging.LoggerFromContext(ctx).Debug("validation failed", "errors", len(result.Errors))
-		return nil, nil, nil, fmt.Errorf("contract validation failed with %d error(s)", len(result.Errors))
+		return nil, nil, nil, validationFailed(result)
 	}
 
 	logging.LoggerFromContext(ctx).Debug("validation passed", "name", bundle.Contract.Service.Name, "version", bundle.Contract.Service.Version)

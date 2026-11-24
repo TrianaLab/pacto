@@ -87,7 +87,7 @@ func TestWriteASourceScriptRuns(t *testing.T) {
 		"    allowedContractRepos: ["+host+"/acme/ledger, "+host+"/acme/pacto-inferred/my-idp]\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	evidenceURL := serveEvidence(t, host, trust, contractRef)
+	evidenceURL := serveEvidence(t, host, trust, "my-idp", contractRef)
 
 	run := exec.Command("bash", "-euo", "pipefail", "-c", script)
 	run.Dir = work
@@ -124,8 +124,9 @@ func TestWriteASourceScriptRuns(t *testing.T) {
 }
 
 // serveEvidence starts an Evidence Server on the registry at host that loads
-// trust and stores evidence on subject, and returns its base URL.
-func serveEvidence(t *testing.T, host, trust, subject string) string {
+// trust, advertises producer and stores evidence on subjects, and returns its
+// base URL.
+func serveEvidence(t *testing.T, host, trust, producer string, subjects ...string) string {
 	t.Helper()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -136,7 +137,7 @@ func serveEvidence(t *testing.T, host, trust, subject string) string {
 	done := make(chan error, 1)
 	go func() {
 		done <- app.NewService(store, nil).ServeEvidenceOnListener(ctx, ln, app.ServeOptions{
-			TrustPath: trust, Subjects: []string{subject}, Producers: []string{"my-idp"}})
+			TrustPath: trust, Subjects: subjects, Producers: []string{producer}})
 	}()
 	t.Cleanup(func() {
 		cancel()

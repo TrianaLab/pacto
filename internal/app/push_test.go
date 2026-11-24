@@ -662,7 +662,7 @@ func TestPushFailsOnUnresolvableConfigRef(t *testing.T) {
 	}
 	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/orders:1.0.0", Path: dir})
-	if err == nil || err.Error() != "contract validation failed with 1 error(s)" {
+	if err == nil || !strings.HasPrefix(err.Error(), "contract validation failed with 1 error(s): [CONFIG_REF_UNRESOLVED] ") {
 		t.Fatalf("expected a refused push, got %v", err)
 	}
 	// The one error is the unresolved ref, as validate reports it.

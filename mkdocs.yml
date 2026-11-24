@@ -216,6 +216,7 @@ nav:
       - Provision infrastructure through contracts: provision-infrastructure.md
       - Create a service from a golden path: golden-paths.md
       - Export services to Backstage: backstage.md
+      - Sit on top of any IDP: any-idp.md
       - Export from the registry offline: backstage-registry.md
       - Read owners from your Backstage catalog: backstage-catalog.md
       - Example contracts: examples/index.md
