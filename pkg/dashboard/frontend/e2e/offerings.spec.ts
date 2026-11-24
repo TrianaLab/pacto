@@ -306,16 +306,18 @@ test.describe('WASM demo — platform offerings', () => {
     await audit(page, 'shared-config unresolved uses');
   });
 
-  test('an unsigned Ready never reads positive in the offering figures', async ({ page }) => {
+  test('an unsigned Ready is counted apart and only a signed one reads positive in the offering figures', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    // Every postgresql Ready is unsigned: the Ready station is info, draws no check and says so.
+    // postgresql has two Readies: catalog's through platform-db is unsigned, ticketing's
+    // through the PostgreSQLInstance claim is the platform adapter's signed report. The
+    // station reads ok for the signed one and still counts the unsigned one apart. An
+    // offering whose every Ready is unsigned reads info: readyTone's unit test holds that.
     await page.goto('/#/fleet/offerings/postgresql');
     const fig = page.getByTestId('offering-figure');
     const ready = fig.locator('.ph-ready');
-    await expect(ready.locator('.nd')).toHaveClass(/\bt-info\b/, { timeout: T });
-    await expect(ready.locator('.nd')).not.toHaveClass(/\bt-ok\b/);
+    await expect(ready.locator('.nd')).toHaveClass(/\bt-ok\b/, { timeout: T });
     await expect(ready).toContainText('unsigned');
-    await expect(fig.locator('svg.fig-wires')).toHaveAttribute('aria-label', /ready \(\d+ unsigned\)/);
+    await expect(fig.locator('svg.fig-wires')).toHaveAttribute('aria-label', /ready \(1 unsigned\)/);
     // The list adds security-scanning's signed Ready, so its Ready station reads ok.
     await page.goto('/#/fleet/offerings');
     await expect(page.getByTestId('offerings-figure').locator('.ph-ready .nd')).toHaveClass(/\bt-ok\b/, { timeout: T });
