@@ -136,7 +136,7 @@ rolls back to 2.3.0; 2.3.0 then fails its re-check too. A Stage is rolled back
 only once, so prod-eu freezes, and the freeze is a signed record naming 2.3.0.
 A Stage in prod-us that follows prod-eu's records never takes 2.3.0, and alice
 unfreezes prod-eu. See
-[Appliers and several clusters](../integrations/kubernetes/delivery-reach.md).
+[Several clusters](../integrations/kubernetes/delivery-members.md).
 
 ## What is generated
 

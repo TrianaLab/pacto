@@ -1,16 +1,11 @@
-# Delivery reference: appliers and several clusters
+# Delivery reference: appliers
 
 [Pacto delivery](delivery.md) never applies a version itself. It moves the
 version through the manager that already applies the service's workloads:
 a Flux Kustomization, a Flux HelmRelease or an Argo CD Application. This page
-covers finding that manager, the HelmRelease and Argo CD set-ups and following
-a Stage in another cluster.
-
-!!! warning "Experimental"
-    HelmRelease, Argo CD and several clusters are experimental, within an Alpha
-    component: they may change more than the rest of delivery. Every pull
-    request that changes delivery runs each of them live once; Flux
-    Kustomizations run in every delivery scenario.
+covers finding that manager and the HelmRelease and Argo CD set-ups. Members,
+and Stages that follow a Stage in another cluster, are covered in
+[Several clusters](delivery-members.md).
 
 ## Which manager applies a Stage
 
@@ -202,120 +197,3 @@ versions from that Stage, in the same cluster or through its records. An Argo
 CD Stage places no
 consumers, so label the Pactos it runs with
 `delivery.pacto.trianalab.io/environment`.
-
-## Follow a Stage in another cluster
-
-A Stage in one cluster can take its versions from a Stage in another cluster,
-such as prod in one cluster following staging in another. The clusters do not
-talk to each other. The downstream promoter reads the upstream Stage's signed
-records from the registry.
-
-You need:
-
-1. The recorder running in the upstream cluster (see
-   [Signed records](delivery-records.md)).
-2. The upstream recorder's public key in the downstream promoter's trust
-   config, bound to the upstream stream:
-
-   ```yaml
-   promoter:
-     upstreamTrust: |
-       keys:
-         - name: staging-recorder
-           publicKey: |
-             -----BEGIN PUBLIC KEY-----
-             ...
-             -----END PUBLIC KEY-----
-           streams: ["8d1e…/staging/*"]
-   ```
-
-3. The downstream Stage naming the upstream stream and the repository that
-   holds its records. The stream is the upstream Stage's `status.stream.id`.
-
-   ```yaml
-   apiVersion: delivery.pacto.trianalab.io/v1alpha1
-   kind: Stage
-   metadata: {name: payments, namespace: prod}
-   spec:
-     service: {name: payments}
-     environment: prod
-     applyRef: {name: payments}
-     candidates:
-       upstreamRecords:
-         repository: registry/delivery/streams
-         stream: 8d1e…/staging/payments
-   ```
-
-### What the follower takes
-
-The promoter rebuilds from the records what the upstream verified: a promote
-that `Succeeded`, `Verified` and passed the published gate there is offered
-here, and a failure the follower has read is never taken: a version that
-failed there, or was rolled back after release. That includes a version that fails a check after release when
-the promoter cannot roll it back there (a person or agent chose it, or its
-rollback is used up): the promoter freezes that Stage with a freeze operation
-whose record names the failed version. Its own gates, approvals and checks
-still run. The digest must also exist in the Stage's own apply repository: use the same repository or a
-mirror that keeps digests. `pacto delivery plan` reads these records only with
-`--trust` and the upstream recorder's key.
-
-### When the records cannot be trusted
-
-The promoter offers nothing when it cannot check the history: without
-`delivery.promoter.upstreamTrust` the Stage is not `Ready` (`UpstreamUntrusted`). A gap,
-a fork or an unreadable registry make it not `Ready` (`UpstreamUnreadable`,
-saying why) until a read succeeds, and refuse a promote as `NotPublished`. A
-record no trusted key signed is skipped, since anyone with push access could
-attach one. A trusted record that stops verifying leaves a gap.
-
-What the follower cannot see, it cannot refuse. It detects records removed
-from before `status.upstreamSeen`, but not a record hidden after it was
-written and before the follower first read it, nor one signed with a key
-`upstreamTrust` does not list, which is skipped like a forgery. A version that
-failed upstream through such a record can still be taken. So rotate the
-recorder's key in every follower first (list the new key beside the old one
-in `upstreamTrust`), then upstream. The Stage's `Ready` message counts the
-referrers on the upstream anchor it could not verify, so a skipped record
-does not go unsaid.
-
-### When records were removed or rewritten
-
-The Stage remembers the newest upstream record it read in
-`status.upstreamSeen`. A later read that ends before it, or holds another
-record at its seq however far the stream has grown since, is refused the same
-way: records were removed or rewritten, and one of them could be a failure.
-Every `pacto.published` verdict on such a Stage cites the record it relied on
-as `upstreamHead` and `upstreamSeq`, so an auditor can replay the stream up to
-it.
-
-Sometimes the cut is intended: the upstream stream was recreated, or a
-`StreamConflict` repair removed its newest record. Nothing clears the mark on
-its own, so the follower stays not `Ready` until a person does. Once an
-auditor confirms the cut, clear it, with the right to patch `stages/status`.
-Admission lets that right do nothing else: only the promoter writes the rest of
-a Stage's or an Operation's status, so the write must remove `upstreamSeen` and
-change nothing more. The next read, within 30 seconds, sets it again:
-
-```bash
-kubectl patch stage <stage> -n <namespace> --subresource=status --type=merge \
-  -p '{"status":{"upstreamSeen":null}}'
-```
-
-The promoter reads the upstream registry at most every 30 seconds, and
-afresh when it plans a promote. It verifies each record once.
-
-### Freezes
-
-A freeze is local, in one cluster or across two. Freezing the upstream Stage
-does not stop a follower from taking a version the upstream already verified:
-freeze the follower too. When the promoter freezes a Stage because a check
-failed after release, its record names the failed version, so followers never
-take it.
-
-## Limits
-
-- A Stage sees the upstream's history only as far as its records reach the
-  registry, so a failure not yet recorded is not seen.
-- A cut is noticed only against a record the Stage already read. A Stage
-  that starts following a stream whose newest records were already removed
-  cannot tell.

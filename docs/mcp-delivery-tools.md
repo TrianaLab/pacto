@@ -54,6 +54,20 @@ being named. `unreadable` names a namespace that refused the list, and without
 `--fleet` the inbox names `owners` there, since no owner is known and every
 Stage is shown as the caller's.
 
+## Plans over a hub's members
+
+On a hub, `pacto_delivery_operation_plan` takes `service`, `environment` and
+a `sha256:` digest in `to` in place of `namespace` and `stage`, and optionally
+`members`. Its `members` answer is the placement over the hub's members (from
+a signed placement rule, confirmed by a person's signed request or only the
+environments they take requests for), each member's state with `asOf` and
+completeness, and `next`, the command a person runs to sign the requests.
+Only a person signs a member request: `pacto_delivery_operation_propose`
+refuses member mode with `MemberRequestNeedsPerson` and that command.
+`pacto_delivery_refusals` lists the requests members refused, or whose promote
+their gates rejected, as rows with `check: member` and the member's name. See
+[Deliver through a member](integrations/kubernetes/delivery-members.md#deliver-through-a-member).
+
 ## Candidates, plans and history
 
 `pacto_delivery_candidates` lists the versions a Stage may take, with their

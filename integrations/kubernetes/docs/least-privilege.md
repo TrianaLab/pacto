@@ -86,3 +86,27 @@ refuses an `ed25519.secretName` key unless
 `delivery.recorder.signing.allowOperatorReadableKey` is `true`. To move an
 existing install to a list, see
 [Upgrade](upgrade.md#pull-secrets-outside-granted-namespaces).
+
+## Member requests
+
+With delivery and a `registry`, the chart binds the operator to a separate
+ClusterRole, `<release>-member-intake`, so the operator ClusterRole stays the
+same with delivery on and a member that watches a namespace list still takes
+requests. It always lets the operator `get`, `list` and `watch` Stages, to
+name the Stages that record a stream in its join block. While
+`delivery.remote.enabled` is not `false` and the profile is not hardened, it
+also grants:
+
+- `create`, `get`, `list` and `watch` on Operations, to raise the promote a
+  [member request](delivery-members.md#deliver-through-a-member) asks for and
+  follow it to its outcome. Admission holds `spec.actor` to the operator.
+- `create` on SubjectAccessReviews, to check that the person who signed may
+  create Operations in the Stage's namespace.
+- `get` on the `pacto-delivery-identities` ConfigMap only, for the approver
+  signers a request must verify under.
+
+The recorder's public key is copied into `<release>-member-recorder-key`, a
+ConfigMap in the release namespace that the operator mounts, so the operator
+needs no read in the delivery namespace to advertise it. Set
+`delivery.remote.enabled=false` to drop the Operation, review and ConfigMap
+grants.
