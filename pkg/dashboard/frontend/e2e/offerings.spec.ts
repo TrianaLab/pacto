@@ -102,14 +102,18 @@ test.describe('WASM demo — platform offerings', () => {
     await page.getByTestId('offering-consumable-filter').check();
     await expect(page).toHaveURL(/#\/fleet\/offerings\?consumable=1$/);
     await expect(page.locator('.filter-chips')).toContainText('Consumable');
-    // objectstore is the offering a person declared and the demo registry accepted; the
-    // other providers are not checked, so the answer is partial and says so.
+    // postgresql 17.0.0 is signed by its workflow under the installation's publisher rule
+    // and objectstore is the offering a person declared; the other providers are not
+    // checked, so the answer is partial and says so.
     const rows = page.getByTestId('offering-list').locator('tbody tr');
-    await expect(rows).toHaveCount(1, { timeout: T });
-    await expect(rows.locator('a.entity-link[href$="/fleet/offerings/objectstore"]')).toBeVisible();
-    const line = rows.getByTestId('offering-consumable');
+    await expect(rows).toHaveCount(2, { timeout: T });
+    const pg = rows.filter({ has: page.locator(PG_ROW) });
+    await expect(pg.getByTestId('offering-consumable')).toHaveText('17.0.0');
+    await expect(pg.getByTestId('offering-consumable')).toHaveAttribute('title', /^17\.0\.0; publisher https:\/\/github\.com\/trianalab\/postgresql\/\.github\/workflows\/publish\.yml@refs\/heads\/main, as of /);
+    const os = rows.filter({ has: page.locator('a.entity-link[href$="/fleet/offerings/objectstore"]') });
+    const line = os.getByTestId('offering-consumable');
     await expect(line).toHaveText('1.0.0 · classes archive, standard');
-    await expect(line).toHaveAttribute('title', /^1\.0\.0 · classes archive, standard; publisher \S+, as of /);
+    await expect(line).toHaveAttribute('title', /^1\.0\.0 · classes archive, standard; publisher dana@acme\.example, as of /);
     await expect(page.locator('.knowledge').first()).toBeVisible();
     await audit(page, 'consumable offerings');
     expect(await noSideScroll(page)).toBe(true);
