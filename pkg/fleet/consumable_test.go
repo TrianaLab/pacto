@@ -241,6 +241,18 @@ func TestConsumableExcludesObservedOnlyOffering(t *testing.T) {
 		t.Fatalf("service = %+v", s)
 	}
 	wantExcluded(t, consumableList(t, q), LimitationOfferingNotConsumable, "postgresql", "only targets report the offering", CompletenessComplete)
+	// A provider with no revision at all is known observed-only, never unknown.
+	snap, err = Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Targets: []RawTarget{
+			{Scope: "db", Kind: SourceKindKubernetes, Name: "pg-0", Service: "pg", Domain: csmDomain, Offering: "postgresql"}}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := consumableList(t, NewQuery(snap))
+	wantExcluded(t, l, LimitationOfferingNotConsumable, "postgresql", "only targets report the offering", snap.Completeness)
+	if len(csmLimitations(l, LimitationOfferingAcceptanceUnknown)) != 0 {
+		t.Errorf("a provider with no revision read unknown: %+v", l.Meta.Limitations)
+	}
 }
 
 func TestConsumableSunsetExcludedDeprecatedListed(t *testing.T) {
@@ -343,6 +355,10 @@ func TestConsumableProvidersBounded(t *testing.T) {
 	}
 	// A limitation names at most three offerings.
 	if got := someNames([]string{"e", "d", "c", "b", "a"}); got != "a; b; c; 2 more" {
+		t.Errorf("names = %q", got)
+	}
+	// An offering with several providers left out is named once.
+	if got := someNames([]string{"b", "a", "b"}); got != "a; b" {
 		t.Errorf("names = %q", got)
 	}
 	if got := providersOfOfferings(1); got != "1 provider of an offering you may see" {

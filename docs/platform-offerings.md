@@ -168,7 +168,9 @@ Acceptance covers the listed digest; run pacto lock to pin it.
 
 A provider is left out, first reason wins, when it is `observed-only`,
 `sunset`, `not-published`, `not-accepted`, `acceptance-unknown`,
-`schema-unreadable` or `schema-open`. Inferred and contributed offerings never
+`schema-unreadable` or `schema-open`. An unreadable newest revision is
+`acceptance-unknown` first, and a provider with no revision is
+`observed-only`. Inferred and contributed offerings never
 appear. `OFFERING_NOT_CONSUMABLE` counts the known exclusions per reason,
 naming up to three offerings and an open schema's open paths.
 `OFFERING_ACCEPTANCE_UNKNOWN` counts the providers Pacto could not check and

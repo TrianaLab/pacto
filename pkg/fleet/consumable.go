@@ -163,6 +163,11 @@ func (q *Query) consumableProvider(s *ServiceRecord) (ConsumableProvider, string
 			newest = r
 		}
 	}
+	// A provider with no revision at all is known: no contract declares the
+	// offering, only targets report it.
+	if newest == nil && s.OfferingProvenance != ProvenanceDeclared {
+		return ConsumableProvider{}, ConsumableExcludedObservedOnly, ""
+	}
 	if newest == nil || !readableRevision(newest) {
 		return ConsumableProvider{}, ConsumableExcludedAcceptanceUnknown, "its newest revision could not be read"
 	}
@@ -362,9 +367,11 @@ func providersOfOfferings(n int) string {
 	return fmt.Sprintf("%d providers of offerings you may see", n)
 }
 
-// someNames is up to maxConsumableNames of names, sorted, and how many more.
+// someNames is up to maxConsumableNames of the distinct names, sorted, and
+// how many more; an offering with several providers left out for the same
+// reason is named once.
 func someNames(names []string) string {
-	return someNamesOf(slices.Sorted(slices.Values(names)), "; ")
+	return someNamesOf(slices.Compact(slices.Sorted(slices.Values(names))), "; ")
 }
 
 // someNamesOf is up to maxConsumableNames of names, in order, joined by sep,
