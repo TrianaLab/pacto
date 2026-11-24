@@ -389,6 +389,10 @@ func TestManagedSameIdentityReadsShareContract(t *testing.T) {
 	if got["crossplane"] != ContractOffering || got["aws-resource-explorer"] != ContractOffering || got["terraform"] != ContractOutside {
 		t.Fatalf("contracts = %v", got)
 	}
+	// The coverage counts the database once, and the partial read apart.
+	if c := q.resourceCoverage(); c.Discovered != 2 || c.ThroughOfferings != 1 {
+		t.Errorf("coverage = %+v", c)
+	}
 }
 
 // A viewer who may read the cluster-scoped object but not the consumer

@@ -69,11 +69,20 @@ type ResourceCoverage struct {
 }
 
 // resourceCoverage is the fleet-wide resource coverage, nil when no managed
-// resource was discovered.
+// resource was discovered. A resource several sources read counts once.
 func (q *Query) resourceCoverage() *ResourceCoverage {
 	var c ResourceCoverage
 	for _, rec := range q.snap.Externals {
+		// Every complete read of a complete identity is one resource
+		// (sameIdentity gave them one state): it counts once.
+		one := false
 		for _, r := range q.managedResources(rec) {
+			if len(r.Missing) == 0 && completeIdentity(rec.Key) {
+				if one {
+					continue
+				}
+				one = true
+			}
 			c.Discovered++
 			c.ThroughOfferings += b2i(r.Contract == ContractOffering)
 		}
