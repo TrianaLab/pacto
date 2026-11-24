@@ -11,7 +11,7 @@
   // Who put the version an environment runs in place: the change that moved
   // it there, who asked and for whom, who approved and what every check said.
   // No change on a partial history means unknown, never nobody.
-  let { namespace, stage, miraURL = '', onClose } = $props();
+  let { namespace, stage, cluster = undefined, miraURL = '', onClose } = $props();
 
   let blame = $state(null);
   let error = $state(null);
@@ -20,7 +20,7 @@
 
   onMount(async () => {
     headingEl?.focus();
-    try { blame = await api.deliveryBlame(namespace, stage); } catch (e) { error = e; }
+    try { blame = await api.deliveryBlame(namespace, stage, '', cluster); } catch (e) { error = e; }
   });
 </script>
 

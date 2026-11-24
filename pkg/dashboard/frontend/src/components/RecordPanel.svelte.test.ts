@@ -46,7 +46,7 @@ describe('RecordPanel', () => {
     const v = render();
     expect(text(v.target.querySelector('[role="status"]'))).toBe('Reading the record…');
     await settle();
-    expect(record).toHaveBeenCalledWith('prod', 'pay', REC);
+    expect(record).toHaveBeenCalledWith('prod', 'pay', REC, undefined);
     const p = v.target.querySelector('[data-testid="record-panel"]')!;
     expect(text(p.querySelector('h3'))).toBe('Record aaaaaaaaaaaa');
     expect(text(p.querySelector('[data-testid="record-change"]'))).toContain('Promote by Carol Diaz');

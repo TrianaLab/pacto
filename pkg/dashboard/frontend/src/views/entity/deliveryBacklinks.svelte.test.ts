@@ -85,7 +85,7 @@ describe('revision page Delivery lifecycle (B4)', () => {
     fns.record.mockResolvedValue({ namespace: 'test', stage: 'payments', record: REC, verified: true, asOf: '', entry: ev('arrived'), verdicts: [], note: 'verified' });
     (sec.querySelector('button[aria-label^="Read record"]') as HTMLButtonElement).click();
     await settle();
-    expect(fns.record).toHaveBeenCalledWith('test', 'payments', REC);
+    expect(fns.record).toHaveBeenCalledWith('test', 'payments', REC, undefined);
     expect(sec.querySelector('[data-testid="record-panel"]')).not.toBeNull();
     destroy();
   });

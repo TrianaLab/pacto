@@ -11,7 +11,7 @@
   // One record of a Stage's stream, read by id: the change it records, who
   // asked and for whom, who approved, every verdict with its proof, and
   // whether its signature was checked. Only a record in the stream answers.
-  let { namespace, stage, id, miraURL = '', onClose } = $props();
+  let { namespace, stage, id, cluster = undefined, miraURL = '', onClose } = $props();
 
   let rec = $state(null);
   let error = $state(null);
@@ -21,7 +21,7 @@
 
   onMount(async () => {
     headingEl?.focus();
-    try { rec = await api.deliveryRecord(namespace, stage, id); } catch (err) { error = err; }
+    try { rec = await api.deliveryRecord(namespace, stage, id, cluster); } catch (err) { error = err; }
   });
 </script>
 

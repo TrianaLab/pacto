@@ -27,6 +27,7 @@
   import HelpTip from '../components/HelpTip.svelte';
   import HistoryFigure from '../components/figure/HistoryFigure.svelte';
   import HistoryAt from '../components/HistoryAt.svelte';
+  import { clusterPrefix, clusterTitle } from '../lib/clusters.ts';
 
   // What happened on each Stage: from its signed records where the recorder
   // runs, otherwise from the changes still in the cluster. Every history says
@@ -41,7 +42,7 @@
   // (exact) narrow the changes and the timeline, never the Stages.
   // at (RFC 3339 or a duration before now) also asks what each Stage ran then, from
   // signed records; it takes none of the window, cause or correlation filters.
-  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', since = '', until = '', timed = '', cause = '', correlationID = '', at = '', refreshTick = 0, miraURL = '' } = $props();
+  let { namespace = '', stage = '', offset = '', limit = '', q = '', service = '', domain = '', since = '', until = '', timed = '', cause = '', correlationID = '', at = '', cluster = '', refreshTick = 0, miraURL = '' } = $props();
 
   const one = $derived(!!(namespace && stage));
   // The exact service filter narrows every Stage; one Stage is already one.
@@ -51,12 +52,16 @@
     offset: urlInt(offset) || undefined, limit: urlInt(limit) || undefined, q: q || undefined,
     service: svc || undefined, domain: dom || undefined, since: since || undefined, until: until || undefined, timed: timed ? true : undefined,
     cause: cause || undefined, correlationID: correlationID || undefined, at: at || undefined,
+    cluster: (one && cluster) || undefined,
   }));
-  const question = $derived(`${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}@@${cause}@@${correlationID}@@${at}`);
+  const question = $derived(`${cluster}/${namespace}/${stage}@@${urlInt(offset)}@@${urlInt(limit)}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}@@${cause}@@${correlationID}@@${at}`);
   // The same question without its page: turning a page keeps the rows on screen.
-  const listQuestion = $derived(`${namespace}/${stage}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}@@${cause}@@${correlationID}@@${at}`);
+  const listQuestion = $derived(`${cluster}/${namespace}/${stage}@@${q}@@${dom}/${svc}@@${since}/${until}/${timed}@@${cause}@@${correlationID}@@${at}`);
   // Every link on the page keeps the cause and correlation filters.
-  const by = $derived({ cause, correlationID });
+  // One Stage of another cluster keeps its cluster in every link too.
+  const by = $derived({ cause, correlationID, cluster: (one && cluster) || undefined });
+  // An answer read from several clusters names each Stage's cluster before it.
+  const pre = (h) => clusterPrefix(h.cluster, data?.clusters);
   const filtered = $derived(!!(q || cause || correlationID));
   // The window in words, when there is one.
   const windowText = $derived(timed && (since || until) ? `with a time${since ? ` at or after ${timeLabel(since)}` : ''}${since && until ? ' and' : ''}${until ? ` before ${timeLabel(until)}` : ''}`
@@ -337,20 +342,20 @@
           <colgroup><col style="width: 24%" /><col style="width: 12%" /><col style="width: 22%" /><col style="width: 13%" /><col style="width: 13%" /><col style="width: 16%" /></colgroup>
           <thead><tr><th scope="col">Stage</th><th scope="col">Runs</th><th scope="col">Newest change</th><th scope="col">How it ended</th><th scope="col">When</th><th scope="col">Changes</th></tr></thead>
           <tbody>
-            {#each histories as h, hi (h.namespace + '/' + h.stage.name)}
+            {#each histories as h, hi (`${h.cluster ?? ''}/${h.namespace}/${h.stage.name}`)}
               {@const en = h.entries?.[0]}
               {#if grouped(h.namespace) && histories[hi - 1]?.namespace !== h.namespace}
                 <tr class="hv-group" data-testid="history-group"><th colspan="6" scope="colgroup">
                   <span class="hv-group-name">{h.namespace}</span>{#if groupSource[h.namespace]}<span class="t-meta hv-group-source">{groupSource[h.namespace]}</span>{/if}
                 </th></tr>
               {/if}
-              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name, since, until, timed: tm, ...by, at })}
+              {@const url = deliveryHistoryUrl({ namespace: h.namespace, stage: h.stage.name, since, until, timed: tm, ...by, cluster: h.cluster || undefined, at })}
               {@const issues = (h.problemCount ?? 0) + (h.unreadableCount ?? 0)}
               {@const total = h.entriesPage?.total ?? h.entries?.length ?? 0}
               <tr data-testid="history-stage-row" data-stage={`${h.namespace}/${h.stage.name}`}>
                 <th scope="row">
                   <div class="cell-stack">
-                    <a class="cell-clip" href={url} title={`${h.namespace}/${h.stage.name}`}>{h.stage.name}</a>
+                    <a class="cell-clip" href={url} title={[clusterTitle(h.cluster, data?.clusters), `${h.namespace}/${h.stage.name}`].filter(Boolean).join(': ')}>{pre(h)}{h.stage.name}</a>
                     <span class="t-meta cell-clip" class:visually-hidden={grouped(h.namespace)} title={h.namespace}>in {h.namespace}</span>
                     <span class="t-meta hv-source" class:visually-hidden={grouped(h.namespace) && groupSource[h.namespace] === sourceShort(h)} class:hv-partial={h.completeness !== 'complete'} data-testid="history-source" title={sourceLabel(h)}>{sourceShort(h)}</span>
                   </div>
@@ -384,11 +389,11 @@
         </table>
       </div>
     {:else}
-      {#each histories as h (h.namespace + '/' + h.stage.name)}
+      {#each histories as h (`${h.cluster ?? ''}/${h.namespace}/${h.stage.name}`)}
         {@const known = knownIds(h)}
         {@const runs = runsOf(h)}
         <section class="hv-stage" aria-label={`History of ${h.namespace}/${h.stage.name}`}>
-          <h2 class="t-section-title" class:visually-hidden={histories.length === 1}>{h.namespace}/{h.stage.name}</h2>
+          <h2 class="t-section-title" class:visually-hidden={histories.length === 1}>{pre(h)}{h.namespace}/{h.stage.name}</h2>
           <div class="hv-facts t-body-2">
             <span>Runs {#if h.stage.pointer}<strong>{version(h.stage.pointer)}</strong>{#if data.versions?.[h.stage.pointer]}{' '}<code class="hv-digest" title={h.stage.pointer}>{shortDigest(h.stage.pointer)}</code>{/if}{:else}nothing yet{/if}</span>
             {#if h.stage.frozen}<span class="badge badge-warn">Frozen</span>{/if}
@@ -410,7 +415,7 @@
             {/if}
           </div>
           {#if isOpen('blame', h.namespace, h.stage.name)}
-            <BlamePanel namespace={h.namespace} stage={h.stage.name} {miraURL} onClose={close} />
+            <BlamePanel namespace={h.namespace} stage={h.stage.name} cluster={by.cluster} {miraURL} onClose={close} />
           {/if}
           {#if (h.entries ?? []).length === 0}
             <p class="t-body-2 hv-none">{filtered ? 'No change matches the filter.' : windowText ? 'No change in this window.' : 'No change kept for this Stage.'}</p>
@@ -470,7 +475,7 @@
                     {/if}
                     {#if en.record && isOpen('record', h.namespace, en.record)}
                       <tr class="hv-undo-row"><td colspan="10">
-                        <RecordPanel namespace={h.namespace} stage={h.stage.name} id={en.record} {miraURL} onClose={close} />
+                        <RecordPanel namespace={h.namespace} stage={h.stage.name} id={en.record} cluster={by.cluster} {miraURL} onClose={close} />
                       </td></tr>
                     {/if}
                     {/if}

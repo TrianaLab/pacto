@@ -615,16 +615,16 @@ export const api = {
     unwrap(client.GET('/api/delivery/history', {
       params: { query: { ...query, namespace: namespace || undefined, stage: stage || undefined } },
     })),
-  deliveryBlame: (namespace: string, stage: string, digest = ''): Promise<DeliveryBlame> =>
-    unwrap(client.GET('/api/delivery/blame', { params: { query: { namespace, stage, digest: digest || undefined } } })),
+  deliveryBlame: (namespace: string, stage: string, digest = '', cluster?: string): Promise<DeliveryBlame> =>
+    unwrap(client.GET('/api/delivery/blame', { params: { query: { namespace, stage, digest: digest || undefined, cluster: cluster || undefined } } })),
   deliveryUndo: (namespace: string, name: string, stage = ''): Promise<DeliveryUndo> =>
     unwrap(client.GET('/api/delivery/undo', { params: { query: { namespace, name, stage: stage || undefined } } })),
   deliveryProgress: (namespace: string, stage: string): Promise<DeliveryProgress> =>
     unwrap(client.GET('/api/delivery/progress', { params: { query: { namespace, stage } } })),
   deliveryLifecycle: (query: DeliveryQuery<'/api/delivery/lifecycle'>): Promise<DeliveryLifecycle> =>
     unwrap(client.GET('/api/delivery/lifecycle', { params: { query } })),
-  deliveryRecord: (namespace: string, stage: string, id: string): Promise<DeliveryRecord> =>
-    unwrap(client.GET('/api/delivery/record', { params: { query: { namespace, stage, id } } })),
+  deliveryRecord: (namespace: string, stage: string, id: string, cluster?: string): Promise<DeliveryRecord> =>
+    unwrap(client.GET('/api/delivery/record', { params: { query: { namespace, stage, id, cluster: cluster || undefined } } })),
   deliveryRefusals: (): Promise<DeliveryRefusals> => unwrap(client.GET('/api/delivery/refusals')),
   deliveryOperation: (namespace: string, name: string): Promise<DeliveryOperation> =>
     unwrap(client.GET('/api/delivery/operations/{namespace}/{name}', { params: { path: { namespace, name } } })),

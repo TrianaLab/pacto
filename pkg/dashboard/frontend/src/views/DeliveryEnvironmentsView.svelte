@@ -25,6 +25,7 @@
   import HelpTip from '../components/HelpTip.svelte';
   import ProvenanceMark from '../components/ProvenanceMark.svelte';
   import { cap } from '../lib/cap.svelte.ts';
+  import { clusterPrefix, clusterTitle } from '../lib/clusters.ts';
   import EnvFleetFigure from '../components/figure/EnvFleetFigure.svelte';
   import PromotionFigure from '../components/figure/PromotionFigure.svelte';
   import { ENV_STATES, servicePath, sourceProblem, MAX_PATH_MARKS } from '../lib/envFigure.ts';
@@ -58,6 +59,8 @@
 
   const answer = $derived(loader.answer(question, listQuestion));
   const data = $derived(answer.data);
+  // An answer read from several clusters names each Stage's cluster before it.
+  const pre = (r) => clusterPrefix(r.cluster, data?.clusters);
   const rows = $derived(data?.environments ?? []);
   // The server orders environments as the Stages declare their upstreams and
   // filters the rows; the columns follow the same environment and tier.
@@ -180,17 +183,18 @@
 {/snippet}
 
 {#snippet stack(svc, env)}
-    {#each cell(svc, env) as r (r.namespace + '/' + r.stage)}
+    {#each cell(svc, env) as r (`${r.cluster ?? ''}/${r.namespace}/${r.stage}`)}
       {@const applier = applierLine(r.applier, serverNow(data?.asOf), r.ready)}
       {@const tip = placementTip(r)}
       <div class="ev-cell" data-testid="env-cell" data-stage={`${r.namespace}/${r.stage}`}>
-        {#if cell(svc, env).length > 1}<span class="t-meta ev-stage">{r.namespace}/{r.stage}</span>{/if}
+        <!-- A Stage of an answer read from several clusters names its cluster; the full name and uid are in the title. -->
+        {#if cell(svc, env).length > 1 || pre(r)}<span class="t-meta ev-stage" title={clusterTitle(r.cluster, data?.clusters) || undefined}>{pre(r)}{r.namespace}/{r.stage}</span>{/if}
         <span class="ev-head">
           {#if r.revision}
             <a class="ev-version" href={fleetEntityUrl('revision', r.revision)} title={r.pointer}>{r.version || shortDigest(r.pointer)}</a>
-            <a class="t-meta" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}>History</a>
+            <a class="t-meta" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage, cluster: r.cluster || undefined })}>History</a>
           {:else}
-            <a class="ev-version" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}
+            <a class="ev-version" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage, cluster: r.cluster || undefined })}
               title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
           {/if}
           {#if r.level}<span class="t-meta ev-level" data-testid="level" title={levelHelp(r.level)}>{levelLabel(r.level)}</span>{/if}
@@ -379,11 +383,11 @@
             <h2 id="ev-shadows-title" class="t-section-title">What Pacto would have done <span class="t-meta">{countOf(observing.length, 'observing Stage')} on this page, advisory and unsigned</span></h2>
             <HelpTip label="observing Stages" text="These Stages observe: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It comes from the Stage status and is unsigned. Seen in source is when GitOps' source showed the candidate, which can be before it rolled out." />
           </div>
-          {#each observingCap.slice(observing) as r (r.namespace + '/' + r.stage)}
+          {#each observingCap.slice(observing) as r (`${r.cluster ?? ''}/${r.namespace}/${r.stage}`)}
             <details class="ev-shadow disclosure" data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
               <summary>
                 <span class="disclosure-caret" data-motion aria-hidden="true"></span>
-                <h3 id={`shadow-${r.namespace}-${r.stage}`} class="ev-shadow-title"><bdi>{r.service}</bdi> in <bdi>{r.environment}</bdi></h3>
+                <h3 id={`shadow-${r.cluster ? `${r.cluster}-` : ''}${r.namespace}-${r.stage}`} class="ev-shadow-title" title={clusterTitle(r.cluster, data?.clusters) || undefined}>{pre(r)}<bdi>{r.service}</bdi> in <bdi>{r.environment}</bdi></h3>
                 <span class="t-meta">{countOf(r.shadow.length, 'candidate')}</span>
               </summary>
               <div class="ev-scroll">
