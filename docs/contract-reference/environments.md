@@ -228,7 +228,7 @@ step, and no approval clears the plan's refusal.
 
 | Code | Example, for an offering `postgresql` that marks `class` and `replicas` tunable |
 |---|---|
-| `TierNotTunable` | `database.storageGB is contract-tier in offering postgresql 16.2.0, so it cannot change per environment. Next: set it once in configurations[0].values, or ask infra-data to mark it x-pacto-tier: tunable` |
+| `TierNotTunable` | `database.storageGB is contract-tier in offering postgresql 16.2.0, so it cannot change per environment. Next: set it once in configurations[0].values, or ask infra-data to mark it x-pacto-tier: tunable`. Pacto does not follow `$ref`, `oneOf`, `anyOf` or `allOf`, so a field behind one is contract, and the message adds `the tier sits behind a $ref Pacto does not follow` |
 | `ParameterOutOfRange` | `database.replicas is outside the parameters of offering postgresql 16.2.0. Next: use a value of type integer, >= 1, <= 5; pacto fleet get postgresql lists the parameters` |
 | `ParameterNotDeclared` | `database.replica is not a parameter of offering postgresql 16.2.0. Next: remove it (did you mean "replicas"?); pacto fleet get postgresql lists the parameters` |
 | `ClassNotOffered` | `database.class names a class offering postgresql 16.2.0 does not offer. Next: use one of small, medium, large (did you mean "large"?)` |
