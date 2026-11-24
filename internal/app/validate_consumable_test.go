@@ -65,7 +65,14 @@ func consumableSnippetDir(t *testing.T) (string, fleet.ConsumableProvider, *test
 			}
 			return nil, os.ErrNotExist
 		},
-		ResolveFn:  func(context.Context, string) (string, error) { return digest, nil },
+		// Only the listed version resolves to the listed digest: a lock that
+		// resolved any other tag or repository would pin another digest.
+		ResolveFn: func(_ context.Context, ref string) (string, error) {
+			if ref == "ghcr.io/acme/postgresql:16.1.0" {
+				return digest, nil
+			}
+			return fmt.Sprintf("sha256:%x", sha256.Sum256([]byte(ref))), nil
+		},
 		ListTagsFn: func(context.Context, string) ([]string, error) { return []string{"16.1.0"}, nil },
 	}
 	return dir, p, store
