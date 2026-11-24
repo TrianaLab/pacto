@@ -37,10 +37,10 @@ func SelectedValues(ref ApplyRef, applier map[string]any, ks []KustomizationView
 }
 
 // argoValues reads spec.source.helm.valueFiles, else an overlay
-// spec.source.path.
+// spec.source.path. An empty valueFiles selects nothing, as Argo CD reads it.
 func argoValues(what string, applier map[string]any, environment string) ValuesSelection {
-	raw, ok := field(applier, "spec", "source", "helm", "valueFiles").([]any)
-	if !ok {
+	raw, _ := field(applier, "spec", "source", "helm", "valueFiles").([]any)
+	if len(raw) == 0 {
 		return overlayValues(what, cleanPath(str(applier, "spec", "source", "path")), environment)
 	}
 	files := make([]string, len(raw))

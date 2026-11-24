@@ -369,7 +369,7 @@ func TestNeverACandidateUnlessPublished(t *testing.T) {
 	s.Status.Conditions = []delivery.Condition{{Type: "Ready", Status: "True", Reason: "Ready", Message: "the Stage can promote published versions"}}
 	e := newEnv(t, s, ociRepo("payments", dA, "latest@"+dA, false), verifiedRepo("payments-candidates", "latest@"+dB))
 	a, _ := e.st.Cluster.applier(context.Background(), ns, e.getStage().Spec.ApplyRef)
-	med, _ := e.st.Cluster.mediated(context.Background(), ns, a)
+	med, _ := e.st.Cluster.mediated(context.Background(), ns, "prod", a)
 	ap, _ := e.st.nextApplier(context.Background(), e.getStage())
 	e.setStage(func(s *delivery.StageStatus) { s.Conditions, s.Applier = append(s.Conditions, med), &ap })
 	e.fails["status/Stage"] = true

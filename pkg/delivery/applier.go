@@ -61,6 +61,10 @@ type ApplierStatus struct {
 	// resync after asOf, since it rewrites asOf at least once per resync.
 	// +optional
 	StaleAt string `json:"staleAt,omitempty" doc:"When asOf turns stale (RFC 3339): twice the promoter's resync after asOf. A later observation means the promoter stopped checking"`
+	// Values is the values file or Kustomize overlay the applier selects, as
+	// observed on the applyRef object.
+	// +optional
+	Values string `json:"values,omitempty" doc:"The values file or Kustomize overlay the applier selects, as observed on the applyRef object, such as values-production.yaml or overlays/production; the Mediated condition says whether Pacto accepts it; empty when it selects none"`
 	// +kubebuilder:validation:Enum=complete;partial
 	Completeness string `json:"completeness" enum:"complete,partial" doc:"partial when a workload or the Pacto list could not be read"`
 }
@@ -91,6 +95,10 @@ type ApplierInput struct {
 	// NoAPI says the cluster does not serve the applyRef's API: no Flux or
 	// Argo CD runs.
 	NoAPI bool
+	// Values is the values file or overlay the applier selects
+	// (SelectedValues), refused or not; empty when it selects none or could
+	// not be read.
+	Values string
 }
 
 // verdict of one target.
@@ -113,6 +121,7 @@ func AdoptApplier(in ApplierInput) ApplierStatus {
 		st.State, st.Manager, st.Message = ApplierUnknown, workloadmanager.None, NoApplierMessage
 		return st
 	}
+	st.Values = in.Values
 	if len(in.Targets) == 0 {
 		if len(in.Unread) > 0 {
 			st.State, st.Message = ApplierUnknown, "Pacto could not read "+strings.Join(in.Unread, "; ")

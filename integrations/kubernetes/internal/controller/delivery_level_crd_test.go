@@ -48,3 +48,35 @@ var _ = Describe("Stage startLevel", func() {
 		Expect(err.Error()).To(ContainSubstring("startLevel is fixed at creation"))
 	})
 })
+
+// A Stage's environment selects the values its applier may apply
+// (values-<environment>.yaml, overlays/<environment>), so it is a DNS label
+// and fixed at creation (TestStageEnvironmentPattern,
+// TestStageEnvironmentImmutable).
+var _ = Describe("Stage environment", func() {
+	stage := func(name, env string) *unstructured.Unstructured {
+		spec := map[string]any{"service": map[string]any{"name": "payments"}, "environment": env,
+			"applyRef": map[string]any{"name": "payments"}}
+		u := &unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{"namespace": "default", "name": name}, "spec": spec}}
+		u.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "Stage"})
+		return u
+	}
+
+	It("refuses an environment that is no DNS label", func() {
+		for _, env := range []string{"../prod", "Prod", "prod/x", "-prod", ""} {
+			err := k8sClient.Create(ctx, stage("env-bad", env))
+			Expect(err).To(HaveOccurred(), env)
+			Expect(err.Error()).To(ContainSubstring("spec.environment"), env)
+		}
+		Expect(k8sClient.Create(ctx, stage("env-good", "pre-production"))).To(Succeed())
+	})
+
+	It("keeps environment fixed", func() {
+		s := stage("env-fixed", "production")
+		Expect(k8sClient.Create(ctx, s)).To(Succeed())
+		Expect(unstructured.SetNestedField(s.Object, "staging", "spec", "environment")).To(Succeed())
+		err := k8sClient.Update(ctx, s)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("environment is fixed at creation; create a new Stage"))
+	})
+})

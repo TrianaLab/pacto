@@ -297,7 +297,11 @@ type StageSpec struct {
 	// declares (environments[].name): a contract that declares environments
 	// must declare this one, with values that satisfy its configuration
 	// schemas, or the promote waits for a person (pacto.environment). It
-	// also places the Pactos and Stages a change's consumers run on.
+	// also places the Pactos and Stages a change's consumers run on, and
+	// selects the values the applier may apply: values-<environment>.yaml or
+	// overlays/<environment>. It is fixed at creation.
+	// +kubebuilder:validation:Pattern=`^[a-z0-9]([-a-z0-9]*[a-z0-9])?$`
+	// +kubebuilder:validation:XValidation:rule="self == oldSelf",message="environment is fixed at creation; create a new Stage"
 	Environment string `json:"environment"`
 	// ApplyRef is the object the promoter points at a version: a Flux
 	// OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it
