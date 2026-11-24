@@ -415,6 +415,51 @@ Two findings remain: the `metrics` capability needs
 [Contract bindings](contract-bindings.md) for both, and [Runtime
 observations](runtime-observations.md) for how a finding maps to a status.
 
+## Upgrading from 6.x
+
+- **What changes.** Chart 7.0.0 stores all six Pacto CRDs as `v1`.
+  `v1alpha1` stays served with a deprecation warning until chart 8.0. The
+  [migration guide](https://github.com/TrianaLab/pacto/blob/main/MIGRATION.md#operator-7-crds-at-v1)
+  covers the log lines, failed objects, Go importers and older CLIs.
+- **What the operator does.** On startup the operator rewrites every stored
+  `pacto.trianalab.io` object as `v1`, the delivery promoter does the same for
+  the delivery group, and each sets the CRD's `status.storedVersions` to
+  `["v1"]`. With `crds.install=false`, apply the new CRDs before or after the
+  upgrade: both retry with backoff until the new CRDs are served, so no
+  restart is needed.
+- **How to check.** The migration of a CRD is done when this prints `["v1"]`:
+
+```bash
+kubectl get crd pactos.pacto.trianalab.io -o jsonpath='{.status.storedVersions}'
+```
+
+- **A later chart cannot strand objects.** `helm install` and `helm upgrade`
+  refuse to render a CRD that no longer lists a version the cluster still
+  stores. `helm template` and template-based GitOps renders skip that check,
+  and the apiserver refuses the CRD update instead. Either way, run the check
+  above before you move to a later chart:
+
+```text
+The CustomResourceDefinition "pactos.pacto.trianalab.io" is invalid: status.storedVersions[0]: Invalid value: "v1alpha1": missing from spec.versions; v1alpha1 was previously a storage version, and must remain in spec.versions until a storage migration ensures no data remains persisted in v1alpha1 and removes v1alpha1 from status.storedVersions
+```
+
+- **Scoped installs migrate by hand.** With `controller.watchNamespaces` set,
+  the operator cannot list other namespaces and skips the migration. Run this
+  script as a cluster admin after the upgrade. If any object fails, do not
+  patch `storedVersions`: fix the object and run the script again. The last
+  command of each iteration must print `["v1"]`.
+
+```bash
+set -euo pipefail
+for crd in pactos.pacto.trianalab.io pactorevisions.pacto.trianalab.io noderuntimeobservations.pacto.trianalab.io \
+           stages.delivery.pacto.trianalab.io operations.delivery.pacto.trianalab.io approvals.delivery.pacto.trianalab.io; do
+  kubectl get crd "$crd" >/dev/null 2>&1 || continue
+  kubectl get "$crd" -A -o json | kubectl replace -f - \
+    && kubectl patch crd "$crd" --subresource=status --type=merge -p '{"status":{"storedVersions":["v1"]}}'
+  kubectl get crd "$crd" -o jsonpath='{.status.storedVersions}'; echo
+done
+```
+
 ## Uninstall
 
 ```bash

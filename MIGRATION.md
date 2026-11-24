@@ -492,19 +492,19 @@ readiness:
 - **Contract model**: `pkg/contract/contract.go` (Go types)
 - **Findings and evidence**: `pkg/finding/finding.go`, `pkg/evidence/evidence.go`
 - **Evaluation model**: `pkg/validation/evaluate.go` (pure `Evaluate(contract, evidence) -> (findings, coverage)`)
-- **Operator integration**: `integrations/kubernetes/api/v1alpha1/pacto_types.go`
+- **Operator integration**: `integrations/kubernetes/api/v1/pacto_types.go`
 
 ## Kubernetes integration Go module path
 
 The Kubernetes integration ships as its own Go module inside the monorepo. Its
 module path carries the major-version suffix of the current operator release,
-`/v6`: `github.com/trianalab/pacto/integrations/kubernetes/v6`. Consumers that
+`/v7`: `github.com/trianalab/pacto/integrations/kubernetes/v7`. Consumers that
 import the operator packages (for example
-`.../integrations/kubernetes/v6/api/v1alpha1`) use that path and pull the module
+`.../integrations/kubernetes/v7/api/v1`) use that path and pull the module
 at its nested tag:
 
 ```bash
-go get github.com/trianalab/pacto/integrations/kubernetes/v6@latest
+go get github.com/trianalab/pacto/integrations/kubernetes/v7@latest
 ```
 
 The published artifact coordinate is generated into
@@ -524,6 +524,110 @@ migration in the [changelog](https://pacto.run/latest/changelog/):
 - Operator 6.0.0: removed flags, chart values and unused condition reasons.
   See the
   [`@pacto/k8s-module` changelog](https://pacto.run/latest/changelog/#pactok8s-module).
+- Operator 7.0.0: the CRDs graduate to `v1` and the module path moves to
+  `/v7`. See [Operator 7: CRDs at v1](#operator-7-crds-at-v1).
+
+## Operator 7: CRDs at v1
+
+Chart 7.0.0 graduates all six Pacto CRDs to `v1`: `pactos`,
+`pactorevisions` and `noderuntimeobservations` in `pacto.trianalab.io`, and
+`stages`, `operations` and `approvals` in `delivery.pacto.trianalab.io`. Each
+CRD stores `v1`. `v1alpha1` stays served with the same schema, and a request
+for it returns a warning:
+
+```text
+Warning: pacto.trianalab.io/v1alpha1 is deprecated; use v1 (removed in chart 8.0)
+```
+
+### What the operator does on startup
+
+The operator rewrites every stored object of the `pacto.trianalab.io` group
+as `v1`, and the delivery promoter does the same for the delivery group. A
+rewrite changes no field. When every object of a CRD is rewritten, they set
+the CRD's `status.storedVersions` to `["v1"]` and log one line:
+
+```text
+storage migration: pactos.pacto.trianalab.io rewrote 42 objects as v1; storedVersions [v1alpha1 v1] -> [v1]
+```
+
+When the new CRDs arrive after the pod starts, for example under
+`crds.install=false` or a GitOps sync order, they retry with a backoff of up
+to 10 minutes. No restart is needed. A CRD that is not installed is skipped.
+
+### Check the migration
+
+```bash
+kubectl logs deploy/pacto-operator | grep 'storage migration'
+kubectl get crd pactos.pacto.trianalab.io -o jsonpath='{.status.storedVersions}'
+```
+
+The migration of a CRD is done when the second command prints `["v1"]`.
+Read the promoter's log for the delivery CRDs.
+
+When the apiserver rejects some objects, the log names up to 20 of them and
+`storedVersions` stays unchanged:
+
+```text
+storage migration: pactos.pacto.trianalab.io could not rewrite 2 objects ([team-a/orders team-b/fraud]); see MIGRATION.md
+```
+
+An object that today's schema rejects (`Invalid`) needs an edit that makes it
+valid, or its deletion. A `Forbidden` object is usually refused by an
+admission policy. Fix each named object; the next retry rewrites it and then
+patches `storedVersions`.
+
+### The chart refuses to drop a stored version
+
+On `helm install` and `helm upgrade`, the chart refuses to render a CRD that
+no longer lists a version the cluster still stores:
+
+```text
+pactos.pacto.trianalab.io still stores objects as v1alpha1, which this chart no longer serves. Upgrade to the latest chart of the previous major first and wait until kubectl get crd pactos.pacto.trianalab.io -o jsonpath='{.status.storedVersions}' prints ["v1"]. See MIGRATION.md.
+```
+
+`helm template` and template-based GitOps renders, such as Argo CD, skip this
+check. For them the apiserver refuses the CRD update:
+
+```text
+The CustomResourceDefinition "pactos.pacto.trianalab.io" is invalid: status.storedVersions[0]: Invalid value: "v1alpha1": missing from spec.versions; v1alpha1 was previously a storage version, and must remain in spec.versions until a storage migration ensures no data remains persisted in v1alpha1 and removes v1alpha1 from status.storedVersions
+```
+
+Either way, run the same `kubectl get crd` check before you move on. No CRD in
+chart 7 drops a version, so this matters from chart 8.0.
+
+### Go importers
+
+The module path is `github.com/trianalab/pacto/integrations/kubernetes/v7`.
+The types live in `api/v1` and `api/delivery/v1`. `api/v1alpha1` and
+`api/delivery/v1alpha1` hold only the root kinds, whose specs and statuses
+are the `v1` types. The `pkg/delivery` wire types that the delivery CRDs embed
+follow semantic versioning.
+
+### CLI and dashboard against an older chart
+
+The CLI and dashboard from this release default to `v1` and read the version
+a cluster serves, so they keep reading and driving a chart 6 cluster.
+Manifests that `pacto init --delivery` writes use `v1` and need chart 7.
+
+### Scoped operators migrate by hand
+
+An operator with `controller.watchNamespaces` set cannot list other
+namespaces, so it skips the migration and logs one line. Run this script as a
+cluster admin after the upgrade. If any object fails, do not patch
+`storedVersions`: fix the object and run the script again.
+
+```bash
+set -euo pipefail
+for crd in pactos.pacto.trianalab.io pactorevisions.pacto.trianalab.io noderuntimeobservations.pacto.trianalab.io \
+           stages.delivery.pacto.trianalab.io operations.delivery.pacto.trianalab.io approvals.delivery.pacto.trianalab.io; do
+  kubectl get crd "$crd" >/dev/null 2>&1 || continue
+  kubectl get "$crd" -A -o json | kubectl replace -f - \
+    && kubectl patch crd "$crd" --subresource=status --type=merge -p '{"status":{"storedVersions":["v1"]}}'
+  kubectl get crd "$crd" -o jsonpath='{.status.storedVersions}'; echo
+done
+```
+
+The last command of each iteration must print `["v1"]`.
 
 ## Raising pactoVersion with pacto migrate
 

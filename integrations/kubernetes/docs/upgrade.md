@@ -160,6 +160,12 @@ these before `helm upgrade`:
 - **Kernel evidence namespace.** `controller.kernelEvidence.namespace`
   defaults to the agent namespace instead of the operator's.
 
+## Upgrading to v7
+
+- v7 stores the Pacto CRDs as `v1` and migrates the objects an earlier
+  chart stored as `v1alpha1` on startup. See
+  [Upgrading from 6.x](installation.md#upgrading-from-6x).
+
 ## Delivery approvers need update rights
 
 Whoever may update a Stage's workload decides its held changes. Owner

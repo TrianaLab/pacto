@@ -122,9 +122,12 @@ It emits `EnvironmentCreated` and `EnvironmentDeleted` on a Stage
 
 ## Upgrading
 
-[Upgrade the operator](upgrade.md) as usual: `helm upgrade` updates the
-delivery CRDs; `helm.sh/resource-policy: keep` keeps them, their history
-and `delivery.namespace` on [uninstall](installation.md#uninstall).
+- [Upgrade the operator](upgrade.md) as usual: `helm upgrade` updates the
+  delivery CRDs; `helm.sh/resource-policy: keep` keeps them, their history
+  and `delivery.namespace` on [uninstall](installation.md#uninstall).
+- The delivery API (`delivery.pacto.trianalab.io/v1` and the `pkg/delivery`
+  types it embeds) follows semantic versioning, while the promoter itself
+  stays Alpha.
 
 ## IDP mode
 
