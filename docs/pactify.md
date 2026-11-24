@@ -89,7 +89,7 @@ overwrites your edits. For an image
 `k8s/service.yaml`, the contract is:
 
 ```yaml
-pactoVersion: "2.5"        # 2.5 holds compatibility: unknown
+pactoVersion: "2.6"        # 2.5 and later hold compatibility: unknown
 service:
   name: my-service         # no version: pacto ci --publish derives it
   owner:
@@ -210,55 +210,44 @@ kubectl apply -f https://github.com/fluxcd/flux2/releases/latest/download/instal
 Replace `staff` with your people's group; [Install](integrations/kubernetes/delivery-setup.md#install)
 says why.
 
-Delivery is opt-in: without it, Pacto never changes what runs. The chart's
-`registry` value publishes what runs for CI and keeps delivery off. Each environment
-is a namespace of the same name. A Stage promotes nothing until you set
-`spec.verify.matchOIDCIdentity` in its `delivery/<env>.yaml` to the identity
-`pacto ci --publish` printed. On GitLab CI, also set its `issuer`
-to your GitLab's address. Then apply the files:
+Delivery is opt-in: without it, Pacto never changes what runs.
+
+With delivery on, Pacto creates each environment's [Stage](glossary.md#stage)
+from the installation ladder (`staging`, then `production`) once a signed
+version is published, on the Argo CD or Flux object that runs the workload. In
+IDP mode it creates the Flux objects, suspended until a person approves the
+first promote. See [Environments and the installation ladder](integrations/kubernetes/delivery-environments.md).
+
+`delivery/pacto.yaml` tells the operator to check the service. It ships inside
+every version, so you never apply it. With a private registry, create the
+login in each namespace the service runs in:
 
 ```bash
-for env in test prod; do
-  kubectl create namespace $env
-  # a private registry only:
-  kubectl -n $env create secret docker-registry registry-creds \
-    --docker-server=registry.example --docker-username=<user> --docker-password=<token>
-done
-kubectl apply -f delivery/test.yaml -f delivery/prod.yaml
+kubectl -n <namespace> create secret docker-registry registry-creds \
+  --docker-server=registry.example --docker-username=<user> --docker-password=<token>
 ```
 
-`registry-creds` is the pull Secret your Deployment names and, with
-`--registry-secret`, the login Flux and the operator use. A read-only token is enough (on GitHub, `read:packages`); see
+With `--registry-secret`, the Pacto resource logs in with it. A read-only token is enough; see
 [Private registries](integrations/kubernetes/limitations.md#delivery-and-private-registries).
 
-Each `delivery/<env>.yaml` holds a [Stage](glossary.md#stage) and the Flux pieces that watch
-your registry and apply what the Stage picks. `delivery/pacto.yaml` tells the
-operator to check the service; it ships inside every version, so you never
-apply it.
+`init` declares no [`environments`](contract-reference/environments.md) and
+writes no Stage; `--env` is deprecated and ignored.
 
-Each Stage starts at `observe`: it plans every new version and moves nothing,
-and the OCIRepository stays pinned to the tag you deploy (`spec.ref.tag`), so
-Flux applies what it did. With no version tag on the image, `init` writes no
-`delivery/<env>.yaml`.
-
-- `--delivery` also declares each `--env` under [`environments`](contract-reference/environments.md)
-  in `pacto.yaml`, with an empty values file `environments/<env>.yaml`, so
-  `pacto validate` checks each environment's values.
-- It never rewrites an existing `pacto.yaml`: it names the environments it does
-  not declare and the `pacto_edit add_environments` call that adds them.
+Each Stage starts at `observe` unless its applier is guarded: it moves
+nothing, and your GitOps tool keeps applying the tag you deploy.
 
 ```bash
 kubectl get stages.delivery.pacto.trianalab.io -A    # POINTER: the digest of the version each one runs
-pacto delivery history -n test --stage my-service     # what happened in test
-kubectl -n test describe stages.delivery.pacto.trianalab.io my-service  # if nothing moves: why, under Ready
+pacto delivery history -n staging --stage my-service-staging     # what happened in staging
+kubectl -n staging describe stages.delivery.pacto.trianalab.io my-service-staging  # if nothing moves: why, under Ready
 ```
 
 ## 5. Ship the next version
 
 Make a change and merge it: `pacto ci --publish` publishes it with the next
 version the change needs, or with the `service.version` you declare. While the Stages observe, you deploy the new tag as before:
-set `spec.ref.tag` in `delivery/<env>.yaml` and apply it. Each Stage records
-what it would have done.
+set `spec.ref.tag` in the OCIRepository your GitOps repository holds. Each
+Stage records what it would have done.
 
 To leave observe, in this order:
 
@@ -266,12 +255,12 @@ To leave observe, in this order:
    (`autonomy.proposeAfter` lowers that, see
    [the ladder](autonomy.md#earned-autonomy-pacto-proposes-a-person-decides)).
    The Stage's `status.proposal` lists what is still missing.
-2. Remove `spec.ref` from the OCIRepository in `delivery/test.yaml` and apply
-   it, so Flux stops setting the version, and label it so only Pacto may
+2. Remove `spec.ref` from the OCIRepository that applies the service in staging
+   and apply it, so Flux stops setting the version, and label it so only Pacto may
    write its digest. Pacto then proposes `advise`:
 
     ```bash
-    kubectl -n test label ocirepository my-service delivery.pacto.trianalab.io/apply-ref=my-service
+    kubectl -n staging label ocirepository <name> delivery.pacto.trianalab.io/apply-ref=my-service-staging
     ```
 
 3. Ask for the raise; another person who may update the workload approves it (see
@@ -279,13 +268,13 @@ To leave observe, in this order:
    until the raise, nothing moves the version.
 
     ```bash
-    pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage my-service -n test --to advise
+    pacto delivery propose --type delivery.pacto.trianalab.io/autonomy --stage my-service-staging -n staging --to advise
     ```
 
-Each level above that is one more approved operation. In prod, `init` also
-writes `approval: always: true`, so every promote there waits for a person:
+Each level above that is one more approved operation. A Stage on a guarded
+applier has `approval: always: true`, so every promote there waits for a person:
 the contract check cannot see a consumer with no contract, or tell whether the
-version is healthy. Delete it from `delivery/prod.yaml` once a health check
+version is healthy. Delete it from the Stage once a health check
 judges each version there (`gates.verify.checks`, see
 [Delivery reference: health checks](integrations/kubernetes/delivery-health.md)).
 A version that fails its checks after release is rolled back or freezes its
@@ -297,8 +286,8 @@ Each move is a [change](glossary.md#change); one that waits for a person shows
 ([Decide, unfreeze and roll back](pactify-decide.md) has the details):
 
 ```bash
-kubectl get operations.delivery.pacto.trianalab.io -n prod   # PHASE shows Held
-pacto delivery approve -n prod <name> --decision approve
+kubectl get operations.delivery.pacto.trianalab.io -n production   # PHASE shows Held
+pacto delivery approve -n production <name> --decision approve
 ```
 
 ## Many services at once

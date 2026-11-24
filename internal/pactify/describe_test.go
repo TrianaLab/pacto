@@ -18,7 +18,7 @@ import (
 // environment the configuration, with no publish section.
 const invoicesContract = `# Written by pacto init from Dockerfile, k8s/configmap.yaml, k8s/deployment.yaml, k8s/service.yaml.
 # Check it, then validate it: pacto validate
-pactoVersion: "2.5"
+pactoVersion: "2.6"
 service:
   name: invoices
   owner:
@@ -244,7 +244,7 @@ func checkEnvSchema(t *testing.T, schema string) {
 // nothing about a missing publish section in the user's own contract.
 func TestDescribeOnlyRefusalsAndExisting(t *testing.T) {
 	for opts, want := range map[*Options]string{
-		{Delivery: true}:          "describe-only writes no Stages or Pacto resource",
+		{Delivery: true}:          "describe-only writes no Pacto resource",
 		{NoTransparencyLog: true}: "transparencyLog goes under a golden path's publish.sign",
 	} {
 		opts.Dir, opts.DescribeOnly = fixtureDir(t, "invoices"), true

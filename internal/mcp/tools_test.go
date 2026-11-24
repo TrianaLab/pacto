@@ -484,8 +484,8 @@ func TestInputSchemaNoRequired(t *testing.T) {
 }
 
 // TestCreateTool_Pactify: pacto_create with pactify is pacto init for an
-// agent: dry_run plans the contract read from the folder and the cluster
-// pieces and writes nothing; without it the files are written; bad JSON and a
+// agent: dry_run plans the contract read from the folder and the Pacto
+// resource and writes nothing; without it the files are written; bad JSON and a
 // bad folder are errors.
 func TestCreateTool_Pactify(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "fraud")
@@ -495,7 +495,7 @@ func TestCreateTool_Pactify(t *testing.T) {
 	_ = os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(dir, "k8s", "d.yaml"), []byte("apiVersion: apps/v1\nkind: Deployment\nmetadata: {name: fraud}\nspec: {template: {spec: {containers: [{name: fraud, image: 'registry.example/story/images/fraud:1.0.0'}]}}}\n"), 0o644)
 	args := map[string]any{"name": "fraud", "path": dir, "owner": "risk", "pactify": true, "delivery": true,
-		"environments": `["test","prod"]`, "fleet_roots": `[]`, "registry": "registry.example/story", "dry_run": true,
+		"fleet_roots": `[]`, "registry": "registry.example/story", "dry_run": true,
 		"insecure_registry": true, "registry_secret": "registry-creds"}
 
 	res := callTool(t, "pacto_create", args)
@@ -504,7 +504,8 @@ func TestCreateTool_Pactify(t *testing.T) {
 		Applied       bool
 		Files         []struct{ Path, Action string }
 	}
-	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &plan) != nil || plan.Mode != "pactify" || plan.Applied || len(plan.Files) != 7 { // with environments/test.yaml and environments/prod.yaml
+	if res.IsError || json.Unmarshal([]byte(resultText(t, res)), &plan) != nil || plan.Mode != "pactify" || plan.Applied || len(plan.Files) != 3 || // pacto.yaml, delivery/pacto.yaml and .pactoignore: no Stage
+		!strings.Contains(resultText(t, res), "insecureRegistries") {
 		t.Fatalf("plan: %s", resultText(t, res))
 	}
 	if _, err := os.Stat(filepath.Join(dir, "pacto.yaml")); err == nil {
@@ -515,16 +516,15 @@ func TestCreateTool_Pactify(t *testing.T) {
 	if res := callTool(t, "pacto_create", args); res.IsError {
 		t.Fatalf("apply: %s", resultText(t, res))
 	}
-	prod, _ := os.ReadFile(filepath.Join(dir, "delivery", "prod.yaml"))
+	resource, _ := os.ReadFile(filepath.Join(dir, "delivery", "pacto.yaml"))
 	contract, _ := os.ReadFile(filepath.Join(dir, "pacto.yaml"))
-	if !strings.Contains(string(prod), "insecure: true") || !strings.Contains(string(prod), "secretRef:\n    name: registry-creds\n") ||
-		strings.Contains(string(contract), "publish:") || !strings.Contains(string(contract), "  - name: prod\n    file: environments/prod.yaml\n") {
-		t.Fatalf("insecure_registry and registry_secret were not written:\n%s\n%s", contract, prod)
+	if !strings.Contains(string(resource), "pullSecretRef: registry-creds\n") || strings.Contains(string(contract), "publish:") || strings.Contains(string(contract), "environments:") {
+		t.Fatalf("insecure_registry and registry_secret were not honoured:\n%s\n%s", contract, resource)
 	}
 
-	args["environments"] = "not json"
+	args["fleet_roots"] = "not json"
 	if res := callTool(t, "pacto_create", args); !res.IsError {
-		t.Fatal("bad environments JSON was accepted")
+		t.Fatal("bad fleet_roots JSON was accepted")
 	}
 	if res := callTool(t, "pacto_create", map[string]any{"name": "Bad_Name", "path": dir, "pactify": true}); !res.IsError {
 		t.Fatal("a bad name was accepted")
@@ -592,9 +592,6 @@ func TestEditToolEnvironmentDescriptions(t *testing.T) {
 	if rm := desc("remove_environments"); !strings.Contains(rm, `["pr-482"]`) || !strings.Contains(rm, "nothing in a cluster changes") {
 		t.Errorf("remove_environments: %s", rm)
 	}
-	if env := createTool().InputSchema.(map[string]any)["properties"].(map[string]any)["environments"].(map[string]any)["description"].(string); !strings.Contains(env, "declared in pacto.yaml with an empty values file") {
-		t.Errorf("pacto_create environments: %s", env)
-	}
 }
 
 func TestSchemaDescribesMinimalContract(t *testing.T) {
@@ -610,7 +607,7 @@ func TestSchemaDescribesMinimalContract(t *testing.T) {
 	var schema struct {
 		ID string `json:"$id"`
 	}
-	if err := json.Unmarshal([]byte(parsed.JSONSchema), &schema); err != nil || !strings.HasSuffix(schema.ID, "v2.5") {
+	if err := json.Unmarshal([]byte(parsed.JSONSchema), &schema); err != nil || !strings.HasSuffix(schema.ID, "v2.6") {
 		t.Errorf("schema $id = %q, %v", schema.ID, err)
 	}
 }

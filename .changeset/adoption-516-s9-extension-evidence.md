@@ -1,0 +1,6 @@
+---
+"@pacto/core": minor
+"@pacto/operator-chart": patch
+---
+
+Your own tools can check the `extension` capabilities a contract declares. A trust-config key gains `allowedExtensionRefs` (`pacto.dev/evidence-trust/v1`), which grants a producer exact extension refs and makes the key extension-only with `allowedObservationKinds: [CapabilityObserved]`. The Evidence Server accepts a signed extension report, a `CapabilityObserved` set under `<contract repository>/<segment>/extension/<name>` about extensions the contract declares, evaluates it under the authenticated producer and lists it under `extensions` on the targets endpoint with the new schema `pacto.dev/evidence-source/v6`, written only when a report exists. The fleet shows each reported extension of a revision as covered, failing or unknown with its producer and `asOf`: reported absent makes the service NonCompliant with `CAPABILITY_ABSENT`, and a stale report or one about another revision reads Unknown. An extension with no report stays unverified and never counts against compliance. The revision page, `pacto fleet get` and the MCP fleet tools show the check. No contract field, `pactoVersion`, route, MCP tool, RBAC rule or CRD changes.

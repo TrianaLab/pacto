@@ -1273,6 +1273,18 @@ func TestValidateEnvironmentFiles(t *testing.T) {
 	}
 }
 
+// TestCrossFieldSkipsFilelessEnvironment: an environment with no file gets
+// no path or existence check.
+func TestCrossFieldSkipsFilelessEnvironment(t *testing.T) {
+	c := validV20Contract()
+	c.Environments = []contract.Environment{{Name: "pr-412"}}
+	var result ValidationResult
+	validateEnvironmentFiles(c, fstest.MapFS{}, &result)
+	if len(result.Errors) != 0 {
+		t.Fatalf("got %+v", result.Errors)
+	}
+}
+
 func TestEnvironmentLifetimeChecks(t *testing.T) {
 	for _, tc := range []struct {
 		name, lifetime, expires, code string

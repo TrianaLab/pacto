@@ -883,7 +883,7 @@ pacto delivery describe <type> [flags]
 
 ### `pacto delivery environments`
 
-Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.
+Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo. Where the promoter publishes the installation ladder, each Stage also says where its environment comes from (declared, ladder, inferred-confirmed or hand-written) and its placement (namespace, provenance, evidence and who confirmed it), read from the Stage's annotations, which anyone who may edit the Stage can write. The environments with no Stage are listed with the reason; those the caller may not read are only counted, and with unplacedUnreadable that count is installation-wide, never narrowed by the filters.
 
 It runs the dashboard's own environments view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -959,7 +959,7 @@ pacto delivery history [flags]
 
 ### `pacto delivery inbox`
 
-Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services (every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them.
+Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services (every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them. When the promoter proposes rungs for the installation ladder, also that proposal with its asOf and completeness, and the exact pacto delivery ladder confirm command a person runs to confirm it; canConfirm counts the caller's groups, while the promoter counts only a grant to the person's own user.
 
 It runs the dashboard's own inbox view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -980,6 +980,46 @@ pacto delivery inbox [flags]
       --limit int            How many of each section per page; 0 means 25
       --q string             Keep only what names this text (namespace, Stage, service or change), ignoring case
       --service string       Keep only the Stages of the service with exactly this name and the changes on them; it narrows byEnvironment too, and a change on a Stage the caller cannot read is left out
+```
+
+### `pacto delivery ladder`
+
+Confirm the installation ladder, the environments Pacto creates Stages for
+
+```
+pacto delivery ladder [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for ladder
+```
+
+#### `pacto delivery ladder confirm`
+
+Confirm the installation ladder Pacto proposes: you sign it as yourself, and the promoter then creates Stages for the confirmed rungs. The ladder is the chart value delivery.environments.ladder plus the rungs Pacto proposes from namespaces and cluster names, each a leaf that takes its versions from the registry. pacto delivery inbox shows the proposal and its digest. The command signs keyless after a fresh login in your browser and records the confirmation in the approvals repository the promoter reads. You need approve on environmentladders.delivery.pacto.trianalab.io in the cluster, granted to your user (echo '{apiVersion: rbac.authorization.k8s.io/v1, kind: ClusterRole, metadata: {name: pacto-ladder-approver}, rules: [{apiGroups: [delivery.pacto.trianalab.io], resources: [environmentladders], verbs: [approve]}]}' | kubectl apply -f -, then kubectl create clusterrolebinding pacto-ladder-approver --clusterrole=pacto-ladder-approver --user=<your user>); groups are not checked, because a certificate names none. The operator must list approver signers in delivery.identities.signers. With --create-namespaces you also let Pacto create the namespaces it waits to place services in, when delivery.environments.createNamespaces is on: you must be allowed to read them in the ConfigMap pacto-delivery-placements.
+
+```
+pacto delivery ladder confirm [flags]
+```
+
+**Examples:**
+
+```
+  pacto delivery ladder confirm --proposal sha256:5be1...
+  pacto delivery ladder confirm --proposal sha256:5be1... --drop qa
+  pacto delivery ladder confirm --proposal sha256:5be1... --create-namespaces
+```
+
+**Flags:**
+
+```
+      --create-namespaces[=true|false]   also let Pacto create the namespaces it waits to place services in; you sign the list you can read
+      --drop stringArray                 a proposed rung to leave out, repeatable; Pacto never proposes it again
+  -h, --help[=true|false]                help for confirm
+      --issuer string                    the approver signer's OIDC issuer, when the installation lists several
+      --proposal string                  the proposal digest pacto delivery inbox showed you; nothing is signed when the proposal changed since
 ```
 
 ### `pacto delivery lifecycle`
@@ -1681,7 +1721,7 @@ pacto fleet entities [text] [flags]
       --domain string                    exact registry path, the domain part of a service key
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
-      --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge
+      --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability: an extension capability no evaluator or trusted producer checks), or unknown for those Pacto cannot judge
       --group string                     inferred services the cluster groups under this key (rule/namespace/name: workload.group.key in pacto fleet entity --output-format json)
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
@@ -2216,8 +2256,8 @@ written, and the Status block says what was checked and what Pacto cannot
 tell yet. Each plugin the path names is listed with the binary it resolves
 to; only the ones you name with --run-plugins run, never with --plan, and
 the files they return are added like the path's own. --delivery plans the
-cluster pieces from the created contract when the path publishes manifests
-under publish.deploy; otherwise the delivery step says why none were planned.
+Pacto resource from the created contract when the path publishes manifests
+under publish.deploy; otherwise the delivery step says why none was planned.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
@@ -2248,15 +2288,14 @@ pacto init [dir...] [flags]
       --call-window duration               with --cluster: how far back a call counts as a dependency (at least 1m, default 24h)
       --cluster[=true|false]               draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
       --continue string                    with --cluster: resume the read where a run --max-items stopped while listing workloads left off
-      --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object
+      --delivery[=true|false]              also writes delivery/pacto.yaml, the Pacto resource that ships inside every version of a manifests deploy; Pacto creates each environment's Stage once delivery is on
       --describe-only[=true|false]         write a contract that only describes the service: its next steps say how to validate it, never how to publish it
       --domain string                      business domain, such as payments
-      --env strings                        environments for --delivery: declared in the contract and given a Stage each, in promotion order (default [test,prod])
       --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_EXTERNAL_CATALOG)
       --fleet strings                      folders of other services' contracts to find the services that use this one
       --from string                        a golden path to create the service from: an oci:// reference or a directory
   -h, --help[=true|false]                  help for init
-      --insecure-registry[=true|false]     with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
+      --insecure-registry[=true|false]     with --delivery: the registry speaks plain HTTP, so the next steps say how the Pacto resource reads its contract over plain HTTP (a local registry only)
       --max-items int                      with --cluster: the most items read per kind of object; a kind cut short reads as partial (default 10000)
       --name string                        service name (default: the workload's name, then the folder's)
       --namespace strings                  with --cluster: a namespace to read; repeat it for more (default: every namespace)
@@ -2265,7 +2304,7 @@ pacto init [dir...] [flags]
       --owner string                       the team that owns the service, as a bare name such as billing (default: the workload's team label)
       --plan[=true|false]                  show what would be added and change nothing
       --registry string                    where to publish, as host/path (default: read from the workload's image)
-      --registry-secret string             with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
+      --registry-secret string             with --delivery: the docker-registry Secret, in the namespace of delivery/pacto.yaml, that the Pacto resource logs in to a private registry with
       --run-plugins strings                run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs
       --set stringArray                    set a contract value (e.g. --set service.version=2.0.0)
       --trust string                       the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)

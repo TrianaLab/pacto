@@ -76,6 +76,7 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		printFields(w, sv.Fields, sv.ReplacesHidden)
 		printRevisions(w, sv.Revisions)
 		printServiceTargets(w, sv.Targets, sv.Meta.AsOf)
+		printExtensionChecks(w, sv.Revisions)
 		printServiceEdges(w, sv)
 		warnPartial(cmd, sv.Meta)
 		return nil
@@ -168,6 +169,30 @@ func printRevisions(w io.Writer, revs []*fleet.ContractRevision) {
 	for _, r := range revs {
 		_, _ = fmt.Fprintf(w, "  %s  version=%s valid=%t digest=%s\n",
 			r.Key, orDash(r.Version), r.Valid, orDash(r.Digest))
+	}
+}
+
+// printExtensionChecks prints one line per extension check that counts
+// toward the service status: its state, the producer, when it observed and
+// why the check is not covered.
+func printExtensionChecks(w io.Writer, revs []*fleet.ContractRevision) {
+	for _, r := range revs {
+		for _, c := range r.Extensions {
+			if !c.CountsTowardStatus {
+				continue
+			}
+			line := fmt.Sprintf("Extension %s (v%s): %s", c.Ref, r.Version, c.State)
+			if c.Producer != "" {
+				line += " by " + c.Producer
+			}
+			if c.AsOf != nil {
+				line += " (as of " + c.AsOf.UTC().Format(time.RFC3339) + ")"
+			}
+			if c.Reason != "" {
+				line += ": " + c.Reason
+			}
+			_, _ = fmt.Fprintln(w, line)
+		}
 	}
 }
 

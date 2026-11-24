@@ -164,8 +164,7 @@ func (p *planner) completePlanned(in contract.InferredInputs) error {
 // discovery found or, with none, a placeholder, and its files.
 func (p *planner) blankContract() error {
 	text := p.blank()
-	files := p.environmentFiles()
-	files[configSchema] = blankSchema
+	files := map[string]string{configSchema: blankSchema}
 	if p.openapi != "" {
 		text = strings.Replace(text, "ref: interfaces/openapi.yaml\n", "ref: "+discover.Quote(p.openapi)+"\n", 1)
 		data, _ := contract.ReadBounded(os.DirFS(p.r.Dir), p.openapi) // ponytail: discovery read it a moment ago; unreadable now fails validation
@@ -181,7 +180,6 @@ func (p *planner) blankContract() error {
 		p.file("interfaces/openapi.yaml", files["interfaces/openapi.yaml"])
 	}
 	p.file(configSchema, blankSchema)
-	p.planEnvironmentFiles(files)
 	return nil
 }
 
@@ -189,7 +187,7 @@ func (p *planner) blankContract() error {
 func (p *planner) pactifiedContract(fields []contract.Inferred) error {
 	p.ports = discoveredPorts(fields)
 	text := p.pactified()
-	files := p.environmentFiles()
+	files := map[string]string{}
 	if p.openapi != "" {
 		files[p.openapi] = "{}"
 	}
@@ -203,7 +201,6 @@ func (p *planner) pactifiedContract(fields []contract.Inferred) error {
 	if p.schema != "" {
 		p.file(configSchema, p.schema)
 	}
-	p.planEnvironmentFiles(files)
 	return nil
 }
 
@@ -265,46 +262,6 @@ func chartSummary(chart string, fields []contract.Inferred) string {
 	return ": " + strings.Join(parts, ", ")
 }
 
-// environmentFile is the values file init writes for env: no values yet.
-func environmentFile(env string) (path, content string) {
-	return "environments/" + env + ".yaml", "# Values " + env + " uses for each configuration, by configuration name.\n{}\n"
-}
-
-// environmentFiles is the values file of each environment, by path, when
-// --delivery declares them in the contract; empty otherwise.
-func (p *planner) environmentFiles() map[string]string {
-	files := map[string]string{}
-	if p.opts.Delivery {
-		for _, env := range p.envs {
-			path, content := environmentFile(env)
-			files[path] = content
-		}
-	}
-	return files
-}
-
-// planEnvironmentFiles plans the values file of each environment
-// environmentFiles gave, in promotion order.
-func (p *planner) planEnvironmentFiles(files map[string]string) {
-	for _, env := range p.envs {
-		if path, content := environmentFile(env); files[path] != "" {
-			p.file(path, content)
-		}
-	}
-}
-
-// environments declares each --env in the contract, with --delivery.
-func (p *planner) environments(b *strings.Builder) {
-	if !p.opts.Delivery {
-		return
-	}
-	b.WriteString("environments:\n")
-	for _, env := range p.envs {
-		path, _ := environmentFile(env)
-		fmt.Fprintf(b, "  - name: %s\n    file: %s\n", env, path)
-	}
-}
-
 // blank writes the contract of a folder with no service in it: the owner
 // and domain the caller gave, and placeholders named in Unknown.
 func (p *planner) blank() string {
@@ -313,10 +270,6 @@ func (p *planner) blank() string {
 	p.owner(&b, p.opts.Owner, "no team was given")
 	p.domain(&b)
 	b.WriteString(blankBody)
-	if p.opts.Delivery {
-		b.WriteString("\n")
-		p.environments(&b)
-	}
 	return b.String()
 }
 
@@ -351,19 +304,11 @@ func (p *planner) existing(data []byte) *contract.Contract {
 	}
 	// A contract that declares no name keeps the one --name or the folder gave.
 	p.r.Service, p.pub = cmp.Or(c.Service.Name, p.r.Service), c.Publish
-	if p.opts.Delivery {
-		missing := slices.DeleteFunc(slices.Clone(p.envs), func(env string) bool {
-			return slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env })
-		})
-		if len(missing) > 0 {
-			p.next("pacto.yaml declares no environment %s: add them with pacto_edit add_environments so the pacto.environment gate checks their values", strings.Join(missing, ", "))
-		}
-	}
 	if c.Publish != nil || p.opts.DescribeOnly {
 		return c
 	}
-	if cur, behind := contract.Behind(c.PactoVersion); behind {
-		p.next("pacto.yaml declares no publish section, and pacto ci --publish derives one only for pactoVersion %s: set pactoVersion: %q, or add publish (see Pactify a service in the docs)", cur, cur)
+	if validation.InferredRecordNeedsRaise(c.PactoVersion) {
+		p.next("pacto.yaml declares no publish section, and pacto ci --publish derives one only from pactoVersion 2.5: set pactoVersion: %q, or add publish (see Pactify a service in the docs)", contract.Current())
 	} else if p.opts.Delivery {
 		w := cmp.Or(p.sc.Workload, &discover.Workload{})
 		p.pub, p.pubDerived = p.derivedPub(p.registry(w, p.r.Service)), true
@@ -575,7 +520,6 @@ func (p *planner) pactified() string {
 	p.health(&b, p.openapi != "")
 	p.dependencyEntries(&b, bundles)
 	p.configuration(&b)
-	p.environments(&b)
 	if p.opts.DescribeOnly {
 		return b.String()
 	}

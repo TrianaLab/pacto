@@ -958,6 +958,29 @@ func TestPlanEnvironmentGate(t *testing.T) {
 	}
 }
 
+// TestPlanEnvironmentFindingWithoutFileNamesPath: an environment with no
+// values file is checked on the configuration defaults, and a finding about
+// it names the environment, since there is no file to name.
+func TestPlanEnvironmentFindingWithoutFileNamesPath(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		defaults map[string]any
+		decision Decision
+		message  string
+	}{
+		{"defaults missing a key", nil, Approve, "environments[0]: ENVIRONMENT_VALUES_MISSING: environment prod declares no values file: app needs replicas"},
+		{"defaults pass", map[string]any{"replicas": 2}, "", "the values of environment prod satisfy the configuration schemas"},
+	} {
+		b := envBundle(map[string]string{"prod": ""}, map[string]string{"app.json": `{"type":"object","required":["replicas"]}`}, true)
+		b.Contract.PactoVersion = "2.6"
+		b.Contract.Configurations[0].Required, b.Contract.Configurations[0].Values = true, c.defaults
+		p := planWith(t, promote(dA, dB), StageStatus{Pointer: dA, Verified: []string{dA}}, rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, b))
+		if v := verdict(t, p, GateEnvironment); v.Message != c.message || p.Floor.Decision != c.decision {
+			t.Errorf("%s: verdict %+v, floor %+v", c.name, v, p.Floor)
+		}
+	}
+}
+
 // TestEnvironmentGateConfigRef: values for a configuration that names its
 // schema by ref are checked against the schema the ref resolved to; a ref
 // that did not resolve leaves them for a person to accept as unknown.

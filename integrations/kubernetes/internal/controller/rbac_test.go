@@ -444,6 +444,15 @@ var verbList = regexp.MustCompile(`verbs:\s*\[([^\]]*)\]`)
 // or grant more than it holds: a member answers the hub's reviews with its own SubjectAccessReview and
 // impersonates nobody. It reads every RBAC template with template lines stripped, so every gated rule
 // counts, and every verb list in the helpers, whose rules templates include.
+// deployerBind reports whether r is the one bind the chart grants: under
+// profile idp the promoter binds each service's deployer account to the
+// <fullname>-deployer ClusterRole, and to no other role (helm-unittest pins
+// the resourceName; its line is a directive, so it is dropped here).
+func deployerBind(tpl string, r rbacRule) bool {
+	return tpl == "delivery/rbac.yaml" && slices.Equal(r.Verbs, []string{"bind"}) &&
+		slices.Equal(r.Resources, []string{"clusterroles"}) && slices.Equal(r.APIGroups, []string{"rbac.authorization.k8s.io"})
+}
+
 func TestNoRenderGrantsImpersonate(t *testing.T) {
 	forbidden := []string{"impersonate", "escalate", "bind", "*"}
 	check := func(where string, verbs []string) {
@@ -467,6 +476,9 @@ func TestNoRenderGrantsImpersonate(t *testing.T) {
 				t.Fatalf("parse templates/%s: %v", tpl, err)
 			}
 			for _, r := range d.Rules {
+				if deployerBind(tpl, r) {
+					continue
+				}
 				check(fmt.Sprintf("templates/%s %s on %v", tpl, d.Kind, r.Resources), r.Verbs)
 			}
 		}

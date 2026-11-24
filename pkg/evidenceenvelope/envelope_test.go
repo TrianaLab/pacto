@@ -474,3 +474,51 @@ func TestRuntimeAllowedIgnoresUsage(t *testing.T) {
 		}
 	}
 }
+
+func TestAuthorizeExtensionRefTable(t *testing.T) {
+	priv, pub := keyPair(1)
+	capSet := func(names ...string) Envelope {
+		e := baseEnvelope()
+		e.EvidenceSet.Observations = nil
+		for _, n := range names {
+			e.EvidenceSet.Observations = append(e.EvidenceSet.Observations, evidence.NewCapabilityObserved(
+				evidence.SubjectRef{Kind: "capability", Name: n}, true, prov()))
+		}
+		return mustSign(t, e, priv)
+	}
+	runtimeEnv := baseEnvelope()
+	runtimeEnv.EvidenceSet.Observations = []evidence.Observation{evidence.NewWorkloadObserved(
+		evidence.SubjectRef{Kind: "service", Name: "orders"}, "service", prov())}
+	workload := mustSign(t, runtimeEnv, priv)
+	entry := func(kinds, refs []string) MapTrustStore {
+		return MapTrustStore{"key-1": TrustEntry{PublicKey: pub, ProducerID: "prod-1", AllowedObservationKinds: kinds, ExtensionRefs: refs}}
+	}
+	capKinds := []string{"CapabilityObserved"}
+	granted := []string{"x.acme.io/backup"}
+	cases := []struct {
+		name string
+		env  Envelope
+		ts   MapTrustStore
+		want error
+	}{
+		{"no list", capSet("x.acme.io/backup"), entry(capKinds, nil), ErrExtensionNotAllowed},
+		{"empty kinds", capSet("x.acme.io/backup"), entry(nil, nil), ErrExtensionNotAllowed},
+		{"other ref", capSet("x.acme.io/restore"), entry(capKinds, granted), ErrExtensionNotAllowed},
+		{"granted", capSet("x.acme.io/backup"), entry(capKinds, granted), nil},
+		{"health on an ungranted key", capSet("health"), entry(nil, nil), nil},
+		{"metrics on an ungranted key", capSet("metrics"), entry(capKinds, nil), nil},
+		{"cap1 is not an extension subject", capSet("cap1"), entry(nil, nil), nil},
+		{"granted key sends health", capSet("health"), entry(capKinds, granted), ErrKindNotAllowed},
+		{"granted key sends a runtime kind", workload, entry(nil, granted), ErrKindNotAllowed},
+		{"granted key sends an empty set", capSet(), entry(nil, granted), ErrKindNotAllowed},
+		{"extension beside health on a granted key", capSet("x.acme.io/backup", "health"), entry(capKinds, granted), ErrKindNotAllowed},
+		{"extension beside health on a runtime key", capSet("health", "x.acme.io/backup"), entry(nil, nil), ErrExtensionNotAllowed},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := Verify(tc.env, tc.ts, validNow); !errors.Is(err, tc.want) {
+				t.Errorf("Verify = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}

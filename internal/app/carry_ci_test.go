@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/fs"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +17,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
+	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
@@ -200,6 +202,55 @@ func TestCIPlanDeclaredPublishedVersionCarriesNothing(t *testing.T) {
 	if r.Impact.Gate == impact.GateBlocked || r.Changed != "no" || r.Accepted != 0 ||
 		!slices.Contains(r.Notes, "registry decisions carry with the next version: bump service.version") ||
 		len(r.Carried) != 1 || r.Carried[0].State != ci.CarriedDropped || r.Carried[0].Reason != "carries with the next version: bump service.version" {
+		t.Fatalf("%+v", r)
+	}
+}
+
+// TestCIPlanBehindCarriedBaselineUnchanged: an earlier CLI published the
+// behind contract as written with the acceptance carried in. The CLI that
+// raises it in memory carries the same decision into the contract as
+// written, so the row reads unchanged and keeps the behind pactoVersion,
+// whether the version is derived or declared as the one published.
+func TestCIPlanBehindCarriedBaselineUnchanged(t *testing.T) {
+	for _, declared := range []bool{false, true} {
+		t.Run(strconv.FormatBool(declared), func(t *testing.T) { behindCarriedBaselineUnchanged(t, declared) })
+	}
+}
+
+func behindCarriedBaselineUnchanged(t *testing.T, declared bool) {
+	e := newCarryCIEnv(t)
+	first := e.publishCI(t, "r2")
+	raw, _ := e.published(t, first)
+	_, dgst, _ := strings.Cut(first.Published, "@")
+	b, err := e.inner.Pull(t.Context(), e.repo+"@"+dgst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	behind := []byte(asBehind(raw))
+	c, _, err := contract.ParseDocument(behind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fsys, err := copyFSWithReplace(b.FS, DefaultContractPath, behind)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := oci.NewClient(anonymous, oci.WithInsecureRegistries(e.host)).Push(t.Context(), e.repo+":"+first.To,
+		&contract.Bundle{Contract: c, RawYAML: behind, FS: fsys}); err != nil {
+		t.Fatal(err)
+	}
+	version := ""
+	if declared {
+		version = first.To
+	}
+	e.write(t, map[string]string{"reports/pacto.yaml": asBehind(e.contract("reports", version, "  owner: {team: reporting, dri: ana@acme.com}\ndependencies:\n  - name: ledger\n    required: true\n", ""))})
+	p, _, err := e.svc.CIPlan(t.Context(), e.opts(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r := pubRow(t, p, "reports")
+	note := "pacto.yaml is " + prevVersion + ", published as " + prevVersion + " (raises to " + contract.Current() + " when it next changes)"
+	if r.Changed != "no" || r.Baseline != first.To || r.Impact.Gate != impact.GateClear || !slices.Contains(r.Notes, note) {
 		t.Fatalf("%+v", r)
 	}
 }

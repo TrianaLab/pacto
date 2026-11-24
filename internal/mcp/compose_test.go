@@ -282,3 +282,28 @@ func TestCapabilitiesDeliveryFollowsInstalledProbe(t *testing.T) {
 		}
 	}
 }
+
+// TestNoLadderWriteTool: agents propose, people decide. Even with writes on,
+// no tool confirms the installation ladder, and every tool that speaks of it
+// only reads.
+func TestNoLadderWriteTool(t *testing.T) {
+	res, err := catalogSession(t, mustNew("test", Authoring{}, composedModes(t, true))).ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mentions := 0
+	for _, tl := range res.Tools {
+		if strings.Contains(tl.Name, "ladder") {
+			t.Errorf("%s writes nothing a person must sign, yet is named for the ladder", tl.Name)
+		}
+		if strings.Contains(tl.Description, "installation ladder") {
+			mentions++
+			if tl.Annotations == nil || !tl.Annotations.ReadOnlyHint {
+				t.Errorf("%s speaks of the installation ladder and is not read-only", tl.Name)
+			}
+		}
+	}
+	if mentions < 2 {
+		t.Fatalf("the inbox and environments reads describe the installation ladder: %d tools do", mentions)
+	}
+}

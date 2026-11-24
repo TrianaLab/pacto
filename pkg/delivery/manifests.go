@@ -29,6 +29,9 @@ const GateManifests = "pacto.manifests"
 const (
 	FluxContentMediaType = "application/vnd.cncf.flux.content.v1.tar+gzip"
 	HelmChartMediaType   = "application/vnd.cncf.helm.chart.content.v1.tar+gzip"
+	// ArgoCDContentMediaType is the layer an Argo CD OCI source pulls by
+	// default: a gzipped directory, read like Flux content.
+	ArgoCDContentMediaType = "application/vnd.oci.image.layer.v1.tar+gzip"
 )
 
 // Bounds of one inspection.
@@ -244,10 +247,10 @@ func InspectArtifact(mediaType string, layer []byte, target ManifestTarget, scop
 	var files []tarFile
 	var err error
 	switch mediaType {
-	case FluxContentMediaType, HelmChartMediaType:
+	case FluxContentMediaType, HelmChartMediaType, ArgoCDContentMediaType:
 		files, err = readTar(layer)
 	default:
-		in.Unread = append(in.Unread, "Pacto reads Flux and Helm OCI artifacts only, and this layer is "+mediaType)
+		in.Unread = append(in.Unread, "Pacto reads Flux, Helm and Argo CD OCI artifacts only, and this layer is "+mediaType)
 		return in
 	}
 	if err != nil {

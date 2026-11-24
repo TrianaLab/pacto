@@ -253,7 +253,7 @@ func (q *Query) provisioningFor(use OfferingUse, rels []*Relationship, current *
 // useSlots groups idx's reports about rels by environment and consumer entry,
 // seeds current's entries (see seedProvisioningSlots) and returns the
 // declaring revisions by digest.
-func useSlots[R reportRecord](snap *FleetSnapshot, rels []*Relationship, current *ContractRevision, idx map[provisioningKey][]R) (map[provisioningSlot][]R, map[string]*ContractRevision) {
+func useSlots[R envRecord](snap *FleetSnapshot, rels []*Relationship, current *ContractRevision, idx map[provisioningKey][]R) (map[provisioningSlot][]R, map[string]*ContractRevision) {
 	revs := map[string]*ContractRevision{}
 	slots := map[provisioningSlot][]R{}
 	seen := map[provisioningKey]bool{}
@@ -467,11 +467,16 @@ func (q *Query) provisioningStatuses(use OfferingUse, slots map[provisioningSlot
 	return out, lims
 }
 
-// reportRecord is what latestReports and newestReport need of a provisioning or
-// usage report.
+// reportRecord is what latestReports and newestReport need of a provisioning,
+// usage or extension report.
 type reportRecord interface {
 	at() time.Time
 	origin() string
+}
+
+// envRecord is a reportRecord useSlots can group by environment.
+type envRecord interface {
+	reportRecord
 	env() string
 }
 
@@ -507,7 +512,13 @@ func (r *ProvisioningRecord) env() string    { return r.Environment }
 
 // staleReport reports whether r is older than the provisioning window.
 func (q *Query) staleReport(r *ProvisioningRecord) bool {
-	return q.snap.GeneratedAt.Sub(r.ObservedAt) > cmp.Or(q.snap.provisioningWindow, RecentEvidenceWindow)
+	return q.snap.reportStale(r.ObservedAt)
+}
+
+// reportStale reports whether a report observed at t is older than the
+// snapshot's freshness window (RecentEvidenceWindow when unset).
+func (snap *FleetSnapshot) reportStale(t time.Time) bool {
+	return snap.GeneratedAt.Sub(t) > cmp.Or(snap.provisioningWindow, RecentEvidenceWindow)
 }
 
 // provisioningStatus is one slot's status from its reports: the newest report

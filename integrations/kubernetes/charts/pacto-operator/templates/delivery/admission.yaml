@@ -9,6 +9,21 @@ controller and the garbage collector. system:masters bypasses authorization
 and could remove these policies anyway, so refusing it guards nothing. */}}
 {{- $lifecycle := include "pacto-operator.delivery.celList" (concat .Values.delivery.admissionPolicies.gitopsUsers (list "system:serviceaccount:kube-system:namespace-controller" "system:serviceaccount:kube-system:generic-garbage-collector")) }}
 {{- $lifecycleRule := printf "request.operation == 'UPDATE' ||\n        request.userInfo.groups.exists(g, g in %s || g == 'system:masters') ||\n        request.userInfo.username in %s" $breakGlass $lifecycle }}
+{{- /* An object labelled delivery.pacto.trianalab.io/managed-by=pacto, read
+from the object a CREATE or UPDATE writes, or the one an UPDATE or DELETE
+replaces. Each is false, never an error, on the operation without it. */}}
+{{- $managedKey := "'delivery.pacto.trianalab.io/managed-by'" }}
+{{- $managed := printf "request.operation != 'DELETE' && has(object.metadata.labels) && %s in object.metadata.labels && object.metadata.labels[%s] == 'pacto'" $managedKey $managedKey }}
+{{- $wasManaged := printf "request.operation != 'CREATE' && has(oldObject.metadata.labels) && %s in oldObject.metadata.labels && oldObject.metadata.labels[%s] == 'pacto'" $managedKey $managedKey }}
+{{- /* Under profile idp the promoter creates and retires the Flux objects of
+a service no applier runs, labelled managed-by=pacto, and unsuspends them on
+their first approved promote. */}}
+{{- $createAppliers := include "pacto-operator.delivery.createAppliers" . }}
+{{- $promoterManaged := printf "request.userInfo.username == '%s' && (%s || %s)" $controller $managed $wasManaged }}
+{{- $applierLifecycle := $lifecycleRule }}
+{{- if $createAppliers }}{{ $applierLifecycle = printf "%s ||\n        (%s)" $lifecycleRule $promoterManaged }}{{ end }}
+{{- $unsuspend := "" }}
+{{- if $createAppliers }}{{ $unsuspend = printf "(f == 'suspend' && request.userInfo.username == '%s' && %s) || " $controller $wasManaged }}{{ end }}
 {{- /* Agents are told apart by how they sign in: a service account, any other
 system: user (control-plane components, nodes, anonymous), an unauthenticated
 request or a member of agentGroups. With the deprecated identities.humanGroups
@@ -307,7 +322,7 @@ spec:
       expression: "request.userInfo.groups.exists(g, g in {{ $breakGlass }})"
   validations:
     - expression: >-
-        {{ $lifecycleRule }}
+        {{ $applierLifecycle }}
       message: "the delivery.pacto.trianalab.io/apply-ref label marks a Pacto delivery pointer: only break-glass or the GitOps controller creates or deletes one"
       reason: Forbidden
     - expression: >-
@@ -448,7 +463,7 @@ spec:
       expression: "['sourceRef', 'path', 'images', 'patches', 'components', 'postBuild', 'namePrefix', 'nameSuffix', 'targetNamespace', 'serviceAccountName', 'kubeConfig', 'suspend', 'decryption']"
   validations:
     - expression: >-
-        {{ $lifecycleRule }}
+        {{ $applierLifecycle }}
       message: "the delivery.pacto.trianalab.io/apply-ref label marks what applies a Pacto delivery pointer: only break-glass or the GitOps controller creates or deletes one"
       reason: Forbidden
     - expression: >-
@@ -458,7 +473,7 @@ spec:
       reason: Forbidden
     - expression: >-
         request.operation != 'UPDATE' || variables.breakGlass ||
-        variables.guarded.all(f, (f in object.spec) == (f in oldObject.spec) && (!(f in object.spec) || object.spec[f] == oldObject.spec[f]))
+        variables.guarded.all(f, {{ $unsuspend }}(f in object.spec) == (f in oldObject.spec) && (!(f in object.spec) || object.spec[f] == oldObject.spec[f]))
       message: "sourceRef, path, images, patches, components, postBuild, namePrefix, nameSuffix, targetNamespace, serviceAccountName, kubeConfig, suspend and decryption decide what the Pacto delivery pointer runs: only break-glass changes them"
       reason: Forbidden
 ---
@@ -507,7 +522,7 @@ spec:
       expression: "['chartRef', 'chart', 'values', 'valuesFrom', 'postRenderers', 'targetNamespace', 'storageNamespace', 'serviceAccountName', 'kubeConfig', 'suspend']"
   validations:
     - expression: >-
-        {{ $lifecycleRule }}
+        {{ $applierLifecycle }}
       message: "the delivery.pacto.trianalab.io/apply-ref label marks what applies a Pacto delivery pointer: only break-glass or the GitOps controller creates or deletes one"
       reason: Forbidden
     - expression: >-
@@ -517,7 +532,7 @@ spec:
       reason: Forbidden
     - expression: >-
         request.operation != 'UPDATE' || variables.breakGlass ||
-        variables.guarded.all(f, (f in object.spec) == (f in oldObject.spec) && (!(f in object.spec) || object.spec[f] == oldObject.spec[f]))
+        variables.guarded.all(f, {{ $unsuspend }}(f in object.spec) == (f in oldObject.spec) && (!(f in object.spec) || object.spec[f] == oldObject.spec[f]))
       message: "chartRef, chart, values, valuesFrom, postRenderers, targetNamespace, storageNamespace, serviceAccountName, kubeConfig and suspend decide what the Pacto delivery pointer runs: only break-glass changes them"
       reason: Forbidden
     - expression: >-
@@ -702,6 +717,10 @@ spec:
   matchConditions:
     - name: promoter
       expression: "request.userInfo.username == '{{ $controller }}'"
+    # A pointer the promoter created from the installation ladder is held by
+    # promoter-managed instead, so its first promote can unsuspend it.
+    - name: managed
+      expression: "!(has(object.metadata.labels) && 'delivery.pacto.trianalab.io/managed-by' in object.metadata.labels && object.metadata.labels['delivery.pacto.trianalab.io/managed-by'] == 'pacto')"
   variables:
     - name: ref
       expression: "has(object.spec.ref) ? object.spec.ref : {}"
@@ -730,6 +749,85 @@ metadata:
 spec:
   policyName: {{ $fullname }}-promoter-writes
   validationActions: [Deny]
+{{- if include "pacto-operator.delivery.environments" . }}
+---
+# The promoter creates, updates and retires only objects labelled
+# delivery.pacto.trianalab.io/managed-by=pacto: a safety net under its own
+# rule, which acts only on the objects its private state records it created.
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicy
+metadata:
+  name: {{ $fullname }}-promoter-managed
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  failurePolicy: Fail
+  matchConstraints:
+    resourceRules:
+      - apiGroups: [delivery.pacto.trianalab.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [stages]
+      {{- if include "pacto-operator.delivery.createNamespaces" . }}
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        operations: [CREATE]
+        resources: [namespaces]
+      {{- end }}
+      {{- if $createAppliers }}
+      - apiGroups: [source.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [ocirepositories]
+      - apiGroups: [kustomize.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [kustomizations]
+      - apiGroups: [helm.toolkit.fluxcd.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [helmreleases]
+      - apiGroups: [""]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [serviceaccounts]
+      - apiGroups: [rbac.authorization.k8s.io]
+        apiVersions: ["*"]
+        operations: [CREATE, UPDATE, DELETE]
+        resources: [rolebindings]
+      {{- end }}
+  matchConditions:
+    - name: promoter
+      expression: "request.userInfo.username == '{{ $controller }}'"
+  variables:
+    - name: managed
+      expression: "{{ $managed }}"
+    - name: wasManaged
+      expression: "{{ $wasManaged }}"
+    # The promoter's digest write on an OCIRepository it did not create:
+    # promoter-writes holds that one to spec.ref.digest.
+    - name: pointerWrite
+      expression: "request.operation == 'UPDATE' && request.resource.resource == 'ocirepositories' && !variables.managed && !variables.wasManaged"
+  validations:
+    - expression: >-
+        request.operation == 'DELETE' || variables.managed || variables.pointerWrite
+      message: "the promoter creates and updates only objects labelled delivery.pacto.trianalab.io/managed-by=pacto"
+      reason: Forbidden
+    - expression: >-
+        request.operation == 'CREATE' || variables.wasManaged || variables.pointerWrite
+      message: "the promoter updates and deletes only objects labelled delivery.pacto.trianalab.io/managed-by=pacto"
+      reason: Forbidden
+---
+apiVersion: admissionregistration.k8s.io/v1
+kind: ValidatingAdmissionPolicyBinding
+metadata:
+  name: {{ $fullname }}-promoter-managed
+  labels:
+    {{- include "pacto-operator.delivery.labels" . | nindent 4 }}
+spec:
+  policyName: {{ $fullname }}-promoter-managed
+  validationActions: [Deny]
+{{- end }}
 {{- if include "pacto-operator.delivery.argocd" . }}
 ---
 # The promoter on Argo CD: only an Application a Stage applies through, and

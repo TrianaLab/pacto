@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
+	"github.com/santhosh-tekuri/jsonschema/v6/kind"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -83,23 +84,23 @@ func ExpiredEnvironmentWarnings(c *contract.Contract, now time.Time) []contract.
 }
 
 // checkEnvironment checks one environment's values file into r and returns
-// each environment/configuration pair it could not verify.
+// each environment/configuration pair it could not verify. An environment
+// with no file (pactoVersion 2.6) reads nothing: each configuration is
+// checked on its defaults, and its findings are at environments[i].
 func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bundleFS fs.FS, refs ConfigRefs, r *ValidationResult) []string {
 	path := fmt.Sprintf("environments[%d].file", i)
-	if bundleFS == nil {
+	if env.File == "" {
+		path = fmt.Sprintf("environments[%d]", i)
+	} else if bundleFS == nil {
 		r.AddWarning(path, "ENVIRONMENT_VALUES_UNVERIFIED", fmt.Sprintf("environment %s: no bundle files to read %s from", env.Name, env.File))
 		return []string{env.Name}
 	}
 	fail := func(code string, at []string, raw []byte, msg string) {
-		e := contract.ValidationError{Path: path, Code: code, Message: "environment " + env.Name + ": " + msg, File: env.File}
+		e := contract.ValidationError{Path: path, Code: code, Message: msg, File: env.File}
 		e.Line, e.Column = contract.LocateSegments(raw, at)
 		r.Errors = append(r.Errors, e)
 	}
-	raw, err := fs.ReadFile(bundleFS, env.File)
-	var values map[string]any
-	if err == nil {
-		values, err = contract.ParseEnvironmentValues(raw)
-	}
+	raw, values, err := contract.ReadEnvironmentValues(bundleFS, env)
 	if err != nil {
 		e := contract.ValidationError{Path: path, Code: "ENVIRONMENT_VALUES_INVALID", File: env.File,
 			Message: fmt.Sprintf("environment %s: cannot read %s: %v", env.Name, env.File, err)}
@@ -117,7 +118,7 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 	for _, name := range slices.Sorted(maps.Keys(values)) {
 		if !slices.Contains(declared, name) {
 			fail("ENVIRONMENT_UNKNOWN_CONFIGURATION", []string{name}, raw,
-				fmt.Sprintf("values for configuration %q, which the contract does not declare%s", name, contract.DidYouMean(name, declared)))
+				fmt.Sprintf("environment %s: values for configuration %q, which the contract does not declare%s", env.Name, name, contract.DidYouMean(name, declared)))
 		}
 	}
 
@@ -139,14 +140,28 @@ func checkEnvironment(c *contract.Contract, i int, env contract.Environment, bun
 		}
 		for _, v := range schemaViolations(schema.Validate(EffectiveValues(cfg.Values, given))) {
 			at := append([]string{cfg.Name}, v.InstanceLocation...)
-			_, msg, _ := strings.Cut(v.Error()+enumSuggestion(v.ErrorKind), "': ")
-			if !ok {
-				msg = "required configuration " + cfg.Name + " has no values here and its defaults fail its schema: " + msg
-			}
-			fail(code, at, raw, fmt.Sprintf("configuration %s at %s: %s", cfg.Name, jsonPointer(at), msg))
+			fail(code, at, raw, environmentViolation(env, cfg, ok, at, v))
 		}
 	}
 	return unverified
+}
+
+// environmentViolation is the message for one schema violation of the values
+// env gives cfg (given) or of cfg's defaults alone. A file-less environment
+// that leaves a required key out says which key it needs.
+func environmentViolation(env contract.Environment, cfg contract.Configuration, given bool, at []string, v *jsonschema.ValidationError) string {
+	if req, isReq := v.ErrorKind.(*kind.Required); isReq && env.File == "" {
+		keys := make([]string, len(req.Missing))
+		for k, m := range req.Missing {
+			keys[k] = strings.Join(append(slices.Clone(v.InstanceLocation), m), ".")
+		}
+		return fmt.Sprintf("environment %s declares no values file: %s needs %s", env.Name, cfg.Name, strings.Join(keys, ", "))
+	}
+	_, msg, _ := strings.Cut(v.Error()+enumSuggestion(v.ErrorKind), "': ")
+	if !given {
+		msg = "required configuration " + cfg.Name + " has no values here and its defaults fail its schema: " + msg
+	}
+	return fmt.Sprintf("environment %s: configuration %s at %s: %s", env.Name, cfg.Name, jsonPointer(at), msg)
 }
 
 // valuesChecked reports whether an environment that gives values for cfg, or
@@ -169,6 +184,9 @@ func loadConfigSchema(cfg contract.Configuration, bundleFS fs.FS, refs ConfigRef
 			return nil, fmt.Errorf("its schema comes from the contract %s, which could not be resolved: %v", cfg.Ref, r.Err)
 		}
 		return nil, fmt.Errorf("its schema comes from the contract %s, which this validation does not resolve", cfg.Ref)
+	}
+	if bundleFS == nil { // a file-less environment checked with no bundle files
+		return nil, fmt.Errorf("no bundle files to read its schema %s from", cfg.Schema)
 	}
 	data, err := fs.ReadFile(bundleFS, cfg.Schema)
 	if err != nil {
@@ -266,7 +284,8 @@ type EnvironmentDifference struct {
 // of the environments named, or of every declared environment when names is
 // empty, and returns each value they disagree on, sorted by configuration then
 // path. Fewer than two declared environments compare nothing when names is
-// empty. An undeclared or repeated name, a single name, no bundle files or a
+// empty. An environment with no file has no values of its own. An undeclared
+// or repeated name, a single name, no bundle files for a values file or a
 // values file that cannot be read is an error.
 func EnvironmentDifferences(c *contract.Contract, fsys fs.FS, names []string) ([]EnvironmentDifference, error) {
 	envs, err := chosenEnvironments(c, names)
@@ -275,14 +294,10 @@ func EnvironmentDifferences(c *contract.Contract, fsys fs.FS, names []string) ([
 	}
 	effective := map[string]map[string]any{} // configuration, environment
 	for _, env := range envs {
-		if fsys == nil {
+		if fsys == nil && env.File != "" {
 			return nil, fmt.Errorf("environment %s: no bundle files to read %s from", env.Name, env.File)
 		}
-		raw, err := fs.ReadFile(fsys, env.File)
-		var values map[string]any
-		if err == nil {
-			values, err = contract.ParseEnvironmentValues(raw)
-		}
+		_, values, err := contract.ReadEnvironmentValues(fsys, env)
 		if err != nil {
 			return nil, fmt.Errorf("environment %s: cannot read %s: %w", env.Name, env.File, err)
 		}

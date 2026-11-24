@@ -6,7 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // TestInitProposedRangesValidate: pacto init writes the dependency it found
@@ -40,5 +43,5 @@ func TestInitProposedRangesValidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	assertContains(t, string(written), "compatibility: unknown   # proposed ^2.3.0, from its contract in --fleet at 2.3.1")
-	assertContains(t, string(written), `pactoVersion: "2.5"`)
+	assertContains(t, string(written), "pactoVersion: "+strconv.Quote(contract.Current()))
 }

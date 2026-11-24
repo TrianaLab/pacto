@@ -18,10 +18,10 @@ nothing.
 
 ## Layer 1: Structural (JSON Schema)
 
-Validates against the embedded schema of the contract's version, `pacto-v2.0.schema.json`, `pacto-v2.1.schema.json`, `pacto-v2.2.schema.json`, `pacto-v2.3.schema.json`, `pacto-v2.4.schema.json` or `pacto-v2.5.schema.json`:
+Validates against the embedded schema of the contract's version, from `pacto-v2.0.schema.json` to `pacto-v2.6.schema.json`:
 
 - Field types match
-- Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`)
+- Required fields are present (including the mandatory `required` on `configurations[]` and `dependencies[]`, and `environments[].file` before 2.6)
 - Enum values are valid (for example interface `type` is `openapi`/`asyncapi`/`grpc`/`mcp`, `capabilities[].type` is `health`/`metrics`/`extension`, `policies[].target` is `contract`)
 - Fields that must carry a value are non-empty (for example `interfaces[].ref` and `checks[].file`)
 - Discriminated shapes hold: a `configurations[]` entry has exactly one of `schema` or `ref`, a `capabilities[]` `extension` requires a namespaced `ref` and `health` or `metrics` sets no `ref`
@@ -57,11 +57,11 @@ in an older contract, reports that version's code for each use instead: set
   `ContractOverrides` values for those configurations.
 - The fleet revision detail (`pacto fleet entity`, `pacto_fleet_entity`, the
   TUI and the dashboard revision page) shows the declared `pactoVersion` as
-  `2.3 (behind 2.5)`. In JSON, `pactoVersionCurrent` is the newest version the
+  `2.3 (behind 2.6)`. In JSON, `pactoVersionCurrent` is the newest version the
   Pacto that answered knows, and `pactoVersionUnknown` marks a version it does
   not know. A revision [`pacto ci`](../ci.md#older-contracts) raised in memory
-  reads `2.5 (migrated from 2.4, inferred)`, or
-  `2.5 (behind <newer>; migrated from 2.4, inferred)` for a newer Pacto. In
+  reads `2.6 (migrated from 2.4, inferred)`, or
+  `2.6 (behind <newer>; migrated from 2.4, inferred)` for a newer Pacto. In
   JSON, `migratedFrom` holds the version the authored `pacto.yaml` declared. It
   is inferred, read only from a verified `pacto.inferred.yaml`.
 - When the message says the raise keeps what the contract means, it ends with
@@ -72,7 +72,7 @@ in an older contract, reports that version's code for each use instead: set
   and is never raised automatically.
 
 A contract that fails to **load**, because of malformed YAML, an unknown field or a
-`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"` or `"2.5"`, fails before any layer runs and reports
+`pactoVersion` other than `"2.0"`, `"2.1"`, `"2.2"`, `"2.3"`, `"2.4"`, `"2.5"` or `"2.6"`, fails before any layer runs and reports
 `PARSE_ERROR`. Loading is the parse step that turns `pacto.yaml` into a
 contract. Validation starts once it succeeds.
 

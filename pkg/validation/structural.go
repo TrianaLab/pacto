@@ -34,6 +34,9 @@ var schemaV24Bytes []byte
 //go:embed schema/pacto-v2.5.schema.json
 var schemaV25Bytes []byte
 
+//go:embed schema/pacto-v2.6.schema.json
+var schemaV26Bytes []byte
+
 // SchemaBytes returns the raw embedded JSON Schema bytes of the newest version
 // (contract.Current(), a superset of every older one). The doc package
 // extracts field descriptions from it.
@@ -42,7 +45,7 @@ func SchemaBytes() []byte { return schemaBytes[contract.Current()] }
 // schemaBytes is the embedded JSON Schema of each pactoVersion. The versions
 // supported are contract.SupportedVersions; init panics on one without a
 // schema here.
-var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes, "2.3": schemaV23Bytes, "2.4": schemaV24Bytes, "2.5": schemaV25Bytes}
+var schemaBytes = map[string][]byte{"2.0": schemaV20Bytes, "2.1": schemaV21Bytes, "2.2": schemaV22Bytes, "2.3": schemaV23Bytes, "2.4": schemaV24Bytes, "2.5": schemaV25Bytes, "2.6": schemaV26Bytes}
 
 // compiledSchemas maps each supported pactoVersion to its compiled JSON Schema.
 var compiledSchemas = map[string]*jsonschema.Schema{}
@@ -138,6 +141,9 @@ func ValidateStructural(data any) ValidationResult {
 		data, mcp = needs21(&result, data)
 	}
 	addSchemaError(&result, schema.Validate(data))
+	if contract.Older(version, "2.6") {
+		hintEnvironmentFile(&result)
+	}
 	if len(mcp) > 0 {
 		result.Errors = slices.DeleteFunc(result.Errors, func(e contract.ValidationError) bool {
 			if e.Code != "SCHEMA_VIOLATION" {
@@ -153,6 +159,18 @@ func ValidateStructural(data any) ValidationResult {
 		})
 	}
 	return result
+}
+
+// hintEnvironmentFile ends the schema error of an environment missing its
+// file with the version that makes file optional. The frozen schema stays
+// the refusal: no code of its own (plan 511-S5 N8(b)).
+func hintEnvironmentFile(result *ValidationResult) {
+	for i, e := range result.Errors {
+		if e.Code == "SCHEMA_VIOLATION" && strings.HasPrefix(e.Path, "environments.") && !strings.Contains(strings.TrimPrefix(e.Path, "environments."), ".") &&
+			strings.Contains(e.Message, "missing propert") && strings.Contains(e.Message, "'file'") {
+			result.Errors[i].Message += `; pactoVersion "2.6" lets an environment leave out file`
+		}
+	}
 }
 
 // RefValuesAllowed reports whether a contract at version lets a configuration

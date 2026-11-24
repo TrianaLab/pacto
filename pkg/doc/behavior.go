@@ -207,7 +207,11 @@ func writeEnvironments(b *strings.Builder, d *contractview.ServiceDetails, num *
 		if e.Owner != nil && !e.Owner.IsEmpty() {
 			owner = dashText(e.Owner.DisplayString())
 		}
-		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", dash(e.Name), dash(e.File), check, environmentLifetime(e), owner)
+		file := "none" // a file-less environment has no values of its own
+		if e.File != "" {
+			file = dash(e.File)
+		}
+		fmt.Fprintf(b, "| %s | %s | %s | %s | %s |\n", dash(e.Name), file, check, environmentLifetime(e), owner)
 	}
 	fmt.Fprintln(b)
 	writeEnvironmentFindings(b, d.Environments)

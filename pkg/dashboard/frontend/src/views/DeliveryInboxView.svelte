@@ -18,6 +18,7 @@
   import InboxFigure from '../components/figure/InboxFigure.svelte';
   import DeliveryServiceFilter from '../components/DeliveryServiceFilter.svelte';
   import ProposePanel from '../components/ProposePanel.svelte';
+  import LadderBlock from '../components/LadderBlock.svelte';
   import { urlInt, limitParam } from '../lib/paging.ts';
   import { formatCount, countOf } from '../lib/format.ts';
 
@@ -77,10 +78,14 @@
   const myTeams = $derived(myGroups.filter((g) => !g.startsWith('system:')));
   const whose = $derived(myTeams.length ? andList(myTeams, 3) : 'you');
   // The one-line answer: what waits for a decision, who else may answer, then what is frozen or failed.
+  // The installation ladder proposal is a decision too, for a person who may confirm it.
+  const ladderWaits = $derived(!!inbox?.ladder?.canConfirm);
+  const waiting = $derived(heldTotal + (ladderWaits ? 1 : 0));
   const lead = $derived.by(() => {
     if (!inbox) return null;
     const bad = [erroredTotal && `${formatCount(erroredTotal)} failed`, frozenTotal && `${formatCount(frozenTotal)} frozen`].filter(Boolean);
     const trouble = bad.length ? `${capital(andList(bad))}.` : '';
+    if (!heldTotal && ladderWaits) return { head: 'The installation ladder proposal waits for you to confirm it.', rest: trouble };
     if (!heldTotal) return bad.length ? { head: `${capital(andList(bad))}.`, rest: 'Nothing waits for a decision.' } : null;
     const others = !sharedTotal ? '' : sharedTotal === heldTotal
       ? `Other teams may also answer ${heldTotal === 1 ? 'it' : 'each of them'}.`
@@ -140,7 +145,7 @@
 <div class="product-page">
   <PageHeader
     title="Inbox"
-    count={inbox ? `${formatCount(heldTotal)} waiting for a decision` : ''}
+    count={inbox ? `${formatCount(waiting)} waiting for a decision` : ''}
     asOf={inbox?.asOf}
     revalidating={!!inbox && loader.loading}
     paging={answer.paging}
@@ -158,6 +163,7 @@
     <ListingNote listing={inbox} error={loader.error} onRetry={() => loader.refresh()} />
 
     {#if lead}<DeliveryLead head={lead.head} rest={lead.rest} testid="inbox-answer" />{/if}
+    {#if inbox.ladder}<LadderBlock ladder={inbox.ladder} />{/if}
     {#if inbox.byEnvironment?.length}
       <!-- Over every page and before the environment filter, so it never moves while the
            lists below are paged or narrowed; each count links to its narrowed list. -->
@@ -177,7 +183,7 @@
           <h2>Nothing matches the filter</h2>
           <p>{q ? `Nothing waiting on you matches “${q}”${environment ? ` in ${environment}` : ''}.` : environment ? `Nothing waits on you to enter ${environment}.` : exceptEnvs.length ? 'Nothing waits on you to enter the other environments.' : `Nothing waits on you for ${service}.`}</p>
         {:else}
-          <h2>{inbox.completeness === 'partial' ? 'Nothing waits on you that you can see' : 'Nothing waits on you'}</h2>
+          <h2>{ladderWaits ? 'Only the installation ladder waits on you' : inbox.completeness === 'partial' ? 'Nothing waits on you that you can see' : 'Nothing waits on you'}</h2>
           <p>No change is held for your teams, and none of your Stages is frozen or stuck.</p>
         {/if}
       </div>

@@ -29,6 +29,12 @@ type SubjectRef struct {
 	Environment string `json:"environment,omitempty"`
 }
 
+// ExtensionSubject reports whether s names an extension capability. An extension capability ref is
+// namespaced (it holds a "/"); health and metrics never do.
+func ExtensionSubject(s SubjectRef) bool {
+	return s.Kind == "capability" && strings.Contains(s.Name, "/")
+}
+
 // Provenance tracks how an observation was collected.
 type Provenance struct {
 	Collector  string    `json:"collector"`
@@ -87,7 +93,28 @@ type CapabilityObservation struct {
 	// endpoint answered 5xx or a declared readiness probe on it is failing; nil when not reported. It
 	// requires Present == true: an absent capability reports no health.
 	Healthy *bool `json:"healthy,omitempty"`
+	// Details is the producer's own free-form account of an extension capability (for a backup
+	// operator, the time of the last backup). It is allowed only on an extension subject, must be a
+	// JSON object of at most MaxCapabilityDetailsBytes and is never interpreted by Pacto.
+	Details json.RawMessage `json:"details,omitempty"`
 }
+
+// MaxCapabilityDetailsBytes bounds CapabilityObservation.Details in bytes.
+const MaxCapabilityDetailsBytes = 2048
+
+// ValidCapabilityDetails reports why raw is not acceptable as CapabilityObservation.Details: it must be
+// a JSON object of at most MaxCapabilityDetailsBytes.
+func ValidCapabilityDetails(raw json.RawMessage) error {
+	if len(raw) > MaxCapabilityDetailsBytes {
+		return fmt.Errorf("details exceed %d bytes", MaxCapabilityDetailsBytes)
+	}
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil || obj == nil {
+		return errors.New("details must be a JSON object")
+	}
+	return nil
+}
+
 type WorkloadObservation struct {
 	Type string `json:"type"`
 }
@@ -451,10 +478,7 @@ func (o Observation) checkKind() error {
 	var err error
 	switch o.Kind {
 	case CapabilityObserved:
-		var p CapabilityObservation
-		if p, err = decode[CapabilityObservation](o.Value); err == nil && p.Healthy != nil && !p.Present {
-			err = errors.New("an absent capability reports no health")
-		}
+		err = o.checkCapability()
 	case WorkloadObserved:
 		_, err = decode[WorkloadObservation](o.Value)
 	case InterfaceObserved:
@@ -470,6 +494,25 @@ func (o Observation) checkKind() error {
 	}
 	if err != nil {
 		return fmt.Errorf("value does not match kind %s: %w", o.Kind, err)
+	}
+	return nil
+}
+
+// checkCapability decodes a CapabilityObserved payload. A standard capability may report health and
+// carries no details; an extension capability reports present only, with optional bounded details.
+func (o Observation) checkCapability() error {
+	p, err := decode[CapabilityObservation](o.Value)
+	switch {
+	case err != nil:
+		return err
+	case ExtensionSubject(o.Subject) && p.Healthy != nil:
+		return errors.New("an extension capability reports present only")
+	case ExtensionSubject(o.Subject) && len(p.Details) != 0:
+		return ValidCapabilityDetails(p.Details)
+	case !ExtensionSubject(o.Subject) && len(p.Details) != 0:
+		return errors.New("only an extension capability carries details")
+	case p.Healthy != nil && !p.Present:
+		return errors.New("an absent capability reports no health")
 	}
 	return nil
 }

@@ -49,6 +49,13 @@ tests:
     set: {profile: "hardened,idp", controller.watchNamespaces: [payments]}
     asserts: [{hasDocuments: {count: 1}}]
 
+  - it: hardened refuses delivery.environments.createNamespaces
+    template: templates/deployment.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments], delivery.environments.createNamespaces: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: "profile hardened creates no namespace: leave delivery.environments.createNamespaces false"
+
   - it: an unknown profile fails the schema
     template: templates/deployment.yaml
     set: {profile: secure}

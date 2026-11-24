@@ -274,3 +274,105 @@ func TestVerifiedPolicyKeepsNoMark(t *testing.T) {
 		t.Fatalf("an unverified policy was returned: %+v %q", pol, why)
 	}
 }
+
+// signPlacement pushes a placement policy signed by key to host/policy and
+// tags it placement.
+func (w *policyWorld) signPlacement(key ed25519.PrivateKey, pol delivery.PlacementPolicy) {
+	w.t.Helper()
+	payload, _ := json.Marshal(delivery.PlacementStatement{Type: delivery.StatementType, Subject: []delivery.Subject{},
+		PredicateType: delivery.PredicatePlacement, Predicate: pol})
+	bundle, err := edSigner(key).Sign(w.t.Context(), delivery.PayloadType, payload)
+	must(w.t, err)
+	img, err := mutate.AppendLayers(ggcrempty.Image, static.NewLayer(bundle, ggcrtypes.MediaType(delivery.BundleMediaType)))
+	must(w.t, err)
+	img = mutate.MediaType(img, ggcrtypes.OCIManifestSchema1)
+	d, err := w.reg.Write(w.t.Context(), w.host+"/policy", img)
+	must(w.t, err)
+	must(w.t, w.reg.Tag(w.t.Context(), w.host+"/policy", d, delivery.PlacementPolicyTag))
+}
+
+func TestVerifiedPlacement(t *testing.T) {
+	w := newPolicyWorld(t)
+	// None at the tag: no rule, nothing unread.
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol != nil || why != "" {
+		t.Fatalf("absent: %+v %q", pol, why)
+	}
+	rule := delivery.PlacementRule{Name: "prod", Environments: []string{"production"}, Namespace: "prod-{service}"}
+	w.signPlacement(w.key, delivery.PlacementPolicy{Rules: []delivery.PlacementRule{rule}, At: "2026-11-23T10:00:00Z"})
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || why != "" || pol.Rules[0].Name != "prod" {
+		t.Fatalf("verified: %+v %q", pol, why)
+	}
+	// A stranger's policy is unverified.
+	_, stranger, _ := ed25519.GenerateKey(rand.Reader)
+	w.signPlacement(stranger, delivery.PlacementPolicy{At: "2026-11-24T10:00:00Z"})
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol != nil || !strings.Contains(why, "could not be verified") {
+		t.Fatalf("stranger: %+v %q", pol, why)
+	}
+}
+
+// An older signed placement policy pushed over a newer one is ignored: the
+// newest stays and the reason names the rollback.
+func TestPlacementPolicyOlderAtIgnored(t *testing.T) {
+	w := newPolicyWorld(t)
+	rule := delivery.PlacementRule{Name: "prod", Environments: []string{"production"}, Namespace: "prod-{service}"}
+	w.signPlacement(w.key, delivery.PlacementPolicy{Rules: []delivery.PlacementRule{rule}, At: "2026-11-23T10:00:00Z"})
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || why != "" {
+		t.Fatalf("verified: %+v %q", pol, why)
+	}
+	w.signPlacement(w.key, delivery.PlacementPolicy{At: "2026-11-22T10:00:00Z"})
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || len(pol.Rules) != 1 || pol.Rules[0].Name != "prod" || !strings.Contains(why, "older than") {
+		t.Fatalf("rollback: %+v %q", pol, why)
+	}
+}
+
+func TestVerifiedPlacementUnreadable(t *testing.T) {
+	w := newPolicyWorld(t)
+	w.signPlacement(w.key, delivery.PlacementPolicy{At: "2026-11-23T10:00:00Z"})
+	w.reg.layerErr = errors.New("503")
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol != nil || !strings.Contains(why, "could not be read (503)") {
+		t.Fatalf("layer: %+v %q", pol, why)
+	}
+	w.reg.headErr = errors.New("503")
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol != nil || !strings.Contains(why, "could not be read (503)") {
+		t.Fatalf("head: %+v %q", pol, why)
+	}
+	// Once one verified, a read that fails keeps it, unread.
+	w.reg.layerErr, w.reg.headErr = nil, nil
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || why != "" {
+		t.Fatalf("verified: %+v %q", pol, why)
+	}
+	w.reg.headErr = errors.New("503")
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol == nil || !strings.Contains(why, "could not be read (503)") {
+		t.Fatalf("kept: %+v %q", pol, why)
+	}
+	// No delivery policy, no placement policy.
+	w.p.Policy = ""
+	if pol, why := w.p.VerifiedPlacement(t.Context()); pol != nil || why != "" {
+		t.Fatalf("no policy: %+v %q", pol, why)
+	}
+}
+
+func TestNewestAccepted(t *testing.T) {
+	w := newWatch(t, registryAt("-"))
+	svc := delivery.ServiceRef{Name: "payments"}
+	repo := w.host + "/payments"
+	ours := w.push("1.0.0", acmeRepo, w.ci(acmeSubject, acmeRepo))
+	w.push("1.1.0", otherRepo, w.ci(otherSub, otherRepo))
+	if v, why, err := w.p.NewestAccepted(t.Context(), svc, repo); v == nil || why != "" || err != nil || v.Digest != ours || v.Identity.Repository != acmeRepo {
+		t.Fatalf("accepted %+v %q", v, why)
+	}
+	if v, why, err := w.p.NewestAccepted(t.Context(), delivery.ServiceRef{Name: "orders"}, w.host+"/orders"); v != nil || why == "" || err != nil {
+		t.Fatalf("no version %+v %q", v, why)
+	}
+	w.p.listings = nil
+	w.reg.tagsErr = errors.New("503")
+	// A read that fails is an error, never an untrusted publisher.
+	if v, why, err := w.p.NewestAccepted(t.Context(), svc, repo); v != nil || why != "" || err == nil || !strings.Contains(err.Error(), "cannot be listed") {
+		t.Fatalf("listing %+v %q %v", v, why, err)
+	}
+	w.p.Root = func() (root.TrustedMaterial, error) { return nil, errors.New("tuf") }
+	w.p.tm, w.p.rootNext = nil, time.Time{}
+	if v, _, err := w.p.NewestAccepted(t.Context(), svc, repo); v != nil || err == nil || !strings.Contains(err.Error(), "trusted root") {
+		t.Fatalf("root %+v %v", v, err)
+	}
+}

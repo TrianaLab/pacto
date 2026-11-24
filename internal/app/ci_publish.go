@@ -14,6 +14,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/ci"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
 // CIPublishOptions configure one pacto ci --publish run.
@@ -116,8 +117,7 @@ func (cp *ciPublisher) row(ctx context.Context, r *ci.Row) {
 	case cp.refused:
 		cp.decide(r, ci.StateRefused, RefusedPullRequest)
 	case !behindOK(b):
-		cur := contract.Current()
-		why := fmt.Sprintf("declares no publish section; Pacto derives one for pactoVersion %s: set pactoVersion: %q", cur, cur)
+		why := fmt.Sprintf("declares no publish section; Pacto derives one from pactoVersion 2.5: set pactoVersion: %q", contract.Current())
 		if m := cp.migrations[r.Dir]; m.State == migrationKept {
 			// Never advise the raise the plan refused: name why it was refused.
 			why = fmt.Sprintf("declares no publish section, and pactoVersion stays at %s (%s): fix that or declare publish", m.From, m.Reason)
@@ -132,13 +132,12 @@ func (cp *ciPublisher) row(ctx context.Context, r *ci.Row) {
 	}
 }
 
-// behindOK reports whether b can publish as its pactoVersion: a current
-// contract can, and so can a behind one the plan kept, as written, when it
-// declares a publish section. A behind contract with no section cannot be
-// derived: that needs the current inferred record.
+// behindOK reports whether b can publish as its pactoVersion: a 2.5 or newer
+// contract can, and so can an older one the plan kept, as written, when it
+// declares a publish section. An older contract with no section cannot be
+// derived: that needs the inferred record, which 2.5 added.
 func behindOK(b *contract.Bundle) bool {
-	_, behind := contract.Behind(b.Contract.PactoVersion)
-	return !behind || b.Contract.Publish != nil
+	return !validation.InferredRecordNeedsRaise(b.Contract.PactoVersion) || b.Contract.Publish != nil
 }
 
 // decide sets r's outcome without publishing and hands it to Record.

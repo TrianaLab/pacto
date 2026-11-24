@@ -515,6 +515,11 @@ func (a dashDelivery) Can(ctx context.Context, verb, resource, ns string) (bool,
 	return ok, refusal(err)
 }
 
+func (a dashDelivery) Environments(ctx context.Context) (*delivery.EnvironmentsView, []delivery.PlacementRow, bool, error) {
+	v, rows, readable, err := a.d.Environments(ctx)
+	return v, rows, readable, refusal(err)
+}
+
 func (a dashDelivery) WorkloadAccess(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {
 	return a.access(ctx, ns, w)
 }

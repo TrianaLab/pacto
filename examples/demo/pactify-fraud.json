@@ -25,7 +25,7 @@
     {
       "path": "pacto.yaml",
       "action": "add",
-      "content": "# Written by pacto init from Dockerfile, k8s/deployment.yaml, k8s/service.yaml.\n# Check it, then see what publishing would do: pacto ci\npactoVersion: \"2.5\"\nservice:\n  name: fraud\n  owner:\n    team: risk\nworkload: service\n"
+      "content": "# Written by pacto init from Dockerfile, k8s/deployment.yaml, k8s/service.yaml.\n# Check it, then see what publishing would do: pacto ci\npactoVersion: \"2.6\"\nservice:\n  name: fraud\n  owner:\n    team: risk\nworkload: service\n"
     }
   ],
   "inferred": {

@@ -94,16 +94,13 @@ func revisionConfigRefVerdict(rev *fleet.ContractRevision, names []string, provi
 
 // unreadableEnvironments says which environment file of c cannot be read, or
 // "" when every one can: values Pacto cannot read are unknown, never a break.
+// An environment with no file has no values to read.
 func unreadableEnvironments(c *contract.Contract, fsys fs.FS) string {
-	if len(c.Environments) > 0 && fsys == nil {
+	if fsys == nil && slices.ContainsFunc(c.Environments, func(e contract.Environment) bool { return e.File != "" }) {
 		return "the consumer's environment files are not in this snapshot, so its values cannot be checked"
 	}
 	for _, env := range c.Environments {
-		raw, err := fs.ReadFile(fsys, env.File)
-		if err == nil {
-			_, err = contract.ParseEnvironmentValues(raw)
-		}
-		if err != nil {
+		if _, _, err := contract.ReadEnvironmentValues(fsys, env); err != nil {
 			return "environment " + env.Name + ": cannot read " + env.File + ": " + err.Error()
 		}
 	}

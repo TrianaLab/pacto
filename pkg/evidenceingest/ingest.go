@@ -312,23 +312,8 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		Domain: contract.OCIDomain(env.EvidenceSet.ContractRef),
 		Digest: digestOf(env.EvidenceSet.ContractRef),
 	}
-	if isResourceReport(env.EvidenceSet) {
-		// A provisioning or usage report claims nothing about the consumer's compliance:
-		// it is checked against what the consumer declared and stored as is.
-		if err := checkProvisioning(c, env.EvidenceSet, rec.AcceptedAt, entry.ProviderRepos); err != nil {
-			return Record{}, fmt.Errorf("%w: %w", ErrInvalidEvidence, err)
-		}
-	} else {
-		findings, coverage := validation.Evaluate(c, env.EvidenceSet)
-		// The compliance ladder has ONE producer. Ingestion and the operator rank
-		// their verdicts against each other, so a second copy here is a copy that
-		// drifts: this one already ranked an unknown finding under complete coverage
-		// as Compliant where the producer ranks it Unknown. Runtime findings are all
-		// ingestion has to give -- the record it accepted was already validated, so
-		// it holds no structural findings -- which is a difference in what this
-		// caller holds, not in the rule. See [validation.DeriveStatus].
-		rec.Compliance = validation.DeriveStatus(findings, coverage)
-		rec.Findings, rec.Coverage = findings, coverage
+	if err := evaluateRecord(&rec, c, entry); err != nil {
+		return Record{}, fmt.Errorf("%w: %w", ErrInvalidEvidence, err)
 	}
 	if err := a.store.Commit(ctx, rec); err != nil {
 		// Replay is a defined, safe-to-surface outcome; any other commit failure is
@@ -339,6 +324,107 @@ func (a *Acceptor) Accept(ctx context.Context, data []byte) (Record, error) {
 		return Record{}, fmt.Errorf("%w: %w", ErrStoreWrite, err)
 	}
 	return rec, nil
+}
+
+// evaluateRecord fills rec's verdict by the class of its evidence set. A
+// provisioning or usage report claims nothing about the consumer's compliance:
+// it is checked against what the consumer declared and stored as is. An
+// extension report is a producer's verdict on the extension capabilities it
+// names, judged with the authenticated producer as the source so a set cannot
+// name another producer in its finding; the stored envelope stays untouched.
+// Anything else is a runtime report. Mixed sets never get here: a key granted
+// extension refs may send nothing else (evidenceenvelope.TrustEntry), so Verify
+// refused them. An error is invalid evidence.
+func evaluateRecord(rec *Record, c contract.Contract, entry evidenceenvelope.TrustEntry) error {
+	set := rec.Envelope.EvidenceSet
+	var findings []finding.Finding
+	var coverage validation.Coverage
+	switch {
+	case isResourceReport(set):
+		return checkProvisioning(c, set, rec.AcceptedAt, entry.ProviderRepos)
+	case isExtensionReport(set):
+		if err := checkExtensionReport(c, set, rec.AcceptedAt); err != nil {
+			return err
+		}
+		findings, coverage = validation.EvaluateExtensions(c, withSource(set, rec.Envelope.Producer.ID))
+	default:
+		findings, coverage = validation.Evaluate(c, set)
+	}
+	// The compliance ladder has ONE producer. Ingestion and the operator rank
+	// their verdicts against each other, so a second copy here is a copy that
+	// drifts: this one already ranked an unknown finding under complete coverage
+	// as Compliant where the producer ranks it Unknown. Runtime findings are all
+	// ingestion has to give -- the record it accepted was already validated, so
+	// it holds no structural findings -- which is a difference in what this
+	// caller holds, not in the rule. See [validation.DeriveStatus].
+	rec.Compliance = validation.DeriveStatus(findings, coverage)
+	rec.Findings, rec.Coverage = findings, coverage
+	return nil
+}
+
+// withSource returns a copy of set whose Source is source.
+func withSource(set evidence.EvidenceSet, source string) evidence.EvidenceSet {
+	set.Source = source
+	return set
+}
+
+// isExtensionReport reports whether set is an extension report: non-empty and
+// every observation is a CapabilityObserved about an extension capability. A
+// record that mixed one with runtime kinds before extension grants existed
+// stays a runtime report.
+func isExtensionReport(set evidence.EvidenceSet) bool {
+	return len(set.Observations) > 0 && !slices.ContainsFunc(set.Observations, func(o evidence.Observation) bool {
+		return o.Kind != evidence.CapabilityObserved || !evidence.ExtensionSubject(o.Subject)
+	})
+}
+
+// checkExtensionReport binds an extension report to the contract it is about:
+// its subject sits under the contract repository and holds an "extension"
+// segment, as in <repository>/<environment>/extension/<name>, so the store's
+// latest record per producer and subject never lets it replace a runtime or
+// usage record; it is not dated beyond the allowed clock skew past acceptedAt;
+// and every observation names an extension capability c declares.
+// ValidateEvidenceSet already refused a ref named twice.
+func checkExtensionReport(c contract.Contract, set evidence.EvidenceSet, acceptedAt time.Time) error {
+	if !extensionSubject(set) {
+		repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
+		return fmt.Errorf("extension subject %q must sit under the contract repository with an /extension/ segment, such as %s<environment>/extension/<name>", set.Subject.Name, repo+"/")
+	}
+	if set.ObservedAt.After(acceptedAt.Add(fleet.MaxProvisioningClockSkew)) {
+		return fmt.Errorf("extension report is dated %s, more than %s after it was accepted", set.ObservedAt.Format(time.RFC3339), fleet.MaxProvisioningClockSkew)
+	}
+	for i, o := range set.Observations {
+		if !slices.ContainsFunc(c.Capabilities, func(cap contract.Capability) bool {
+			return cap.Type == contract.CapabilityExtension && cap.Ref == o.Subject.Name
+		}) {
+			return fmt.Errorf("observation[%d]: the contract declares no extension capability %q", i, o.Subject.Name)
+		}
+	}
+	return nil
+}
+
+// extensionSubject reports whether set's subject sits under its contract
+// repository with an "extension" segment.
+func extensionSubject(set evidence.EvidenceSet) bool {
+	repo, _, _ := strings.Cut(contract.TrimOCIScheme(set.ContractRef), "@")
+	rest, under := strings.CutPrefix(set.Subject.Name, repo+"/")
+	return under && hasInnerSegment(rest, "extension")
+}
+
+// extensionGranted re-applies the accept-time binding of an extension report
+// to a stored record: its subject passes the extension subject rule and the
+// signing key's current trust entry grants every ref it reports. A record
+// stored before extension grants existed, or after its grant was revoked,
+// never reads as a verdict.
+func (a *Acceptor) extensionGranted(rec Record) bool {
+	set := rec.Envelope.EvidenceSet
+	if a.trust == nil || !extensionSubject(set) {
+		return false
+	}
+	entry, ok := a.trust.Entry(rec.Envelope.Producer.KeyID)
+	return ok && !slices.ContainsFunc(set.Observations, func(o evidence.Observation) bool {
+		return !slices.Contains(entry.ExtensionRefs, o.Subject.Name)
+	})
 }
 
 // isResourceReport reports whether set carries provider-reported observations
@@ -392,7 +478,7 @@ func CheckReportSubject(set evidence.EvidenceSet) error {
 	if !strings.HasPrefix(set.Subject.Name, repo+"/") {
 		return fmt.Errorf("subject %q must start with the contract repository %q", set.Subject.Name, repo+"/")
 	}
-	usage, segment := isUsageReport(set), hasUsageSegment(strings.TrimPrefix(set.Subject.Name, repo+"/"))
+	usage, segment := isUsageReport(set), hasInnerSegment(strings.TrimPrefix(set.Subject.Name, repo+"/"), "usage")
 	if usage && !segment {
 		return fmt.Errorf("usage subject %q must hold a /usage/ segment under the contract repository, such as %s<environment>/usage/<kind>/<name>", set.Subject.Name, repo+"/")
 	}
@@ -402,14 +488,14 @@ func CheckReportSubject(set evidence.EvidenceSet) error {
 	return nil
 }
 
-// hasUsageSegment reports whether rest (a subject below the contract
-// repository) holds "usage" as an inner segment after the first, as in
-// <environment>/usage/<kind>/<name>. A default provisioning subject,
-// <environment>/<kind>/<name>, can never hold it there, so the two never share
-// a subject.
-func hasUsageSegment(rest string) bool {
+// hasInnerSegment reports whether rest (a subject below the contract
+// repository) holds seg as an inner segment after the first, as in
+// <environment>/usage/<kind>/<name> or <environment>/extension/<name>. A
+// default provisioning subject, <environment>/<kind>/<name>, can never hold
+// "usage" there, so the two never share a subject.
+func hasInnerSegment(rest, seg string) bool {
 	segs := strings.Split(rest, "/")
-	return len(segs) > 2 && slices.Contains(segs[1:len(segs)-1], "usage")
+	return len(segs) > 2 && slices.Contains(segs[1:len(segs)-1], seg)
 }
 
 // checkProvisionedObservation checks one provisioning or usage observation
@@ -705,6 +791,12 @@ const TargetsSchemaVersionUsage = "pacto.dev/evidence-source/v4"
 // a body it would misread.
 const TargetsSchemaVersionCluster = "pacto.dev/evidence-source/v5"
 
+// TargetsSchemaVersionExtensions is v5 plus the extensions list. The server
+// writes it only when the response carries an extension report, so a v5 reader
+// keeps working against a server with none, and refuses a body it would
+// misread.
+const TargetsSchemaVersionExtensions = "pacto.dev/evidence-source/v6"
+
 // maxFindingsPerTarget bounds the findings projected per target so one pathological
 // target cannot blow the response body even under the target-count bound.
 const maxFindingsPerTarget = 500
@@ -836,6 +928,30 @@ type UsageDTO struct {
 	AcceptedAt    time.Time              `json:"acceptedAt"`
 }
 
+// ExtensionDTO is one producer's report on an extension capability Ref that
+// the consumer revision (Service, Domain, Digest, ContractRef) declares. It is
+// never a target: an extension report is a verdict on one assertion of the
+// contract and adds no environment to the fleet. Present and Details are set
+// only for an Observed outcome; Details is the producer's own bounded account,
+// never interpreted.
+type ExtensionDTO struct {
+	Subject       string          `json:"subject"`
+	Service       string          `json:"service"`
+	Domain        string          `json:"domain,omitempty"`
+	Digest        string          `json:"digest,omitempty"`
+	ContractRef   string          `json:"contractRef"`
+	Producer      string          `json:"producer"`
+	ProducerKeyID string          `json:"producerKeyId,omitempty"`
+	Ref           string          `json:"ref"`
+	Outcome       string          `json:"outcome"`
+	Present       *bool           `json:"present,omitempty"`
+	Details       json.RawMessage `json:"details,omitempty"`
+	EvidenceAt    time.Time       `json:"evidenceAt"`
+	AcceptedAt    time.Time       `json:"acceptedAt"`
+	// Cluster is the id of the cluster whose server accepted the record.
+	Cluster string `json:"cluster,omitempty"`
+}
+
 // TargetsResponse is the versioned read-only evidence-source contribution.
 type TargetsResponse struct {
 	SchemaVersion string            `json:"schemaVersion"`
@@ -845,6 +961,7 @@ type TargetsResponse struct {
 	Targets       []TargetDTO       `json:"targets"`
 	Provisioning  []ProvisioningDTO `json:"provisioning,omitempty"`
 	Usage         []UsageDTO        `json:"usage,omitempty"`
+	Extensions    []ExtensionDTO    `json:"extensions,omitempty"`
 	Cluster       *ClusterDTO       `json:"cluster,omitempty"`
 }
 
@@ -873,6 +990,20 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 	// reports cannot grow the response past the bound targets alone respect.
 	budget := h.maxTargets
 	for _, rec := range res.Records {
+		// Only a record whose every observation is an extension one, under an
+		// extension subject, from a key granted each ref is an extension
+		// report. A record a runtime key stored before extension grants existed
+		// (mixed, or under a runtime subject) stays a target; one under an
+		// extension subject whose grant is gone is dropped.
+		if es := rec.Envelope.EvidenceSet; isExtensionReport(es) {
+			if h.acceptor.extensionGranted(rec) {
+				budget = appendExtensionReports(&out, rec, budget)
+				continue
+			}
+			if extensionSubject(es) {
+				continue
+			}
+		}
 		if isResourceReport(rec.Envelope.EvidenceSet) {
 			budget = appendResourceReports(&out, rec, budget)
 			continue
@@ -886,6 +1017,8 @@ func (h *Handler) handleTargets(w http.ResponseWriter, r *http.Request) {
 		budget--
 	}
 	switch {
+	case len(out.Extensions) > 0:
+		out.SchemaVersion = TargetsSchemaVersionExtensions
 	case clustered:
 		out.SchemaVersion = TargetsSchemaVersionCluster
 	case len(out.Usage) > 0:
@@ -947,6 +1080,30 @@ func appendResourceReports(out *TargetsResponse, rec Record, budget int) int {
 	return budget
 }
 
+// appendExtensionReports projects one extension record, one DTO per
+// observation, within budget, and returns the budget left.
+func appendExtensionReports(out *TargetsResponse, rec Record, budget int) int {
+	es := rec.Envelope.EvidenceSet
+	for _, o := range es.Observations {
+		if budget == 0 {
+			out.Truncated = true
+			return 0
+		}
+		budget--
+		dto := ExtensionDTO{
+			Subject: es.Subject.Name, Service: rec.Service, Domain: rec.Domain, Digest: rec.Digest,
+			ContractRef: es.ContractRef, Producer: rec.Envelope.Producer.ID, ProducerKeyID: rec.Envelope.Producer.KeyID,
+			Ref: o.Subject.Name, Outcome: string(o.Outcome), EvidenceAt: es.ObservedAt, AcceptedAt: rec.AcceptedAt, Cluster: rec.Cluster,
+		}
+		// The payload was validated at accept; a non-Observed outcome has none.
+		if p, err := o.GetCapabilityObservation(); err == nil {
+			dto.Present, dto.Details = &p.Present, p.Details
+		}
+		out.Extensions = append(out.Extensions, dto)
+	}
+	return budget
+}
+
 // usageDTO projects one usage observation of rec.
 func usageDTO(rec Record, o evidence.Observation) UsageDTO {
 	es := rec.Envelope.EvidenceSet
@@ -974,7 +1131,7 @@ func classifyAcceptError(err error) (int, string, string) {
 		errors.Is(err, evidenceenvelope.ErrBadSignature), errors.Is(err, evidenceenvelope.ErrUnknownKey),
 		errors.Is(err, evidenceenvelope.ErrUnsignedEnvelope), errors.Is(err, evidenceenvelope.ErrBadAlgorithm),
 		errors.Is(err, evidenceenvelope.ErrProducerMismatch), errors.Is(err, evidenceenvelope.ErrSubjectNotAllowed),
-		errors.Is(err, evidenceenvelope.ErrKindNotAllowed):
+		errors.Is(err, evidenceenvelope.ErrKindNotAllowed), errors.Is(err, evidenceenvelope.ErrExtensionNotAllowed):
 		return http.StatusUnauthorized, "unauthorized_producer", "the envelope could not be authenticated or is not authorized for this producer or subject"
 	case errors.Is(err, ErrContractRefPolicy):
 		return http.StatusUnprocessableEntity, "contract_ref_rejected", "the contract reference is not an approved immutable digest reference"

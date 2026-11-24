@@ -509,8 +509,9 @@ evidence:
     # contract-repository and observation-kind allowlists: a provisioning
     # adapter needs allowedObservationKinds [ResourceProvisioned], and
     # allowedProviderRepos scopes a provisioning adapter to the provider
-    # repositories it serves. Its publicKeyFile entries name other keys of the
-    # same Secret. Empty trusts
+    # repositories it serves, and an extension verifier needs
+    # allowedExtensionRefs naming each extension capability ref it reports on.
+    # Its publicKeyFile entries name other keys of the same Secret. Empty trusts
     # every *.pub key in the Secret for runtime evidence only.
     configKey: ""
   service:
@@ -716,6 +717,26 @@ delivery:
       # repositories, for a private registry. Without it the promoter reads only public ones.
       secretName: ""
 
+  environments:
+    # -- Create and retire Stages from the installation ladder for the services Pacto delivers. The
+    # promoter publishes the ladder and the environments it proposes from the cluster in the
+    # ConfigMap `pacto-delivery-environments`, which every authenticated user may read
+    enabled: true
+    # -- The installation ladder, in promotion order: each rung takes what the one before verified
+    ladder:
+      - staging
+      - production
+    # -- Create the namespace a service is placed in when it does not exist. A declared or observed
+    # placement gets it at once; any other once a person runs
+    # `pacto delivery ladder confirm --create-namespaces`. Pacto labels it and never deletes it.
+    # Refused with `profile: hardened`
+    createNamespaces: false
+    # -- How long a Stage Pacto created is kept after its environment leaves the installation ladder
+    # or the contract, or a temporary environment expires, before Pacto deletes it with the Flux
+    # objects and deployer account it created (a Go duration). Hand-written Stages, namespaces and
+    # workloads are never deleted
+    retireAfter: 168h
+
   # Who may publish a version a Stage with `candidates.registry` accepts. These are the only trust
   # inputs the chart holds: the publisher rule's registry, the Sigstore root and the bootstrap
   # delivery policy. A signer no rule covers is confirmed once per service in the delivery inbox, and
@@ -899,8 +920,9 @@ delivery:
     # untrusted.
     trust: ""
     # -- A URL the recorder POSTs a CDEvent (CloudEvents, structured mode) to for every record and when
-    # a Stage is created or deleted (environment.created, environment.deleted), best effort. Empty
-    # sends none.
+    # a Stage is created or deleted (environment.created, environment.deleted), best effort. The
+    # promoter posts the environment events of the Stages Pacto created from the installation ladder,
+    # including a delete made while it was down. Empty sends none.
     cdeventsSink: ""
     monitoring:
       # -- Scrape the recorder's metrics and alert when records fall behind: a metrics Service, a

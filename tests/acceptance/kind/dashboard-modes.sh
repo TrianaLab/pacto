@@ -260,7 +260,7 @@ catalog_is() { # STATUS — the catalog's state, advisory, and the completeness 
   jq -e --arg s "$1" --arg c "$before" '(.meta.sources | any(.kind == "backstage-catalog" and .status == $s and .advisory == true))
     and .meta.completeness == $c' >/dev/null <<<"$st" || return 1
   curl -s -H "Cookie: __Host-pacto-session=$session" http://127.0.0.1:3000/api/sources |
-    jq -e --arg s "$1" 'any(.type == "backstage-catalog" and .enabled == ($s != "unavailable"))' >/dev/null
+    jq -e --arg s "$1" '.sources | any(.type == "backstage-catalog" and .enabled == ($s != "unavailable"))' >/dev/null
 }
 eventually 60 catalog_is available || fail "the catalog is not an available advisory source with completeness $before: $(fleet_status | jq -c '{completeness: .meta.completeness, sources: .meta.sources}')"
 kubectl -n backstage scale deploy/backstage --replicas=0 >/dev/null

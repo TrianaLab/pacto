@@ -659,6 +659,14 @@ export function installScaleFixture(): void {
       for (const r of (doc.frozen as Record<string, unknown>[] | undefined) ?? []) {
         for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
       }
+      // The installation ladder proposal at its largest (511-S5): 16 proposed rungs with
+      // long names and sources and the full 64-hex digest the command carries.
+      const ladder = doc.ladder as Record<string, unknown> | undefined;
+      if (ladder) {
+        const digest = `sha256:${'5be1c0de'.repeat(8)}`;
+        ladder.proposal = Array.from({ length: 16 }, (_, i) => ({ name: longName(`rung-${i}`), source: longName(`namespaces *-rung-${i}, ${i + 2} found`), provenance: 'inferred' }));
+        Object.assign(ladder, { proposalDigest: digest, command: `pacto delivery ladder confirm --proposal ${digest}` });
+      }
     }
     // The environments figure at fleet scale: 60 environments with long names and a
     // declared chain through them, Stages in the thousands; the board stays the engine's.
@@ -690,6 +698,17 @@ export function installScaleFixture(): void {
         for (const k of ['readyFix', 'readyMessage', 'sourceRevision', 'contractRef']) if (typeof r[k] === 'string') r[k] = longName(r[k] as string);
         const lc = r.lastCheck as { verdicts?: Record<string, unknown>[] } | undefined;
         for (const v of lc?.verdicts ?? []) v.message = longName(String(v.message ?? v.gate));
+        // Every row's placement mark at its longest (511-S5).
+        r.source = i % 2 ? 'inferred-confirmed' : 'ladder';
+        r.placement = { namespace: longName(`placement-${String(r.namespace)}`), provenance: i % 2 ? 'inferred' : 'observed', source: 'gitops-source',
+          evidence: longName(`Argo CD source ${String(r.service)}`), confirmedBy: i % 2 ? `oidc:${longName('alice')}@acme.example` : undefined };
+      }
+      // 2000 environments not placed, each with a long reason, collapsed under the board.
+      if (Array.isArray(doc.environments)) {
+        doc.unplaced = Array.from({ length: 2000 }, (_, i) => ({ service: longName(`unplaced-${i}`), environment: longName(`rung-${i % 16}`), source: 'ladder',
+          placement: { namespace: longName(`namespace-${i}`), provenance: 'inferred', source: 'inferred-from' }, reason: longName(`namespace refused ${i}`) }));
+        // and more hidden in namespaces the reader cannot list, counted under the list.
+        doc.unplacedHidden = 1234;
       }
     }
     // The Why card at its longest: many reasons, each with a long message and fix.
@@ -815,14 +834,17 @@ export function installScaleFixture(): void {
       if (typeof changes?.completenessReason === 'string') changes.completenessReason = longName(changes.completenessReason);
     }
     // A revision's and a target's environments at their longest: names, files and owners.
-    const lengthenEnv = (d: Record<string, unknown> | undefined) => {
+    // Every third revision environment has no values file (pactoVersion 2.6), so its
+    // "No values file" slot is drawn at scale too.
+    const lengthenEnv = (d: Record<string, unknown> | undefined, i = 1) => {
       if (!d) return;
-      d.name = longName(String(d.name ?? 'env')); d.file = longName(String(d.file ?? 'file'));
+      d.name = longName(String(d.name ?? 'env'));
+      if (i % 3) d.file = longName(String(d.file ?? 'file')); else delete d.file;
       if (d.owner) d.owner = { team: longName(String((d.owner as { team?: string }).team ?? 'team')) };
     };
     if (route === '/api/fleet/entities/revision') {
       const rev = doc.revision as Record<string, unknown> | undefined;
-      for (const d of (rev?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) lengthenEnv(d);
+      for (const [i, d] of ((rev?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []).entries()) lengthenEnv(d, i);
       // pactoVersion 2.5 at its longest: 20 announced break consumers of 25 with a long
       // reason (every other one linked to the service it names), a 5-digit port on
       // every interface, a long inferred source and a dependency named from its ref
@@ -858,6 +880,25 @@ export function installScaleFixture(): void {
           { code: 'DISCOVERY_TRUNCATED', source: '.', message: 'discovery stopped after 5000 files; 4000 files were not read, so results are partial' },
           ...Array.from({ length: 19 }, (_, i) => ({ code: 'DISCOVERY_UNSUPPORTED_FILE', source: longSource(`helmfile-${i}.yaml`), message: longName(`helmfile-${i}.yaml is not read: a format Pacto does not read`) })),
         ] };
+        // Extension checks (516-S9) at their longest: covered, failing with two producers,
+        // unknown stale with a long reason, and a ref nobody reports on (no check).
+        const extRef = (s: string) => `${longName(`x.${s}.example.io`)}/${longName(s)}`;
+        const extCheck = (ref: string, state: string, more: Record<string, unknown>) => ({ ref, state, provenance: 'observed',
+          producer: longName('producer-acme-backup'), producerKeyId: longName('producer-acme-backup-key-2026'), source: longName('evidence-prod'),
+          asOf: '2026-11-10T07:00:00Z', ...more });
+        const refs = ['backup', 'restore', 'audit', 'quota'].map(extRef);
+        const caps = rev.capabilities as { items?: Record<string, unknown>[]; total?: number; count?: number } | undefined;
+        if (caps) {
+          caps.items = [
+            // A dotted producer id with no hyphen or space breaks only through overflow-wrap.
+            { type: 'extension', ref: refs[0], check: extCheck(refs[0], 'covered', { producer: longName('producer-acme-backup').replace(/[-\s]/g, '.') }) },
+            { type: 'extension', ref: refs[1], check: extCheck(refs[1], 'failing', { producers: [longName('producer-acme-backup'), longName('producer-dr-audit')],
+              reason: longName('reported absent by producer-acme-backup') }) },
+            { type: 'extension', ref: refs[2], check: extCheck(refs[2], 'unknown', { stale: true, reason: longName('the last report is older than the freshness window') }) },
+            { type: 'extension', ref: refs[3] },
+          ];
+          caps.total = caps.count = caps.items.length;
+        }
       }
     }
     // A contributed service (509-S11) at its longest: a 200-character producer, a
@@ -2984,6 +3025,19 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },
+  {
+    // The scale fixture's extension rows (516-S9) live in the closed Capabilities
+    // section, which mounts nothing: open it so SPEC 22-24 run over the rows.
+    name: 'revision entity, extension checks open',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/')(page);
+      const sec = page.locator('details').filter({ has: page.locator('summary.ps-head', { hasText: 'Capabilities' }) }).first();
+      await expect(sec, 'Capabilities is on the page').toBeAttached({ timeout: 30_000 });
+      await sec.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+      await expect(page.locator('[data-testid=ext-check]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
   { name: 'target list', list: true, hash: '#/fleet/targets' },
   { name: 'target entity', open: firstLink('#/fleet/targets', '/fleet/targets/') },
   {
@@ -3531,6 +3585,33 @@ export const ROUTES: Route[] = [
   { name: 'external entity, unclaimed with claim', open: async (page) => { await page.goto('/#/fleet/externals/stripe'); await expect(page.getByTestId('external-claim')).toBeVisible({ timeout: 30_000 }); } },
   { name: 'external entity, claim panel', open: claimRoute('') },
   { name: 'external entity, claim refused', open: claimRoute('refused') },
+  // 511-S5: the installation ladder proposal opened as a person who may confirm it (the
+  // default persona is an agent, which sees no Confirm), with the long command shown.
+  {
+    name: 'delivery inbox, ladder proposal',
+    open: async (page) => {
+      await page.goto('/#/delivery/inbox');
+      await page.getByTestId('identity-trigger').click({ timeout: 30_000 });
+      await page.getByRole('button', { name: 'Switch person' }).click();
+      await page.getByTestId('demo-persona-alice').click();
+      const ladder = page.getByTestId('inbox-ladder');
+      await ladder.locator('summary').click({ timeout: 30_000 });
+      await ladder.getByRole('button', { name: 'Confirm', exact: true }).click({ timeout: 30_000 });
+      await expect(ladder.getByTestId('ladder-confirm')).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  // 511-S5: the environments not placed, opened under the board.
+  {
+    name: 'delivery environments, unplaced open',
+    open: async (page) => {
+      await page.goto('/#/delivery/environments');
+      const unplaced = page.getByTestId('environments-unplaced');
+      await unplaced.locator('summary').click({ timeout: 30_000 });
+      await expect(unplaced.getByTestId('unplaced-row').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

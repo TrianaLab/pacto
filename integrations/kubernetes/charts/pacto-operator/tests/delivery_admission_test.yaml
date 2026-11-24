@@ -10,13 +10,13 @@ capabilities:
   apiVersions:
     - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
 tests:
-  - it: installs seven policies, each bound with Deny
+  - it: installs eight policies, each bound with Deny
     capabilities:
       apiVersions:
         - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
     asserts:
       - hasDocuments:
-          count: 14
+          count: 16
       - equal:
           path: spec.validationActions
           value: [Deny]
@@ -230,7 +230,7 @@ tests:
       delivery.argocd.enabled: true
     asserts:
       - hasDocuments:
-          count: 18
+          count: 20
       - equal:
           path: spec.matchConstraints.resourceRules[0].resources
           value: [applications]
@@ -381,7 +381,7 @@ tests:
       delivery.recorder.enabled: true
     asserts:
       - hasDocuments:
-          count: 16
+          count: 18
       - equal:
           path: 'spec.variables[?(@.name == "recorder")].expression'
           value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery-recorder'"
@@ -605,3 +605,137 @@ tests:
       - equal:
           path: spec.validationActions
           value: [Deny]
+
+  - it: promoter-managed admits only managed objects
+    documentSelector:
+      path: 'spec.validations[?(@.reason == "Forbidden")].message'
+      value: "the promoter creates and updates only objects labelled delivery.pacto.trianalab.io/managed-by=pacto"
+    asserts:
+      - equal:
+          path: kind
+          value: ValidatingAdmissionPolicy
+      - equal:
+          path: spec.failurePolicy
+          value: Fail
+      - equal:
+          path: spec.matchConstraints.resourceRules[0]
+          value: {apiGroups: [delivery.pacto.trianalab.io], apiVersions: ["*"], operations: [CREATE, UPDATE, DELETE], resources: [stages]}
+      - equal:
+          path: 'spec.matchConditions[?(@.name == "promoter")].expression'
+          value: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery'"
+      - equal:
+          path: 'spec.validations[?(@.message == "the promoter updates and deletes only objects labelled delivery.pacto.trianalab.io/managed-by=pacto")].expression'
+          value: "request.operation == 'CREATE' || variables.wasManaged || variables.pointerWrite"
+      # A missing label key is false, never an evaluation error.
+      - equal:
+          path: 'spec.variables[?(@.name == "wasManaged")].expression'
+          value: "request.operation != 'CREATE' && has(oldObject.metadata.labels) && 'delivery.pacto.trianalab.io/managed-by' in oldObject.metadata.labels && oldObject.metadata.labels['delivery.pacto.trianalab.io/managed-by'] == 'pacto'"
+      # Only an update of an OCIRepository it did not create passes unlabelled:
+      # promoter-writes holds that one to its digest.
+      - equal:
+          path: 'spec.variables[?(@.name == "pointerWrite")].expression'
+          value: "request.operation == 'UPDATE' && request.resource.resource == 'ocirepositories' && !variables.managed && !variables.wasManaged"
+
+  - it: promoter-managed admits creating a managed Stage
+    documentSelector:
+      path: 'spec.validations[?(@.reason == "Forbidden")].message'
+      value: "the promoter creates and updates only objects labelled delivery.pacto.trianalab.io/managed-by=pacto"
+    asserts:
+      # A CREATE has no oldObject: only the object's label is read.
+      - equal:
+          path: 'spec.validations[?(@.message == "the promoter creates and updates only objects labelled delivery.pacto.trianalab.io/managed-by=pacto")].expression'
+          value: "request.operation == 'DELETE' || variables.managed || variables.pointerWrite"
+      - equal:
+          path: 'spec.variables[?(@.name == "managed")].expression'
+          value: "request.operation != 'DELETE' && has(object.metadata.labels) && 'delivery.pacto.trianalab.io/managed-by' in object.metadata.labels && object.metadata.labels['delivery.pacto.trianalab.io/managed-by'] == 'pacto'"
+
+  - it: binds promoter-managed with Deny
+    documentSelector:
+      path: spec.policyName
+      value: d-pacto-operator-delivery-promoter-managed
+    asserts:
+      - equal:
+          path: spec.validationActions
+          value: [Deny]
+
+  - it: promoter-writes skips a managed OCIRepository so it can be unsuspended
+    documentSelector:
+      path: 'spec.validations[?(@.message == "the promoter may change only spec.ref.digest")].message'
+      value: "the promoter may change only spec.ref.digest"
+    asserts:
+      - equal:
+          path: 'spec.matchConditions[?(@.name == "managed")].expression'
+          value: "!(has(object.metadata.labels) && 'delivery.pacto.trianalab.io/managed-by' in object.metadata.labels && object.metadata.labels['delivery.pacto.trianalab.io/managed-by'] == 'pacto')"
+
+  - it: promoter-writes keeps an unlabelled OCIRepository digest-only
+    documentSelector:
+      path: 'spec.validations[?(@.message == "the promoter may change only spec.ref.digest")].message'
+      value: "the promoter may change only spec.ref.digest"
+    asserts:
+      # Only the managed label lifts it; every other OCIRepository the
+      # promoter updates is still held to the digest.
+      - equal:
+          path: spec.matchConstraints.resourceRules[0].operations
+          value: [UPDATE]
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "the promoter may change only spec.ref.digest")].expression'
+          pattern: "k == 'digest'"
+
+  - it: renders no promoter-managed policy with the installation ladder off
+    set:
+      delivery.environments.enabled: false
+    asserts:
+      - hasDocuments:
+          count: 14
+      - notEqual:
+          path: metadata.name
+          value: d-pacto-operator-delivery-promoter-managed
+
+  - it: renders no promoter-managed policy without a delivery.environments key
+    set:
+      delivery.environments: null
+    asserts:
+      - hasDocuments:
+          count: 14
+
+  - it: under idp promoter-managed holds the Flux objects and the deployer identity it creates
+    set:
+      profile: idp
+      delivery.environments.createNamespaces: true
+    documentSelector:
+      path: spec.validations[0].message
+      value: "the promoter creates and updates only objects labelled delivery.pacto.trianalab.io/managed-by=pacto"
+    asserts:
+      - contains:
+          path: spec.matchConstraints.resourceRules
+          content: {apiGroups: [""], apiVersions: ["*"], operations: [CREATE], resources: [namespaces]}
+      - contains:
+          path: spec.matchConstraints.resourceRules
+          content: {apiGroups: [kustomize.toolkit.fluxcd.io], apiVersions: ["*"], operations: [CREATE, UPDATE, DELETE], resources: [kustomizations]}
+      - contains:
+          path: spec.matchConstraints.resourceRules
+          content: {apiGroups: [rbac.authorization.k8s.io], apiVersions: ["*"], operations: [CREATE, UPDATE, DELETE], resources: [rolebindings]}
+
+  - it: under idp the pointer and applier policies admit the promoter on a managed apply-ref object
+    set:
+      profile: idp
+    documentSelector:
+      path: spec.matchConstraints.resourceRules[0].resources[0]
+      value: kustomizations
+    asserts:
+      - matchRegex:
+          path: 'spec.validations[?(@.message == "the delivery.pacto.trianalab.io/apply-ref label marks what applies a Pacto delivery pointer: only break-glass or the GitOps controller creates or deletes one")].expression'
+          pattern: "request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' && \\(request.operation != 'DELETE' && has\\(object.metadata.labels\\) && 'delivery.pacto.trianalab.io/managed-by' in object.metadata.labels"
+      # Only suspend, and only on an object it created, besides break-glass.
+      - matchRegex:
+          path: spec.validations[2].expression
+          pattern: "variables.guarded.all\\(f, \\(f == 'suspend' && request.userInfo.username == 'system:serviceaccount:pacto-delivery:d-pacto-operator-delivery' && request.operation != 'CREATE' && has\\(oldObject.metadata.labels\\)"
+
+  - it: outside idp the applier policy admits no promoter lifecycle write
+    documentSelector:
+      path: spec.matchConstraints.resourceRules[0].resources[0]
+      value: kustomizations
+    asserts:
+      - notMatchRegex:
+          path: 'spec.validations[?(@.reason == "Forbidden")].expression'
+          pattern: "managed-by"

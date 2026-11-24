@@ -88,6 +88,16 @@ type fakeDelivery struct {
 	access    map[string]bool
 	accessErr string
 	accesses  atomic.Int32
+	// ladder, placements and placementsReadable answer Environments;
+	// ladderErr fails it.
+	ladder             *delivery.EnvironmentsView
+	placements         []delivery.PlacementRow
+	placementsReadable bool
+	ladderErr          error
+}
+
+func (f *fakeDelivery) Environments(context.Context) (*delivery.EnvironmentsView, []delivery.PlacementRow, bool, error) {
+	return f.ladder, f.placements, f.placementsReadable, f.ladderErr
 }
 
 func (f *fakeDelivery) Stage(_ context.Context, ns, name string) (*delivery.StageObject, error) {
