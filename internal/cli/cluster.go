@@ -163,6 +163,7 @@ func joinsOn(ctx context.Context, dyn dynamic.Interface, registry, detected, pol
 		Delivery: &app.Delivery{Dynamic: dyn, PolicyNamespace: policyNS, Now: time.Now}}
 	if detected != "" {
 		opts.Candidates = fleetsrc.ClustersReader(dyn, detected, time.Now)
+		opts.Member = app.AdvertisedMember(ctx, dyn, detected, time.Now)
 	}
 	return opts, nil
 }

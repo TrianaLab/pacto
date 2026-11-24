@@ -54,6 +54,10 @@ type Installation struct {
 	// value with any character outside semver's, a trailing space
 	// included, is dropped rather than trimmed.
 	ChartVersion string `json:"chartVersion,omitempty"`
+	// Member says the operator joined a hub as a member (--hub-url): its
+	// promoter asks a person for any change that is not plainly
+	// non-breaking, since consumers in other clusters are read on the hub.
+	Member bool `json:"member,omitempty"`
 }
 
 // Declared is the Installation block as the capability answer reads it, with

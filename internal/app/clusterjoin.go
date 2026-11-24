@@ -45,6 +45,10 @@ type JoinOptions struct {
 	// managers know (the operator's clusters.json), matched to the members
 	// by UID at the end of each read.
 	Candidates func(context.Context) (detect.Clusters, error)
+	// Member says the cluster these options reach is a member of a hub, as
+	// its operator's detection advertises: its plans read no joins and count
+	// one unread cluster, as its promoter does (delivery.MemberOnlyUnread).
+	Member bool
 }
 
 const (
@@ -318,6 +322,14 @@ func AdvertisedTargets(ctx context.Context, dyn dynamic.Interface, ref string, n
 	return res.Installation.Targets, nil
 }
 
+// AdvertisedMember reports whether the operator's detection at ref
+// advertises that its cluster is a member of a hub, read as
+// AdvertisedTargets reads it; false when the detection cannot be read.
+func AdvertisedMember(ctx context.Context, dyn dynamic.Interface, ref string, now func() time.Time) bool {
+	res, why := readDetection(ctx, dyn, ref, now)
+	return why == "" && res.Installation != nil && res.Installation.Member
+}
+
 // AdvertisedChartVersion is the chart version the operator's detection at
 // ref advertises (installation.chartVersion), read as AdvertisedTargets
 // reads it; "" when it names none.
@@ -360,6 +372,11 @@ func (s *Service) PlanMembers(joins *JoinOptions) func(ctx context.Context, envi
 		return nil
 	}
 	return func(ctx context.Context, environment string, known map[string]bool) delivery.Members {
+		if joins.Resolve != nil {
+			if r, err := joins.Resolve(ctx); err == nil && r.Member {
+				return delivery.MemberOnlyUnread() // as the member's promoter plans
+			}
+		}
 		list := s.ClusterJoins(ctx, membersOnly(*joins))
 		trust := delivery.JoinTrust(list.Clusters)
 		r := &snapshotReader{cache: &s.snapshots, now: s.env().now()}

@@ -31,6 +31,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/dynamic"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/trianalab/pacto/v4/internal/authn"
@@ -394,7 +395,8 @@ func TestNoSignersConfiguredKeepsPending(t *testing.T) {
 	e.publish(t, m, m.key, snapNow)
 	e.decide(t, m, delivery.JoinApprove)
 	l := e.svc.ClusterJoins(t.Context(), e.opts())
-	if st := stateOfUID(t, l, m.uid); st.State != delivery.JoinPending || st.Reason != noSigners || l.Completeness != fleet.CompletenessComplete || len(l.Limitations) != 1 {
+	// The approval cannot be judged, so the member it may admit reads unknown: partial.
+	if st := stateOfUID(t, l, m.uid); st.State != delivery.JoinPending || st.Reason != noSigners || l.Completeness != fleet.CompletenessPartial || len(l.Limitations) != 2 {
 		t.Fatalf("%+v %+v", st, l)
 	}
 }
@@ -1250,6 +1252,20 @@ func TestFleetReadsNoCandidates(t *testing.T) {
 		if _, err := e.svc.Fleet(t.Context(), FleetOptions{ClusterJoins: &opts, Now: func() time.Time { return e.clock }}); err != nil {
 			t.Fatal(err)
 		}
+	}
+}
+
+func TestAdvertisedMember(t *testing.T) {
+	now := func() time.Time { return detectedNow }
+	cm := detectedTargets(t, "ghcr.io/acme/pacto-targets", detectedNow)
+	dyn := func() dynamic.Interface { return dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), cm) }
+	if AdvertisedMember(t.Context(), dyn(), "k8s:pacto/det", now) {
+		t.Fatal("a hub's detection says member")
+	}
+	b, _ := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: detectedNow, Cluster: joinHub, Installation: &detect.Installation{Registry: "r", Member: true}})
+	_ = unstructured.SetNestedField(cm.Object, string(b), "data", detect.ConfigMapKey)
+	if !AdvertisedMember(t.Context(), dyn(), "k8s:pacto/det", now) {
+		t.Fatal("a member's detection does not say member")
 	}
 }
 

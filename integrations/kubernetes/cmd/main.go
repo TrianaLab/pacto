@@ -999,7 +999,7 @@ func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubeclu
 	if err != nil {
 		return nil, err
 	}
-	inst := &detect.Installation{Profile: profiles, ChartVersion: o.chartVersion}
+	inst := &detect.Installation{Profile: profiles, ChartVersion: o.chartVersion, Member: o.hubURL != ""}
 	key, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked)
 	if err != nil {
 		return nil, err

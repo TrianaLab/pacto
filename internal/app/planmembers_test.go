@@ -72,6 +72,17 @@ func TestClientPlanWithoutJoinsHasNoMembers(t *testing.T) {
 	}
 }
 
+// TestClientPlanOnAMemberCountsOneUnreadCluster: on a cluster whose operator
+// advertises it is a member, a client plans as its promoter does: no joins,
+// one unread cluster, so a change that is not plainly non-breaking asks a person.
+func TestClientPlanOnAMemberCountsOneUnreadCluster(t *testing.T) {
+	e := newJoinEnv(t, capabilities.ReferrersNative)
+	got := e.svc.PlanMembers(&JoinOptions{Resolve: func(context.Context) (JoinOptions, error) { return JoinOptions{Member: true}, nil }})(t.Context(), "prod", nil)
+	if !reflect.DeepEqual(got, delivery.MemberOnlyUnread()) {
+		t.Fatalf("%+v", got)
+	}
+}
+
 // TestClientMembersEqualMembersOf: the client's members are MembersOf over
 // the list the moved join core reads, as the promoter computes them.
 func TestClientMembersEqualMembersOf(t *testing.T) {

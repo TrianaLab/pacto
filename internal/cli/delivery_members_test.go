@@ -1,10 +1,14 @@
 package cli
 
 import (
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/spf13/viper"
 	"k8s.io/client-go/dynamic"
@@ -12,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 )
@@ -71,4 +76,20 @@ func TestMCPPlanAndDashboardPlanAgreeWithMember(t *testing.T) {
 	expect(t, cmd.ParseFlags([]string{"--k8s", "--detected", "k8s:pacto-system/pacto-operator-detected"}) == nil, "flags")
 	clients, err = remoteDeliveryClients(cmd, svc, d)
 	expect(t, err == nil && clients(e.hub()).Members != nil, "remote MCP reads the hub's members: %v", err)
+}
+
+// TestDeliveryDetectedOnAMemberPlansAsItsPromoter: on a cluster whose
+// operator advertises it is a member, pacto delivery --detected plans as the
+// member's promoter does: one unread cluster, so the plan asks a person for
+// any change that is not plainly non-breaking.
+func TestDeliveryDetectedOnAMemberPlansAsItsPromoter(t *testing.T) {
+	e, _ := approvedEnv(t, capabilities.ReferrersNative)
+	b, _ := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: time.Now(), Cluster: clusterHubUID,
+		Installation: &detect.Installation{Registry: "r", Targets: e.repo, Member: true}})
+	path := filepath.Join(t.TempDir(), "detected.json")
+	expect(t, os.WriteFile(path, b, 0o600) == nil, "write")
+	cmd := newDeliveryCommand(viper.New(), e.d)
+	expect(t, cmd.ParseFlags([]string{"--detected", path}) == nil, "flags")
+	c, _, err := deliveryClientFor(cmd, e.d, e.hub())
+	expect(t, err == nil && reflect.DeepEqual(c.Members(t.Context(), "prod", nil), delivery.MemberOnlyUnread()), "member plan: %v", err)
 }
