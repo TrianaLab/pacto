@@ -43,3 +43,21 @@ func PushRequestOutcome(ctx context.Context, repo *remote.Repository, bundle []b
 	ref, err := Push(ctx, repo, stream, caps.Referrers, delivery.PredicateRequestOutcome, bundle, map[string]string{AnnUID: st.Predicate.Request})
 	return ref, caps.Referrers, err
 }
+
+// PushOperationRequest writes bundle, a signed request
+// (delivery.SignOperationRequest), on its member's request stream in repo,
+// the pacto-targets repository, anchoring the stream first, and returns
+// where it is and the form it took.
+func PushOperationRequest(ctx context.Context, repo *remote.Repository, bundle []byte) (string, capabilities.ReferrersMode, error) {
+	st, err := delivery.OpenOperationRequest(bundle, func([]byte) error { return nil }) // its signer made it
+	if err != nil {
+		return "", "", err
+	}
+	stream := delivery.ClusterRequestStream(st.Predicate.Cluster)
+	caps, err := EnsureAnchor(ctx, repo, stream)
+	if err != nil {
+		return "", "", err
+	}
+	ref, err := Push(ctx, repo, stream, caps.Referrers, delivery.PredicateOperationRequest, bundle, nil)
+	return ref, caps.Referrers, err
+}

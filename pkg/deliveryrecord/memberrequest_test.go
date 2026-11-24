@@ -152,3 +152,45 @@ func TestKindOfMemberRequest(t *testing.T) {
 		t.Fatal("kinds")
 	}
 }
+
+// requestBundle is a signed request on joinUID's request stream.
+func requestBundle(t *testing.T) []byte {
+	t.Helper()
+	_, priv, _ := ed25519.GenerateKey(rand.Reader)
+	r := delivery.OperationRequest{Cluster: joinUID, Hub: "hub", Service: delivery.ServiceRef{Name: "billing"}, Environment: "production",
+		Digest: requestDigest(7), Requester: "oidc:alice@acme.com", At: "2026-11-23T10:00:00Z", Expires: "2026-11-24T10:00:00Z",
+		Placement: delivery.RequestPlacement{Source: delivery.RequestPlacedAdvertised, ConfirmedBy: "oidc:alice@acme.com"}}
+	b, err := delivery.SignOperationRequest(t.Context(), edSigner(priv), delivery.NewOperationRequestStatement(r))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// TestPushOperationRequestAnchorsStream: in either form a request pushed to
+// an empty repository anchors its member's request stream and reads back;
+// a bundle that is no request, a failed push or probe is an error.
+func TestPushOperationRequestAnchorsStream(t *testing.T) {
+	for _, mode := range modes {
+		t.Run(string(mode), func(t *testing.T) {
+			repo := joinServer(t, mode, nil)
+			ref, got, err := PushOperationRequest(t.Context(), repo, requestBundle(t))
+			if err != nil || got != mode || !strings.Contains(ref, "@sha256:") {
+				t.Fatalf("%s %s %v", ref, got, err)
+			}
+			if recs, cut, err := (&Reader{}).ListOperationRequests(t.Context(), repo, joinUID); err != nil || cut || len(recs) != 1 {
+				t.Fatalf("%d %v %v", len(recs), cut, err)
+			}
+		})
+	}
+	if _, _, err := PushOperationRequest(t.Context(), joinServer(t, capabilities.ReferrersNative, nil), []byte("{}")); err == nil {
+		t.Fatal("pushed a bundle that is no request")
+	}
+	put := func(r *http.Request) bool { return r.Method == http.MethodPut }
+	probe := func(r *http.Request) bool { return strings.Contains(r.URL.Path, "/referrers/") }
+	for name, fails := range map[string]func(*http.Request) bool{"push": put, "probe": probe} {
+		if _, _, err := PushOperationRequest(t.Context(), joinServer(t, capabilities.ReferrersNative, fails), requestBundle(t)); err == nil {
+			t.Fatalf("%s: no error", name)
+		}
+	}
+}

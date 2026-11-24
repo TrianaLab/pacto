@@ -19,6 +19,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	"oras.land/oras-go/v2/registry/remote"
 
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
@@ -121,7 +122,7 @@ func (e *keylessEnv) run(t *testing.T, args ...string) (string, string, error) {
 	v := viper.New()
 	v.Set(outputFormatKey, "text")
 	v.Set("verbose", true)
-	cmd := newDeliveryCommand(v, e.d)
+	cmd := newDeliveryCommand(app.NewService(nil, nil), v, e.d)
 	out, errOut := &strings.Builder{}, &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)

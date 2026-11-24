@@ -433,6 +433,38 @@ func verifiedPolicy(ctx context.Context, reg policyReader, cfg delivery.Publishe
 	return delivery.OpenPolicy(bundle, verify)
 }
 
+// verifiedPlacement is the signed placement policy at the tag placement of
+// the repository cfg's delivery policy lives in, verified with cfg's policy
+// signers, and its digest. No delivery policy, or none at the tag, is nil
+// with no error; one that cannot be read or verified is an error.
+func verifiedPlacement(ctx context.Context, reg policyReader, cfg delivery.PublisherConfig) (*delivery.PlacementPolicy, string, error) {
+	if cfg.Policy == "" {
+		return nil, "", nil
+	}
+	verify, err := delivery.PolicyVerifier([]byte(cfg.PolicySigners), signing.OpenKey)
+	if err != nil {
+		return nil, "", err
+	}
+	ref, err := name.ParseReference(cfg.Policy)
+	if err != nil {
+		return nil, "", err
+	}
+	repo := ref.Context().String()
+	h, err := reg.Head(ctx, repo+":"+delivery.PlacementPolicyTag)
+	if err != nil || h == nil {
+		return nil, "", err
+	}
+	bundle, _, err := reg.Layer(ctx, repo, h.Digest)
+	if err != nil {
+		return nil, "", err
+	}
+	pol, err := delivery.OpenPlacementPolicy(bundle, verify)
+	if err != nil {
+		return nil, "", err
+	}
+	return &pol, h.Digest, nil
+}
+
 // pinsOf is the pins of service, and of the same-named service of a Stage
 // that names no domain, with what of them could not be read (cut says only
 // part of a listing was read, so a signer no pin read covers is unknown).

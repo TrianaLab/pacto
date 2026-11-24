@@ -614,3 +614,25 @@ func JoinTrust(states []ClusterJoinState) *TrustConfig {
 	}
 	return t
 }
+
+// MemberRecordTrust is the trust config approved members' Stage records
+// verify with: each member's recorder key, named member-recorder:<name> and
+// scoped to exactly the Stage streams its join block lists, whatever the key
+// itself claims. A member with no recorder key or no stream adds none, so
+// the key never verifies a snapshot, a request outcome or another member's
+// stream.
+func MemberRecordTrust(states []ClusterJoinState) *TrustConfig {
+	t := &TrustConfig{}
+	for _, s := range states {
+		if s.State != JoinApproved || s.RecorderKey == nil || len(s.Streams) == 0 {
+			continue
+		}
+		k := *s.RecorderKey
+		k.Name, k.Role, k.Streams, k.UntilSeq, k.UntilRecord = "member-recorder:"+s.Name, "", nil, 0, ""
+		for _, st := range s.Streams {
+			k.Streams = append(k.Streams, st.Stream)
+		}
+		t.Keys = append(t.Keys, k)
+	}
+	return t
+}

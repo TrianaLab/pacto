@@ -764,6 +764,7 @@ pacto delivery approve [<operation>] [flags]
       --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
       --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)
       --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
+      --registry string             with --intent and no --trust: the registry the hub's members publish to; the intent then verifies under the recorder key its member advertises, on that member's Stage streams only, and the hub's approver signers sign the decision unless --signers names others
       --signers string              the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
       --timestamp-url string        timestamp authority to date the signature with, when the installation's signer names none
 ```
@@ -1039,12 +1040,16 @@ pacto delivery plan [flags]
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
       --correlation-id string                                       an id that ties this change to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
+      --environment string                                          member mode: the environment to promote it in
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
   -h, --help[=true|false]                                           help for plan
+      --member stringArray                                          member mode: a member to request on, by its uid or an 8-character prefix (repeatable; default every placed member)
       --on-behalf-of string                                         the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
-      --stage string                                                the Stage to change (required)
+      --registry string                                             member mode: the registry the members publish to, or its pacto-targets repository
+      --service string                                              member mode: the service to promote on the members of this hub, with --environment and a sha256: --to
+      --stage string                                                the Stage to change; or name --service and --environment to request a promote on the hub's members
       --to string                                                   where to move: for a pointer type a version (3.0.0), a tag or an artifact digest (sha256:...), where a version or tag must name exactly one version pacto publish published that the Stage may take (list them with pacto delivery candidates); for delivery.pacto.trianalab.io/autonomy a level (observe, advise, auto-nonbreaking or autonomous)
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
@@ -1052,7 +1057,7 @@ pacto delivery plan [flags]
 
 ### `pacto delivery propose`
 
-Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan or the reason or on-behalf-of differs
+Propose an operation on a Stage of this cluster. In member mode (--service, --environment, a sha256: --to and --registry) it plans the promote over the hub's members and, with --confirm, logs you in again in your browser and signs one request per placed member (or per --member) keyless as you, pushed to that member's request stream; without --confirm it prints the plan and signs nothing. Each member verifies the request, checks your grant there and raises the promote as a proposal its own gates and approvals decide.
 
 ```
 pacto delivery propose [flags]
@@ -1062,15 +1067,23 @@ pacto delivery propose [flags]
 
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
+      --confirm[=true|false]                                        member mode: sign one request per member as you, after a fresh login in your browser
       --correlation-id string                                       an id that ties this change to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
+      --environment string                                          member mode: the environment to promote it in
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
+      --fulcio-url string                                           member mode: Fulcio to get the signing certificate from, when the hub's signer names none
   -h, --help[=true|false]                                           help for propose
       --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches, so pass the same --to, --reason and --on-behalf-of
+      --issuer string                                               member mode: the approver signer's OIDC issuer, when the hub lists several
+      --member stringArray                                          member mode: a member to request on, by its uid or an 8-character prefix (repeatable; default every placed member)
       --name string                                                 the Operation name (generated when empty)
       --on-behalf-of string                                         the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
-      --stage string                                                the Stage to change (required)
+      --registry string                                             member mode: the registry the members publish to, or its pacto-targets repository
+      --service string                                              member mode: the service to promote on the members of this hub, with --environment and a sha256: --to
+      --stage string                                                the Stage to change; or name --service and --environment to request a promote on the hub's members
+      --timestamp-url string                                        member mode: timestamp authority to date the signature with, when the hub's signer names none
       --to string                                                   where to move: for a pointer type a version (3.0.0), a tag or an artifact digest (sha256:...), where a version or tag must name exactly one version pacto publish published that the Stage may take (list them with pacto delivery candidates); for delivery.pacto.trianalab.io/autonomy a level (observe, advise, auto-nonbreaking or autonomous)
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes

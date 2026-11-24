@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // A member request is a person's signed ask, pushed by a hub to a member's
@@ -446,4 +449,115 @@ func (a RequestAllowlist) Refusal(service ServiceRef, namespace, environment str
 		return "", ""
 	}
 	return RefusalOutsideAllowlist, why
+}
+
+// DefaultRequestLifetime is how long a request the hub signs lives.
+const DefaultRequestLifetime = 24 * time.Hour
+
+// NewOperationRequestStatement builds the statement of r: its subject is its
+// member's request stream, by the digest it asks for.
+func NewOperationRequestStatement(r OperationRequest) OperationRequestStatement {
+	return OperationRequestStatement{Type: StatementType, Subject: requestSubject(r.Cluster, r.Digest),
+		PredicateType: PredicateOperationRequest, Predicate: r}
+}
+
+// SignOperationRequest signs st and returns the bundle.
+func SignOperationRequest(ctx context.Context, s Signer, st OperationRequestStatement) ([]byte, error) {
+	bundle, _, err := signStatement(ctx, s, st)
+	return bundle, err
+}
+
+// VerifiedRequest is a request a hub read and verified: signed by a person
+// under its approver signers, naming that person as requester and the
+// stream's member as cluster. Manifest is its manifest digest, the key its
+// outcomes carry; SignedAt its verified signing time.
+type VerifiedRequest struct {
+	Request  OperationRequest
+	Manifest string
+	SignedAt time.Time
+}
+
+// The states a member is in for a planned promote, as the hub reads them.
+const (
+	MemberNoRequest = "no request"
+	MemberWaiting   = "waiting"
+	MemberUnknown   = "unknown"
+	MemberRefused   = "refused"
+	MemberRaised    = "raised"
+	MemberHeld      = "held"
+	MemberApplied   = "applied"
+	MemberRejected  = "rejected"
+	MemberFailed    = "failed"
+)
+
+// MemberState is one placed member and what happened to the newest request
+// a person signed for it: its state, the digest asked for, the reason and
+// the next command, the Operation it raised (namespace/name), when the
+// member last said anything (its snapshot's asOf) and whether that is stale.
+type MemberState struct {
+	UID       string `json:"uid"`
+	Name      string `json:"name"`
+	State     string `json:"state" enum:"no request,waiting,unknown,refused,raised,held,applied,rejected,failed"`
+	Digest    string `json:"digest,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Next      string `json:"next,omitempty"`
+	Operation string `json:"operation,omitempty"`
+	AsOf      string `json:"asOf,omitempty"`
+	Stale     bool   `json:"stale,omitempty"`
+}
+
+// MemberPlan is a promote of Service in Environment planned over the members
+// of a hub: the placement, each placed member's state, the members a
+// restricted reader may not see (counted, with why), what was not read
+// (Notes; Completeness partial) and the command a person runs to confirm.
+type MemberPlan struct {
+	Service      ServiceRef          `json:"service"`
+	Environment  string              `json:"environment"`
+	Version      string              `json:"version,omitempty"`
+	Digest       string              `json:"digest,omitempty"`
+	Placement    MemberPlacementPlan `json:"placement"`
+	Members      []MemberState       `json:"members"`
+	Hidden       int                 `json:"hidden"`
+	HiddenReason string              `json:"hiddenReason,omitempty"`
+	Completeness fleet.Completeness  `json:"completeness"`
+	Notes        []string            `json:"notes,omitempty"`
+	AsOf         string              `json:"asOf"`
+	Next         string              `json:"next,omitempty"`
+}
+
+// The codes the hub refuses a member plan or request with, each with its
+// next command (HubRefusal).
+const (
+	RefusalMemberRequestNeedsPerson = "MemberRequestNeedsPerson"
+	RefusalNotAMember               = "NotAMember"
+	RefusalStageOrMembers           = "StageOrMembers"
+	RefusalMemberRecorderUnknown    = "MemberRecorderUnknown"
+	RefusalDigestRequired           = "DigestRequired"
+	RefusalMemberTakesNoRequests    = "MemberTakesNoRequests"
+	RefusalIssuerNotAccepted        = "IssuerNotAccepted"
+)
+
+// ConfirmCommand is the command a person runs on the hub to sign the
+// requests of req, reading the members from registry.
+func ConfirmCommand(req Request, registry string) string {
+	cmd := fmt.Sprintf("pacto delivery propose --service %s --environment %s --to %s", req.Service, req.Environment, cmp.Or(req.To, "<sha256 digest>"))
+	for _, m := range req.Members {
+		cmd += " --member " + m
+	}
+	return cmd + " --registry " + cmp.Or(registry, "<registry>") + " --confirm"
+}
+
+// HubRefusal is the refusal code with why and its next command, for req
+// read from registry.
+func HubRefusal(code, why string, req Request, registry string) error {
+	next := map[string]string{
+		RefusalMemberRequestNeedsPerson: "a person runs: " + ConfirmCommand(req, registry),
+		RefusalNotAMember:               "pick an approved member: pacto cluster list --registry " + cmp.Or(registry, "<registry>"),
+		RefusalStageOrMembers:           "pass --stage for a Stage in this cluster, or --service and --environment to plan over the members",
+		RefusalMemberRecorderUnknown:    "a cluster admin of that member sets delivery.recorder.signing.publicKey there, then approve again",
+		RefusalDigestRequired:           "pass the sha256: digest pacto publish printed for " + req.To + ", or the to of the offer on the Environments board",
+		RefusalMemberTakesNoRequests:    "a cluster admin of that member sets delivery.remote.enabled, a registry and delivery there",
+		RefusalIssuerNotAccepted:        "log in with an approver signer the member accepts: pass --oidc-issuer-url",
+	}[code]
+	return fmt.Errorf("%s: %s; next: %s", code, why, next)
 }

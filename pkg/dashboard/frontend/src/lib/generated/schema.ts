@@ -2329,6 +2329,41 @@ export interface components {
         "Delivery.LocalRef": {
             name: string;
         };
+        "Delivery.MemberPlacementPlan": {
+            clusters: components["schemas"]["Delivery.PlacedMember"][] | null;
+            confirmedBy?: string;
+            policy?: string;
+            /** @enum {string} */
+            source: "policy" | "advertised" | "unconfirmed";
+            unplaced?: components["schemas"]["Delivery.UnplacedMember"][] | null;
+        };
+        "Delivery.MemberPlan": {
+            asOf: string;
+            completeness: string;
+            digest?: string;
+            environment: string;
+            /** Format: int64 */
+            hidden: number;
+            hiddenReason?: string;
+            members: components["schemas"]["Delivery.MemberState"][] | null;
+            next?: string;
+            notes?: string[] | null;
+            placement: components["schemas"]["Delivery.MemberPlacementPlan"];
+            service: components["schemas"]["Delivery.ServiceRef"];
+            version?: string;
+        };
+        "Delivery.MemberState": {
+            asOf?: string;
+            digest?: string;
+            name: string;
+            next?: string;
+            operation?: string;
+            reason?: string;
+            stale?: boolean;
+            /** @enum {string} */
+            state: "no request" | "waiting" | "unknown" | "refused" | "raised" | "held" | "applied" | "rejected" | "failed";
+            uid: string;
+        };
         "Delivery.MoveFirst": {
             accepts?: string;
             candidate?: components["schemas"]["Delivery.Candidate"];
@@ -2432,6 +2467,13 @@ export interface components {
             /** @description The Stage whose registry watch read it */
             stage: string;
         };
+        "Delivery.PlacedMember": {
+            evidence: string;
+            name: string;
+            reviewable?: boolean;
+            stale?: boolean;
+            uid: string;
+        };
         "Delivery.Plan": {
             conflicts?: string[] | null;
             floor?: components["schemas"]["Delivery.Floor"];
@@ -2453,6 +2495,7 @@ export interface components {
             from?: string;
             impactDigest?: string;
             intentDigest: string;
+            members?: components["schemas"]["Delivery.MemberPlan"];
             next?: string[] | null;
             order?: components["schemas"]["Delivery.Order"];
             precedent?: components["schemas"]["Delivery.Precedent"];
@@ -2646,14 +2689,20 @@ export interface components {
         "Delivery.Request": {
             cause?: components["schemas"]["Delivery.Cause"];
             correlationID?: string;
+            /** @description member mode: the environment to promote it in */
+            environment?: string;
             from?: string;
             intentDigest?: string;
+            /** @description member mode: the member uids to request on; empty is every placed member */
+            members?: string[] | null;
             name?: string;
             namespace: string;
             onBehalfOf?: string;
             reason?: string;
             record?: string;
-            stage: string;
+            /** @description member mode: the service to promote on the members */
+            service?: string;
+            stage?: string;
             to?: string;
             type?: string;
             undoes?: string;
@@ -2835,6 +2884,11 @@ export interface components {
             untilRecord?: string;
             /** Format: int64 */
             untilSeq?: number;
+        };
+        "Delivery.UnplacedMember": {
+            name: string;
+            reason: string;
+            uid: string;
         };
         "Delivery.Upstream": {
             /** @description kind stage: the upstream Stage's environment, when it could be read */

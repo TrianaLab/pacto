@@ -12,6 +12,8 @@ type PlanAnswer struct {
 	Plan
 	// Next says what happens once the operation is proposed and what to do.
 	Next []string `json:"next,omitempty"`
+	// Members is the plan over a hub's members, only for a member request.
+	Members *MemberPlan `json:"members,omitempty"`
 }
 
 // AnswerPlan is p with what it means for a caller of class on stage.

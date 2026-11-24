@@ -69,6 +69,8 @@ func camel(kebab string) string {
 }
 
 const (
+	whyMemberModeHub = "member mode plans on the hub through the CLI; the dashboard plan route and the MCP plan tool read the request body without it yet"
+	whyMemberSigning = "the CLI reads the hub's members from the registry and signs member requests keyless with the person's fresh login; the dashboard hands off that command"
 	whyNamespace     = "every delivery command takes the namespace from the delivery group's -n (delivery --namespace)"
 	whyDashboardPage = "paging and narrowing of a dashboard table; the CLI and MCP answer the whole list"
 	whyNoEdit        = "the CLI has no edit command: people edit pacto.yaml and run pacto validate"
@@ -266,6 +268,16 @@ func deliveryWriteRows() []surfaceRow {
 			"fulcio-url", "keyless", "timestamp-url"),
 		alike("delivery approve", "", "", "only the CLI approves from an intent record, signed keyless with the person's fresh login and no kubeconfig; MCP reads approval records and never writes one",
 			"intent", "signers"),
+		body("delivery plan", "", plan, whyMemberModeHub, "service", "environment"),
+		body("delivery propose", "", propose, whyMemberModeHub, "service", "environment"),
+		[]surfaceRow{
+			{"delivery plan --member", "", plan + " body.members", whyMemberModeHub},
+			{"delivery propose --member", "", propose + " body.members", whyMemberModeHub},
+		},
+		alike("delivery plan", "", "", whyMemberSigning, "registry"),
+		alike("delivery propose", "", "", whyMemberSigning, "registry", "confirm", "issuer", "fulcio-url", "timestamp-url"),
+		alike("delivery approve", "", "", "only the CLI approves from an intent record; with --registry it verifies a member's intent under the recorder key the member advertises",
+			"registry"),
 		[]surfaceRow{{"delivery ladder confirm", "", "", whyNoLadder}},
 		alike("delivery ladder confirm", "", "", whyNoLadder, "proposal", "drop", "issuer", "create-namespaces"),
 	)
