@@ -1222,7 +1222,8 @@ var firstPush, closeFirstPush = func() (<-chan struct{}, func()) {
 // the operator at start with its reason.
 func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
 	evidenceURL func() string, kc authn.Keychain, inst *detect.Installation,
-	linked func() core.LinkedTargets, requests func() *core.JoinRequests) (ed25519.PrivateKey, func() *detect.OfferingsAd, error) {
+	linked func() core.LinkedTargets, requests func() *core.JoinRequests,
+) (ed25519.PrivateKey, func() *detect.OfferingsAd, error) {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
 		return nil, nil, nil
