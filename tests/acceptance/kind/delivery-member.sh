@@ -503,7 +503,7 @@ plan() { # DIGEST [ENVIRONMENT] — the hub's member plan
 }
 state_of() { plan "$1" | jq -c --arg u "$M_UID" 'first(.members.members[]? | select(.uid == $u)) // {}'; } # DIGEST
 state_is() { state_of "$1" | jq -e "$2" >/dev/null 2>&1; } # DIGEST JQ_FILTER
-p="$(plan "$D150")"
+p="$(plan "$D150")" || fail "pacto delivery plan --service $APP failed on the hub"
 jq -e --arg u "$M_UID" '.members.placement.source == "unconfirmed" and any(.members.placement.clusters[]; .uid == $u)' <<<"$p" >/dev/null \
   || fail "the plan does not place billing on $M_UID unconfirmed: $p"
 state_is "$D150" '.state == "no request"' || fail "the plan reads a request before any: $(state_of "$D150")"
@@ -528,7 +528,7 @@ eventually 60 mheld "$OP" || fail "$OP was never held for a person: $(mop | jq -
 eventually 60 state_is "$D150" '.state == "held" and (.next | contains("--intent"))' || fail "the hub plan does not read held: $(state_of "$D150")"
 plan "$D150" | jq -e '.members.placement.source == "advertised" and .members.placement.confirmedBy == "oidc:alice@acme.test"' >/dev/null \
   || fail "the plan's placement is not confirmed by alice: $(plan "$D150" | jq -c .members.placement)"
-INTENT="$(state_of "$D150" | jq -r .next | grep -oE -- '--intent [^ ]+' | cut -d' ' -f2)"
+INTENT="$(state_of "$D150" | jq -r .next | grep -oE -- '--intent [^ ]+' | cut -d' ' -f2 || true)"
 [ -n "$INTENT" ] || fail "the held member names no intent record: $(state_of "$D150")"
 pass "$OP: actor $OP_SA on behalf of oidc:alice@acme.test, held; the hub reads held, confirmed by alice, intent $INTENT"
 
@@ -588,7 +588,7 @@ unverified() { # the member operator's count of requests that did not verify
   pod="$(mk -n "$NS" get pods -l "$sel" --field-selector=status.phase=Running -o jsonpath='{.items[0].metadata.name}')"
   mk get --raw "/api/v1/namespaces/$NS/pods/$pod:8443/proxy/metrics" | awk '$1 == "pacto_member_requests_unverified_total" { print $2; f=1 } END { if (!f) print 0 }'
 }
-BEFORE="$(unverified)"
+BEFORE="$(unverified)" || fail "could not scrape the member operator's metrics"
 # shellcheck disable=SC2046
 person req-unlisted none request $(alice) -digest "$D170"
 counted() { [ "$(unverified)" = "$((BEFORE + 1))" ]; }
