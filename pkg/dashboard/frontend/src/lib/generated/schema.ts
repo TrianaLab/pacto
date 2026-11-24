@@ -3334,6 +3334,35 @@ export interface components {
             /** Format: int64 */
             warning: number;
         };
+        "Fleet.ConsumableOffering": {
+            /** @description The providers of this offering a caller may consume, at most 10, by service key */
+            providers: components["schemas"]["Fleet.ConsumableProvider"][] | null;
+            /**
+             * Format: int64
+             * @description How many providers of this offering a caller may consume
+             */
+            providersTotal: number;
+            /** @description More providers may be consumed than providers lists */
+            providersTruncated: boolean;
+        };
+        "Fleet.ConsumableProvider": {
+            /**
+             * @description How the revision is accepted: a person's verified declaration the installation signer policy allows, or a verified signer an installation publisher rule, pin, policy or the release signer covers
+             * @enum {string}
+             */
+            acceptance: "declaration" | "publisher";
+            /** @description The bundle digest acceptance covers; run pacto lock to pin it */
+            digest: string;
+            /** @enum {string} */
+            lifecycle: "supported" | "deprecated";
+            /** @description Who accepted it: the declaring person or the verified signer */
+            publisher: string;
+            /** @description The newest revision of the provider, the one acceptance judged and the snippet pins */
+            revision: components["schemas"]["Fleet.EntityRef"];
+            service: components["schemas"]["Fleet.EntityRef"];
+            snippet: components["schemas"]["Fleet.ConsumeSnippet"];
+            version: string;
+        };
         "Fleet.ConsumeConfiguration": {
             configuration?: string;
             missingValues?: string[] | null;
@@ -3615,6 +3644,8 @@ export interface components {
             businessDomainUnknown?: boolean;
             /** @description On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it */
             catalogEntry?: string;
+            /** @description Set only when the list asks for consumable offerings: the providers an agent may consume, each with its version, digest, publisher and a snippet */
+            consumable?: components["schemas"]["Fleet.ConsumableOffering"];
             /** Format: int64 */
             consumers?: number;
             /** @description On an inferred service only a producer's contribution describes: that producer */
@@ -8062,6 +8093,8 @@ export interface components {
             businessDomainUnknown?: boolean;
             /** @description On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it */
             catalogEntry?: string;
+            /** @description Set only when the list asks for consumable offerings: the providers an agent may consume, each with its version, digest, publisher and a snippet */
+            consumable?: components["schemas"]["Fleet.ConsumableOffering"];
             /** Format: int64 */
             consumers?: number;
             /** @description On an inferred service only a producer's contribution describes: that producer */

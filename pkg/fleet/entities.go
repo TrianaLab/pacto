@@ -135,6 +135,11 @@ type EntityFilter struct {
 	// Failed keeps the OFFERING rows with at least one failed provisioning
 	// request.
 	Failed bool
+	// Consumable keeps the OFFERING rows with a provider a caller may consume
+	// and fills [EntityRef.Consumable]: an accepted provider that declares the
+	// offering, is published and is not past sunset, judged at its newest
+	// revision. It needs exactly kind offering.
+	Consumable bool
 	// Class keeps the EXTERNAL systems of this class (see [ExternalClasses]).
 	Class string
 	// Sort orders the answer: "" by kind then key, SortName by label in natural
@@ -288,11 +293,11 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	}
 	x := q.crossKindSets(f)
 	derived := q.entityLimitations(f, consumers, x)
-	filtered := refs[:0:0]
-	for _, r := range refs {
-		if q.entityMatches(r, f, x) && (f.Consumes == "" || r.Kind == KindService && consumers[ServiceKey(r.Key)]) {
-			filtered = append(filtered, r)
-		}
+	filtered := q.filterEntities(refs, f, x, consumers)
+	if f.Consumable {
+		var lims []Limitation
+		filtered, lims = q.consumableRows(filtered, offerings)
+		derived = append(derived, lims...)
 	}
 	sortEntityRefs(filtered)
 	sortEntityList(filtered, f.Sort)
@@ -301,6 +306,9 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	meta := q.productMetaWith(derived)
 	if want[KindExternal] {
 		meta = q.externalProductMeta(derived)
+	}
+	if hasLimitation(derived, LimitationOfferingAcceptanceUnknown) {
+		meta.Completeness = partialOf(meta.Completeness)
 	}
 	res := &EntityList{
 		Meta: meta, Total: len(filtered), Count: len(pg.Items),
@@ -314,6 +322,17 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		res.InferredTotal = q.inferredOfferingCount(f.Text)
 	}
 	return res, nil
+}
+
+// filterEntities is the refs every filter of f keeps.
+func (q *Query) filterEntities(refs []EntityRef, f EntityFilter, x crossKind, consumers map[ServiceKey]bool) []EntityRef {
+	filtered := refs[:0:0]
+	for _, r := range refs {
+		if q.entityMatches(r, f, x) && (f.Consumes == "" || r.Kind == KindService && consumers[ServiceKey(r.Key)]) {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
 }
 
 // inferredOfferingCount is how many contributed offerings the view holds
@@ -603,6 +622,9 @@ func validateEntityFilter(f EntityFilter) error {
 		{"lifecycle", f.Lifecycle, "not a lifecycle filter (deprecated, sunset)", validLifecycleFilter},
 		{"class", f.Class, "not an external class (" + strings.Join(ExternalClasses(), ", ") + ")", validExternalClass},
 	}); err != nil {
+		return err
+	}
+	if err := validateConsumable(f); err != nil {
 		return err
 	}
 	if f.Failed && !kindSet(f.Kinds)[KindOffering] {

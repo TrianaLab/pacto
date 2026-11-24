@@ -1225,6 +1225,10 @@ type ContractRevision struct {
 	// an unverified signature or a signer policy that refuses it; "" when
 	// it is accepted (acceptDeclaration).
 	declarationRefused string
+	// declarationPolicyUnknown says the refusal is an absent or unread
+	// installation signer policy, so whether the declarer is allowed is
+	// unknown (acceptDeclaration).
+	declarationPolicyUnknown bool
 	// registryBacked says a registry source (oci, cache) contributed the
 	// revision, so the owner rule's verdict on it applies (ownerBlocked).
 	registryBacked bool

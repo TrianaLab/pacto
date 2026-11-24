@@ -71,6 +71,7 @@ func acceptDeclaration(rev *ContractRevision, rec *contract.InferredRecord, sign
 	}
 	rev.declarationChecked = lim.Code != LimitationDeclarationSignerUnverified
 	rev.declarationRefused = lim.Message
+	rev.declarationPolicyUnknown = lim.Code == LimitationDeclarationSignerNotAllowed && (signers == nil || signers.Unread != "")
 	if ok || !hasClusterFacts(rec) {
 		return rec, nil, true
 	}
