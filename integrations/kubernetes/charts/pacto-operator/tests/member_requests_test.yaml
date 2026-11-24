@@ -89,9 +89,18 @@ tests:
     asserts:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[*]
-          pattern: ^--(member-|recorded-ttl|delivery-policy-configmap)
+          pattern: ^--(member-requests|member-allow-|recorded-ttl|delivery-policy-configmap)
         template: templates/deployment.yaml
-      - hasDocuments: {count: 0}
+      # Only the Stage read the join block's streams need is left.
+      - notContains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [create, get, list, watch]}
+        documentIndex: 0
+        template: templates/delivery/member-intake-rbac.yaml
+      - notContains:
+          path: rules
+          content: {apiGroups: [authorization.k8s.io], resources: [subjectaccessreviews], verbs: [create]}
+        documentIndex: 0
         template: templates/delivery/member-intake-rbac.yaml
 
   - it: delivery.remote.enabled=true behaves as auto

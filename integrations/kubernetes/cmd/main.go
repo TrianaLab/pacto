@@ -172,6 +172,8 @@ type options struct {
 	memberAllowEnvironments string
 	deliveryPolicyConfigMap string
 	recordedTTL             time.Duration
+	recorderTrustFile       string
+	memberStreamsRepository string
 
 	ownerPolicy        string
 	trustedRoot        string
@@ -476,6 +478,12 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			"signers verify member requests.")
 	fs.DurationVar(&o.recordedTTL, "recorded-ttl", 0,
 		"How long the delivery recorder keeps a concluded Operation: no member request outlives it. 0 adds no bound.")
+	fs.StringVar(&o.recorderTrustFile, "recorder-trust-file", "",
+		"File holding a one-key trust config: the key the delivery recorder signs Stage records with, named in the "+
+			"join block so other members can follow them. A file that does not parse stops the operator.")
+	fs.StringVar(&o.memberStreamsRepository, "member-streams-repository", "",
+		"The delivery recorder's streams repository: the join block names it and lists the Stages that record a "+
+			"stream. Empty lists no Stage.")
 	fs.StringVar(&o.hubCAFile, "hub-ca-file", "",
 		"File holding the PEM CAs the hub's certificate may chain to, beside the system pool.")
 	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
@@ -1149,13 +1157,17 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kub
 	if err != nil {
 		return nil, err
 	}
+	recorderKey, err := readRecorderKey(o.recorderTrustFile)
+	if err != nil {
+		return nil, err
+	}
 	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: ident.ID,
 		ClusterName: ident.Name, ClusterNameSource: ident.NameSource,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
 		OnPush:      func(r detect.PushResult) { recordPush(r); closeFirstPush() },
 		OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
-		Linked:      linked, Requests: requests})
+		Linked:      linked, Requests: requests, RecorderKey: recorderKey, StreamsRepository: o.memberStreamsRepository})
 	if err != nil {
 		return nil, err
 	}
@@ -1186,6 +1198,29 @@ func addInferred(mgr ctrl.Manager, o *options, key ed25519.PrivateKey, kc authn.
 		return err
 	}
 	return mgr.Add(inferred)
+}
+
+// readRecorderKey reads the recorder's one-key trust config once at start (--recorder-trust-file, the chart's
+// pin signer): the join block names that key and a reader scopes it to the listed streams, so its own streams
+// are dropped. Empty names none; a file that does not read, parse or hold exactly one key stops the operator.
+func readRecorderKey(path string) (*core.TrustedKey, error) {
+	if path == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("--recorder-trust-file: %w", err)
+	}
+	t, err := core.ParseTrust(raw)
+	if err != nil {
+		return nil, fmt.Errorf("--recorder-trust-file: %w", err)
+	}
+	if len(t.Keys) != 1 {
+		return nil, fmt.Errorf("--recorder-trust-file: %d keys, want the recorder's one", len(t.Keys))
+	}
+	k := t.Keys[0]
+	k.Streams = nil
+	return &k, nil
 }
 
 // readOwnerPolicy reads the mounted owner policy once at start: the ConfigMap

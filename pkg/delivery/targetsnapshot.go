@@ -168,7 +168,7 @@ func (s TargetSnapshot) Check() error {
 		}
 	}
 	if s.Join != nil {
-		if err := checkJoin(*s.Join); err != nil {
+		if err := checkJoin(s.Cluster, *s.Join); err != nil {
 			return fmt.Errorf("join: %w", err)
 		}
 	}

@@ -44,8 +44,29 @@ type SnapshotJoin struct {
 	PublicKey string `json:"publicKey"`
 	// Environments are the environments the cluster seems to host, inferred.
 	Environments []AdvertisedEnvironment `json:"environments,omitempty"`
+	// RecorderKey is the key, or keyless identity, this member's delivery
+	// recorder signs its Stage records with. Its streams are ignored: a reader
+	// scopes it to Streams.
+	RecorderKey *TrustedKey `json:"recorderKey,omitempty"`
+	// StreamsRepository is the repository the recorded Stage streams are in.
+	StreamsRepository string `json:"streamsRepository,omitempty"`
+	// Streams are the member's Stages that record a stream, sorted, at most
+	// 200; StreamsCut says more exist or the Stage list could not be read.
+	Streams    []JoinStream `json:"streams,omitempty"`
+	StreamsCut bool         `json:"streamsCut,omitempty"`
 	// Requests is present only while the cluster takes member requests.
 	Requests *JoinRequests `json:"requests,omitempty"`
+}
+
+// MaxJoinStreams bounds the Stage streams a join block names.
+const MaxJoinStreams = 200
+
+// JoinStream is one Stage of a member that records a stream: the service
+// and environment it delivers and its stream id, <uid>/<namespace>/<name>.
+type JoinStream struct {
+	Service     ServiceRef `json:"service"`
+	Environment string     `json:"environment"`
+	Stream      string     `json:"stream"`
 }
 
 // JoinRequests says a member takes requests: the issuers of the approver
@@ -65,12 +86,14 @@ type AdvertisedEnvironment struct {
 // snapshotNameSources are the name sources a join block may claim.
 var snapshotNameSources = []string{fleet.ClusterNameFromNodeLabel, fleet.ClusterNameFromContext, fleet.ClusterNameFromFile, fleet.ClusterNameFromUID}
 
-// checkJoin refuses a join block whose key id is not the fingerprint of its
-// Ed25519 key, whose name or an environment name is not a DNS label, whose
-// name source is unknown or approval, with over 16 environments or a source
-// that is empty, over 200 bytes or not printable ASCII, and requests naming
-// an issuer that is not a URL or an environment that is not a DNS label.
-func checkJoin(j SnapshotJoin) error {
+// checkJoin refuses a join block of cluster uid whose key id is not the
+// fingerprint of its Ed25519 key, whose name or an environment name is not a
+// DNS label, whose name source is unknown or approval, with over 16
+// environments or a source that is empty, over 200 bytes or not printable
+// ASCII, a recorder key or a stream checkJoinStreams refuses, and requests
+// naming an issuer that is not a URL or an environment that is not a DNS
+// label.
+func checkJoin(uid string, j SnapshotJoin) error {
 	if err := checkKeyID(j.PublicKey, j.KeyID); err != nil {
 		return err
 	}
@@ -91,7 +114,52 @@ func checkJoin(j SnapshotJoin) error {
 			return fmt.Errorf("environment %s: source must be 1 to %d printable ASCII characters", e.Name, maxEnvironmentSource)
 		}
 	}
+	if err := checkJoinStreams(uid, j); err != nil {
+		return err
+	}
 	return checkJoinRequests(j.Requests)
+}
+
+// stageNamePattern is a Kubernetes object name, an RFC 1123 subdomain.
+var stageNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`)
+
+// checkJoinStreams refuses a recorder key that names neither a PEM public
+// key nor a keyless identity, issuer and trusted root, more than
+// MaxJoinStreams streams, streams with no repository, and a stream its Check
+// refuses.
+func checkJoinStreams(uid string, j SnapshotJoin) error {
+	if j.RecorderKey != nil {
+		if _, err := check(*j.RecorderKey); err != nil {
+			return fmt.Errorf("recorder key: %w", err)
+		}
+	}
+	if len(j.Streams) > MaxJoinStreams {
+		return fmt.Errorf("%d streams, over the %d bound", len(j.Streams), MaxJoinStreams)
+	}
+	if len(j.Streams) > 0 && j.StreamsRepository == "" {
+		return errors.New("streams name no streams repository")
+	}
+	for _, s := range j.Streams {
+		if err := s.Check(uid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Check refuses a stream of cluster uid that is not <uid>/<namespace>/<name>,
+// sits under TargetSnapshotRepository, names no service or an environment
+// that is not a DNS label.
+func (s JoinStream) Check(uid string) error {
+	parts := strings.Split(s.Stream, "/")
+	if len(parts) != 3 || parts[0] != uid || !dnsLabel(parts[1]) || parts[1] == TargetSnapshotRepository ||
+		len(parts[2]) > 253 || !stageNamePattern.MatchString(parts[2]) {
+		return fmt.Errorf("stream %q is not %s/<namespace>/<name> outside %s", s.Stream, uid, TargetSnapshotRepository)
+	}
+	if s.Service.Name == "" || !dnsLabel(s.Environment) {
+		return fmt.Errorf("stream %s: needs a service and an environment that is a DNS label", s.Stream)
+	}
+	return nil
 }
 
 // checkJoinRequests refuses requests naming an issuer that is not a URL or
@@ -350,6 +418,13 @@ type ClusterJoinState struct {
 	Reason    string    `json:"reason,omitempty"`
 	// Environments are the environments the member seems to host: inferred.
 	Environments []AdvertisedEnvironment `json:"environments,omitempty"`
+	// RecorderKey, StreamsRepository, Streams, StreamsCut and Requests are
+	// the join block's, from a snapshot its own key signed.
+	RecorderKey       *TrustedKey   `json:"recorderKey,omitempty"`
+	StreamsRepository string        `json:"streamsRepository,omitempty"`
+	Streams           []JoinStream  `json:"streams,omitempty"`
+	StreamsCut        bool          `json:"streamsCut,omitempty"`
+	Requests          *JoinRequests `json:"requests,omitempty"`
 	// Approver, ApprovedAt and Record name the record that decided.
 	Approver   string `json:"approver,omitempty"`
 	ApprovedAt string `json:"approvedAt,omitempty"`
@@ -416,6 +491,7 @@ func decide(hub string, c JoinCandidate, rs JoinRecords) (ClusterJoinState, int)
 		st.Name, st.NameSource, st.Environments = j.Name, j.NameSource, j.Environments
 		if c.SelfSigned {
 			st.KeyID, st.PublicKey = j.KeyID, j.PublicKey
+			st.RecorderKey, st.StreamsRepository, st.Streams, st.StreamsCut, st.Requests = j.RecorderKey, j.StreamsRepository, j.Streams, j.StreamsCut, j.Requests
 		}
 	}
 	n := counted(hub, c.UID, rs.Verified)

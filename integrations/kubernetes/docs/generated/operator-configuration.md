@@ -102,6 +102,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-member-allow-namespaces` | `string` |  | chart value | Comma-separated namespaces member requests are taken for, among the watched ones; empty takes every watched namespace. |
 | `-member-allow-services` | `string` |  | chart value | Comma-separated service name patterns member requests are taken for; empty takes every service. |
 | `-member-requests` | `bool` |  | chart value | Take member requests: the elected leader reads this cluster's request stream in &lt;registry&gt;/pacto-targets and raises one promote, as an agent on the person's behalf, for each request a person signed that this cluster's approver signers verify, its RBAC allows and its allowlist takes. Needs --registry and --delivery-policy-configmap. |
+| `-member-streams-repository` | `string` |  | chart value | The delivery recorder's streams repository: the join block names it and lists the Stages that record a stream. Empty lists no Stage. |
 | `-metrics-bind-address` | `string` | `:8080` | chart value | The address the metrics endpoint binds to. Use :8443 for HTTPS or :8080 for HTTP, or set to 0 to disable the metrics service. |
 | `-metrics-cert-key` | `string` | `tls.key` | no | The name of the metrics server key file. |
 | `-metrics-cert-name` | `string` | `tls.crt` | no | The name of the metrics server certificate file. |
@@ -122,6 +123,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-publishers-policy-signers` | `string` |  | chart value | A trust config (YAML) whose role: policy keys sign the delivery policy. Required with --publishers-policy. |
 | `-publishers-registry` | `string` |  | chart value | The registry (host/org) the installation's services publish to: its derived publisher rule (the organization's CI on the default branch) is the only CI identity whose signed CODEOWNERS or catalog-info.yaml owner counts as attested when an owner change is judged. Empty: no owner is attested. |
 | `-recorded-ttl` | `duration` |  | chart value | How long the delivery recorder keeps a concluded Operation: no member request outlives it. 0 adds no bound. |
+| `-recorder-trust-file` | `string` |  | chart value | File holding a one-key trust config: the key the delivery recorder signs Stage records with, named in the join block so other members can follow them. A file that does not parse stops the operator. |
 | `-registry` | `string` |  | chart value | The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it and pushes nowhere else; empty turns those features off. |
 | `-registry-pull-secret` | `string` |  | chart value | namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes. |
 | `-registry-push-prefix` | `value` |  | chart value | Repeatable: a repository prefix a Pacto component may push under; the chart renders every one. |

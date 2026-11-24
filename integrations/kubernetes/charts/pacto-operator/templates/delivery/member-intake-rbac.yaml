@@ -1,8 +1,9 @@
-{{- if include "pacto-operator.memberRequests" . }}
-# Member requests (delivery.remote): the operator raises one promote for each
-# request a person signed, on that person's behalf. It lives here, apart from
-# the operator ClusterRole, so delivery leaves that role unchanged and a member
-# that watches a namespace list still takes requests.
+{{- if include "pacto-operator.memberStreams" . }}
+# The member's delivery reads: the join block lists the Stages that record a
+# stream and, with member requests (delivery.remote), the operator raises one
+# promote for each request a person signed, on that person's behalf. It lives
+# here, apart from the operator ClusterRole, so delivery leaves that role
+# unchanged and a member that watches a namespace list still takes requests.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
@@ -10,10 +11,12 @@ metadata:
   labels:
     {{- include "pacto-operator.labels" . | nindent 4 }}
 rules:
-  # It resolves the one Stage a request names and checks it did not move.
+  # It lists the Stages that record a stream and resolves the one Stage a
+  # request names and checks it did not move.
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages]
     verbs: [get, list, watch]
+  {{- if include "pacto-operator.memberRequests" . }}
   # It raises the promote and follows it to its outcome. Admission holds
   # spec.actor to the operator itself.
   - apiGroups: [delivery.pacto.trianalab.io]
@@ -28,6 +31,7 @@ rules:
     resources: [configmaps]
     resourceNames: [pacto-delivery-identities]
     verbs: [get]
+  {{- end }}
 ---
 {{ include "pacto-operator.binding" (dict "kind" "ClusterRoleBinding" "name" (printf "%s-member-intake" (include "pacto-operator.fullname" .)) "labels" (include "pacto-operator.labels" .) "serviceAccount" (include "pacto-operator.serviceAccountName" .) "serviceAccountNamespace" .Release.Namespace) }}
 {{- end }}

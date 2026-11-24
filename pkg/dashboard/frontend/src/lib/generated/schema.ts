@@ -2114,10 +2114,15 @@ export interface components {
             publicKey?: string;
             reason?: string;
             record?: string;
+            recorderKey?: components["schemas"]["Delivery.TrustedKey"];
+            requests?: components["schemas"]["Delivery.JoinRequests"];
             snapshotAsOf?: string;
             /** @enum {string} */
             state: "pending" | "approved" | "removed";
             status?: string;
+            streams?: components["schemas"]["Delivery.JoinStream"][] | null;
+            streamsCut?: boolean;
+            streamsRepository?: string;
             uid: string;
         };
         "Delivery.ClusterRef": {
@@ -2244,6 +2249,15 @@ export interface components {
         };
         "Delivery.ImpactGate": {
             declaredConsumersOnly?: boolean;
+        };
+        "Delivery.JoinRequests": {
+            environments: string[] | null;
+            issuers: string[] | null;
+        };
+        "Delivery.JoinStream": {
+            environment: string;
+            service: components["schemas"]["Delivery.ServiceRef"];
+            stream: string;
         };
         "Delivery.LadderRung": {
             name: string;
@@ -2808,6 +2822,19 @@ export interface components {
             held?: string;
             started?: string;
             verifyDeadline?: string;
+        };
+        "Delivery.TrustedKey": {
+            identity?: string;
+            issuer?: string;
+            name?: string;
+            providers?: string[] | null;
+            publicKey?: string;
+            role?: string;
+            streams?: string[] | null;
+            trustedRoot?: string;
+            untilRecord?: string;
+            /** Format: int64 */
+            untilSeq?: number;
         };
         "Delivery.Upstream": {
             /** @description kind stage: the upstream Stage's environment, when it could be read */

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -53,6 +54,9 @@ var snapshotWorkloads = []schema.GroupVersionKind{
 
 // gvkPactoList is the Pacto list kind, read unstructured.
 var gvkPactoList = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1alpha1", Kind: "PactoList"}
+
+// gvkStageList is the delivery Stage list kind, read unstructured.
+var gvkStageList = schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "StageList"}
 
 // TargetPublisher publishes the cluster's signed target snapshot to
 // <registry>/pacto-targets:cluster-<uid> at once and then every Interval, so CI
@@ -94,8 +98,15 @@ type TargetPublisher struct {
 	// Requests, when set, says whether the cluster takes member requests:
 	// its answer is the join block's requests, nil omits them.
 	Requests func() *core.JoinRequests
-	Now      func() time.Time
-	Interval time.Duration
+	// RecorderKey, when set, is the key the delivery recorder signs Stage
+	// records with, named in the join block so other members can follow them.
+	RecorderKey *core.TrustedKey
+	// StreamsRepository, when set, is where the recorder writes Stage streams:
+	// the join block then lists the Stages that record one. Empty lists no
+	// Stage, so an operator without delivery reads none.
+	StreamsRepository string
+	Now               func() time.Time
+	Interval          time.Duration
 	// Tick, when set, replaces the ticker (tests).
 	Tick func(time.Duration) <-chan time.Time
 	Log  logr.Logger
@@ -179,7 +190,7 @@ func (p *TargetPublisher) publish(ctx context.Context) error {
 		// Only the linker writes link labels; on a Pacto they are free text.
 		core.StripLinkLabels(s.Pactos[i].Metadata.Labels)
 	}
-	s.Join = p.join(s.Pactos)
+	s.Join = p.join(ctx, s.Pactos, &pactos)
 	p.addLinked(&s, &pactos, now)
 	workloads := core.SnapshotSource{Kind: fleet.SourceKindKubernetesWorkloads, AsOf: asOf, Completeness: fleet.CompletenessComplete}
 	p.collectWorkloads(ctx, &s, &workloads, now)
@@ -240,17 +251,52 @@ func (p *TargetPublisher) addLinked(s *core.TargetSnapshot, sec *core.SnapshotSo
 }
 
 // join is the snapshot's join block: the display name, the installation
-// public key and its fingerprint, the environments pactos suggest and
-// whether the cluster takes member requests.
-func (p *TargetPublisher) join(pactos []core.PactoView) *core.SnapshotJoin {
+// public key and its fingerprint, the environments pactos suggest, the
+// recorder key, the Stages that record a stream and whether the cluster
+// takes member requests. A Stage list that fails cuts the streams and marks
+// sec partial.
+func (p *TargetPublisher) join(ctx context.Context, pactos []core.PactoView, sec *core.SnapshotSource) *core.SnapshotJoin {
 	pub := p.Key.Public()
 	der, _ := x509.MarshalPKIXPublicKey(pub) // an Ed25519 key always marshals
 	j := &core.SnapshotJoin{Name: p.ClusterName, NameSource: p.ClusterNameSource, KeyID: signing.Hint(pub),
-		PublicKey: base64.StdEncoding.EncodeToString(der), Environments: core.AdvertisedEnvironments(pactos, p.ClusterName, p.ClusterNameSource)}
+		PublicKey: base64.StdEncoding.EncodeToString(der), Environments: core.AdvertisedEnvironments(pactos, p.ClusterName, p.ClusterNameSource),
+		RecorderKey: p.RecorderKey}
 	if p.Requests != nil {
 		j.Requests = p.Requests()
 	}
+	if p.StreamsRepository == "" {
+		return j
+	}
+	j.StreamsRepository = p.StreamsRepository
+	stages, err := p.list(ctx, gvkStageList)
+	if err != nil {
+		p.limit(sec, "stages", err)
+		j.StreamsCut = true
+		return j
+	}
+	j.Streams, j.StreamsCut = joinStreams(p.ClusterID, stages)
 	return j
+}
+
+// joinStreams are the streams of this cluster's stages, sorted by id, at
+// most core.MaxJoinStreams, and whether more were left out. A Stage whose
+// stream core.JoinStream.Check refuses (no stream id yet, another cluster's
+// id, an environment that is not a DNS label) is left out, so one Stage never
+// makes the whole join block unreadable.
+func joinStreams(cluster string, stages []unstructured.Unstructured) ([]core.JoinStream, bool) {
+	var out []core.JoinStream
+	for _, st := range stages {
+		id, _, _ := unstructured.NestedString(st.Object, "status", "stream", "id")
+		svc, _, _ := unstructured.NestedString(st.Object, "spec", "service", "name")
+		domain, _, _ := unstructured.NestedString(st.Object, "spec", "service", "domain")
+		env, _, _ := unstructured.NestedString(st.Object, "spec", "environment")
+		js := core.JoinStream{Service: core.ServiceRef{Domain: domain, Name: svc}, Environment: env, Stream: id}
+		if js.Check(cluster) == nil {
+			out = append(out, js)
+		}
+	}
+	slices.SortFunc(out, func(a, b core.JoinStream) int { return strings.Compare(a.Stream, b.Stream) })
+	return out[:min(len(out), core.MaxJoinStreams)], len(out) > core.MaxJoinStreams
 }
 
 // collectWorkloads adds every workload of the four kinds as an inferred

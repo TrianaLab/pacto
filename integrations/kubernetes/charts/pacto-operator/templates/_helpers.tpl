@@ -213,6 +213,12 @@ Controller arguments derived from values
 - --delivery-policy-configmap={{ include "pacto-operator.delivery.namespace" . }}/pacto-delivery-identities
 - --recorded-ttl={{ .Values.delivery.recorder.operationTTL }}
 {{- end }}
+{{- if include "pacto-operator.delivery.pinSigner" . }}
+- --recorder-trust-file=/etc/pacto/member-recorder/pin-signer.yaml
+{{- end }}
+{{- if include "pacto-operator.memberStreams" . }}
+- --member-streams-repository={{ include "pacto-operator.delivery.streamsRepository" . }}
+{{- end }}
 {{- /* .Values.declare in the guard: the declare block decides (gen_integration_docs reads guards). */}}
 {{- if and .Values.declare (include "pacto-operator.ownerPolicy.json" .) }}
 - --owner-policy=/etc/pacto/owner-policy/policy.json
@@ -1250,6 +1256,15 @@ release whose values predate delivery.remote takes them too.
 */}}
 {{- define "pacto-operator.memberRequests" -}}
 {{- if and (include "pacto-operator.deliveryEnabled" .) .Values.registry (ne (toString (dig "enabled" "auto" (.Values.delivery.remote | default dict))) "false") }}true{{ end }}
+{{- end }}
+
+{{/*
+Whether the join block lists the Stages that record a stream: delivery
+renders with a registry. The operator then reads Stages (the member-intake
+ClusterRole).
+*/}}
+{{- define "pacto-operator.memberStreams" -}}
+{{- if and (include "pacto-operator.deliveryEnabled" .) .Values.registry }}true{{ end }}
 {{- end }}
 
 {{/*

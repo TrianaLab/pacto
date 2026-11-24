@@ -1,0 +1,170 @@
+# The join block names the recorder key and the Stages that record a stream
+# (514-S6): the chart renders the recorder's pin signer into a ConfigMap in the
+# release namespace (the operator Pod cannot mount one from the delivery
+# namespace) and mounts it, and the operator reads Stages through its own
+# member-intake ClusterRole, so the operator ClusterRole stays as it was.
+suite: member join streams
+templates:
+  - templates/deployment.yaml
+  - templates/clusterrole.yaml
+  - templates/delivery/member-recorder-key.yaml
+  - templates/delivery/member-intake-rbac.yaml
+  - templates/NOTES.txt
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: no mount and no flag under profile default
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(recorder-trust-file|member-streams-repository)
+        template: templates/deployment.yaml
+      - notExists:
+          path: spec.template.spec.volumes
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/member-recorder-key.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/member-intake-rbac.yaml
+
+  - it: ConfigMap in the release namespace and mounted under delivery.enabled=true with recorder.signing.publicKey
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.kms: awskms:///alias/recorder
+      delivery.recorder.signing.publicKey: |
+        -----BEGIN PUBLIC KEY-----
+        MCowBQYDK2VwAyEA
+        -----END PUBLIC KEY-----
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --recorder-trust-file=/etc/pacto/member-recorder/pin-signer.yaml
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.containers[0].volumeMounts
+          content: {name: member-recorder-key, mountPath: /etc/pacto/member-recorder, readOnly: true}
+        template: templates/deployment.yaml
+      - contains:
+          path: spec.template.spec.volumes
+          content: {name: member-recorder-key, configMap: {name: pacto-operator-member-recorder-key}}
+        template: templates/deployment.yaml
+      - equal:
+          path: metadata.namespace
+          value: pacto-operator-system
+        template: templates/delivery/member-recorder-key.yaml
+      - equal:
+          path: metadata.name
+          value: pacto-operator-member-recorder-key
+        template: templates/delivery/member-recorder-key.yaml
+      - equal:
+          path: data["pin-signer.yaml"]
+          value: |
+            keys:
+            - name: recorder
+              publicKey: |
+                -----BEGIN PUBLIC KEY-----
+                MCowBQYDK2VwAyEA
+                -----END PUBLIC KEY-----
+              streams:
+              - pins/*/*
+        template: templates/delivery/member-recorder-key.yaml
+      - notMatchRegexRaw:
+          pattern: advertises no recorder key
+        template: templates/NOTES.txt
+
+  - it: no recorder flag with a generated key and no publicKey
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.ed25519.secretName: recorder-key
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --recorder-trust-file=/etc/pacto/member-recorder/pin-signer.yaml
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/member-recorder-key.yaml
+      - matchRegexRaw:
+          pattern: This member advertises no recorder key
+        template: templates/NOTES.txt
+
+  - it: no recorder flag with reused values without delivery.publishers
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.publishers: null
+      delivery.recorder.enabled: true
+      delivery.recorder.signing.kms: awskms:///alias/recorder
+      delivery.recorder.signing.publicKey: PEM
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --recorder-trust-file=/etc/pacto/member-recorder/pin-signer.yaml
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/member-recorder-key.yaml
+      - matchRegexRaw:
+          pattern: This member advertises no recorder key
+        template: templates/NOTES.txt
+
+  - it: stage read only when delivery renders with a registry
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.remote.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --member-streams-repository=ghcr.io/acme/pacto-streams
+        template: templates/deployment.yaml
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --member-requests
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 2}
+        template: templates/delivery/member-intake-rbac.yaml
+      - equal:
+          path: rules
+          value:
+            - apiGroups: [delivery.pacto.trianalab.io]
+              resources: [stages]
+              verbs: [get, list, watch]
+        documentIndex: 0
+        template: templates/delivery/member-intake-rbac.yaml
+
+  - it: no stage read and no streams flag with delivery and no registry
+    set:
+      delivery.enabled: true
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--member-streams-repository
+        template: templates/deployment.yaml
+      - hasDocuments: {count: 0}
+        template: templates/delivery/member-intake-rbac.yaml
+
+  # make helm-golden diffs the whole operator identity with and without
+  # delivery; this pins the Stage read out of the operator ClusterRole.
+  - it: clusterrole.yaml unchanged with delivery on
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      dashboard.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [get, list, watch]}
+        template: templates/clusterrole.yaml
+      - notMatchRegex:
+          path: metadata.name
+          pattern: member-intake
+        template: templates/clusterrole.yaml

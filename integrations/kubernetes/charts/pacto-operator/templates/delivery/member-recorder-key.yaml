@@ -1,0 +1,16 @@
+{{- with include "pacto-operator.delivery.pinSigner" . }}
+# The key the delivery recorder signs Stage records with, which the operator
+# names in the join block so other members can follow this member's Stages.
+# It sits in the release namespace because the operator Pod cannot mount a
+# ConfigMap from the delivery namespace.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "pacto-operator.fullname" $ }}-member-recorder-key
+  namespace: {{ $.Release.Namespace }}
+  labels:
+    {{- include "pacto-operator.labels" $ | nindent 4 }}
+data:
+  pin-signer.yaml: |
+    {{- . | nindent 4 }}
+{{- end }}
