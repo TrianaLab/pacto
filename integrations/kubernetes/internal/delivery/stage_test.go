@@ -252,6 +252,25 @@ func noWitnessLockedOrEmpty(t *testing.T) {
 	}
 }
 
+// A Stage that is not Ready raises no automatic promote: it would be
+// refused, and each refusal names the next promote anew.
+func TestNotReadyStageRaisesNoAutoPromote(t *testing.T) {
+	up := stageObj(dB)
+	up.Name = "up"
+	up.Status.Verified, up.Status.Offered = []string{dB}, []string{dB}
+	s := stageObj(dA)
+	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
+	e := newEnv(t, s, up) // no apply OCIRepository: not Ready
+	for range 3 {
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ops := e.ops(); len(ops) != 0 {
+		t.Fatalf("a Stage that is not Ready raised %d operations", len(ops))
+	}
+}
+
 func TestStageReconcileErrors(t *testing.T) {
 	e := newEnv(t)
 	if err := e.reconcileStage("missing"); err != nil {
@@ -286,7 +305,7 @@ func TestStageReconcileErrors(t *testing.T) {
 	up.Status.Verified, up.Status.Offered = []string{dB}, []string{dB}
 	s = stageObj(dA)
 	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
-	e = newEnv(t, s, up)
+	e = newEnv(t, s, up, ociRepo("payments", dA, "", false))
 	e.fails["create/Operation"] = true
 	if e.reconcileStage("payments-prod") == nil {
 		t.Fatal("a failed promote create must surface")

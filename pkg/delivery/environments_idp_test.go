@@ -28,7 +28,7 @@ func TestFluxApplierObjectsManifests(t *testing.T) {
 	checkSuspendedManaged(t, objs, "payments-staging")
 	p := objs[0]
 	if _, ok := dig(p, "spec").(map[string]any)["ref"]; ok || dig(p, "spec", "url") != "oci://ghcr.io/acme/deploy/payments" ||
-		dig(p, "spec", "layerSelector") != nil {
+		dig(p, "spec", "layerSelector") != nil || dig(p, "spec", "insecure") != nil {
 		t.Fatalf("pointer %v", p)
 	}
 	checkPinned(t, p)
@@ -65,9 +65,10 @@ func checkPinned(t *testing.T, p map[string]any) {
 
 func TestFluxApplierObjectsChart(t *testing.T) {
 	objs := FluxApplierObjects(FluxApplierInput{Service: "payments", Environment: "production", Namespace: "production",
-		URL: "ghcr.io/acme/charts/payments", Chart: true, Publisher: idpPublisher})
+		URL: "ghcr.io/acme/charts/payments", Chart: true, Insecure: true, Publisher: idpPublisher})
 	p, h := objs[0], objs[1]
-	if dig(p, "spec", "url") != "oci://ghcr.io/acme/charts/payments" || dig(p, "spec", "layerSelector", "operation") != "copy" {
+	if dig(p, "spec", "url") != "oci://ghcr.io/acme/charts/payments" || dig(p, "spec", "layerSelector", "operation") != "copy" ||
+		dig(p, "spec", "insecure") != true {
 		t.Fatalf("pointer %v", p)
 	}
 	if h["kind"] != "HelmRelease" || h["apiVersion"] != "helm.toolkit.fluxcd.io/v2" || dig(h, "spec", "suspend") != true ||

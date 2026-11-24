@@ -160,6 +160,20 @@ func TestUnconfirmedPlacementAppliersStaySuspended(t *testing.T) {
 	}
 }
 
+// The pointer reaches a registry the promoter reaches over plain HTTP the
+// same way, or Flux could never fetch what the promote pins.
+func TestPointerInsecureLikeThePromoter(t *testing.T) {
+	for host, want := range map[string]bool{"ghcr.io": true, "other.example": false} {
+		pe := idpEnv(t, contract.ArtifactManifests, interceptor.Funcs{}, namespace("staging"), namespace("production"))
+		pe.r.RecordOptions.Insecure = []string{host}
+		pe.pass(t)
+		got, _, _ := unstructured.NestedBool(pe.flux(t, "OCIRepository", "staging", "payments-staging").Object, "spec", "insecure")
+		if got != want {
+			t.Errorf("insecure %s: spec.insecure %v, want %v", host, got, want)
+		}
+	}
+}
+
 func TestDeployerOnlyAfterConfirmation(t *testing.T) {
 	pe := idpEnv(t, contract.ArtifactManifests, interceptor.Funcs{}, namespace("staging"), namespace("production"))
 	pe.pass(t)

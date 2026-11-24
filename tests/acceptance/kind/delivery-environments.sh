@@ -29,7 +29,8 @@
 #   4. a hand-written Stage is never touched;
 #   5. carol approves the first promote of payments-staging: the placement is
 #      confirmed as hers, the deployer account exists, the Flux objects are
-#      unsuspended and the workload runs;
+#      unsuspended at 1.5.0, the pointer pins the CI identity and reaches the
+#      plain-HTTP registry as the promoter does, and the workload runs;
 #   6. alice confirms the proposed preview rung: payments-preview takes its
 #      versions from the registry;
 #   7. checkout's temporary environment pr-412, declared in a 2.6 contract
@@ -343,8 +344,8 @@ stage_json production payments-production | jq -e '.spec.candidates.upstreamStag
   || fail "payments-production does not take its versions from payments-staging: $(stage_json production payments-production | jq -c .spec.candidates)"
 for ns in staging production; do
   name="payments-$ns"
-  kubectl -n "$ns" get ocirepository "$name" -o json | jq -e '.spec.suspend == true and (.spec | has("ref") | not)' >/dev/null \
-    || fail "the OCIRepository $ns/$name is not suspended with no ref: $(kubectl -n "$ns" get ocirepository "$name" -o json | jq -c .spec)"
+  kubectl -n "$ns" get ocirepository "$name" -o json | jq -e '.spec.suspend == true and (.spec | has("ref") | not) and .spec.insecure == true' >/dev/null \
+    || fail "the OCIRepository $ns/$name is not suspended with no ref over plain HTTP: $(kubectl -n "$ns" get ocirepository "$name" -o json | jq -c .spec)"
   kubectl -n "$ns" get kustomization "$name" -o json | jq -e --arg sa payments-deployer '.spec.suspend == true and .spec.serviceAccountName == $sa' >/dev/null \
     || fail "the Kustomization $ns/$name is not suspended as payments-deployer"
   ! kubectl -n "$ns" get serviceaccount payments-deployer >/dev/null 2>&1 || fail "payments-deployer exists in $ns before any approval"
@@ -434,6 +435,17 @@ unsuspended() {
     kubectl -n staging get kustomization payments-staging -o json | jq -e '.spec.suspend == false' >/dev/null
 }
 eventually 30 unsuspended || fail "the Flux objects of payments-staging were not unsuspended at $P150"
+# The pointer pins the CI identity, but Flux cannot check it here: with a
+# custom trusted root source-controller wants a Rekor log in it, and the
+# private Sigstore keylesssign runs has only a timestamp authority. The run
+# drops spec.verify after reading it, so Flux applies what the promote pinned;
+# the promoter checked the same signature against this root before it placed
+# payments.
+kubectl -n staging get ocirepository payments-staging -o json | jq -e --arg s "$CI_SUBJECT" \
+  '.spec.verify.provider == "cosign" and (.spec.verify.matchOIDCIdentity[0].subject | gsub("\\\\"; "")) == "^\($s)$"' >/dev/null \
+  || fail "the pointer of payments-staging does not pin $CI_SUBJECT: $(kubectl -n staging get ocirepository payments-staging -o jsonpath='{.spec.verify}')"
+kubectl -n staging patch ocirepository payments-staging --type=json -p '[{"op": "remove", "path": "/spec/verify"}]' >/dev/null \
+  || fail "the run could not drop spec.verify from the pointer of payments-staging"
 kubectl -n staging get serviceaccount payments-deployer >/dev/null 2>&1 || fail "no payments-deployer ServiceAccount after the approval"
 kubectl -n staging get rolebinding payments-deployer -o jsonpath='{.roleRef.name}' | grep -qx pacto-operator-delivery-deployer \
   || fail "payments-deployer is not bound to pacto-operator-delivery-deployer"
