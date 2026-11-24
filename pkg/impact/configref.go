@@ -118,8 +118,7 @@ func tierKey(path, code, msg string) string {
 	if code != string(finding.CodeTierNotTunable) {
 		return ""
 	}
-	field, _, _ := strings.Cut(msg, " in offering ")
-	return path + "\x00" + field
+	return path + "\x00" + validation.TierNotTunableField(msg)
 }
 
 // unreadableEnvironments says which environment file of c cannot be read, or

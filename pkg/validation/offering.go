@@ -87,13 +87,45 @@ func (o offeringParams) violations(schema *jsonschema.Schema, values any, legacy
 func (o offeringParams) finding(code string, path []string, suggest string, k jsonschema.ErrorKind) paramFinding {
 	p := o.r.SchemaProvider.Service
 	what := map[string]string{
-		string(finding.CodeTierNotTunable):       "is contract-tier in offering %s %s, so it cannot change per environment",
+		string(finding.CodeTierNotTunable):       tierWhat[1:] + "%s %s, so it cannot change per environment",
 		string(finding.CodeParameterOutOfRange):  "is outside the parameters of offering %s %s",
 		string(finding.CodeParameterNotDeclared): "is not a parameter of offering %s %s",
 		string(finding.CodeClassNotOffered):      "names a class offering %s %s does not offer",
 	}[code]
-	msg := o.subject(path) + " " + fmt.Sprintf(what, p.Name, p.Version) + ". Next: " + nextStep(code, o.r, o.cfgIdx, o.doc, path, suggest, k)
+	note := ""
+	if j := junctionAt(o.doc, path); code == string(finding.CodeTierNotTunable) && j != "" {
+		note = "; the tier sits behind a " + j + " Pacto does not follow"
+	}
+	msg := o.subject(path) + " " + fmt.Sprintf(what, p.Name, p.Version) + note + ". Next: " + nextStep(code, o.r, o.cfgIdx, o.doc, path, suggest, k)
 	return paramFinding{code: code, path: path, msg: msg}
+}
+
+// tierWhat follows the subject of a TierNotTunable message.
+const tierWhat = " is contract-tier in offering "
+
+// TierNotTunableField is the subject a TierNotTunable message names, such as
+// "environment prod: db.storageGB", or "" when msg is no such message. It
+// leaves out the offering version, which differs between revisions.
+func TierNotTunableField(msg string) string {
+	field, _, _ := strings.Cut(msg, tierWhat)
+	if field == msg {
+		return ""
+	}
+	return field
+}
+
+// junctionAt is the first of $ref, oneOf, anyOf and allOf a node on the way
+// to path uses, where [schemax.TierAt] stops reading tiers; "" when none does.
+func junctionAt(doc any, path []string) string {
+	for i := 0; i <= len(path); i++ {
+		n := schemaNode(doc, path[:i])
+		for _, k := range []string{"$ref", "oneOf", "anyOf", "allOf"} {
+			if _, ok := n[k]; ok {
+				return k
+			}
+		}
+	}
+	return ""
 }
 
 // tierFindings is a TierNotTunable finding for each path given sets that the
@@ -156,7 +188,7 @@ func parameterCode(v *jsonschema.ValidationError) string {
 	case *kind.AdditionalProperties:
 		return string(finding.CodeParameterNotDeclared)
 	case *kind.Minimum, *kind.Maximum, *kind.ExclusiveMinimum, *kind.ExclusiveMaximum, *kind.MinLength,
-		*kind.MaxLength, *kind.Pattern, *kind.Type, *kind.MultipleOf, *kind.Const:
+		*kind.MaxLength, *kind.Pattern, *kind.Type, *kind.MultipleOf, *kind.Const, *kind.Format:
 		return string(finding.CodeParameterOutOfRange)
 	}
 	return ""
@@ -205,7 +237,7 @@ func schemaBound(doc any, path []string) string {
 		{"type", "of type %v"}, {"enum", "in %v"}, {"const", "equal to %v"},
 		{"minimum", ">= %v"}, {"exclusiveMinimum", "> %v"}, {"maximum", "<= %v"}, {"exclusiveMaximum", "< %v"},
 		{"multipleOf", "a multiple of %v"}, {"minLength", "at least %v characters long"},
-		{"maxLength", "at most %v characters long"}, {"pattern", "matching %v"},
+		{"maxLength", "at most %v characters long"}, {"pattern", "matching %v"}, {"format", "in format %v"},
 	} {
 		v, ok := n[b.key]
 		if !ok {

@@ -323,3 +323,34 @@ func TestSchemaBoundAndOwnerFallbacks(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestTierNotTunableBehindRefSaysSo(t *testing.T) {
+	refSchema := strings.Replace(offeringSchema, `"properties":{`, `"$defs":{"pool":{"type":"object","x-pacto-tier":"tunable"}},"properties":{"pool":{"$ref":"#/$defs/pool"},`, 1)
+	c, fsys := offeringConsumer(baseValues(), "{}\n", "database: {pool: {size: 3}, storageGB: 100}\n")
+	st, _ := runOffering(t, c, fsys, offeringBundle("postgresql", "postgresql", refSchema, nil))
+	if len(st.Errors) != 2 || !strings.Contains(st.Errors[0].Message, "database.pool.size is contract-tier in offering postgresql 16.1.0, so it cannot change per environment; the tier sits behind a $ref Pacto does not follow. Next: ") ||
+		strings.Contains(st.Errors[1].Message, "behind") {
+		t.Fatalf("got %+v", st.Errors)
+	}
+}
+
+func TestFormatViolationNeverEchoesValue(t *testing.T) {
+	draft7 := strings.Replace(offeringSchema, `{"type":"object",`, `{"$schema":"http://json-schema.org/draft-07/schema#","type":"object",`, 1)
+	draft7 = strings.Replace(draft7, `"properties":{`, `"properties":{"admin":{"type":"string","format":"email","writeOnly":true,"x-pacto-tier":"tunable"},`, 1)
+	c, fsys := offeringConsumer(baseValues(), "{}\n", "database: {admin: secret-not-an-address}\n")
+	st, _ := runOffering(t, c, fsys, offeringBundle("postgresql", "postgresql", draft7, nil))
+	if codes(st) != string(finding.CodeParameterOutOfRange) || strings.Contains(st.Errors[0].Message, "secret-not-an-address") ||
+		!strings.Contains(st.Errors[0].Message, "Next: use a value of type string, in format email;") {
+		t.Fatalf("got %+v", st.Errors)
+	}
+}
+
+func TestTierNotTunableField(t *testing.T) {
+	st := envProduction(t, "database:\n  storageGB: 100\n")
+	if got := TierNotTunableField(st.Errors[0].Message); got != "environment production: database.storageGB" {
+		t.Fatalf("got %q from %q", got, st.Errors[0].Message)
+	}
+	if got := TierNotTunableField("environment production: database.replicas is outside the parameters"); got != "" {
+		t.Fatalf("got %q", got)
+	}
+}
