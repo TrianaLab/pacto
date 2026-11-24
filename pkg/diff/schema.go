@@ -64,7 +64,13 @@ func diffSchemaAt(dir schemaDirection, oldPath, newPath string, oldFS, newFS fs.
 	}
 
 	sensitive := slices.Concat(sensitivePaths(oldDoc), sensitivePaths(newDoc))
-	return redact(diffJSON(dir, nil, schemaRoot, oldDoc, newDoc), sensitive)
+	changes := diffJSON(dir, nil, schemaRoot, oldDoc, newDoc)
+	for i, c := range changes {
+		if field, ok := tierField(c.Path); ok {
+			changes[i].Reason = tierReason(field, c.OldValue, c.NewValue, c.Reason)
+		}
+	}
+	return redact(changes, sensitive)
 }
 
 // schemaRoot is the path diffSchema gives a schema document's root.
@@ -472,6 +478,9 @@ func classifySchemaChange(dir schemaDirection, path string, elem bool, ct Change
 	if isDocOnly(segs) {
 		return NonBreaking
 	}
+	if _, ok := tierField(path); ok {
+		return tierEffect(old, new)
+	}
 	if isExtension(segs) {
 		return PotentialBreaking
 	}
@@ -513,6 +522,54 @@ func classifySchemaChange(dir schemaDirection, path string, elem bool, ct Change
 	}
 	// Other schema changes are potentially breaking by default.
 	return PotentialBreaking
+}
+
+// tierField reports whether path is a schema node's tier keyword
+// (schemax.TierKeyword) and names the field it tiers: the property right
+// above it, or the schema root. A property named like the keyword is a field.
+func tierField(path string) (string, bool) {
+	segs := strings.Split(indexRe.ReplaceAllString(path, ""), ".")
+	n := len(segs)
+	if n < 2 || segs[n-1] != schemax.TierKeyword || nameKeys[segs[n-2]] {
+		return "", false
+	}
+	if n >= 3 && segs[n-3] == "properties" {
+		return segs[n-2], true
+	}
+	return "the schema root", true
+}
+
+// tier is the tier a node with tier keyword value v has: absent and unknown
+// values are contract (#452 D2).
+func tier(v any) string {
+	return schemax.Tier(map[string]any{schemax.TierKeyword: v})
+}
+
+// tierEffect grades a tier keyword edit: a field moving to contract breaks a
+// consumer that set it per environment, a move to tunable only loosens.
+//
+// ponytail: grades the keyword where it changed; a field inheriting a tier
+// from an ancestor (schemax.TierAt) can read as moved when it did not, which
+// overstates (the safe direction). Grade by TierAt on both docs if it bites.
+func tierEffect(old, new any) Classification {
+	if tier(old) == schemax.TierTunable && tier(new) == schemax.TierContract {
+		return Breaking
+	}
+	return NonBreaking
+}
+
+// tierReason is the reason for a tier keyword edit on field, or fallback
+// when the tier does not move.
+func tierReason(field string, old, new any, fallback string) string {
+	from, to := tier(old), tier(new)
+	switch {
+	case from == to:
+		return fallback
+	case to == schemax.TierContract:
+		return field + " moved from tunable to contract: a consumer that set it per environment breaks"
+	default:
+		return field + " moved from contract to tunable"
+	}
 }
 
 // responseHeadersRe matches the headers map of an OpenAPI response.
