@@ -207,8 +207,10 @@ test-browser:
 	$(MAKE) -C examples/demo build
 # The legacy non-Fleet views ship in the same bundle but no live host serves them:
 # their only host is the offline `pacto doc --format html` export. The suite audits
-# them there, on a second origin, so build one.
-	$(MAKE) -C examples/demo doc-export
+# them there, on a second origin, so build one. The layout leg never opens it
+# (playwright.config.ts starts no doc server for it), so its shards skip the
+# build: about two minutes each, most of it compiling cmd/pacto.
+	$(if $(filter layout,$(PW_LEG)),@echo "doc export unused by the layout leg; skipped",$(MAKE) -C examples/demo doc-export)
 # The engine smoke rides the build this target already paid for. Until now it ran
 # only in the post-merge docs workflow: source_embed_test.go covers the same
 # fixtures under a required job, but nothing on a PR ran smoke.mjs itself, so a

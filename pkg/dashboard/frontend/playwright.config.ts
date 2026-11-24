@@ -66,11 +66,16 @@ export default defineConfig({
       reuseExistingServer: !process.env.CI,
       timeout: 60_000,
     },
-    {
-      command: `python3 e2e/serve.py ${DOC_PORT} ${DOC_DIST}`,
-      url: `http://127.0.0.1:${DOC_PORT}/index.html`,
-      reuseExistingServer: !process.env.CI,
-      timeout: 60_000,
-    },
+    // The layout leg opens no doc export page, and make test-browser builds none for it.
+    ...(leg === 'layout'
+      ? []
+      : [
+          {
+            command: `python3 e2e/serve.py ${DOC_PORT} ${DOC_DIST}`,
+            url: `http://127.0.0.1:${DOC_PORT}/index.html`,
+            reuseExistingServer: !process.env.CI,
+            timeout: 60_000,
+          },
+        ]),
   ],
 });
