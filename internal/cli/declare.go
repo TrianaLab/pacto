@@ -18,7 +18,6 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/gitexport"
-	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -182,7 +181,7 @@ func declareSubject(req *app.DeclareRequest, arg string) error {
 		switch kind + ":" {
 		case fleet.ExternalSubjectPrefix:
 			return errors.New("claim an external system with pacto claim " + rest + " --owner <team>")
-		case pactomcp.OfferingSubjectPrefix:
+		case fleet.OfferingSubjectPrefix:
 			req.Service = arg
 			return nil
 		case "k8s:":
@@ -200,7 +199,7 @@ func declareSubject(req *app.DeclareRequest, arg string) error {
 // on an offering acceptance.
 func subjectFlags(cmd *cobra.Command, service string) error {
 	flags, why := []string{"owner", "from", "version", "detected", "contribution-trust"}, "is an offering acceptance's (offering:<name>): run again without it"
-	if strings.HasPrefix(service, pactomcp.OfferingSubjectPrefix) {
+	if strings.HasPrefix(service, fleet.OfferingSubjectPrefix) {
 		flags, why = []string{"namespace", "accept", "max-items", "call-window", "pr", "repository", "folder", "repo-map", "git-host"},
 			"is a workload's: accepting an offering takes --from, --version, --owner, --detected, --contribution-trust, --dir and --registry"
 	}
@@ -222,7 +221,7 @@ func declareDynamic(req app.DeclareRequest) (dynamic.Interface, error) {
 		return nil, nil
 	}
 	dyn, err := initDynamic()
-	offer := strings.HasPrefix(req.Service, pactomcp.OfferingSubjectPrefix)
+	offer := strings.HasPrefix(req.Service, fleet.OfferingSubjectPrefix)
 	switch {
 	case err != nil && offer && strings.HasPrefix(req.Detected, "k8s:"):
 		return nil, fmt.Errorf("reading the detection %s needs the cluster: %w", req.Detected, err)
@@ -578,10 +577,10 @@ func printClaimResult(w io.Writer, res *app.DeclareResult, id string) {
 func printOfferingResult(w io.Writer, res *app.DeclareResult) {
 	p := res.Plan
 	if res.Draft {
-		_, _ = fmt.Fprintf(w, "wrote %s of %s%s (%s): a person accepts it with %s --yes\n", res.Tag, pactomcp.OfferingSubjectPrefix, p.Service, res.Published, p.AcceptCLI)
+		_, _ = fmt.Fprintf(w, "wrote %s of %s%s (%s): a person accepts it with %s --yes\n", res.Tag, fleet.OfferingSubjectPrefix, p.Service, res.Published, p.AcceptCLI)
 		return
 	}
-	_, _ = fmt.Fprintf(w, "declared %s%s -> oci://%s:%s\n", pactomcp.OfferingSubjectPrefix, p.Service, p.BundleRepo, p.Version)
+	_, _ = fmt.Fprintf(w, "declared %s%s -> oci://%s:%s\n", fleet.OfferingSubjectPrefix, p.Service, p.BundleRepo, p.Version)
 	_, _ = fmt.Fprintf(w, "  signed by %s (person), inferredFrom: %s, producer signature checked, no Git write\n", p.Signer.Subject, inferredFromText(p.InferredFrom))
 }
 

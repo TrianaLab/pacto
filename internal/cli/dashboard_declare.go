@@ -168,7 +168,7 @@ func (d *dashboardDeclarer) request(r *http.Request, w dashboard.DeclareWorkload
 // the dashboard's registry or a path below it. The cluster that advertised
 // it, when the dashboard reads it, verifies the record with the detection.
 func (d *dashboardDeclarer) offeringRequest(r *http.Request, req app.DeclareRequest, w dashboard.DeclareWorkload, off *dashboard.OfferingInput, cfg *rest.Config) (app.DeclareRequest, error) {
-	req.Service, req.Observed = pactomcp.OfferingSubjectPrefix+cmp.Or(off.Name, w.Offering), nil
+	req.Service, req.Observed = fleet.OfferingSubjectPrefix+cmp.Or(off.Name, w.Offering), nil
 	req.Version, req.Owner, req.From, req.Detected = off.Version, off.Owner, w.From, d.detected
 	if reg := off.Registry; reg != "" && reg != d.registry && !strings.HasPrefix(reg, d.registry+"/") {
 		return req, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), Message: "the dashboard publishes only under " + d.registry + ", not " + reg + ": run the command"}
@@ -338,7 +338,7 @@ func selfFrom(w dashboard.DeclareWorkload) string {
 // restricted view hides: it names no service, version, inferredFrom or tag.
 // Nil for a workload, or when the viewer may read everything there.
 func claimRedacted(w dashboard.DeclareWorkload, req app.DeclareRequest, p *app.DeclarePlan, err error) *dashboard.DeclareRefusal {
-	if offer, ok := strings.CutPrefix(req.Service, pactomcp.OfferingSubjectPrefix); ok {
+	if offer, ok := strings.CutPrefix(req.Service, fleet.OfferingSubjectPrefix); ok {
 		if offeringHidden(w.View, req.Registry, offer, p, err) {
 			return refused(string(pactomcp.RefusalNotAllowed), offeringHiddenMessage, declareCommand(req, ""))
 		}
@@ -377,7 +377,7 @@ func plannedLogin(context.Context) (string, error) { return "", errors.New("a pl
 // declareCommand is the pacto declare a person runs for req: accepting its
 // draft with the ranges it accepts, or the plan replayed with intent.
 func declareCommand(req app.DeclareRequest, intent string) string {
-	if strings.HasPrefix(req.Service, pactomcp.OfferingSubjectPrefix) {
+	if strings.HasPrefix(req.Service, fleet.OfferingSubjectPrefix) {
 		return req.Command(intent)
 	}
 	cmd := "pacto declare " + req.Service + " --namespace " + req.Namespace + " --registry " + req.Registry
@@ -688,7 +688,7 @@ func auditDeclare(ctx context.Context, via, who, subject, service, tag, publishe
 	if _, ok := fleet.ParseExternalSubject(subject); ok {
 		verb = "claim"
 	}
-	if strings.HasPrefix(subject, pactomcp.OfferingSubjectPrefix) {
+	if strings.HasPrefix(subject, fleet.OfferingSubjectPrefix) {
 		verb = "accept-offering"
 	}
 	logging.LoggerFromContext(ctx).Info("declaration written", slog.String("via", via), slog.String("verb", verb), slog.String("subject", subject), slog.String("actor", who),

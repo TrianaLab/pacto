@@ -214,10 +214,6 @@ type DeclareArgs struct {
 // names.
 var serviceNameRE = regexp.MustCompile(serviceNamePattern)
 
-// OfferingSubjectPrefix is the declare subject of an inferred offering a
-// person accepts: offering:<name>.
-const OfferingSubjectPrefix = "offering:"
-
 // Claim is the external system a claims and whether a is a claim.
 func (a DeclareArgs) Claim() (string, bool) {
 	return strings.CutPrefix(a.Service, fleet.ExternalSubjectPrefix)
@@ -225,7 +221,7 @@ func (a DeclareArgs) Claim() (string, bool) {
 
 // Offering is the offering a accepts and whether a is an acceptance.
 func (a DeclareArgs) Offering() (string, bool) {
-	return strings.CutPrefix(a.Service, OfferingSubjectPrefix)
+	return strings.CutPrefix(a.Service, fleet.OfferingSubjectPrefix)
 }
 
 // Verb is the command a person runs for a: pacto claim for a claim, else

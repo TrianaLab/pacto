@@ -213,7 +213,7 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 // offering sets, on an offering acceptance, the detection that verifies
 // its contribution.
 func (r remoteDeclarer) offering(req *app.DeclareRequest) {
-	if strings.HasPrefix(req.Service, pactomcp.OfferingSubjectPrefix) {
+	if strings.HasPrefix(req.Service, fleet.OfferingSubjectPrefix) {
 		req.Detected = r.detected
 	}
 }

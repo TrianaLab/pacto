@@ -12,7 +12,6 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/discover"
-	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/internal/pactify"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/diff"
@@ -641,7 +640,7 @@ func printExplainDeclaration(w io.Writer, result *app.ExplainResult) {
 	case d.State == contract.DeclarationDraft:
 		from, accept := declarationFrom(d.InferredFrom), "pacto declare "+result.Name
 		if _, _, _, ok := contract.InferredFromOffering(d.InferredFrom); ok {
-			accept = "pacto declare " + pactomcp.OfferingSubjectPrefix + result.Name
+			accept = "pacto declare " + fleet.OfferingSubjectPrefix + result.Name
 		}
 		if id, ok := contract.InferredFromExternal(d.InferredFrom); ok {
 			accept = "pacto claim " + id

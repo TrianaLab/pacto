@@ -26,13 +26,9 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
-// offeringSubjectPrefix is the declare subject of an offering accepted from
-// a producer's inferred offering: offering:<name>.
-const offeringSubjectPrefix = "offering:"
-
 // offered is the offering req accepts, and whether req is an acceptance.
 func (req DeclareRequest) offered() (string, bool) {
-	return strings.CutPrefix(req.Service, offeringSubjectPrefix)
+	return strings.CutPrefix(req.Service, fleet.OfferingSubjectPrefix)
 }
 
 // detectedPlaceholder is the --detected a refusal's next command names when
