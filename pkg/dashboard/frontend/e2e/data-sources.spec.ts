@@ -44,10 +44,10 @@ const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
  * data sources, one per source kind. The demo's four egress readers come back as rows
  * of their own with `egress` set, so they never add a pill. The hub's two members
  * share one target-snapshot pill, the Evidence Server adds an evidence-http pill and
- * the Backstage catalog a backstage-catalog pill. The cluster's detection adds one too:
- * it reads the inferred offerings its operator contributes (515-S4).
+ * the Backstage catalog a backstage-catalog pill. The inferred offerings the cluster's
+ * operator contributes (515-S4) come through the existing detection pill.
  */
-const NAV_PILLS = 14;
+const NAV_PILLS = 13;
 const EGRESS_ROWS = { 'kernel-egress': 'partial', 'istio-egress': 'complete', 'cilium-fqdn': 'unavailable', 'egress-gateway': 'partial' };
 
 async function overviewSources(page: Page) {
