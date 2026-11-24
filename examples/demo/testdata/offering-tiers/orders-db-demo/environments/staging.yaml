@@ -1,0 +1,3 @@
+database:
+  replicas: 9
+  class: xlarge

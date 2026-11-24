@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "properties": {
+    "class": {"enum": ["small", "medium", "large"], "x-pacto-tier": "tunable"},
+    "replicas": {"type": "integer", "minimum": 1, "maximum": 5, "x-pacto-tier": "tunable"},
+    "storageGB": {"type": "integer", "minimum": 10, "maximum": 500}
+  }
+}

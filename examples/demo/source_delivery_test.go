@@ -933,11 +933,35 @@ func TestDemoInspectedPlanComesFromPlanFor(t *testing.T) {
 		v.Citation["objects"] != "Deployment checkout, Service checkout" || v.Message != "every one of the 2 objects stays in prod" {
 		t.Fatalf("pacto.manifests: %+v", v)
 	}
-	// Only the chosen Stage is inspected.
+	// Only the chosen Stages (prod/checkout and prod/payments) are inspected.
 	req = strings.Replace(req, `"namespace":"`+story.Prod+`"`, `"namespace":"prod-eu"`, 1)
 	if code := call(t, h, "POST", "/api/delivery/plan", req, &p); code != 200 ||
 		slices.ContainsFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateManifests }) {
 		t.Fatalf("prod-eu plan %d %+v", code, p.Verdicts)
+	}
+}
+
+// TestDemoPaymentsPlanCitesValues: payments ships through Argo CD with one
+// values file per environment. Each Stage records the file its Application
+// selects, as SelectedValues reads it, and a promote to prod cites the file
+// it applies from the version.
+func TestDemoPaymentsPlanCitesValues(t *testing.T) {
+	d, h := demoServer(t)
+	for _, env := range []string{story.Test, story.Prod} {
+		want := "values-" + env + ".yaml"
+		if r := rowOf(t, environments(t, h, "payments"), env, "payments"); r.Applier == nil || r.Applier.Values != want {
+			t.Errorf("%s: applier %+v, want values %s", env, r.Applier, want)
+		}
+	}
+	p := d.op(story.Prod, "payments-promote-2").Status.Plan
+	i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateManifests })
+	if i < 0 {
+		t.Fatalf("no pacto.manifests verdict: %+v", p.Verdicts)
+	}
+	v := p.Verdicts[i]
+	if v.Citation["valuesFile"] != "values-prod.yaml" || v.Citation["valuesDigest"] != "" ||
+		!strings.HasPrefix(v.Citation["artifact"], "chart (simulated") {
+		t.Fatalf("pacto.manifests: %+v", v)
 	}
 }
 

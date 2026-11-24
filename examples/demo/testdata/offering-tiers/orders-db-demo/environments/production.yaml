@@ -1,0 +1,3 @@
+database:
+  storageGB: 100
+  replica: 2

@@ -1973,7 +1973,10 @@ export function installScaleFixture(): void {
     if (declared) clusterFacts(doc);
     if (flags.__pactoInspected && method === 'POST' && route === '/api/delivery/plan' && Array.isArray(doc.verdicts)) {
       const refused = [`ClusterRoleBinding ${longName('orders-admin')} is cluster-scoped`, `Deployment ${longName('orders')} is in ${longName('kube-system')}, outside prod`];
-      doc.verdicts.push({ gate: 'pacto.manifests', phase: 'pre', result: 'Fail', message: `the version reaches outside prod: ${refused.join('; ')}`,
+      // The fixture's verdict stands in for the demo's own (an inspected Stage plans one).
+      const verdicts = (doc.verdicts as Record<string, unknown>[]).filter((v) => v.gate !== 'pacto.manifests');
+      doc.verdicts = verdicts;
+      verdicts.push({ gate: 'pacto.manifests', phase: 'pre', result: 'Fail', message: `the version reaches outside prod: ${refused.join('; ')}`,
         citation: { artifact: 'manifests', objects: `${Array.from({ length: 50 }, (_, i) => `Deployment ${longName(`orders-${i}`)}`).join(', ')} and 12 more`, refused: refused.join('; '),
           valuesFile: `${longName('values-production-eu-west')}.yaml`, valuesDigest: 'sha256:' + 'e'.repeat(64) } });
     }
