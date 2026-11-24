@@ -29,7 +29,8 @@
 #   4. a hand-written Stage is never touched;
 #   5. carol approves the first promote of payments-staging: the placement is
 #      confirmed as hers, the deployer account exists, the Flux objects are
-#      unsuspended and the workload runs;
+#      unsuspended at 1.5.0, the pointer pins the CI identity and reaches the
+#      plain-HTTP registry as the promoter does, and the workload runs;
 #   6. alice confirms the proposed preview rung: payments-preview takes its
 #      versions from the registry;
 #   7. checkout's temporary environment pr-412, declared in a 2.6 contract
@@ -110,10 +111,12 @@ install_registry
 REG_PF_PID="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
 # reg CMD... — CMD with the forwarded port as a plain-HTTP proxy, so it reaches
 # the registry AS $REG_HOST, the host the cluster reads, and outside any CI
-# context (a pull-request pipeline refuses to publish).
+# context (a pull-request pipeline refuses to publish). The artifacts then name
+# no source repository: the runner's would contradict the one $SOURCE's
+# signing certificate attests, and the promoter refuses that version.
 reg() {
   env -u GITHUB_ACTIONS -u GITHUB_BASE_REF -u GITHUB_STEP_SUMMARY -u GITHUB_REPOSITORY_OWNER -u ACTIONS_ID_TOKEN_REQUEST_URL \
-    -u GITLAB_CI -u CI_MERGE_REQUEST_DIFF_BASE_SHA -u SIGSTORE_ID_TOKEN \
+    -u GITHUB_SERVER_URL -u GITHUB_REPOSITORY -u GITLAB_CI -u CI_MERGE_REQUEST_DIFF_BASE_SHA -u CI_PROJECT_URL -u SIGSTORE_ID_TOKEN \
     HTTP_PROXY="http://127.0.0.1:${LOCAL_REG_PORT}" NO_PROXY="" no_proxy="" PACTO_INSECURE_REGISTRIES="$REG_HOST" COSIGN_PASSWORD="" "$@"
 }
 REPO="$WORK/shop"
@@ -238,7 +241,10 @@ YAML
 ORDERS="$(push_bundle "$PACTO" "$LOCAL_REG_PORT" "$od" "orders:1.0.0")"
 [ -n "$ORDERS" ] || fail "pushing orders resolved no digest"
 
-section "helm install pacto with profile idp, its Flux and the installation ladder"
+section "helm install pacto with profile idp and its Flux, the installation ladder off"
+# The ladder starts once the workloads below and their Pactos exist, as it
+# would on a cluster that already runs them: its first pass would otherwise
+# place ledger and fraud by name before any Pacto says where they run.
 RECORDER_KEY="$KEYDIR/recorder.pem"
 openssl genpkey -algorithm ed25519 -out "$RECORDER_KEY" 2>/dev/null || fail "openssl could not generate the recorder's key"
 kubectl -n "$DNS" create secret generic recorder-key --from-file=key.pem="$RECORDER_KEY" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
@@ -248,16 +254,12 @@ helm install pacto "$PACTO_CHART" -n "$NS" --set profile=idp --set idp.flux.inst
   --set delivery.createNamespace=false --set-json "delivery.admissionPolicies.gitopsUsers=$GITOPS_USERS" \
   --set delivery.image.repository="$DL_REPO" --set delivery.image.tag="$VER" --set delivery.image.pullPolicy=Never \
   --set "delivery.insecureRegistries[0]=$REG_HOST" --set delivery.promoter.poll=2s --set delivery.promoter.resync=15s \
-  --set delivery.environments.retireAfter=1m \
+  --set delivery.environments.enabled=false --set delivery.environments.retireAfter=1m \
   --set delivery.publishers.registry=ghcr.io/acme --set-file delivery.publishers.trustedRoot="$KEYDIR/trusted_root.json" \
   --set delivery.recorder.enabled=true --set delivery.recorder.streamsRepository="$REG_HOST/pacto-delivery-streams" --set delivery.recorder.poll=5s \
   --set delivery.recorder.signing.ed25519.secretName=recorder-key --set delivery.recorder.signing.allowOperatorReadableKey=true \
   --wait --timeout 300s >/dev/null || fail "helm install pacto with profile idp did not roll out"
-promoter_args="$(kubectl -n "$DNS" get deploy pacto-operator-delivery -o jsonpath='{.spec.template.spec.containers[0].args}')"
-for want in --environments=true --environment-ladder=staging,production --environment-create-appliers --environment-retire-after=1m; do
-  grep -qF -- "$want" <<<"$promoter_args" || fail "the promoter runs without $want: $promoter_args"
-done
-pass "the promoter runs the installation ladder staging -> production and creates Flux objects under profile idp"
+pass "pacto runs with profile idp and its Flux, the installation ladder off"
 
 section "workloads: orders and its Pacto, ledger by Helm, checkout's in pr-412, a hand-written Stage"
 # deployment NS NAME — a Deployment kubectl creates, which no applier manages.
@@ -309,6 +311,15 @@ handwritten() { kubectl -n orders-staging get stage orders -o json | jq -c '{g: 
 HANDWRITTEN="$(handwritten)"
 pass "orders runs in orders-staging, ledger by Helm in ledger-staging and checkout in pr-412, each with its Pacto"
 
+section "turn the installation ladder on"
+helm upgrade pacto "$PACTO_CHART" -n "$NS" --reuse-values --set delivery.environments.enabled=true --wait --timeout 300s >/dev/null \
+  || fail "helm upgrade pacto with the installation ladder on did not roll out"
+promoter_args="$(kubectl -n "$DNS" get deploy pacto-operator-delivery -o jsonpath='{.spec.template.spec.containers[0].args}')"
+for want in --environments=true --environment-ladder=staging,production --environment-create-appliers --environment-retire-after=1m; do
+  grep -qF -- "$want" <<<"$promoter_args" || fail "the promoter runs without $want: $promoter_args"
+done
+pass "the promoter runs the installation ladder staging -> production and creates Flux objects under profile idp"
+
 # placements — the rows the promoter writes, which only it and admins read.
 placements() { kubectl -n "$DNS" get configmap pacto-delivery-placements -o jsonpath='{.data.rows\.json}' 2>/dev/null || echo '[]'; }
 row() { placements | jq -c --arg s "$1" --arg e "$2" '[.[] | select(.service == $s and .environment == $e)][0] // empty'; }
@@ -333,8 +344,8 @@ stage_json production payments-production | jq -e '.spec.candidates.upstreamStag
   || fail "payments-production does not take its versions from payments-staging: $(stage_json production payments-production | jq -c .spec.candidates)"
 for ns in staging production; do
   name="payments-$ns"
-  kubectl -n "$ns" get ocirepository "$name" -o json | jq -e '.spec.suspend == true and (.spec | has("ref") | not)' >/dev/null \
-    || fail "the OCIRepository $ns/$name is not suspended with no ref: $(kubectl -n "$ns" get ocirepository "$name" -o json | jq -c .spec)"
+  kubectl -n "$ns" get ocirepository "$name" -o json | jq -e '.spec.suspend == true and (.spec | has("ref") | not) and .spec.insecure == true' >/dev/null \
+    || fail "the OCIRepository $ns/$name is not suspended with no ref over plain HTTP: $(kubectl -n "$ns" get ocirepository "$name" -o json | jq -c .spec)"
   kubectl -n "$ns" get kustomization "$name" -o json | jq -e --arg sa payments-deployer '.spec.suspend == true and .spec.serviceAccountName == $sa' >/dev/null \
     || fail "the Kustomization $ns/$name is not suspended as payments-deployer"
   ! kubectl -n "$ns" get serviceaccount payments-deployer >/dev/null 2>&1 || fail "payments-deployer exists in $ns before any approval"
@@ -424,6 +435,17 @@ unsuspended() {
     kubectl -n staging get kustomization payments-staging -o json | jq -e '.spec.suspend == false' >/dev/null
 }
 eventually 30 unsuspended || fail "the Flux objects of payments-staging were not unsuspended at $P150"
+# The pointer pins the CI identity, but Flux cannot check it here: with a
+# custom trusted root source-controller wants a Rekor log in it, and the
+# private Sigstore keylesssign runs has only a timestamp authority. The run
+# drops spec.verify after reading it, so Flux applies what the promote pinned;
+# the promoter checked the same signature against this root before it placed
+# payments.
+kubectl -n staging get ocirepository payments-staging -o json | jq -e --arg s "$CI_SUBJECT" \
+  '.spec.verify.provider == "cosign" and (.spec.verify.matchOIDCIdentity[0].subject | gsub("\\\\"; "")) == "^\($s)$"' >/dev/null \
+  || fail "the pointer of payments-staging does not pin $CI_SUBJECT: $(kubectl -n staging get ocirepository payments-staging -o jsonpath='{.spec.verify}')"
+kubectl -n staging patch ocirepository payments-staging --type=json -p '[{"op": "remove", "path": "/spec/verify"}]' >/dev/null \
+  || fail "the run could not drop spec.verify from the pointer of payments-staging"
 kubectl -n staging get serviceaccount payments-deployer >/dev/null 2>&1 || fail "no payments-deployer ServiceAccount after the approval"
 kubectl -n staging get rolebinding payments-deployer -o jsonpath='{.roleRef.name}' | grep -qx pacto-operator-delivery-deployer \
   || fail "payments-deployer is not bound to pacto-operator-delivery-deployer"
@@ -453,7 +475,7 @@ out="$(reg "$LADDER_BIN" -root "$WORK/ladder-root.json" -view "$WORK/view.json" 
 SIGNERS="$(jq -nc --arg i "$LADDER_ISSUER" --rawfile r "$WORK/ladder-root.json" '[{issuer: $i, usernamePrefix: "oidc:", subjects: "[^@]+@acme\\.test", trustedRoot: $r}]')"
 helm upgrade pacto "$PACTO_CHART" -n "$NS" --reuse-values --set-json "delivery.identities.signers=$SIGNERS" --wait --timeout 300s >/dev/null \
   || fail "the promoter did not take alice's approver signer"
-preview_confirmed() { view | jq -e '[.confirmed[]? | select(.name == "preview")] | length == 1 and .confirmedBy == "oidc:alice@acme.test"' >/dev/null 2>&1; }
+preview_confirmed() { view | jq -e '([.confirmed[]? | select(.name == "preview")] | length == 1) and .confirmedBy == "oidc:alice@acme.test"' >/dev/null 2>&1; }
 eventually 60 preview_confirmed || fail "the installation ladder does not hold preview confirmed by oidc:alice@acme.test: $(view | jq -c '{confirmed, confirmedBy, notes}')"
 eventually 60 has_stage preview payments-preview || fail "no Stage preview/payments-preview appeared: $(row payments preview)"
 stage_json preview payments-preview | jq -e '.spec.candidates.registry != null and .spec.candidates.upstreamStage == null' >/dev/null \

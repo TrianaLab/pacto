@@ -389,11 +389,12 @@ func PlacementQuestion(service string, p Placement) string {
 // FluxApplierInput is what FluxApplierObjects builds the Flux objects of one
 // service in one environment from: where it runs, the artifact
 // publish.deploy names (its oci:// ref and whether it is a chart) and the
-// keyless identity of its accepted publisher.
+// keyless identity of its accepted publisher. Insecure says the registry
+// the URL names is reached over plain HTTP, as the promoter reaches it.
 type FluxApplierInput struct {
 	Service, Environment, Namespace string
 	URL                             string
-	Chart                           bool
+	Chart, Insecure                 bool
 	Publisher                       PublisherIdentity
 }
 
@@ -414,8 +415,8 @@ const (
 // ManagedLabel and ApplyRefLabel and created suspended, and the pointer has
 // no ref at all, whatever the placement's provenance: nothing applies until
 // the promoter's first approved promote writes a digest and unsuspends them.
-// The pointer verifies the accepted publisher's keyless signature; the
-// applier runs as deployerName in its own namespace, and a Kustomization
+// The pointer verifies the accepted publisher's keyless signature, over plain
+// HTTP when the input says its registry is insecure; the applier runs as deployerName in its own namespace, and a Kustomization
 // orphans what it applied when it is deleted.
 func FluxApplierObjects(in FluxApplierInput) []map[string]any {
 	name := in.Service + "-" + in.Environment
@@ -428,6 +429,9 @@ func FluxApplierObjects(in FluxApplierInput) []map[string]any {
 		"verify": map[string]any{"provider": "cosign", "matchOIDCIdentity": []any{map[string]any{
 			"issuer":  "^" + regexp.QuoteMeta(in.Publisher.Issuer) + "$",
 			"subject": "^" + regexp.QuoteMeta(in.Publisher.Subject) + "$"}}}}
+	if in.Insecure {
+		pointer["insecure"] = true
+	}
 	source := map[string]any{"kind": "OCIRepository", "name": name}
 	applier := map[string]any{"interval": "10m", "suspend": true, "targetNamespace": in.Namespace,
 		"serviceAccountName": deployerName(in.Service)}

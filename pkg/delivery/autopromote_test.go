@@ -23,6 +23,10 @@ func TestAutoPromoteHold(t *testing.T) {
 			"the Stage is on auto-hold: a person rolled back or promoted back to a version it verified, so the promoter " +
 				"does not promote on its own until someone unfreezes it"},
 		{"no candidate", StageSpec{}, with(func(s *StageStatus) { s.Candidate = "" }), "the Stage has no eligible candidate"},
+		{"not ready", StageSpec{}, with(func(s *StageStatus) {
+			s.Conditions = []Condition{{Type: "Mediated", Status: "False"}, {Type: ConditionReady, Status: "False", Message: "no manager marks"}}
+		}), "the Stage is not Ready: no manager marks"},
+		{"ready", StageSpec{}, with(func(s *StageStatus) { s.Conditions = []Condition{{Type: ConditionReady, Status: "True"}} }), ""},
 		{"auto-nonbreaking with a candidate", StageSpec{}, with(func(s *StageStatus) { s.Level = LevelAutoNonBreaking }), ""},
 		{"autonomous with a candidate", StageSpec{}, auto, ""},
 	} {

@@ -105,6 +105,8 @@ func (r *EnvironmentReconciler) ensureAppliers(ctx context.Context, st *placemen
 	}
 	in := *e.deploy
 	in.Environment, in.Namespace = e.row.Environment, p.Namespace
+	host, _, _ := strings.Cut(delivery.RepoFromURL(in.URL), "/")
+	in.Insecure = slices.Contains(r.RecordOptions.Insecure, host)
 	for _, o := range delivery.FluxApplierObjects(in) {
 		if why := r.createOwned(ctx, &st.state, &unstructured.Unstructured{Object: o}, o["kind"].(string), svc, e.row.Environment); why != "" {
 			return delivery.ApplyRef{}, why
