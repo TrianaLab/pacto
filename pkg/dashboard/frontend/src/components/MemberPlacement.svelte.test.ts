@@ -91,8 +91,8 @@ describe('MemberPlacement', () => {
     const t = render([plan('production', [member({ state: 'refused', reason: 'r' })], { hidden: 1, hiddenReason: 'no live channel to it' })]);
     expect(text(t)).not.toContain(EU);
     for (const el of t.querySelectorAll('[aria-label]')) expect(el.getAttribute('aria-label')).not.toContain(EU);
-    // The uid is in the tooltip of the member's mark only.
-    expect((t.querySelector('a.mp-mark') as HTMLElement).getAttribute('title')).toContain(EU);
+    // The uid is in the member's tooltip only.
+    expect((t.querySelector('li.mp-member') as HTMLElement).getAttribute('title')).toContain(EU);
     expect(text(t)).toContain('1 member hidden: no live channel to it.');
   });
 

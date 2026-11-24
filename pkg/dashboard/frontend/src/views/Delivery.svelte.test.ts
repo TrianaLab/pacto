@@ -2517,7 +2517,7 @@ describe('refused publishes', () => {
     expect(rows[0].querySelector('.pv-member')?.tagName).toBe('BDI');
     expect(text(rows[1])).toContain("The member's gates rejected the promote: pacto.published: no publisher signature for billing.");
     // The member's Stage is in the tooltip, the member's name on the line.
-    expect(rows[1].querySelector('.pv-member')?.getAttribute('title')).toBe('eu-prod, billing/billing-prod');
+    expect(rows[1].querySelector('.pv-member')?.parentElement?.getAttribute('title')).toBe('eu-prod, billing/billing-prod');
     destroy();
   });
 

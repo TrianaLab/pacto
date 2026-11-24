@@ -48,9 +48,11 @@
         <ul class="mp-members">
           {#each p.members ?? [] as m (m.uid)}
             {@const label = memberStateLabel(m.state)}
-            <li class="mp-member" class:mp-muted={muted(m)} data-testid="member" data-state={m.state}>
-              <a class="mp-mark" href={fleetServicesUrl({ cluster: m.uid })} title={`${m.name} (${m.uid})${m.digest ? `, ${m.digest}` : ''}`}>
-                <bdi>{m.name}</bdi>{#if m.digest}{' '}<span class="mp-digest">{shortDigest(m.digest)}</span>{/if}
+            <!-- The uid and full digest are the member's tooltip, on the row: a title on the
+                 mark alone would claim to be the name it shows. -->
+            <li class="mp-member" class:mp-muted={muted(m)} data-testid="member" data-state={m.state} title={`${m.name} (${m.uid})${m.digest ? `, ${m.digest}` : ''}`}>
+              <a class="mp-mark" href={fleetServicesUrl({ cluster: m.uid })}>
+                <bdi>{m.name}</bdi>{#if m.digest}<span class="mp-digest">{shortDigest(m.digest)}</span>{/if}
               </a>
               <button type="button" class="mp-glyph tone-{m.state.replace(' ', '-')}" aria-label={`${m.name}: ${label}`} title={label}
                 aria-expanded={shown(p, m)} aria-controls={`${id}-${p.environment}-${m.uid}`} onclick={() => flip(p, m)}><span aria-hidden="true">{GLYPHS[m.state] ?? '•'}</span></button>
@@ -65,7 +67,7 @@
           </div>
         {/each}
         {#if p.placement.unplaced?.length}
-          <p class="mp-text mp-muted-text">Not placed: {#each p.placement.unplaced as u, i (u.uid)}{i ? '; ' : ''}<bdi title={u.uid}>{u.name}</bdi>: {u.reason}{/each}.</p>
+          <p class="mp-text mp-muted-text">Not placed: {#each p.placement.unplaced as u, i (u.uid)}{i ? '; ' : ''}<span title={`${u.name} (${u.uid})`}><bdi>{u.name}</bdi>: {u.reason}</span>{/each}.</p>
         {/if}
         {#if p.hidden}<p class="mp-text mp-muted-text">{countOf(p.hidden, 'member')} hidden{p.hiddenReason ? `: ${p.hiddenReason}` : ''}.</p>{/if}
         {#if p.completeness === 'partial'}<p class="mp-text mp-muted-text">Read in part{p.notes?.length ? `: ${p.notes.join('; ')}` : ''}.</p>{/if}
@@ -93,8 +95,8 @@
   .mp-env-name { font-weight: 500; overflow-wrap: anywhere; min-inline-size: 0; }
   .mp-members { display: flex; flex-wrap: wrap; gap: var(--sp-2) var(--sp-3); margin: 0; padding: 0; list-style: none; }
   .mp-member { display: inline-flex; align-items: center; gap: var(--sp-1); min-inline-size: 0; font-size: var(--text-sm); }
-  .mp-mark { min-inline-size: 0; overflow-wrap: anywhere; }
-  .mp-digest { font-family: var(--font-mono); font-size: var(--text-xs); }
+  .mp-mark { display: inline-flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--sp-2); min-inline-size: 0; overflow-wrap: anywhere; }
+  .mp-digest { font-family: var(--font-mono); font-size: var(--text-xs); white-space: nowrap; }
   .mp-glyph { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 1.75rem; min-block-size: 1.75rem; padding: 0; border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); cursor: pointer; }
   .mp-glyph.tone-applied { color: var(--c-ok); }
   .mp-glyph.tone-held, .mp-glyph.tone-waiting { color: var(--c-warn); }

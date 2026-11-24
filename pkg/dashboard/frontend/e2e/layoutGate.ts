@@ -710,6 +710,21 @@ export function installScaleFixture(): void {
         // and more hidden in namespaces the reader cannot list, counted under the list.
         doc.unplacedHidden = 1234;
       }
+      // The Members block at its longest (514-S6): the last environment placed on 40
+      // members with long names in every state, a long reason and next command on each,
+      // members left out and hidden, and a partial read.
+      const plans = doc.members as Record<string, unknown>[] | undefined;
+      if (plans?.length) {
+        const states = ['applied', 'held', 'refused', 'stale', 'unknown', 'waiting', 'raised', 'rejected', 'failed', 'no request'];
+        const p = plans[plans.length - 1];
+        const members = Array.from({ length: 40 }, (_, i) => ({ uid: `${String(i).padStart(8, '0')}-3b7d-4e19-a2c5-6d8f0b1e7a34`, name: longName(`member-${i}`),
+          state: states[i % 10] === 'stale' ? 'waiting' : states[i % 10], stale: states[i % 10] === 'stale' || undefined,
+          digest: `sha256:${String(i).padStart(64, 'e')}`, reason: longName(`member reason ${i}`), asOf: '2026-11-21T10:00:00Z',
+          next: i % 3 ? undefined : `pacto delivery approve --intent ${longName(`registry.example/acme/pacto-targets@sha256-${i}`)} --registry registry.example/acme` }));
+        Object.assign(p, { members, completeness: 'partial', notes: [longName('a member stream could not be read')], hidden: 7, hiddenReason: longName('hidden reason'),
+          placement: { ...(p.placement as object), clusters: members.map((m) => ({ uid: m.uid, name: m.name, evidence: longName(`evidence ${m.name}`) })),
+            unplaced: Array.from({ length: 5 }, (_, i) => ({ uid: `${String(i).padStart(8, 'f')}-3b7d-4e19-a2c5-6d8f0b1e7a34`, name: longName(`unplaced-member-${i}`), reason: longName(`unplaced reason ${i}`) })) } });
+      }
     }
     // The Why card at its longest: many reasons, each with a long message and fix.
     if (route === '/api/delivery/progress') {
@@ -1016,6 +1031,11 @@ export function installScaleFixture(): void {
           : { service: at63(`orders-reconciliation-${i}`), version: `1.9.${i}`, check: 'version', requiredBump: 'major', baseline: `1.8.${i}`,
             reason: 'the change is BREAKING, so it needs a major bump', actor: `system:serviceaccount:agents:${at63('pay-agent')}`,
             at: `2026-11-21T10:${String(59 - i).padStart(2, '0')}:00Z`, verified: false })) });
+      // Every fifth row a member's refusal (514-S6), its member name at its longest.
+      for (const [i, r] of (doc.refusals as Record<string, unknown>[]).entries()) {
+        if (i % 5 === 4) Object.assign(r, { check: 'member', cluster: longName(`member-${i}`), code: i % 10 === 4 ? 'Rejected' : 'OutsideAllowlist',
+          requiredBump: undefined, baseline: undefined, reason: longName(`member refusal ${i}`) });
+      }
     }
     // A version's lifecycle at its longest: long environment, Stage and record names, a
     // long note and the newest 50 events on every Stage.

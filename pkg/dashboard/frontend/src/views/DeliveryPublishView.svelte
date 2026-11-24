@@ -163,7 +163,7 @@
                   <li class="pl-row pl-row--stack pv-row">
                     <div class="pv-rhead" data-testid="refused-head">
                       <strong>{r.service} {r.version}</strong>
-                      {#if r.check === 'member'}{@const where = [r.cluster, r.namespace && r.stage ? `${r.namespace}/${r.stage}` : r.stage].filter(Boolean).join(', ')}<span class="t-meta">on <bdi class="pv-member" title={where}>{r.cluster}</bdi></span>
+                      {#if r.check === 'member'}{@const where = [r.cluster, r.namespace && r.stage ? `${r.namespace}/${r.stage}` : r.stage].filter(Boolean).join(', ')}<span class="t-meta" title={where}>on <bdi class="pv-member">{r.cluster}</bdi></span>
                       {:else if r.stage}{@const where = r.namespace ? `${r.namespace}/${r.stage}` : r.stage}<span class="t-meta">on <bdi class="pv-stage" title={where}>{where}</bdi></span>{/if}
                       {#if r.check === 'member'}<span class="badge badge-err" title={[r.code, r.digest].filter(Boolean).join(', ') || undefined}>Refused on a member</span>{:else if r.requiredBump}<span class="badge badge-err">Needs {BUMPS[r.requiredBump] ?? r.requiredBump}</span>{:else if r.check === 'manifests'}<span class="badge badge-err" title={[r.code, r.digest].filter(Boolean).join(', ') || undefined}>Refused promote</span>{:else}<span class="badge badge-err">Refused: {r.check}</span>{/if}
                       {#if r.verified}<span class="badge badge-ok">Signed record</span>{/if}
