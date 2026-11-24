@@ -340,7 +340,7 @@ func TestPlacementRowsReasons(t *testing.T) {
 		contract.Environment{Name: "pr-1", Lifetime: contract.EnvironmentTemporary, Expires: "2026-11-01T00:00:00Z"}), nil)
 	pe.pass(t)
 	rows := pe.rows(t)
-	if r := rowOf(t, rows, "payments", "production"); r.Placement != nil || r.Reason != "upstream staging is not in this cluster: remote delivery is not available yet" {
+	if r := rowOf(t, rows, "payments", "production"); r.Placement != nil || r.Reason != noPeer {
 		t.Fatalf("production %+v", r)
 	}
 	// checkout keeps production but opts out of staging, which feeds it:
@@ -543,8 +543,8 @@ func TestPlaceServicePassesClusterIdentity(t *testing.T) {
 	pe.r.ClusterID = own
 	pe.r.Placement = func(context.Context) (*delivery.PlacementPolicy, string) {
 		return &delivery.PlacementPolicy{Rules: []delivery.PlacementRule{
-			{Name: "us", Environments: []string{"production"}, Namespace: "us-{service}", Clusters: []string{other}},
-			{Name: "eu", Environments: []string{"production"}, Namespace: "eu-{service}", Clusters: []string{own}},
+			{Name: "us", Environments: []string{"production"}, Namespace: "us-{service}", ClusterUIDs: []string{other}},
+			{Name: "eu", Environments: []string{"production"}, Namespace: "eu-{service}", ClusterUIDs: []string{own}},
 		}}, ""
 	}
 	pe.publish(t, "payments", delivered("payments"), nil)

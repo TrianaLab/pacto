@@ -358,17 +358,12 @@ func supersededJoins(hub, uid string, vs []delivery.VerifiedJoin) []string {
 	return out
 }
 
-// verifyRecord opens f, a join record, as signing.VerifyPersonRecord does. ok is false
-// when it does not verify or names another user than its certificate maps
-// to; then Why says so.
+// verifyRecord opens f, a join record, as signing.VerifyJoinRecord does. ok
+// is false when it does not verify or names another user than its
+// certificate maps to; then Why says so.
 func verifyRecord(policy delivery.ClassPolicy, f deliveryrecord.Fetched) (delivery.VerifiedJoin, bool) {
-	v := delivery.VerifiedJoin{Ref: f.Manifest}
-	v.User, v.SignedAt, _, v.Why = signing.VerifyPersonRecord(policy, "join record", func(verify func([]byte) error) (string, error) {
-		st, err := delivery.OpenClusterJoin(f.Bundle, verify)
-		v.Record = st.Predicate
-		return st.Predicate.Approver, err
-	})
-	v.Verified, v.Counted = v.Why == "", v.Why == ""
+	v := signing.VerifyJoinRecord(policy, f.Bundle)
+	v.Ref, v.Counted = f.Manifest, v.Verified
 	return v, v.Verified
 }
 

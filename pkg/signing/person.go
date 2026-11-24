@@ -100,3 +100,17 @@ func VerifyPersonRecord(policy delivery.ClassPolicy, what string, open func(veri
 	}
 	return id.User, at, class, ""
 }
+
+// VerifyJoinRecord opens bundle, a join record, as VerifyPersonRecord does
+// under the approver signers of policy: Verified says it verified and maps
+// to the approver it names, Why says why not. Counted is left to the reader.
+func VerifyJoinRecord(policy delivery.ClassPolicy, bundle []byte) delivery.VerifiedJoin {
+	var v delivery.VerifiedJoin
+	v.User, v.SignedAt, _, v.Why = VerifyPersonRecord(policy, "join record", func(verify func([]byte) error) (string, error) {
+		st, err := delivery.OpenClusterJoin(bundle, verify)
+		v.Record = st.Predicate
+		return st.Predicate.Approver, err
+	})
+	v.Verified = v.Why == ""
+	return v
+}

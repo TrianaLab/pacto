@@ -141,6 +141,7 @@ var registryFlags = map[string]string{
 	"dashboard-stats-registry":          "read: the dashboard only reads run records",
 	"ladder-repository":                 "read: the promoter only reads ladder records from the approvals repository",
 	"member-streams-repository":         "read: names the repository the join block advertises",
+	"targets-repository":                "read: the promoter reads peer join records and snapshots",
 	"dashboard-registry":                "push",
 	"dashboard-declare-registry-secret": "push",
 }

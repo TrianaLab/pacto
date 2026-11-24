@@ -108,7 +108,7 @@ type Intake struct {
 	// open and openJoin verify a request and a join record; tests replace
 	// them so they need no Sigstore.
 	open     func(bundle []byte, p core.ClassPolicy) (core.OperationRequest, string, time.Time, core.ActorClass, string)
-	openJoin func(bundle []byte, p core.ClassPolicy) core.VerifiedJoin
+	openJoin func(p core.ClassPolicy, bundle []byte) core.VerifiedJoin
 
 	done, logged map[string]bool
 	hub          string
@@ -147,7 +147,7 @@ func (i *Intake) Start(ctx context.Context) error {
 		i.open = openRequest
 	}
 	if i.openJoin == nil {
-		i.openJoin = openJoin
+		i.openJoin = signing.VerifyJoinRecord
 	}
 	self, err := i.WhoAmI(ctx)
 	if err != nil {
@@ -443,7 +443,7 @@ func (i *Intake) ownHub(ctx context.Context, policy core.ClassPolicy) string {
 	}
 	var vs []core.VerifiedJoin
 	for _, f := range recs {
-		vs = append(vs, i.openJoin(f.Bundle, policy))
+		vs = append(vs, i.openJoin(policy, f.Bundle))
 	}
 	var why string
 	i.hub, why = core.OwnHub(i.ClusterID, signing.Hint(i.Key.Public()), vs)
@@ -572,20 +572,6 @@ func openRequest(bundle []byte, p core.ClassPolicy) (core.OperationRequest, stri
 		return req.Requester, err
 	})
 	return req, user, at, class, why
-}
-
-// openJoin verifies a join record of this cluster under the approver
-// signers of p.
-func openJoin(bundle []byte, p core.ClassPolicy) core.VerifiedJoin {
-	var v core.VerifiedJoin
-	var why string
-	v.User, v.SignedAt, _, why = signing.VerifyPersonRecord(p, "join record", func(verify func([]byte) error) (string, error) {
-		st, err := core.OpenClusterJoin(bundle, verify)
-		v.Record = st.Predicate
-		return st.Predicate.Approver, err
-	})
-	v.Verified = why == ""
-	return v
 }
 
 // SelfActor says who this cluster's apiserver says c's user is: the actor

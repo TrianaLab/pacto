@@ -537,9 +537,9 @@ const (
 func TestPlacementRuleClusters(t *testing.T) {
 	open := func(clusters ...string) (PlacementPolicy, error) {
 		return OpenPlacementPolicy(signPlacement(t, PlacementPolicy{At: "2026-11-23T10:00:00Z",
-			Rules: []PlacementRule{{Name: "eu", Environments: []string{"production"}, Namespace: "{service}", Clusters: clusters}}}), ok)
+			Rules: []PlacementRule{{Name: "eu", Environments: []string{"production"}, Namespace: "{service}", ClusterUIDs: clusters}}}), ok)
 	}
-	if p, err := open(memberUID); err != nil || !slices.Equal(p.Rules[0].Clusters, []string{memberUID}) {
+	if p, err := open(memberUID); err != nil || !slices.Equal(p.Rules[0].ClusterUIDs, []string{memberUID}) {
 		t.Fatalf("uid: %+v %v", p, err)
 	}
 	for _, bad := range []string{"eu-prod", "", strings.ToUpper(memberUID), memberUID + "0", "6f1c2a3b4d5e4f608a7b9c0d1e2f3a4b"} {
@@ -559,8 +559,8 @@ func TestPlaceByPolicySkipsRuleForOtherCluster(t *testing.T) {
 	in.ClusterUID = memberUID
 	in.Namespaces["eu-payments"], in.Namespaces["us-payments"] = true, true
 	in.Policy = []PlacementRule{
-		{Name: "us", Environments: []string{"production"}, Namespace: "us-{service}", Clusters: []string{otherUID}},
-		{Name: "eu", Environments: []string{"production"}, Namespace: "eu-{service}", Clusters: []string{otherUID, memberUID}},
+		{Name: "us", Environments: []string{"production"}, Namespace: "us-{service}", ClusterUIDs: []string{otherUID}},
+		{Name: "eu", Environments: []string{"production"}, Namespace: "eu-{service}", ClusterUIDs: []string{otherUID, memberUID}},
 	}
 	if p := ResolvePlacement(in); p.Namespace != "eu-payments" || p.Source != PlacementFromPolicy || p.Evidence != "placement rule eu" {
 		t.Fatalf("placement %+v", p)
@@ -582,7 +582,7 @@ func TestPlaceByPolicyApprovalRenameNeedsUID(t *testing.T) {
 	// learns that name, so a rule naming it is refused at open.
 	rule := func(cluster string) []byte {
 		return signPlacement(t, PlacementPolicy{At: "2026-11-23T10:00:00Z",
-			Rules: []PlacementRule{{Name: "eu", Environments: []string{"production"}, Namespace: "eu-{service}", Clusters: []string{cluster}}}})
+			Rules: []PlacementRule{{Name: "eu", Environments: []string{"production"}, Namespace: "eu-{service}", ClusterUIDs: []string{cluster}}}})
 	}
 	if _, err := OpenPlacementPolicy(rule("eu-prod"), ok); err == nil || !strings.Contains(err.Error(), "a display name can differ between the hub and the member") {
 		t.Fatalf("display name: %v", err)

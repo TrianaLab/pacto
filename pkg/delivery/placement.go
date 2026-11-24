@@ -57,9 +57,9 @@ type PlacementRule struct {
 	Services     []string `json:"services,omitempty"`
 	Environments []string `json:"environments"`
 	Namespace    string   `json:"namespace"`
-	// Clusters are the uids of the members the rule places on; none is
+	// ClusterUIDs are the uids of the members the rule places on; none is
 	// every cluster. Only the uid means the same on the hub and the member.
-	Clusters []string `json:"clusters,omitempty"`
+	ClusterUIDs []string `json:"clusters,omitempty"`
 }
 
 // clusterUIDPattern is the shape of a cluster uid: the kube-system
@@ -104,7 +104,7 @@ func OpenPlacementPolicy(bundle []byte, verify func(bundle []byte) error) (Place
 		if len(r.Environments) == 0 || !dnsLabel(expandNamespace(r.Namespace, "a", "a")) {
 			return PlacementPolicy{}, fmt.Errorf("placement rule %d (%s) needs environments and a namespace that is a DNS label, with only {service} and {environment} filled in", i, r.Name)
 		}
-		for _, c := range r.Clusters {
+		for _, c := range r.ClusterUIDs {
 			if !clusterUIDPattern.MatchString(c) {
 				return PlacementPolicy{}, fmt.Errorf("placement rule %d (%s) names cluster %q: name the member by its uid: a display name can differ between the hub and the member", i, r.Name, c)
 			}
@@ -333,9 +333,15 @@ func placeByStage(in PlacementInput) (Placement, bool, string) {
 	return Placement{}, false, ""
 }
 
+// Places reports whether r places service in environment, whatever
+// clusters it names.
+func (r PlacementRule) Places(service, environment string) bool {
+	return servesService(r.Services, service) && (slices.Contains(r.Environments, environment) || slices.Contains(r.Environments, "*"))
+}
+
 func placeByPolicy(in PlacementInput) (Placement, bool, string) {
 	for _, r := range in.Policy {
-		if (len(r.Clusters) == 0 || slices.Contains(r.Clusters, in.ClusterUID)) && servesService(r.Services, in.Service.Name) && (slices.Contains(r.Environments, in.Rung) || slices.Contains(r.Environments, "*")) {
+		if (len(r.ClusterUIDs) == 0 || slices.Contains(r.ClusterUIDs, in.ClusterUID)) && r.Places(in.Service.Name, in.Rung) {
 			return Placement{Namespace: expandNamespace(r.Namespace, in.Service.Name, in.Rung), Provenance: PlacementDeclared,
 				Source: PlacementFromPolicy, Evidence: "placement rule " + r.Name}, true, ""
 		}

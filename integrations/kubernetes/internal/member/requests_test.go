@@ -177,7 +177,7 @@ func newIntake(t *testing.T, objs ...client.Object) *intakeEnv {
 		}
 		return o.req, o.user, o.at, o.class, o.why
 	}
-	e.i.openJoin = func(b []byte, _ core.ClassPolicy) core.VerifiedJoin { return e.joins[string(b)] }
+	e.i.openJoin = func(_ core.ClassPolicy, b []byte) core.VerifiedJoin { return e.joins[string(b)] }
 	return e
 }
 
@@ -846,10 +846,10 @@ func TestOpenRequestVerifiesPerson(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if v := openJoin(jb, p); !v.Verified || v.Record.Hub != "hub-uid" || v.SignedAt.IsZero() {
+	if v := signing.VerifyJoinRecord(p, jb); !v.Verified || v.Record.Hub != "hub-uid" || v.SignedAt.IsZero() {
 		t.Fatalf("%+v", v)
 	}
-	if v := openJoin(jb, core.ClassPolicy{}); v.Verified {
+	if v := signing.VerifyJoinRecord(core.ClassPolicy{}, jb); v.Verified {
 		t.Fatal("verified with no signer")
 	}
 }

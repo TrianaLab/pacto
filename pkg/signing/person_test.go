@@ -2,6 +2,10 @@ package signing
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -210,5 +214,29 @@ func TestVerifyPersonRecordClassifiesSigner(t *testing.T) {
 	}
 	if _, at, class, why := VerifyPersonRecord(signersFor(ss, gha), "member request", openWith(ci, "x")); at.IsZero() || class != delivery.ClassCI || why == "" {
 		t.Fatalf("%v %q %q", at, class, why)
+	}
+}
+
+// TestVerifyJoinRecord: a join record alice signed verifies as hers under
+// her issuer's signer and not at all with no signer.
+func TestVerifyJoinRecord(t *testing.T) {
+	ss := testutil.New(t)
+	s, err := Keyless(ss.Fulcio, ss.TSA, "", func(context.Context) (string, error) { return testutil.Token("alice@acme.com", personIssuer), nil }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	der, _ := x509.MarshalPKIXPublicKey(pub)
+	j := delivery.ClusterJoin{Cluster: "c-1", Hub: "hub-1", KeyID: Hint(pub), PublicKey: base64.StdEncoding.EncodeToString(der),
+		Decision: delivery.JoinApprove, Approver: "oidc:alice@acme.com", At: "2026-11-23T10:00:00Z"}
+	b, err := delivery.SignClusterJoin(t.Context(), s, delivery.NewClusterJoinStatement(j))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := VerifyJoinRecord(signersFor(ss, personIssuer), b); !v.Verified || v.User != "oidc:alice@acme.com" || v.Record.Hub != "hub-1" || v.SignedAt.IsZero() {
+		t.Fatalf("%+v", v)
+	}
+	if v := VerifyJoinRecord(delivery.ClassPolicy{}, b); v.Verified || v.Why == "" {
+		t.Fatalf("%+v", v)
 	}
 }
