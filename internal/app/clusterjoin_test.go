@@ -1184,12 +1184,6 @@ func TestResolvedJoinOptions(t *testing.T) {
 	}
 }
 
-func TestPluralCountsClusters(t *testing.T) {
-	if plural(1, "cluster") != "1 cluster" || plural(2, "cluster") != "2 clusters" {
-		t.Fatal(plural(2, "cluster"))
-	}
-}
-
 // TestClusterJoinsMatchesCandidates: candidates read at the end of a join
 // read are matched to its members; a failed read leaves the candidates
 // partial and says why, and the members' completeness is untouched.

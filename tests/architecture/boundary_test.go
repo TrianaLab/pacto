@@ -268,6 +268,22 @@ func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {
 	}
 }
 
+// TestDeliveryRecordIsKubernetesFree keeps pkg/deliveryrecord, where the
+// hub's join reading lives, usable by the operator module: it reaches the
+// registry (so it is not a core package, which may never reach oras) and
+// never a Kubernetes client, an integration or the CLI's internal packages,
+// so the operator's promoter computes the join states the hub's surfaces do.
+func TestDeliveryRecordIsKubernetesFree(t *testing.T) {
+	const mod = "github.com/trianalab/pacto/v4/"
+	for _, dep := range deps(t, mod+"pkg/deliveryrecord/...") {
+		for _, bad := range []string{"k8s.io/", "sigs.k8s.io/", "github.com/trianalab/pacto/integrations/", mod + "integrations/", mod + "internal/"} {
+			if strings.HasPrefix(dep, bad) {
+				t.Errorf("boundary violation: pkg/deliveryrecord reaches %q; it stays Kubernetes-free", dep)
+			}
+		}
+	}
+}
+
 // TestInferredContractIsKubernetesFree keeps pkg/inferredcontract usable by
 // the CLI and the operator alike: it publishes through pkg/publish (which
 // reaches the registry, so it is not a core package) and never reaches a
