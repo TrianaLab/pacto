@@ -300,12 +300,12 @@ func deliveryClusterRows() []surfaceRow {
 	const read = "the dashboard names the cluster of a Stage it read from another cluster; the CLI reads the cluster its kubeconfig context names"
 	const write = "the dashboard acts only in its own cluster and refuses another with RemoteClusterReadOnly; the CLI acts in the cluster its kubeconfig context names"
 	var out []surfaceRow
-	for _, r := range []struct{ tool, route string }{{"pacto_delivery_history", "history"}, {"pacto_delivery_blame", "blame"}, {"pacto_delivery_undo_plan", "undo"}} {
+	for _, r := range []struct{ tool, route string }{{"pacto_delivery_history", "history"}, {"pacto_delivery_blame", "blame"}, {"pacto_delivery_undo_plan", "undo"},
+		{"pacto_delivery_record_get", "record"}, {"pacto_delivery_get", "operations/{namespace}/{name}"}} {
 		out = append(out, surfaceRow{"", r.tool + ".cluster", "GET /api/delivery/" + r.route + "?cluster", read})
 	}
-	for _, r := range []string{"GET /api/delivery/record", "GET /api/delivery/operations/{namespace}/{name}", "GET /api/delivery/progress"} {
-		out = append(out, surfaceRow{"", "", r + "?cluster", read})
-	}
+	out = append(out, surfaceRow{"", "pacto_delivery_explain.cluster", "", read + "; the dashboard's operation page explains it"},
+		surfaceRow{"", "", "GET /api/delivery/progress?cluster", read})
 	for _, r := range []string{"POST /api/delivery/plan", "POST /api/delivery/operations", "POST /api/delivery/operations/{namespace}/{name}/decision",
 		"DELETE /api/delivery/operations/{namespace}/{name}"} {
 		out = append(out, surfaceRow{"", "", r + "?cluster", write})

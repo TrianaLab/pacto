@@ -54,12 +54,16 @@ being named. `unreadable` names a namespace that refused the list, and without
 `--fleet` the inbox names `owners` there, since no owner is known and every
 Stage is shown as the caller's.
 
-When the server reads more than one cluster, the inbox, environments and
-history answers read every cluster the caller may see. Each item carries its
-`cluster`, `listing.clusters` says how completely each cluster was read and
-`listing.hiddenClusters` counts the clusters the caller may not see, never
-naming one. An item of another cluster is `readOnly`, with `next`, the
-command that acts in its own cluster.
+When the server reads more than one kubeconfig context, the inbox and
+environments answers read every one of those clusters the caller may see.
+Each item carries its `cluster`, `listing.clusters` says how completely each
+cluster was read and `listing.hiddenClusters` counts the clusters the caller
+may not see, never naming one. An item of another cluster is `readOnly`, with
+`next`, the command that acts in its own cluster. Pass that `cluster` to
+`pacto_delivery_get`, `pacto_delivery_explain`, `pacto_delivery_history`,
+`pacto_delivery_blame`, `pacto_delivery_record_get` or
+`pacto_delivery_undo_plan` to read one Stage or change there. A history walk
+(no `stage`) reads the server's own cluster only.
 
 ## Candidates, plans and history
 

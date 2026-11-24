@@ -134,10 +134,10 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool, refs 
 		Name:        "pacto_delivery_get",
 		Annotations: readOnly(true),
 		Description: "Read an operation: phase, outcome, verdicts and the question a person is asked while it is held. While it " +
-			"is held, next says what happens if nobody decides by the approval deadline. Read-only." + checkedPass + noApprove,
-		InputSchema: nameSchema(),
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a nameArgs) (*mcpsdk.CallToolResult, any, error) {
-		op, err := api.Get(ctx, a.Namespace, a.Name)
+			"is held, next says what happens if nobody decides by the approval deadline." + clusterDoc + " Read-only." + checkedPass + noApprove,
+		InputSchema: clusterNameSchema(),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a clusterNameArgs) (*mcpsdk.CallToolResult, any, error) {
+		op, err := operationIn(ctx, api, reads, a)
 		if err != nil {
 			return errorResult(err), nil, nil
 		}
@@ -159,11 +159,10 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool, refs 
 		Annotations: readOnly(true),
 		Description: "Explain an operation: what was asked, where it is, every gate verdict with its citation (for a health " +
 			"check, the exact query with absolute time bounds) and how to run that citation again, plus the Stage as it is now, " +
-			"its last re-check and what must move first when the plan found one. Read-only." + checkedPass + noApprove,
-		InputSchema: nameSchema(),
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a nameArgs) (*mcpsdk.CallToolResult, any, error) {
-		e, err := api.Explain(ctx, a.Namespace, a.Name)
-		return resultOrError(e, err)
+			"its last re-check and what must move first when the plan found one." + clusterDoc + " Read-only." + checkedPass + noApprove,
+		InputSchema: clusterNameSchema(),
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a clusterNameArgs) (*mcpsdk.CallToolResult, any, error) {
+		return resultOrError(explanationIn(ctx, api, reads, a))
 	})
 	registerHistoryReads(server, api, reads)
 	addTool(server, &mcpsdk.Tool{
@@ -193,26 +192,21 @@ func registerDelivery(server *mcpsdk.Server, api DeliveryAPI, writes bool, refs 
 		Annotations: readOnly(true),
 		Description: "Read one signed record of a Stage's stream by its id (a history line's record): the change, who asked and " +
 			"approved with how each was classified and what let each approver decide, every verdict with its citation and how to run it again, and whether its signature was checked against " +
-			"the trust config." + refDoc(refs) + " Read-only." + noApprove,
+			"the trust config." + refDoc(refs) + clusterDoc + " Read-only." + noApprove,
 		InputSchema: withRef(inputSchema(map[string]property{
 			"namespace": {Type: "string", Description: "Namespace of the Stage"},
 			"stage":     {Type: "string", Description: "Stage name"},
 			"record":    {Type: "string", Description: "The record id (sha256:...) as a history line names it, or its first 19 characters when only one record starts with them"},
+			"cluster":   clusterProperty,
 		}, []string{"namespace", "stage", "record"}), refs),
-	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a struct {
-		Namespace string `json:"namespace"`
-		Stage     string `json:"stage"`
-		Record    string `json:"record"`
-		Ref       string `json:"ref"`
-	}) (*mcpsdk.CallToolResult, any, error) {
+	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a recordGetArgs) (*mcpsdk.CallToolResult, any, error) {
 		if a.Ref != "" {
-			return recordAtTool(ctx, refs, a.Ref, a.Namespace != "" || a.Stage != "" || a.Record != "")
+			return recordAtTool(ctx, refs, a.Ref, a != recordGetArgs{Ref: a.Ref})
 		}
 		if a.Namespace == "" || a.Stage == "" || a.Record == "" {
 			return errorResult(errors.New("pass namespace, stage and record, or ref")), nil, nil
 		}
-		r, err := api.Record(ctx, a.Namespace, a.Stage, a.Record)
-		return resultOrError(r, err)
+		return resultOrError(recordIn(ctx, api, reads, a))
 	})
 	addTool(server, &mcpsdk.Tool{
 		Name:        "pacto_delivery_lifecycle",
@@ -470,10 +464,7 @@ func registerHistoryReads(server *mcpsdk.Server, api DeliveryAPI, reads Delivery
 		InputSchema: historySchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
 		if a.Cluster != "" {
-			if a != (historyArgs{Namespace: a.Namespace, Stage: a.Stage, Cluster: a.Cluster}) || a.Stage == "" {
-				return errorResult(errors.New("cluster reads one Stage: pass only namespace, stage and cluster")), nil, nil
-			}
-			return clusterRoute(ctx, reads, "history", url.Values{"namespace": {a.Namespace}, "stage": {a.Stage}, "cluster": {a.Cluster}})
+			return clusterHistory(ctx, reads, a)
 		}
 		return historyTool(ctx, api, a)
 	})
@@ -492,7 +483,12 @@ func registerHistoryReads(server *mcpsdk.Server, api DeliveryAPI, reads Delivery
 		Cluster string `json:"cluster"`
 	}) (*mcpsdk.CallToolResult, any, error) {
 		if a.Cluster != "" {
-			return clusterRoute(ctx, reads, "blame", url.Values{"namespace": {a.Namespace}, "stage": {a.Stage}, "digest": {a.Digest}, "cluster": {a.Cluster}})
+			var b struct {
+				delivery.Blame
+				Revisions map[string]string `json:"revisions"`
+			}
+			err := clusterRead(ctx, reads, "blame", url.Values{"namespace": {a.Namespace}, "stage": {a.Stage}, "digest": {a.Digest}, "cluster": {a.Cluster}}, &b)
+			return resultOrError(delivery.BlameAnswer{Blame: &b.Blame, Revision: b.Revisions[b.Digest]}, err)
 		}
 		b, err := api.BlameWithRevision(ctx, a.Namespace, a.Stage, a.Digest)
 		return resultOrError(b, err)
@@ -516,7 +512,8 @@ func registerHistoryReads(server *mcpsdk.Server, api DeliveryAPI, reads Delivery
 		Cluster   string `json:"cluster"`
 	}) (*mcpsdk.CallToolResult, any, error) {
 		if a.Cluster != "" {
-			return clusterRoute(ctx, reads, "undo", url.Values{"namespace": {a.Namespace}, "name": {a.Name}, "stage": {a.Stage}, "cluster": {a.Cluster}})
+			var u delivery.Undo
+			return resultOrError(&u, clusterRead(ctx, reads, "undo", url.Values{"namespace": {a.Namespace}, "name": {a.Name}, "stage": {a.Stage}, "cluster": {a.Cluster}}, &u))
 		}
 		u, err := api.Undo(ctx, a.Namespace, a.Name, a.Stage)
 		return resultOrError(u, err)
@@ -525,22 +522,116 @@ func registerHistoryReads(server *mcpsdk.Server, api DeliveryAPI, reads Delivery
 
 // clusterDoc says how a read tool reads another cluster.
 const clusterDoc = " Pass cluster (a cluster id as pacto_delivery_inbox or pacto_delivery_environments names it) to read a Stage or change " +
-	"of another cluster this server reads: it is answered through the dashboard's route, reviewed for you in that cluster, and only read."
+	"of another cluster this server reads: it is answered through the dashboard's route, reviewed for you in that cluster, and only read. " +
+	"A history walk (no stage) reads this server's own cluster only."
 
 // clusterProperty is the cluster argument of the read tools that take one.
 var clusterProperty = property{Type: "string", Description: "The cluster id of the Stage or change, as a multi-cluster answer names it; empty for this server's own cluster"}
 
-// clusterRoute answers a read of another cluster through the dashboard's
-// route, in process, with the caller's own identity.
-func clusterRoute(ctx context.Context, reads DeliveryReads, route string, q url.Values) (*mcpsdk.CallToolResult, any, error) {
+// clusterRead reads another cluster through the dashboard's route, in
+// process, with the caller's own identity, into out: the tool answers in the
+// shape it answers its own cluster in.
+func clusterRead(ctx context.Context, reads DeliveryReads, route string, q url.Values, out any) error {
 	if reads == nil {
-		return errorResult(errors.New("this server reads no other cluster")), nil, nil
+		return errors.New("this server reads no other cluster")
 	}
 	body, err := reads(ctx, route, q)
 	if err != nil {
+		return err
+	}
+	return json.Unmarshal(body, out)
+}
+
+// clusterNameArgs name an operation, in another cluster when Cluster is set.
+type clusterNameArgs struct {
+	nameArgs
+	Cluster string `json:"cluster"`
+}
+
+func clusterNameSchema() map[string]any {
+	return inputSchema(map[string]property{
+		"namespace": {Type: "string", Description: "Namespace of the operation"},
+		"name":      {Type: "string", Description: "Operation name"},
+		"cluster":   clusterProperty,
+	}, []string{"namespace", "name"})
+}
+
+// operationRoute is the route of a's operation.
+func operationRoute(a clusterNameArgs) string {
+	return "operations/" + url.PathEscape(a.Namespace) + "/" + url.PathEscape(a.Name)
+}
+
+// explanationIn explains a's operation, in its cluster.
+func explanationIn(ctx context.Context, api DeliveryAPI, reads DeliveryReads, a clusterNameArgs) (*delivery.Explanation, error) {
+	if a.Cluster == "" {
+		return api.Explain(ctx, a.Namespace, a.Name)
+	}
+	var b struct {
+		Explanation *delivery.Explanation `json:"explanation"`
+	}
+	return b.Explanation, clusterRead(ctx, reads, operationRoute(a), url.Values{"cluster": {a.Cluster}}, &b)
+}
+
+type recordGetArgs struct {
+	Namespace string `json:"namespace"`
+	Stage     string `json:"stage"`
+	Record    string `json:"record"`
+	Ref       string `json:"ref"`
+	Cluster   string `json:"cluster"`
+}
+
+// recordIn reads a's record, in its Stage's cluster.
+func recordIn(ctx context.Context, api DeliveryAPI, reads DeliveryReads, a recordGetArgs) (*delivery.RecordView, error) {
+	if a.Cluster == "" {
+		return api.Record(ctx, a.Namespace, a.Stage, a.Record)
+	}
+	var r delivery.RecordView
+	return &r, clusterRead(ctx, reads, "record", url.Values{"namespace": {a.Namespace}, "stage": {a.Stage}, "id": {a.Record}, "cluster": {a.Cluster}}, &r)
+}
+
+// operationIn reads a's operation, in its cluster.
+func operationIn(ctx context.Context, api DeliveryAPI, reads DeliveryReads, a clusterNameArgs) (*delivery.OperationObject, error) {
+	if a.Cluster == "" {
+		return api.Get(ctx, a.Namespace, a.Name)
+	}
+	var b struct {
+		Operation *delivery.OperationObject `json:"operation"`
+	}
+	return b.Operation, clusterRead(ctx, reads, operationRoute(a), url.Values{"cluster": {a.Cluster}}, &b)
+}
+
+// clusterHistory answers pacto_delivery_history for one Stage of another
+// cluster, in the shape a Stage of this one answers in. ponytail: one page
+// of the route's largest (200 changes); entriesPage says when there are more.
+func clusterHistory(ctx context.Context, reads DeliveryReads, a historyArgs) (*mcpsdk.CallToolResult, any, error) {
+	if a.Namespace == "" || a.Stage == "" || a.Service != "" || a.Domain != "" {
+		return errorResult(errors.New("cluster reads one Stage: pass namespace and stage, and no service or domain")), nil, nil
+	}
+	q := url.Values{"namespace": {a.Namespace}, "stage": {a.Stage}, "cluster": {a.Cluster}, "limit": {"200"}}
+	for k, v := range map[string]string{"since": a.Since, "until": a.Until, "cause": a.Cause, "correlationID": a.CorrelationID, "at": a.At} {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	var b struct {
+		Histories []struct {
+			delivery.History
+			EntriesPage json.RawMessage `json:"entriesPage"`
+		} `json:"histories"`
+		At        *delivery.AtAnswer `json:"at"`
+		Revisions map[string]string  `json:"revisions"`
+	}
+	if err := clusterRead(ctx, reads, "history", q, &b); err != nil {
 		return errorResult(err), nil, nil
 	}
-	return textResult(string(body)), nil, nil
+	if a.At != "" {
+		return resultOrError(b.At, nil)
+	}
+	h := b.Histories[0]
+	return resultOrError(struct {
+		delivery.HistoryAnswer
+		EntriesPage json.RawMessage `json:"entriesPage"`
+	}{delivery.HistoryAnswer{History: &h.History, Revisions: b.Revisions}, h.EntriesPage}, nil)
 }
 
 // historyTool answers pacto_delivery_history: one Stage's history, or a walk
