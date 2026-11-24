@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -73,9 +74,9 @@ type dashboardIdentity struct {
 	checked   time.Time
 	installed bool
 	probeErr  error
-	// version is the version the cluster serves the delivery group at (see
-	// servedVersion); "" until asked or when it serves none.
-	version string
+	// version maps each Pacto group to the version the cluster serves it at
+	// (see servedVersion); nil until asked.
+	version map[string]string
 
 	mu        sync.Mutex
 	revisions map[string]delivery.Revision
@@ -85,8 +86,9 @@ type dashboardIdentity struct {
 	reads *readCache
 	// shared is the one cache of the delivery objects signed-in people read
 	// from (see sharedReads), started by the first signed-in request.
-	sharedOnce sync.Once
-	shared     *sharedReads
+	sharedOnce    sync.Once
+	sharedStarted atomic.Bool
+	shared        *sharedReads
 
 	// nsMu guards the namespace names and, by caller, the namespaces each
 	// may list Stages in (see StageNamespaces).
@@ -126,51 +128,59 @@ func (id *dashboardIdentity) deliveryInstalled(context.Context) (bool, error) {
 		cfg := rest.CopyConfig(id.cluster)
 		cfg.Timeout = discoveryTimeout
 		id.version, id.probeErr = servedVersion(id.served, cfg)
-		id.installed = id.version != ""
+		id.installed = id.version[deliveryGroup] != ""
 		id.checked = now
 	}
 	return id.installed && id.probeErr == nil, id.probeErr
 }
 
-// servedVersion is the version the cluster serves the delivery group at:
-// v1, else the deprecated v1alpha1 a chart-6 cluster serves; "" for neither.
-func servedVersion(served func(*rest.Config, string) (bool, error), cfg *rest.Config) (string, error) {
-	for _, v := range []string{"v1", "v1alpha1"} {
-		if ok, err := served(cfg, deliveryGroup+"/"+v); err != nil || ok {
-			return v, err
+// servedVersion maps each Pacto group the cluster serves to its version: v1,
+// else the deprecated v1alpha1 a chart-6 cluster serves. Each group is asked
+// on its own: with crds.install=false the two groups' CRDs can be upgraded
+// apart.
+func servedVersion(served func(*rest.Config, string) (bool, error), cfg *rest.Config) (map[string]string, error) {
+	out := map[string]string{}
+	for _, group := range []string{deliveryGroup, k8sclient.PactoGroup} {
+		for _, v := range []string{"v1", "v1alpha1"} {
+			ok, err := served(cfg, group+"/"+v)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				out[group] = v
+				break
+			}
 		}
 	}
-	return "", nil
+	return out, nil
 }
 
-// versions maps both Pacto groups to the version deliveryInstalled found:
-// one chart serves both at the same version. nil before it found one, so
-// the client addresses v1.
+// versions is the version each Pacto group is served at, as deliveryInstalled
+// found; nil before it found the delivery group, so the client addresses v1.
 func (id *dashboardIdentity) versions() map[string]string {
 	id.probe.Lock()
 	defer id.probe.Unlock()
-	if id.version == "" || id.probeErr != nil {
+	if id.version[deliveryGroup] == "" || id.probeErr != nil {
 		return nil
 	}
-	return pactoVersions(id.version)
-}
-
-// pactoVersions maps both Pacto groups to v: one chart serves both at the
-// same version.
-func pactoVersions(v string) map[string]string {
-	return map[string]string{deliveryGroup: v, k8sclient.PactoGroup: v}
+	return id.version
 }
 
 // servedVersions is app.Delivery.ServedVersions for the CLI: it asks d's
-// cluster once, on first use, which version it serves the Pacto groups at
+// cluster, on use, which version it serves the Pacto groups at
 // (servedVersion). nil, so the client addresses v1, without a cluster config
-// or when discovery fails or serves neither.
-// ponytail: the answer is kept for the process; a long-lived server started
-// on a chart-6 cluster keeps v1alpha1, which chart 7 still serves.
+// or when discovery fails or serves no delivery group; that is not kept, so
+// a long-lived MCP server asks again on its next call.
+// ponytail: a found answer is kept for the process; a long-lived server
+// started on a chart-6 cluster keeps v1alpha1, which chart 7 still serves.
 func servedVersions(d deps) func() map[string]string {
-	return sync.OnceValue(func() map[string]string {
-		if d.clusterConfig == nil {
-			return nil
+	var mu sync.Mutex
+	var found map[string]string
+	return func() map[string]string {
+		mu.Lock()
+		defer mu.Unlock()
+		if found != nil || d.clusterConfig == nil {
+			return found
 		}
 		cfg, err := d.clusterConfig()
 		if err != nil {
@@ -178,12 +188,11 @@ func servedVersions(d deps) func() map[string]string {
 		}
 		cfg = rest.CopyConfig(cfg)
 		cfg.Timeout = discoveryTimeout
-		v, err := servedVersion(d.served, cfg)
-		if err != nil || v == "" {
-			return nil
+		if v, err := servedVersion(d.served, cfg); err == nil && v[deliveryGroup] != "" {
+			found = v
 		}
-		return pactoVersions(v)
-	})
+		return found
+	}
 }
 
 // deliveryCheckedAt is when deliveryInstalled last asked discovery.
@@ -250,12 +259,18 @@ func newDashDelivery(id *dashboardIdentity, act *app.Delivery, who string) dashD
 
 // sharedReads starts the shared cache with the dashboard's own credentials
 // the first time a signed-in person reads delivery; nil outside shared mode.
+// The informers watch the version discovery found, so it is asked first; nil,
+// and nothing started, while discovery fails.
 // ponytail: it watches for the life of the process, as the dashboard serves.
 func (id *dashboardIdentity) sharedReads() *sharedReads {
 	if !id.auth.SignsIn() {
 		return nil
 	}
+	if _, err := id.deliveryInstalled(context.Background()); err != nil && !id.sharedStarted.Load() {
+		return nil
+	}
 	id.sharedOnce.Do(func() {
+		defer id.sharedStarted.Store(true)
 		cfg := rest.CopyConfig(id.cluster)
 		cfg.QPS, cfg.Burst = sarQPS, sarBurst
 		if sa, err := id.newClient(cfg); err == nil { // a config that fails here fails every person's client too

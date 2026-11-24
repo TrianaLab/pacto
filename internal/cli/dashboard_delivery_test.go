@@ -57,7 +57,7 @@ func TestDashboardIdentityOptions(t *testing.T) {
 	_, _ = id.deliveryInstalled(context.Background())
 	id.now = func() time.Time { return base.Add(2 * time.Minute) }
 	ok, err := id.deliveryInstalled(context.Background())
-	expect(t, ok && err == nil && calls == 2, "discovery calls %d", calls)
+	expect(t, ok && err == nil && calls == 4, "discovery calls %d, two groups a probe", calls)
 	// A failed call is returned and kept only a few seconds: a cluster that is
 	// down is not asked on every request, and is asked again soon.
 	servedErr = errors.New("connection refused")
@@ -66,10 +66,10 @@ func TestDashboardIdentityOptions(t *testing.T) {
 	expect(t, err != nil, "a discovery failure is an error")
 	servedErr = nil
 	ok, err = id.deliveryInstalled(context.Background())
-	expect(t, !ok && err != nil && calls == 3, "a failure is kept briefly: %d calls", calls)
+	expect(t, !ok && err != nil && calls == 5, "a failure is kept briefly: %d calls", calls)
 	id.now = func() time.Time { return base.Add(4*time.Minute + failureTTL + time.Second) }
 	ok, err = id.deliveryInstalled(context.Background())
-	expect(t, ok && err == nil && calls == 4, "then asked again: %d calls", calls)
+	expect(t, ok && err == nil && calls == 7, "then asked again: %d calls", calls)
 	// No cluster: no delivery routes.
 	var none dashboard.Options
 	identityFor(t, v, "127.0.0.1", nil).options(&none)
@@ -363,12 +363,13 @@ func TestDashDeliveryEnvironmentsRefusal(t *testing.T) {
 }
 
 // TestDashboardDeliveryFollowsTheServedVersion: a chart-6 cluster serves the
-// delivery group at v1alpha1 only. The dashboard finds it there and its
-// client addresses both Pacto groups at that version; a cluster serving
-// neither has no delivery and no versions.
+// Pacto groups at v1alpha1 only. The dashboard finds each group there and its
+// client addresses them at that version; a cluster whose delivery CRDs were
+// upgraded before the Pacto ones addresses each group at its own version; a
+// cluster serving neither has no delivery and no versions.
 func TestDashboardDeliveryFollowsTheServedVersion(t *testing.T) {
 	id := identityFor(t, viper.New(), "127.0.0.1", &rest.Config{Host: "https://k"})
-	served := map[string]bool{deliveryGroup + "/v1alpha1": true}
+	served := map[string]bool{deliveryGroup + "/v1alpha1": true, "pacto.trianalab.io/v1alpha1": true}
 	var asked []string
 	id.served = func(_ *rest.Config, gv string) (bool, error) {
 		asked = append(asked, gv)
@@ -376,12 +377,17 @@ func TestDashboardDeliveryFollowsTheServedVersion(t *testing.T) {
 	}
 	expect(t, id.versions() == nil, "nothing asked yet: %v", id.versions())
 	ok, err := id.deliveryInstalled(context.Background())
-	expect(t, ok && err == nil && strings.Join(asked, ",") == deliveryGroup+"/v1,"+deliveryGroup+"/v1alpha1",
+	expect(t, ok && err == nil && strings.Join(asked, ",") == deliveryGroup+"/v1,"+deliveryGroup+"/v1alpha1,pacto.trianalab.io/v1,pacto.trianalab.io/v1alpha1",
 		"installed %v %v, asked %v", ok, err, asked)
 	want := map[string]string{deliveryGroup: "v1alpha1", "pacto.trianalab.io": "v1alpha1"}
 	expect(t, fmt.Sprint(id.versions()) == fmt.Sprint(want), "versions %v", id.versions())
 	api, err := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
 	expect(t, err == nil && fmt.Sprint(api.(dashDelivery).act.Versions) == fmt.Sprint(want), "client versions: %v", err)
+	served = map[string]bool{deliveryGroup + "/v1": true, "pacto.trianalab.io/v1alpha1": true}
+	id.checked = time.Time{}
+	_, _ = id.deliveryInstalled(context.Background())
+	want = map[string]string{deliveryGroup: "v1", "pacto.trianalab.io": "v1alpha1"}
+	expect(t, fmt.Sprint(id.versions()) == fmt.Sprint(want), "each group at its own version: %v", id.versions())
 	served = nil
 	id.checked = time.Time{}
 	ok, err = id.deliveryInstalled(context.Background())

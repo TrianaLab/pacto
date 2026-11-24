@@ -120,6 +120,43 @@ func TestSharedReadsWatchTheServedVersion(t *testing.T) {
 	}
 }
 
+// TestSharedReadsAskDiscoveryFirst: a Metrics or Clusters page can start the
+// shared cache before any delivery view probed. The cache asks discovery
+// first, starts nothing while discovery fails, and then watches the version a
+// chart-6 cluster serves.
+func TestSharedReadsAskDiscoveryFirst(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.token-login", true)
+	id := identityFor(t, v, "0.0.0.0", &rest.Config{Host: "https://k"})
+	sa := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+		{Group: deliveryGroup, Version: "v1alpha1", Resource: "stages"}:     "StageList",
+		{Group: deliveryGroup, Version: "v1alpha1", Resource: "operations"}: "OperationList"})
+	id.newClient = func(*rest.Config) (dynamic.Interface, error) { return sa, nil }
+	down := true
+	id.served = func(_ *rest.Config, gv string) (bool, error) {
+		if down {
+			return false, errors.New("timeout")
+		}
+		return strings.HasSuffix(gv, "/v1alpha1"), nil
+	}
+	expect(t, id.sharedReads() == nil && !id.sharedStarted.Load(), "nothing started while discovery fails")
+	down, id.checked = false, time.Time{}
+	s := id.sharedReads()
+	expect(t, s != nil, "started once discovery answers")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	for _, inf := range s.informers {
+		if !cache.WaitForCacheSync(ctx.Done(), inf.HasSynced) {
+			t.Fatal("the informers never synced")
+		}
+	}
+	for _, a := range sa.Actions() {
+		expect(t, a.GetResource().Version == "v1alpha1", "%s %s at %s", a.GetVerb(), a.GetResource().Resource, a.GetResource().Version)
+	}
+	down, id.checked = true, time.Time{}
+	expect(t, id.sharedReads() == s, "a later failed probe keeps the started cache")
+}
+
 // person is a person's own client: the apiserver names them user and holds
 // one Stage of its own in each namespace, which tells a read that went to
 // the apiserver from one the cache answered.

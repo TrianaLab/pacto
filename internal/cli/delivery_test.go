@@ -144,22 +144,38 @@ func approveDeps(user string, dynErr error) deps {
 
 // TestDeliveryClientFollowsTheServedVersion: against a chart-6 cluster, which
 // serves the Pacto groups at v1alpha1 only, the CLI's delivery clients ask
-// discovery once, on first use, and address that version; without a cluster
-// or an answer they address v1.
+// discovery on first use and keep the answer; a failed or empty answer is not
+// kept, so a long-lived MCP server asks again; without a cluster or an answer
+// they address v1.
 func TestDeliveryClientFollowsTheServedVersion(t *testing.T) {
 	d := deliveryDeps("alice", nil)
 	var asked []string
 	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k8s"}, nil }
 	d.served = func(cfg *rest.Config, gv string) (bool, error) {
 		asked = append(asked, fmt.Sprint(gv, " ", cfg.Timeout))
-		return gv == deliveryGroup+"/v1alpha1", nil
+		return gv == deliveryGroup+"/v1alpha1" || gv == "pacto.trianalab.io/v1alpha1", nil
 	}
 	versions := deliveryClientsFor(nil, "", d)(nil).ServedVersions
 	want := map[string]string{deliveryGroup: "v1alpha1", "pacto.trianalab.io": "v1alpha1"}
 	for range 2 {
 		expect(t, fmt.Sprint(versions()) == fmt.Sprint(want), "versions %v", versions())
 	}
-	expect(t, strings.Join(asked, ",") == deliveryGroup+"/v1 5s,"+deliveryGroup+"/v1alpha1 5s", "asked once, with a timeout: %v", asked)
+	expect(t, strings.Join(asked, ",") == deliveryGroup+"/v1 5s,"+deliveryGroup+"/v1alpha1 5s,pacto.trianalab.io/v1 5s,pacto.trianalab.io/v1alpha1 5s",
+		"asked once, with a timeout: %v", asked)
+
+	// A failed first answer is not kept: the next call asks again.
+	down := true
+	retry := d
+	retry.served = func(_ *rest.Config, gv string) (bool, error) {
+		if down {
+			return false, errors.New("timeout")
+		}
+		return strings.HasSuffix(gv, "/v1alpha1"), nil
+	}
+	again := deliveryClientsFor(nil, "", retry)(nil)
+	expect(t, again.ServedVersions() == nil, "discovery failed")
+	down = false
+	expect(t, fmt.Sprint(again.ServedVersions()) == fmt.Sprint(want), "asked again after a failure: %v", again.ServedVersions())
 
 	none := deps{}
 	expect(t, servedVersions(none)() == nil, "no cluster config")
