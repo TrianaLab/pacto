@@ -1007,10 +1007,14 @@ func staleMemberReasons(snap *fleet.FleetSnapshot, res *impact.Result) []string 
 }
 
 // unreadReason says that clusters publish to this hub and are not members,
-// so consumers there are unknown. It reads the typed count, never the
+// or that this cluster is a member whose hub reads the others, so consumers
+// there are unknown. It reads the typed count, never the
 // limitation prose a cap or a restricted view may drop.
 func unreadReason(snap *fleet.FleetSnapshot) []string {
 	switch n := snap.UnreadClusters; {
+	case n > 0 && slices.ContainsFunc(snap.Limitations, func(l fleet.Limitation) bool { return l.Source == MemberUnreadID }):
+		return []string{"this cluster is a member of a hub, so consumers in other clusters are unknown here: " +
+			"check the change on the hub (pacto impact --k8s) and approve it here (pacto delivery approve)"}
 	case n == 1:
 		return []string{"1 cluster publishes to this hub and is not a member, so consumers there are unknown: approve or remove it (pacto cluster list)"}
 	case n > 1:

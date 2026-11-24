@@ -79,6 +79,10 @@ type Cluster struct {
 	// promoter trusts no upstream key: such a Stage is not Ready and offers
 	// nothing.
 	Upstream func(ctx context.Context, r delivery.RemoteStage, seen delivery.RecordMark, acked []string) (*delivery.StageStatus, string)
+	// Members reads what a promote in an environment projects onto beyond
+	// this cluster's own Pactos: the clusters that joined it (PeerMembers).
+	// Nil reads none.
+	Members func(ctx context.Context, environment string) delivery.Members
 	// Infra tells which kinds the manifest inspector reads as infrastructure
 	// Crossplane manages (kubecluster.Infra over cached API discovery). Nil
 	// tells them by group only.

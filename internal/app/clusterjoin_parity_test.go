@@ -34,7 +34,7 @@ func TestReadJoinsSameStatesAsClusterJoins(t *testing.T) {
 		Fetch: func(ctx context.Context, repo *remote.Repository, ref string) ([]byte, string, error) {
 			return r.fetch(ctx, repo, e.repo, ref)
 		},
-		Forbidden: apierrors.IsForbidden, VerifyPerson: verifyPerson, OpenKey: signing.OpenKey, Open: openTargets, Now: e.clock})
+		Forbidden: apierrors.IsForbidden, VerifyPerson: signing.VerifyPersonRecord, OpenKey: signing.OpenKey, Open: openTargets, Now: e.clock})
 	if repo == nil || len(want.Clusters) != 2 || stateOfUID(t, want, m.uid).State != delivery.JoinApproved || !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v\nwant %+v", got, want)
 	}

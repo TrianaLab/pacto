@@ -90,7 +90,7 @@ func TestClientMembersEqualMembersOf(t *testing.T) {
 		Fetch: func(ctx context.Context, repo *remote.Repository, ref string) ([]byte, string, error) {
 			return r.fetch(ctx, repo, e.repo, ref)
 		},
-		Forbidden: apierrors.IsForbidden, VerifyPerson: verifyPerson, OpenKey: signing.OpenKey, Open: openTargets, Now: e.clock})
+		Forbidden: apierrors.IsForbidden, VerifyPerson: signing.VerifyPersonRecord, OpenKey: signing.OpenKey, Open: openTargets, Now: e.clock})
 	want := collected(t, delivery.MembersOf(list, func(uid string) (delivery.TargetSnapshot, error) {
 		return r.member(t.Context(), repo, e.repo, delivery.JoinTrust(list.Clusters), uid)
 	}, "prod", e.clock, &fleet.Cluster{ID: joinHub}))

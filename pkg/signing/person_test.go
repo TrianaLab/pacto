@@ -156,3 +156,33 @@ func TestWorkloadIdentitySignedApprovalIsProposal(t *testing.T) {
 func signersFor(ss *testutil.Sigstore, issuer string) delivery.ClassPolicy {
 	return delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: issuer, TrustedRoot: string(ss.RootJSON), UsernamePrefix: "oidc:", Subjects: `.+`}}}
 }
+
+// TestVerifyPersonRecord: a record counts only when it verifies under an
+// approver signer, maps to a person and names that person as its approver.
+func TestVerifyPersonRecord(t *testing.T) {
+	ss := testutil.New(t)
+	p := delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: personIssuer, TrustedRoot: string(ss.RootJSON), UsernamePrefix: "oidc:", Subjects: `^[^@]+@acme\.com$`}}}
+	open := func(b []byte, approver string) func(func([]byte) error) (string, error) {
+		return func(verify func([]byte) error) (string, error) { return approver, verify(b) }
+	}
+	alice := personBundle(t, ss, "alice@acme.com", personIssuer, true)
+	if user, at, why := VerifyPersonRecord(p, "join record", open(alice, "oidc:alice@acme.com")); user != "oidc:alice@acme.com" || at.IsZero() || why != "" {
+		t.Fatalf("%q %v %q", user, at, why)
+	}
+	if _, _, why := VerifyPersonRecord(p, "join record", open(alice, "oidc:bob@acme.com")); !strings.Contains(why, "claiming approver oidc:bob@acme.com is signed as oidc:alice@acme.com") {
+		t.Fatal(why)
+	}
+	if _, _, why := VerifyPersonRecord(p, "join record", open(personBundle(t, ss, "alice@acme.com", "https://other.example", true), "")); !strings.HasPrefix(why, "a join record was not counted: ") {
+		t.Fatal(why)
+	}
+	if _, _, why := VerifyPersonRecord(p, "join record", open(personBundle(t, ss, "eve@evil.example", personIssuer, true), "")); !strings.Contains(why, "signed by eve@evil.example was not counted") {
+		t.Fatal(why)
+	}
+	agent := approvalBundleOf(t, ss, testutil.CIToken("https://kubernetes.io/namespaces/agents/serviceaccounts/reviewer", personIssuer, "", ""), delivery.SignerPerson)
+	if _, _, why := VerifyPersonRecord(signersFor(ss, personIssuer), "join record", func(verify func([]byte) error) (string, error) {
+		_, _, err := delivery.OpenApproval(agent, verify)
+		return "", err
+	}); !strings.Contains(why, "agents cannot approve") {
+		t.Fatal(why)
+	}
+}

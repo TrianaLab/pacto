@@ -500,3 +500,29 @@ func TestReadJoinsOtherHubsCountsMappings(t *testing.T) {
 		t.Fatalf("%+v %+v", st, l)
 	}
 }
+
+// TestOpenMember: a member's snapshot opens only under its approved key and
+// only when it names the member.
+func TestOpenMember(t *testing.T) {
+	a, b := newJMember(jA, "eu-prod"), newJMember(jB, "us-prod")
+	sign := func(m jMember, cluster string) []byte {
+		s := delivery.TargetSnapshot{Cluster: cluster, AsOf: jNow.Format(time.RFC3339), Completeness: fleet.CompletenessComplete, Publisher: "p"}
+		bundle, err := delivery.SignTargetSnapshot(t.Context(), edSigner(m.key), delivery.NewTargetSnapshotStatement(s))
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bundle
+	}
+	trust := delivery.JoinTrust([]delivery.ClusterJoinState{{UID: a.uid, Name: a.name, PublicKey: a.join().PublicKey, State: delivery.JoinApproved}})
+	if st, err := OpenMember(sign(a, a.uid), trust, signing.OpenKey, a.uid); err != nil || st.Cluster != a.uid {
+		t.Fatalf("%v %+v", err, st)
+	}
+	if _, err := OpenMember(sign(b, a.uid), trust, signing.OpenKey, a.uid); err == nil {
+		t.Fatal("a snapshot no approved key signed")
+	}
+	both := delivery.JoinTrust([]delivery.ClusterJoinState{{UID: a.uid, Name: a.name, PublicKey: a.join().PublicKey, State: delivery.JoinApproved},
+		{UID: b.uid, Name: b.name, PublicKey: a.join().PublicKey, State: delivery.JoinApproved}})
+	if _, err := OpenMember(sign(a, b.uid), both, signing.OpenKey, a.uid); err == nil || !strings.Contains(err.Error(), "holds the snapshot of cluster "+b.uid) {
+		t.Fatalf("a snapshot of another cluster: %v", err)
+	}
+}

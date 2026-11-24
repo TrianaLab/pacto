@@ -17,6 +17,7 @@ import (
 var scopeExempt = map[string]string{
 	"integrations/kubernetes/cmd/delivery/main.go:upstreamReader": "reads another cluster's signed records and never writes",
 	"integrations/kubernetes/cmd/delivery/main.go:publishers":     "the registry watch reads candidate signatures and never writes",
+	"integrations/kubernetes/cmd/delivery/main.go:peerOptions":    "the promoter reads the join records and member snapshots and never writes",
 	"integrations/kubernetes/cmd/main.go:ownerCheck":              "the owner check reads owner history and publisher policy signatures and never writes",
 }
 

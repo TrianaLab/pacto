@@ -39,6 +39,20 @@ func UnreadClusters(list ClusterJoinList) fleet.Source {
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationClustersUnread, Source: UnreadClustersSourceID, Message: msg}}})
 }
 
+// MemberUnreadID is the id of the carrier [MemberOnlyUnread] returns.
+const MemberUnreadID = "cluster-joins-member"
+
+// MemberOnlyUnread are the members a member cluster's promoter reads: none,
+// and one unread cluster. A member reads no joins (their records name the
+// hub, whose approvers it cannot review), so at least one cluster may hold
+// consumers it did not read, and a change that is not NON_BREAKING asks a
+// person there.
+func MemberOnlyUnread() Members {
+	return Members{Sources: []fleet.Source{fleet.NewMemorySource(MemberUnreadID, fleet.SourceKindClusterJoins, &fleet.Collection{UnreadClusters: 1,
+		Limitations: []fleet.Limitation{{Code: fleet.LimitationClustersUnread, Source: MemberUnreadID,
+			Message: "this cluster is a member of a hub: consumers in other clusters are read on the hub"}}})}}
+}
+
 // Members are what a promote reads beyond the hub's own Pactos: the sources
 // of the clusters that joined this hub and the hub's own cluster, which the
 // hub's Pactos sit in whenever Sources is not empty, so they are never

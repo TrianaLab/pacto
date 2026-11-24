@@ -184,6 +184,7 @@ func TestMembersNeverLowerTheFloor(t *testing.T) {
 		"unread plus incompatible": membersOf(false, member{uid: usUID, name: "us-prod", state: JoinApproved, pactos: ledger("^1.0.0")},
 			member{uid: apUID, name: "ap-dev", state: JoinPending}),
 		"join list unreadable": membersOf(true),
+		"member promoter":      MemberOnlyUnread(),
 		"member unread": MembersOf(ClusterJoinList{Completeness: fleet.CompletenessComplete, Clusters: []ClusterJoinState{{UID: usUID, State: JoinApproved}}},
 			func(string) (TargetSnapshot, error) { return TargetSnapshot{}, errors.New("registry down") }, "prod", now, hubCluster),
 	}
@@ -203,6 +204,25 @@ func TestMembersNeverLowerTheFloor(t *testing.T) {
 	from, to := breakingSides()
 	if p := planMembers(t, from, to, []PactoView{checkoutPacto(">=1.0.0")}, rows["member unread"]); !p.Floor.Human {
 		t.Fatalf("an unread member clears the gate: %+v", p.Verdicts)
+	}
+}
+
+// TestMemberOnlyUnreadCounts: a member's promoter counts one unread cluster,
+// names none, and asks a person for a breaking change with what to do next.
+func TestMemberOnlyUnreadCounts(t *testing.T) {
+	m := MemberOnlyUnread()
+	if m.Home != nil || len(m.Sources) != 1 || m.Sources[0].ID() != MemberUnreadID || m.Sources[0].Kind() != fleet.SourceKindClusterJoins {
+		t.Fatalf("%+v", m)
+	}
+	from, to := breakingSides()
+	p := planMembers(t, from, to, []PactoView{checkoutPacto(">=1.0.0")}, m)
+	if v := verdict(t, p, GateImpact); p.Floor.Decision != AcceptUnknown || !strings.Contains(v.Message, "this cluster is a member of a hub") ||
+		!strings.Contains(v.Message, "pacto delivery approve") || strings.Contains(v.Message, "pacto cluster list") {
+		t.Fatalf("a member holds a breaking change: %+v %+v", p.Floor, v)
+	}
+	from, to = minorSides()
+	if p := planMembers(t, from, to, []PactoView{checkoutPacto(">=1.0.0")}, m); p.Floor.Human {
+		t.Fatalf("a non-breaking change on a member: %+v", p.Verdicts)
 	}
 }
 

@@ -390,6 +390,17 @@ func (jr *joinRead) candidate(ctx context.Context, uid string) delivery.JoinCand
 	return c
 }
 
+// OpenMember opens bundle, the snapshot member uid's tag holds, under trust
+// (each approved key covers only its own member's stream): one that names
+// another cluster is an error, so the member's consumers read unknown.
+func OpenMember(bundle []byte, trust *delivery.TrustConfig, openKey func(delivery.TrustedKey) (func([]byte) error, error), uid string) (delivery.TargetSnapshot, error) {
+	st, _, err := delivery.OpenTargetSnapshot(bundle, trust, openKey)
+	if err == nil && st.Predicate.Cluster != uid {
+		err = errors.New("its tag holds the snapshot of cluster " + st.Predicate.Cluster)
+	}
+	return st.Predicate, err
+}
+
 // SelfSigned reports whether the key j names signed bundle, the snapshot of
 // uid, scoped to uid; openKey opens a key as signing.OpenKey does.
 func SelfSigned(bundle []byte, uid string, j delivery.SnapshotJoin, openKey func(delivery.TrustedKey) (func([]byte) error, error)) bool {
