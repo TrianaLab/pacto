@@ -11,7 +11,7 @@ import (
 	"context"
 	"testing"
 
-	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"

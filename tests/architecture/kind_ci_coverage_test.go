@@ -35,7 +35,7 @@ func pathsFilter(t *testing.T, name string) []string {
 // and the `required` gate counts a skipped job as passing.
 func TestPathFiltersCoverTheOperatorImports(t *testing.T) {
 	const core = "github.com/trianalab/pacto/v4/"
-	imports := deps(t, "github.com/trianalab/pacto/integrations/kubernetes/v6/...")
+	imports := deps(t, "github.com/trianalab/pacto/integrations/kubernetes/v7/...")
 	for _, name := range []string{"e2e", "kubernetes"} {
 		globs := pathsFilter(t, name)
 		for _, dep := range imports {

@@ -18,7 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
+	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 

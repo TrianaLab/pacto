@@ -19,7 +19,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 )
 
 const validContract = `

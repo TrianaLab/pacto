@@ -24,7 +24,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
+	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 )
 
 // callerPod is a running pod on node-a in kNS, controlled by owner (kind/name) when kind is set.

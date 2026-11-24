@@ -22,7 +22,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
+	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 )

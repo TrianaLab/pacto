@@ -19,8 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 )
 
 // RevisionMirror keeps a PactoRevision for every registry tag of every Pacto whose

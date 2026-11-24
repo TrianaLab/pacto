@@ -10,7 +10,7 @@ package v1alpha1
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	v1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
+	v1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 )
 
 // +kubebuilder:object:root=true

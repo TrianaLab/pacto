@@ -12,7 +12,7 @@ import (
 	"slices"
 	"testing"
 
-	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 	coordinationv1 "k8s.io/api/coordination/v1"
 	corev1 "k8s.io/api/core/v1"
 )

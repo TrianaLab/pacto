@@ -10,7 +10,7 @@ package evidence
 import (
 	"testing"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 )
 
 // testSubject is an exact, immutable contract revision — the only shape a

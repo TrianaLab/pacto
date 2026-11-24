@@ -16,7 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/nodeagent"
 )
 
 // TestClusterRole_ConfigMapVerbs guards the RBAC needed to observe ConfigMap-backed

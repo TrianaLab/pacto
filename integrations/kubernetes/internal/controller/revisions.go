@@ -26,8 +26,8 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 
-	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 )
 
 func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1.Pacto, loadResult *loader.LoadResult) (string, error) {

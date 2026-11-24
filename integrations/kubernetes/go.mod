@@ -1,4 +1,4 @@
-module github.com/trianalab/pacto/integrations/kubernetes/v6
+module github.com/trianalab/pacto/integrations/kubernetes/v7
 
 go 1.27.4
 

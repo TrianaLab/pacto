@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"testing"
 
-	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 )
 
 func TestMust_PanicsOnError(t *testing.T) {

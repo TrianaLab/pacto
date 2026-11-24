@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Prove the RELEASED Kubernetes integration module is externally consumable at its
-# Go v6 semantic-import path. From a throwaway consumer module — no go.work, no
+# Go v7 semantic-import path. From a throwaway consumer module — no go.work, no
 # replace, its own throwaway module cache — `go get` the module at
-# github.com/trianalab/pacto/integrations/kubernetes/v6@v6.0.0 and build a program
+# github.com/trianalab/pacto/integrations/kubernetes/v7@v7.0.0 and build a program
 # that imports a stable exported symbol, exactly as an external user would. This is
-# the external-consumer proof that the /v6 module path + nested tag are valid Go.
+# the external-consumer proof that the /v7 module path + nested tag are valid Go.
 #
 # Non-invasive, mirrors verify-standalone.sh: local staging tags on the current
 # tree, a process-scoped git config (never the user's global) that rewrites the
@@ -14,15 +14,15 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 . "$ROOT/release/scripts/staging-tags.sh"
 
-# The nested-module tag baseline for the /v6 path comes straight from the release
-# plan (build-release-plan.mjs derives it from the module PATH major, so a /v6
-# module never gets a v5 tag). Core is pinned by the integration go.mod; stage both
+# The nested-module tag baseline for the /v7 path comes straight from the release
+# plan (build-release-plan.mjs derives it from the module PATH major, so a /v7
+# module never gets a v6 tag). Core is pinned by the integration go.mod; stage both
 # on HEAD so the standalone module graph resolves.
 plan() { node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1]))'"$1"')' "$ROOT/release/release-plan.json"; }
-K8S_TAG="$(plan '.groups.kubernetes.tags[0]')"          # integrations/kubernetes/v6.0.0
-K8S_VER="${K8S_TAG##*/v}"                                # 6.0.0
+K8S_TAG="$(plan '.groups.kubernetes.tags[0]')"          # integrations/kubernetes/v7.0.0
+K8S_VER="${K8S_TAG##*/v}"                                # 7.0.0
 CORE_PIN="$(plan '.groups.kubernetes.goModPin.version')" # v4.0.0
-MODULE="$(plan '.groups.kubernetes.artifacts.find((a) => a.unit === "k8s-module").coordinate')" # .../integrations/kubernetes/v6
+MODULE="$(plan '.groups.kubernetes.artifacts.find((a) => a.unit === "k8s-module").coordinate')" # .../integrations/kubernetes/v7
 echo "consume ${MODULE}@v${K8S_VER} (tag ${K8S_TAG}); core pin ${CORE_PIN}"
 
 TMPGIT="$(mktemp)"; WORK="$(mktemp -d)"; MODCACHE="$(mktemp -d)"

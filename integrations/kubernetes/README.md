@@ -400,7 +400,7 @@ make undeploy-local                # helm uninstall from the current kube contex
 
 These targets work with any local Kubernetes distribution (Docker Desktop, minikube, Kind, etc.). If you use Kind, run `make kind-load` first so the image is available inside the cluster, or use `make deploy-kind` which combines both steps.
 
-> **Engine dependency.** The operator is a nested Go module (`github.com/trianalab/pacto/integrations/kubernetes/v6`) that depends on the Pacto engine module `github.com/trianalab/pacto/v4`. It is resolved against the engine through the monorepo root `go.work` — there is no sibling checkout or `go.mod` replace to manage.
+> **Engine dependency.** The operator is a nested Go module (`github.com/trianalab/pacto/integrations/kubernetes/v7`) that depends on the Pacto engine module `github.com/trianalab/pacto/v4`. It is resolved against the engine through the monorepo root `go.work` — there is no sibling checkout or `go.mod` replace to manage.
 
 See the repository-root [CONTRIBUTING.md](../../CONTRIBUTING.md) for the full development guide. Releases are transaction-driven Changesets managed at the repo root — see [`release/`](../../release).
 

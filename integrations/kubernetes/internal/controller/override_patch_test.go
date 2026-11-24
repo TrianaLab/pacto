@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 )
 
 // overrideOf is the one-scope override these tests keep reaching for.
