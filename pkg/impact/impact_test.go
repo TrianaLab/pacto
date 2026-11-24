@@ -1504,3 +1504,22 @@ func TestImpactTierMovedToContractBreaksConsumer(t *testing.T) {
 		t.Fatalf("consumer = %+v", c)
 	}
 }
+
+// TestConfigRefVerdictInferredOfferingIsUnknown: environment values for an
+// inferred offering are left unchecked, so impact reads them as unknown,
+// never as compatible.
+func TestConfigRefVerdictInferredOfferingIsUnknown(t *testing.T) {
+	c := svcContract("orders", "1.0.0", contract.Owner{})
+	c.PactoVersion = "2.6"
+	c.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://x/postgresql", Required: true, Values: map[string]any{"size": "small"}}}
+	c.Environments = []contract.Environment{{Name: "prod"}}
+	rev := &fleet.ContractRevision{Contract: c}
+	pc := pgContract("16.2.0", "provisioning", false)
+	pc.Service.Offering = "postgresql"
+	fsys := pgSchema("small", "large")
+	fsys[contract.InferredRecordFile] = &fstest.MapFile{Data: []byte("format: pacto.inferred/v1\n")}
+	v, note := revisionConfigRefVerdict(rev, []string{"db"}, &contract.Bundle{Contract: pc, FS: fsys})
+	if v != CompatibilityUnknown || !strings.Contains(note, "inferred") {
+		t.Fatalf("got %s %q", v, note)
+	}
+}

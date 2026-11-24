@@ -76,7 +76,7 @@ func revisionConfigRefVerdict(rev *fleet.ContractRevision, names []string, provi
 			return CompatibilityUnknown, err.Error() + " in " + who
 		}
 	}
-	var violations []string
+	var violations, unverified []string
 	recorded := recordedTierFindings(rev)
 	for _, st := range []validation.Stage{
 		validation.ConfigRefStage(&c, refs, validation.ValidationResult{}, validation.ConfigRefOptions{}),
@@ -91,9 +91,19 @@ func revisionConfigRefVerdict(rev *fleet.ContractRevision, names []string, provi
 				violations = append(violations, msg+" against "+who)
 			}
 		}
+		// Values nobody checked, such as those for an inferred offering,
+		// are unknown, never compatible.
+		for _, w := range st.Warnings {
+			if w.Code == "ENVIRONMENT_VALUES_UNVERIFIED" {
+				unverified = append(unverified, w.Message+" in "+who)
+			}
+		}
 	}
-	if len(violations) > 0 {
+	switch {
+	case len(violations) > 0:
 		return CompatibilityIncompatible, strings.Join(violations, "; ")
+	case len(unverified) > 0:
+		return CompatibilityUnknown, strings.Join(unverified, "; ")
 	}
 	return CompatibilityCompatible, "the values for configuration " + strings.Join(names, ", ") + " satisfy the schema of " + who
 }
