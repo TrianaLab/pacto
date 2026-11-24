@@ -23,7 +23,7 @@ type DeliveryReads func(ctx context.Context, route string, q url.Values) (json.R
 const deliveryReadsInstructions = "pacto_delivery_caller, pacto_delivery_inbox, pacto_delivery_environments, " +
 	"pacto_delivery_autonomy, pacto_delivery_published, pacto_delivery_refusals and pacto_delivery_trust answer what the dashboard's " +
 	"delivery views show, with your own identity: who you are to delivery, what waits on you, every Stage, the path " +
-	"to autonomy, the versions the Stages know, the publishes Pacto refused and which publishers each service accepts. A list answer carries asOf and " +
+	"to autonomy, the versions the Stages know, the publishes and promotes Pacto refused and which publishers each service accepts. A list answer carries asOf and " +
 	"completeness. It covers the namespaces you may list Stages in and leaves out, without naming them, those outside your " +
 	"permissions; unreadable names a namespace that refused the list, and owners when no fleet tells whose Stages are yours."
 
@@ -59,7 +59,9 @@ var deliveryReadTools = []deliveryRead{
 	{route: "inbox", description: "Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, " +
 		"is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; " +
 		"a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services " +
-		"(every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them.",
+		"(every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them. " +
+		"When the promoter proposes rungs for the installation ladder, also that proposal with its asOf and completeness, and the exact pacto delivery ladder confirm " +
+		"command a person runs to confirm it; canConfirm counts the caller's groups, while the promoter counts only a grant to the person's own user.",
 		params: map[string]property{
 			"held":        {Type: "integer", Description: "Where the page of held changes starts"},
 			"frozen":      {Type: "integer", Description: "Where the page of frozen Stages starts"},
@@ -74,7 +76,11 @@ var deliveryReadTools = []deliveryRead{
 			"domain": {Type: "string", Description: readDomainDoc},
 		}},
 	{route: "environments", description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. " +
-		"With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.",
+		"With service it also says, per Stage, which actions the caller may take and why, including freeze and undo. " +
+		"Where the promoter publishes the installation ladder, each Stage also says where its environment comes from (declared, ladder, inferred-confirmed or hand-written) " +
+		"and its placement (namespace, provenance, evidence and who confirmed it), read from the Stage's annotations, which anyone who may edit the Stage can write. " +
+		"The environments with no Stage are listed with the reason; those the caller may not read are only counted, and with unplacedUnreadable that count is " +
+		"installation-wide, never narrowed by the filters.",
 		params: page(map[string]property{
 			"environment": {Type: "string", Description: "Keep only the services with a Stage in this environment, and only those Stages"},
 			"tier": {Type: "string", Enum: []string{"dev", "test", "prod"}, Description: "Keep only the services with a Stage in an environment whose name says this tier " +
@@ -104,8 +110,8 @@ var deliveryReadTools = []deliveryRead{
 				"no: keep only the services with an unsigned version, and only those versions; unknown: keep only the services with no unsigned version " +
 				"and a version whose signature Pacto cannot tell, and only those versions"},
 		})},
-	{route: "refusals", description: "Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. " +
-		"recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing."},
+	{route: "refusals", description: "Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs " +
+		"and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing."},
 	{route: "trust", description: "Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, " +
 		"the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. " +
 		"Pins or a policy that could not be read mark the answer partial.",

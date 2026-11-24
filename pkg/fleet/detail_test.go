@@ -1227,3 +1227,22 @@ func TestInferredFieldsBoundOutranks(t *testing.T) {
 		t.Errorf("short outranks = %+v", out[1])
 	}
 }
+
+func TestRevisionEntityCapabilityCarriesCheck(t *testing.T) {
+	c := svc24("payments", "1.3.0", "")
+	c.Capabilities = []contract.Capability{
+		{Type: contract.CapabilityHealth}, {Type: contract.CapabilityExtension, Ref: backupRef}, {Type: contract.CapabilityExtension, Ref: "x.acme.io/restore"},
+	}
+	col := &Collection{Revisions: []RawRevision{ociRev(acme, c, nil)}}
+	d, err := NewQuery(extSnap(t, 0, col, []RawExtension{extReport("1.3.0")})).EntityDetail(KindRevision, string(extRev("1.3.0")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := d.Revision.Capabilities.Items
+	if len(items) != 3 || items[0].Check != nil || items[2].Check != nil {
+		t.Fatalf("capabilities = %+v", items)
+	}
+	if chk := items[1].Check; chk == nil || chk.State != ExtensionCovered || chk.Producer != "acme-backup" || !chk.CountsTowardStatus {
+		t.Errorf("check = %+v", chk)
+	}
+}

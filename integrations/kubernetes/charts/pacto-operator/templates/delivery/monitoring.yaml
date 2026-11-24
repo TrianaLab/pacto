@@ -1,5 +1,5 @@
 {{- if include "pacto-operator.deliveryEnabled" . }}
-{{- if and .Values.delivery.recorder.enabled .Values.delivery.recorder.monitoring.enabled }}
+{{- if and (include "pacto-operator.recorderEnabled" .) .Values.delivery.recorder.monitoring.enabled }}
 {{- $name := include "pacto-operator.delivery.recorderName" . }}
 {{- $ns := include "pacto-operator.delivery.namespace" . }}
 {{- $labels := include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-recorder") }}

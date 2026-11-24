@@ -80,6 +80,14 @@ describe('provisioningTitle', () => {
     expect(t[5]).toBe('Consumer revision: orders 1.3.0');
     expect(provisioningTitle(st({}))).toBe('Unknown: no provider has reported');
   });
+
+  it('provisioningTitle adds the suggestion last', () => {
+    const t = provisioningTitle(st({ reason: 'no provider has reported provisioning for this use', asOf: '2026-11-06T10:00:00Z',
+      suggestion: 'Crossplane detected in production: accept its inferred offerings' }), NOW).split('\n');
+    expect(t[0]).toBe('Unknown: no provider has reported provisioning for this use');
+    expect(t.at(-1)).toBe('Crossplane detected in production: accept its inferred offerings');
+    expect(t).toHaveLength(3);
+  });
 });
 
 describe('readyTone', () => {

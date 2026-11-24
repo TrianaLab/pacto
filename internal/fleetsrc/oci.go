@@ -239,34 +239,23 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
-		// The digest lookup below is a HEAD against the reference AS WRITTEN, and a
-		// bare repository ("registry/org/svc") parses as ":latest" — a tag a registry
-		// need not have. So a repository reference resolved fine (the resolver picks
-		// the highest semver tag) yet came back with no digest and a mutable
-		// ResolvedRef: content the Product then had to call non-retrievable and refuse
-		// to analyze, even though it had just read it. Pin the concrete tag FIRST and
-		// ask about that. An already-explicit tag or digest costs nothing (ResolveRef
-		// returns it unchanged, no round trip); the oci:// spelling is stripped because
-		// the registry client parses a bare reference, unlike the resolver.
-		concrete := contract.TrimOCIScheme(ref)
-		if pinned, rerr := oci.ResolveRef(ctx, store, concrete, ""); rerr == nil {
-			concrete = pinned
+		for _, concrete := range pinnedRefs(ctx, store, ref) {
+			bundle, rec, err := resolver.ResolvePinned(ctx, concrete)
+			if err != nil {
+				col.Limitations = append(col.Limitations, fleet.Limitation{
+					Code: fleet.LimitationSourceRecordInvalid, Source: id,
+					Message: "ref " + ref + " could not be resolved: " + err.Error(),
+				})
+				continue
+			}
+			// The reference is the caller's, deliberately: [oci.Resolver.ResolvePinned]
+			// reports only a digest on this path, because a cache entry that states any
+			// OTHER reference is a miss there rather than an answer. A branch here for
+			// "the record named a different reference" restated that rule as its
+			// opposite and could never run.
+			col.Revisions = append(col.Revisions, revisionOf(ref, concrete, rec, bundle))
+			contracts = append(contracts, bundle.Contract)
 		}
-		bundle, rec, err := resolver.ResolvePinned(ctx, concrete)
-		if err != nil {
-			col.Limitations = append(col.Limitations, fleet.Limitation{
-				Code: fleet.LimitationSourceRecordInvalid, Source: id,
-				Message: "ref " + ref + " could not be resolved: " + err.Error(),
-			})
-			continue
-		}
-		// The reference is the caller's, deliberately: [oci.Resolver.ResolvePinned]
-		// reports only a digest on this path, because a cache entry that states any
-		// OTHER reference is a miss there rather than an answer. A branch here for
-		// "the record named a different reference" restated that rule as its
-		// opposite and could never run.
-		col.Revisions = append(col.Revisions, revisionOf(ref, concrete, rec, bundle))
-		contracts = append(contracts, bundle.Contract)
 	}
 	if check == nil {
 		return col, nil
@@ -288,6 +277,47 @@ func collectRefs(ctx context.Context, id string, resolver *oci.Resolver, store o
 		owners(pctx, id, views)
 	}
 	return col, nil
+}
+
+// maxInferredRevisionsRead is how many tags of an untagged inferred
+// contract's repository are read.
+//
+// ponytail: two is all ExternalProvider.Change reads; read more if an answer
+// ever shows older revisions' surfaces.
+const maxInferredRevisionsRead = 2
+
+// pinnedRefs is the concrete references ref is read as, without the oci://
+// scheme, each pinned to a tag where that was possible.
+//
+// The digest lookup is a HEAD against the reference AS WRITTEN, and a
+// bare repository ("registry/org/svc") parses as ":latest" — a tag a registry
+// need not have. So a repository reference resolved fine (the resolver picks
+// the highest semver tag) yet came back with no digest and a mutable
+// ResolvedRef: content the Product then had to call non-retrievable and refuse
+// to analyze, even though it had just read it. Pin the concrete tag FIRST and
+// ask about that. An already-explicit tag or digest costs nothing (ResolveRef
+// returns it unchanged, no round trip); the oci:// spelling is stripped because
+// the registry client parses a bare reference, unlike the resolver.
+//
+// An untagged inferred contract's repository is read at its two newest
+// semver tags, so the fleet can say what changed between them.
+func pinnedRefs(ctx context.Context, store oci.BundleStore, ref string) []string {
+	concrete := contract.TrimOCIScheme(ref)
+	if _, inferred := contract.InferredRef(concrete); inferred && !oci.HasExplicitTag(concrete) {
+		// A listing that fails reads as no tag: ResolveRef below says why.
+		tags, _ := store.ListTags(ctx, concrete)
+		if newest := oci.FilterSemverTags(tags); len(newest) > 0 {
+			out := make([]string, 0, maxInferredRevisionsRead)
+			for _, t := range newest[:min(len(newest), maxInferredRevisionsRead)] {
+				out = append(out, concrete+":"+t)
+			}
+			return out
+		}
+	}
+	if pinned, err := oci.ResolveRef(ctx, store, concrete, ""); err == nil {
+		concrete = pinned
+	}
+	return []string{concrete}
 }
 
 // revisionOf shapes ONE read artifact into a revision: the bundle, the reference

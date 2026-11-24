@@ -377,6 +377,45 @@ YAML
   out="$(dash "" GET /api/backstage/entities)"
   [ "${out%% *}" = 401 ] || fail "a visitor with no session or token read Backstage entities: ${out:0:300}"
   pass "a Backstage reader's bearer token reads only what its RBAC reads, only on /api/backstage/, and only reads"
+
+  # A service published only to the registry: its push writes the entry in the
+  # organization index the operator named, and no Pacto names it. A reader of
+  # every namespace sees it in the Backstage entities; the rbac-open reader,
+  # whose RBAC reaches one namespace, does not.
+  local pushed
+  pushed="$(HTTP_PROXY="http://127.0.0.1:$LOCAL_REG_PORT" NO_PROXY="" no_proxy="" PACTO_INSECURE_REGISTRIES="$REG_HOST" \
+    "$PACTO" push "oci://$REG_HOST/demo/index-only-svc:1.0.0" -p "$(contract_dir index-only-svc 1.0.0 service)" \
+    --index "$DASH_INDEX" 2>&1)" || fail "pushing index-only-svc failed: $pushed"
+  grep -q "indexed as $DASH_INDEX:" <<<"$pushed" || fail "the push of index-only-svc wrote no entry in $DASH_INDEX: $pushed"
+  # A service with no namespace shows only to a reader of everything: every
+  # Pacto and every workload and GitOps kind the dashboard reviews, cluster-wide.
+  kubectl apply -f - >/dev/null <<'YAML'
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata: {name: pacto-viewer-all}
+rules:
+- {apiGroups: [pacto.trianalab.io], resources: [pactos], verbs: [get, list]}
+- {apiGroups: [apps], resources: [deployments, statefulsets, daemonsets], verbs: [get, list]}
+- {apiGroups: [batch], resources: [cronjobs], verbs: [get, list]}
+- {apiGroups: [argoproj.io], resources: [applications], verbs: [get, list]}
+- {apiGroups: [source.toolkit.fluxcd.io], resources: [gitrepositories], verbs: [get, list]}
+- {apiGroups: [kustomize.toolkit.fluxcd.io], resources: [kustomizations], verbs: [get, list]}
+- {apiGroups: [helm.toolkit.fluxcd.io], resources: [helmreleases], verbs: [get, list]}
+YAML
+  kubectl -n rbac-open create serviceaccount index-reader --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  kubectl create clusterrolebinding index-reader --clusterrole=pacto-viewer-all --serviceaccount=rbac-open:index-reader \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  local all_tok; all_tok="$(kubectl -n rbac-open create token index-reader --audience pacto-dashboard --duration 10m)"
+  indexed() { [ "$(bearer "$all_tok" /api/backstage/entities)" = 200 ] && grep -q 'name: index-only-svc' "$IDP_DIR/body"; }
+  eventually 60 indexed || fail "a reader of every namespace does not see index-only-svc in the Backstage entities: $(head -c 3000 "$IDP_DIR/body")"
+  out="$(bearer "$tok" /api/backstage/entities)"
+  if [ "$out" != 200 ] || grep -q index-only-svc "$IDP_DIR/body"; then
+    fail "the rbac-open reader sees index-only-svc, which its RBAC does not reach, or was refused: $out"
+  fi
+  dash "$alice" GET '/api/fleet/entities?kinds=source' | cut -d' ' -f2- |
+    jq -e 'any(.meta.sources[]; .id == "registry-index" and .kind == "index" and .status == "available")' >/dev/null \
+    || fail "the dashboard's sources show no available registry-index: $(dash "$alice" GET '/api/fleet/entities?kinds=source' | head -c 3000)"
+  pass "a service published only to the registry reaches the Backstage entities of a reader of every namespace, from the index the operator named"
 }
 
 # servers_up — wait for the dashboard and the MCP server in_node started; the
@@ -594,6 +633,14 @@ identity_scenario() {
       ($e | map(select(.name == "PACTO_DASHBOARD_OIDC_CLIENT_SECRET"))[0].valueFrom.secretKeyRef.name == "dashboard-oidc")' >/dev/null \
     || fail "the operator did not pass the chart's sign-in settings to the dashboard"
   pass "the operator-managed dashboard gets its sign-in from the chart, the secret by reference"
+  # The operator names the organization index its dashboard reads from its own
+  # registry value. This phase's dashboard runs in the node, so it reads the
+  # index the operator wrote into its own dashboard's pod spec.
+  DASH_INDEX="$(kubectl -n "$NS" get deploy pacto-dashboard \
+    -o jsonpath='{.spec.template.spec.containers[0].env[?(@.name=="PACTO_DASHBOARD_INDEX")].value}')"
+  [ "$DASH_INDEX" = "$REG_HOST/pacto-index" ] \
+    || fail "the operator did not point its dashboard at the installation's index $REG_HOST/pacto-index: '$DASH_INDEX'"
+  pass "the operator-managed dashboard reads the installation's organization index"
 
   # --- the servers, in the node's network namespace ---
   # One MCP server serves the fleet and delivery: it reads Pactos and asks
@@ -609,7 +656,7 @@ identity_scenario() {
   # The registry is plain HTTP: without it every contract pull fails, the oci
   # source is partial and the Backstage route refuses the whole catalog.
   in_node pacto-e2e-dashboard -e PACTO_INSECURE_REGISTRIES="$REG_HOST" -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \
-    -e PACTO_DASHBOARD_OIDC_CLIENT_SECRET="$DASH_SECRET" -v "$dashkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
+    -e PACTO_DASHBOARD_OIDC_CLIENT_SECRET="$DASH_SECRET" -e PACTO_DASHBOARD_INDEX="$DASH_INDEX" -v "$dashkc:/kube/config:ro" -v "$IDP_DIR/tls.crt:/ca/tls.crt:ro" \
     "$DASH_IMG" dashboard --host 0.0.0.0 --port 3300 --oidc-issuer-url "$DEX_ISSUER" --oidc-client-id pacto-dashboard \
     --oidc-redirect-url "$DASH_URL/auth/callback" --oidc-extra-scopes audience:server:client_id:pacto-cli --token-login
   in_node pacto-e2e-mcp -e PACTO_INSECURE_REGISTRIES="$REG_HOST" -e KUBECONFIG=/kube/config -e SSL_CERT_FILE=/ca/tls.crt -e HOME=/tmp -v "$IDP_DIR/resolv.conf:/etc/resolv.conf:ro" \

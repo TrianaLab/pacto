@@ -1,21 +1,25 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { boot } from './typographyChecks';
-import { settle } from './ready';
+import { appReady, settle } from './ready';
+import { installScaleFixture } from './layoutGate';
+
+/** detect.FluxInstallHint, the compiled-in proposal every Applier row shows. */
+const FLUX_INSTALL_HINT = 'Set idp.flux.install=true on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator --version <version> -n <namespace> --reset-then-reuse-values --set idp.flux.install=true';
 
 /**
  * Data sources as a product surface: findable from the overview, walkable to a source,
  * and honest about the two different things a source page counts.
  *
  * The demo fleet is the fixture and it is adversarial on purpose (examples/demo/
- * source_fleet.go): fourteen sources in three health states, of which `local` is Available
+ * source_fleet.go): fifteen sources in three health states, of which `local` is Available
  * and `edge-cluster` is Unavailable. That combination is the whole point -- it means
  * the snapshot is partial WHILE the source you are looking at is fine, which is the
  * state that used to print "Source unavailable" above a page badged Available.
  *
  * None of these can be proven off the components. The unit tests prove each piece draws
  * what it is handed; only the built browser proves the overview, the inventory and the
- * source page are describing the same fourteen sources, that the links between them land,
+ * source page are describing the same fifteen sources, that the links between them land,
  * and that a number computed over the complete population did not quietly become a
  * number computed over the page.
  */
@@ -23,14 +27,15 @@ import { settle } from './ready';
 const flat = (s: string | null) => (s ?? '').replace(/\s+/g, ' ').trim();
 
 /**
- * The demo fleet: 11 available (the service-graph trace backend, the linked
- * workloads and the hub's two members among them), 1 partial
+ * The demo fleet: 13 available (the service-graph trace backend, the linked
+ * workloads, the hub's two members, the Backstage catalog and the Evidence Server
+ * among them), 1 partial
  * (registry-mirror), 1 unavailable (edge-cluster), all tallied, plus three advisory
  * partial sources: the mesh (k8s-production-mesh), Jaeger (detected-jaeger) and the
  * OTLP receiver (otlp-receiver). The inventory lists them, and the tallies leave them
  * out: an advisory source that is not available never counts against the fleet.
  */
-const DEMO_SOURCES_TALLIED = 13;
+const DEMO_SOURCES_TALLIED = 15;
 const DEMO_UNTALLIED = ['detected-jaeger', 'k8s-production-mesh', 'otlp-receiver'];
 const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
 
@@ -38,9 +43,10 @@ const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
  * The pills the legacy navbar's sources popover lists: the /api/sources rows that are
  * data sources, one per source kind. The demo's four egress readers come back as rows
  * of their own with `egress` set, so they never add a pill. The hub's two members
- * share one target-snapshot pill.
+ * share one target-snapshot pill, the Evidence Server adds an evidence-http pill and
+ * the Backstage catalog a backstage-catalog pill.
  */
-const NAV_PILLS = 11;
+const NAV_PILLS = 13;
 const EGRESS_ROWS = { 'kernel-egress': 'partial', 'istio-egress': 'complete', 'cilium-fqdn': 'unavailable', 'egress-gateway': 'partial' };
 
 async function overviewSources(page: Page) {
@@ -79,7 +85,7 @@ test.describe('the overview leads to the data sources', () => {
     // The trust figure counts the sources by state (one carrier per fact, L3), so the
     // section states no second tally; its chips name the sources and agree with the
     // inventory. Each source that needs a look keeps its own chip; more than three
-    // healthy ones fold into one "11 available" chip. The advisory mesh, Jaeger and OTLP
+    // healthy ones fold into one "13 available" chip. The advisory mesh, Jaeger and OTLP
     // receiver sources are partial and not tallied, so they get no warning chip beside
     // the figure that leaves them out; the inventory lists them.
     await expect(band.locator('.ov-tally')).toHaveCount(0);
@@ -88,7 +94,7 @@ test.describe('the overview leads to the data sources', () => {
     const chips = band.locator('a.sh-chip');
     await expect(chips).toHaveCount(3);
     for (const id of DEMO_UNTALLIED) await expect(band.locator('a.sh-chip', { hasText: id })).toHaveCount(0);
-    await expect(band.getByTestId('sources-healthy')).toHaveText(/11 available/);
+    await expect(band.getByTestId('sources-healthy')).toHaveText(/13 available/);
     await expect(band.getByTestId('sources-healthy')).toHaveAttribute('href', /#\/fleet\/sources\?.*sourceHealth=available/);
     // Least healthy first, so the source that costs you data is the first one read.
     expect(flat(await chips.first().textContent())).toContain('Unavailable');
@@ -180,19 +186,33 @@ test.describe('overview to inventory to source and back', () => {
   });
 });
 
+test.describe('the Backstage catalog is one more source', () => {
+  test('the inventory lists the catalog as an available source and its page names it', async ({ page }) => {
+    await boot(page, '#/fleet/sources');
+    const row = page.locator('.lv-item', { hasText: 'backstage-catalog' });
+    await expect(row).toHaveCount(1, { timeout: 20_000 });
+    await row.locator('a').first().click();
+    await expect(page.locator('main h1')).toContainText('backstage-catalog');
+    await expect(page.locator('#sec-this-data-source')).toBeVisible();
+    const sources = await page.evaluate(async () => ((await (await fetch('/api/sources')).json()).sources as Array<{ type: string }>));
+    expect(sources.filter((s) => s.type === 'backstage-catalog')).toHaveLength(1);
+  });
+});
+
 test.describe('the inventory says what Pacto detected', () => {
   test('one Detected providers block lists the demo cluster rows, and no destination was added', async ({ page }) => {
     await boot(page, '#/fleet/sources');
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Fifteen reported rows (the Pacto CRD, the kernel-egress row,
+    // Sixteen reported rows (the Pacto CRD, the kernel-egress row,
     // Kubernetes workloads, the Argo CD, Flux and Helm rows that group the
     // inferred services, the Kargo promotion row, the Istio row of the mesh
     // source, the demo and partner registries and five reporting adapter
-    // rows, one producer's signed and unsigned reports apart), the operator's
-    // declared Installation row, the eleven the cluster's operator detected
-    // (Datadog and three egress readers among them) and the three trace
+    // rows, one producer's signed and unsigned reports apart, and acme-idp's
+    // producer row from the Evidence Server), the operator's
+    // declared Installation row, the thirteen the cluster's operator detected
+    // (Datadog, three egress readers, Crossplane and the Backstage catalog among them) and the three trace
     // backends their edge sources report: five show, the
     // reported and declared ones first and least healthy first, the rest
     // behind Show all, and no cluster is unread in the demo.
@@ -205,9 +225,9 @@ test.describe('the inventory says what Pacto detected', () => {
     await istio.getByText('Why partial').click();
     await expect(istio.locator('.dp-why li')).toHaveText(['1 namespace without sidecars']);
     await expect(block).toContainText('Pacto CRD');
+    await block.getByRole('button', { name: 'Show all 33 providers' }).click();
+    await expect(rows).toHaveCount(33);
     await expect(block).toContainText('reports provisioning');
-    await block.getByRole('button', { name: 'Show all 30 providers' }).click();
-    await expect(rows).toHaveCount(30);
     await expect(block).toContainText('Kubernetes workloads');
     await expect(block).toContainText('service grouping, repository provenance');
     // One registry serves Referrers and _catalog; the other serves neither,
@@ -215,8 +235,16 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(block).toContainText('Registry demo.pacto.local');
     await expect(block).toContainText('Registry partners.demo.pacto.local');
     await expect(block).toContainText('no Referrers, no _catalog');
-    await expect(rows.nth(15)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(16)).toHaveClass(/dp-inferred/);
+    await expect(rows.nth(16)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(17)).toHaveClass(/dp-inferred/);
+    // The running Crossplane is one more inferred row in the same block: its
+    // version, what it serves and one provenance mark, never a block of its own.
+    const crossplane = rows.filter({ has: page.locator('.dp-name bdi[title="Crossplane"]') });
+    await expect(crossplane).toHaveCount(1);
+    await expect(crossplane).toHaveClass(/dp-inferred/);
+    await expect(crossplane.locator('.dp-evidence')).toContainText('Crossplane v2.1.0 runs and serves apiextensions.crossplane.io/v2');
+    await expect(crossplane.getByRole('button', { name: 'Inferred: from cluster-detection' })).toHaveCount(1);
+    await expect(page.getByTestId('detected-providers')).toHaveCount(1);
     await expect(block.getByTestId('provider-not-read')).toHaveCount(0);
     // The block lives inside Data sources: the primary navigation gained no entry.
     const primary = page.getByRole('navigation', { name: 'Primary' }).first();
@@ -280,6 +308,21 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
     // The Argo CD and Kargo rows are the only ones that offer a gate.
     await expect(block.getByTestId('provider-offer')).toHaveCount(2);
+  });
+
+  test('the Applier row offers the Flux install as a proposal to review', async ({ page }) => {
+    // The demo cluster runs Flux, so it shows no Applier row: the scale fixture carries one.
+    await page.addInitScript(installScaleFixture);
+    await boot(page, '#/fleet/sources');
+    const block = page.getByTestId('detected-providers');
+    await block.getByRole('button', { name: /^Show all \d+ providers$/ }).click();
+    const applier = block.getByTestId('provider-row').filter({ has: page.locator('.dp-name bdi[title="Applier"]') });
+    await expect(applier).toHaveCount(1);
+    await expect(applier.locator('.dp-used')).toHaveText('proposal for delivery in profile idp; set it on the Pacto release yourself');
+    await applier.getByText('More details').click();
+    const hint = applier.locator('.dp-hint');
+    await expect(hint).toContainText('Proposal to review');
+    await expect(hint).toContainText(FLUX_INSTALL_HINT);
   });
 
   test('Kargo row offers the shared AnalysisTemplate', async ({ page }) => {
@@ -419,4 +462,14 @@ test.describe('a source page answers about itself', () => {
       expect(main.width, `${source} body width`).toBeGreaterThan(400);
     }
   });
+});
+
+// The organization index (516-S3) on the scale fixture: the kind tally names it and the
+// inventory lists its row, so the layout matrix lays both out.
+test('the sources page names one organization index in the tally and lists its row', async ({ page }) => {
+  await page.addInitScript(installScaleFixture);
+  await appReady(page);
+  await page.goto('/#/fleet/sources');
+  await expect(page.locator('main')).toContainText('organization index', { timeout: 30_000 });
+  await expect(page.getByTestId('source-list')).toContainText('registry-index');
 });

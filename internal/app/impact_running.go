@@ -37,6 +37,7 @@ const maxUnreadLines = 32
 // answering from a restricted view must not call it: a hidden target could
 // hide a running revision.
 func (s *Service) ImpactRunning(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
+	opts.Fleet = opts.Fleet.withoutListings()
 	opts.OldPath = ""
 	newBundle, newDigest, err := s.newRevision(ctx, opts)
 	if err != nil {

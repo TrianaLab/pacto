@@ -32,6 +32,10 @@
       "description": "Bind address for the server",
       "type": "string"
     },
+    "PACTO_DASHBOARD_INDEX": {
+      "description": "Organization index whose every service the dashboard reads, as \u003cregistry\u003e/pacto-index; empty reads none",
+      "type": "string"
+    },
     "PACTO_DASHBOARD_MCP": {
       "default": false,
       "description": "Serve MCP to agents at /mcp with the dashboard's sign-in: a Kubernetes token (token sign-in) or, with an issuer and PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE, an issuer token exchanged for the cluster",

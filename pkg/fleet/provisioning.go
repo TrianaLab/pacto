@@ -47,6 +47,7 @@ type ProvisioningStatus struct {
 	Stale         bool       `json:"stale,omitempty"`
 	Conflict      []string   `json:"conflict,omitempty"`
 	Reason        string     `json:"reason,omitempty"`
+	Suggestion    string     `json:"suggestion,omitempty" doc:"One step a person may take when nothing reported provisioning: accept Crossplane's inferred offerings, or write an adapter. Empty when nothing is known for certain"`
 	// reporters are the reports the status was read from: every current
 	// reporter, or the newest report per reporter when none is current. The
 	// offering's adapters are grouped from them; never serialized.
@@ -238,18 +239,21 @@ type provisioningSlot struct{ env, entry string }
 // a status in every environment it declares (the default one when it declares
 // none), Unknown when nothing reported there. Entry is set only when the use
 // has more than one entry, so one entry's Ready never speaks for another.
-func (q *Query) provisioningFor(use OfferingUse, rels []*Relationship, current *ContractRevision, idx map[provisioningKey][]*ProvisioningRecord) ([]ProvisioningStatus, []Limitation) {
+// hint, from [Query.provisioningHint], gives a status nothing reported on its
+// Suggestion.
+func (q *Query) provisioningFor(use OfferingUse, rels []*Relationship, current *ContractRevision, idx map[provisioningKey][]*ProvisioningRecord, hint provisioningHint) ([]ProvisioningStatus, []Limitation) {
 	slots, revs := useSlots(q.snap, rels, current, idx)
 	if len(slots) == 0 {
-		return []ProvisioningStatus{{Phase: StatusUnknown, Provenance: ProvenanceObserved, Reason: noProvisioningReport}}, nil
+		return []ProvisioningStatus{{Phase: StatusUnknown, Provenance: ProvenanceObserved, Reason: noProvisioningReport,
+			Suggestion: q.suggestion(hint, use, "")}}, nil
 	}
-	return q.provisioningStatuses(use, slots, revs, current)
+	return q.provisioningStatuses(use, slots, revs, current, hint)
 }
 
 // useSlots groups idx's reports about rels by environment and consumer entry,
 // seeds current's entries (see seedProvisioningSlots) and returns the
 // declaring revisions by digest.
-func useSlots[R reportRecord](snap *FleetSnapshot, rels []*Relationship, current *ContractRevision, idx map[provisioningKey][]R) (map[provisioningSlot][]R, map[string]*ContractRevision) {
+func useSlots[R envRecord](snap *FleetSnapshot, rels []*Relationship, current *ContractRevision, idx map[provisioningKey][]R) (map[provisioningSlot][]R, map[string]*ContractRevision) {
 	revs := map[string]*ContractRevision{}
 	slots := map[provisioningSlot][]R{}
 	seen := map[provisioningKey]bool{}
@@ -280,6 +284,131 @@ func useSlots[R reportRecord](snap *FleetSnapshot, rels []*Relationship, current
 // noProvisioningReport is the reason of a status nothing reported.
 const noProvisioningReport = "no provider has reported provisioning for this use"
 
+// The suggestions a status nothing reported on may carry.
+const (
+	suggestCrossplane    = "Crossplane detected in %s: accept its inferred offerings"
+	suggestNoProvisioner = "no provisioner found: see Write an adapter (https://pacto.run/latest/provision-infrastructure/#write-an-adapter)"
+)
+
+// provisioningHint is what the caller's own view knows of provisioners: the
+// visible clusters a running Crossplane was detected in, sorted by name, and
+// whether every visible cluster is known to run no Crossplane while no adapter
+// reported. It is computed per call from the view, never kept on a Query,
+// which serves concurrent reads.
+type provisioningHint struct {
+	running       []crossplaneCluster
+	noProvisioner bool
+	// envs indexes the clusters of each service's targets per environment,
+	// built only when a Crossplane runs.
+	envs map[serviceEnv]map[string]bool
+}
+
+// crossplaneCluster is a cluster's id and display name.
+type crossplaneCluster struct{ id, name string }
+
+// serviceEnv is a service in one environment.
+type serviceEnv struct {
+	svc ServiceKey
+	env string
+}
+
+// provisioningHint reads the detected crossplane rows of the view and the
+// provisioning reports it holds. A stale, partial or unknown row is neither
+// running nor none found, and neither is a row of a cluster the view hides
+// (Restrict blanks its cluster) or a visible cluster with no row: each makes
+// "no provisioner found" unknown. A partial view, a restricted one included,
+// may miss a report, so it never says none either: unknown is never positive.
+func (q *Query) provisioningHint() provisioningHint {
+	clusters := clusterOfSource(q.snap)
+	var h provisioningHint
+	unknown, none := false, map[string]bool{}
+	for _, p := range q.snap.Providers {
+		if p.ID != ProviderCrossplane || p.Provenance != ProvenanceInferred {
+			continue
+		}
+		switch {
+		case p.Cluster == "":
+			unknown = true
+		case crossplaneRunning(p):
+			h.running = append(h.running, crossplaneCluster{providerCluster(p, clusters), p.Cluster})
+		case crossplaneNoneFound(p):
+			none[providerCluster(p, clusters)] = true
+		default:
+			unknown = true
+		}
+	}
+	slices.SortFunc(h.running, func(a, b crossplaneCluster) int { return cmp.Compare(a.name, b.name) })
+	if len(h.running) > 0 {
+		h.envs = envClusterIndex(q.snap)
+	}
+	h.noProvisioner = len(h.running) == 0 && !unknown && len(none) > 0 && len(q.snap.Provisioning) == 0 &&
+		q.snap.Completeness != CompletenessPartial && !slices.ContainsFunc(q.snap.Clusters, func(c ClusterRecord) bool { return !none[c.ID] })
+	return h
+}
+
+// crossplaneRunning reports whether p, a detected crossplane row, says a
+// Crossplane controller runs: complete and controller-backed.
+func crossplaneRunning(p Provider) bool {
+	return p.Status == SourceAvailable && !strings.HasPrefix(p.Evidence, CrossplaneNoneFound+" ")
+}
+
+// crossplaneNoneFound reports whether p, a detected crossplane row, knows for
+// certain that no Crossplane runs.
+func crossplaneNoneFound(p Provider) bool {
+	return p.Status == SourceAvailable && strings.HasPrefix(p.Evidence, CrossplaneNoneFound+" ")
+}
+
+// suggestion is the step hint offers a status of use in env nothing reported
+// on: accept the inferred offerings of a running Crossplane, naming the
+// cluster the consumer's targets in env run in when one runs it, else the
+// first; or write an adapter when no provisioner is known anywhere in view.
+func (q *Query) suggestion(hint provisioningHint, use OfferingUse, env string) string {
+	if len(hint.running) == 0 {
+		if hint.noProvisioner {
+			return suggestNoProvisioner
+		}
+		return ""
+	}
+	in := hint.envs[serviceEnv{ServiceKey(use.Consumer.Key), env}]
+	for _, c := range hint.running {
+		if in[c.id] {
+			return fmt.Sprintf(suggestCrossplane, c.name)
+		}
+	}
+	return fmt.Sprintf(suggestCrossplane, hint.running[0].name)
+}
+
+// envClusterIndex is the clusters each service's targets run in, per named
+// environment; the default environment "" has none.
+func envClusterIndex(s *FleetSnapshot) map[serviceEnv]map[string]bool {
+	out := map[serviceEnv]map[string]bool{}
+	for _, t := range s.Targets {
+		if t.Environment == "" || t.Cluster == "" {
+			continue
+		}
+		k := serviceEnv{t.ServiceKey, t.Environment}
+		if out[k] == nil {
+			out[k] = map[string]bool{}
+		}
+		out[k][t.Cluster] = true
+	}
+	return out
+}
+
+// reportCluster is the cluster rec is attributed to: its source's, else the
+// one cluster its service's targets in its environment run in, else "".
+func reportCluster(rec *ProvisioningRecord, clusters map[string]string, envs map[serviceEnv]map[string]bool) string {
+	if c := clusters[rec.Source]; c != "" {
+		return c
+	}
+	if cs := envs[serviceEnv{rec.ServiceKey, rec.Environment}]; len(cs) == 1 {
+		for id := range cs {
+			return id
+		}
+	}
+	return ""
+}
+
 // seedProvisioningSlots gives each entry of the current revision a slot in
 // every environment it declares, so an environment nothing reported on reads
 // Unknown. A revision that declares none gets the default environment, unless
@@ -309,7 +438,7 @@ func seedProvisioningSlots[R any](slots map[provisioningSlot][]R, entries []stri
 
 // provisioningStatuses is one status per slot, sorted by environment and
 // entry, and the conflicts they raise.
-func (q *Query) provisioningStatuses(use OfferingUse, slots map[provisioningSlot][]*ProvisioningRecord, revs map[string]*ContractRevision, current *ContractRevision) ([]ProvisioningStatus, []Limitation) {
+func (q *Query) provisioningStatuses(use OfferingUse, slots map[provisioningSlot][]*ProvisioningRecord, revs map[string]*ContractRevision, current *ContractRevision, hint provisioningHint) ([]ProvisioningStatus, []Limitation) {
 	entries := map[string]bool{}
 	for sl := range slots {
 		entries[sl.entry] = true
@@ -320,7 +449,8 @@ func (q *Query) provisioningStatuses(use OfferingUse, slots map[provisioningSlot
 	var out []ProvisioningStatus
 	var lims []Limitation
 	for _, sl := range keys {
-		st := ProvisioningStatus{Environment: sl.env, Phase: StatusUnknown, Provenance: ProvenanceObserved, Reason: noProvisioningReport}
+		st := ProvisioningStatus{Environment: sl.env, Phase: StatusUnknown, Provenance: ProvenanceObserved, Reason: noProvisioningReport,
+			Suggestion: q.suggestion(hint, use, sl.env)}
 		if len(slots[sl]) > 0 {
 			st = q.provisioningStatus(sl.env, slots[sl], revs, current)
 		}
@@ -337,11 +467,16 @@ func (q *Query) provisioningStatuses(use OfferingUse, slots map[provisioningSlot
 	return out, lims
 }
 
-// reportRecord is what latestReports and newestReport need of a provisioning or
-// usage report.
+// reportRecord is what latestReports and newestReport need of a provisioning,
+// usage or extension report.
 type reportRecord interface {
 	at() time.Time
 	origin() string
+}
+
+// envRecord is a reportRecord useSlots can group by environment.
+type envRecord interface {
+	reportRecord
 	env() string
 }
 
@@ -377,7 +512,13 @@ func (r *ProvisioningRecord) env() string    { return r.Environment }
 
 // staleReport reports whether r is older than the provisioning window.
 func (q *Query) staleReport(r *ProvisioningRecord) bool {
-	return q.snap.GeneratedAt.Sub(r.ObservedAt) > cmp.Or(q.snap.provisioningWindow, RecentEvidenceWindow)
+	return q.snap.reportStale(r.ObservedAt)
+}
+
+// reportStale reports whether a report observed at t is older than the
+// snapshot's freshness window (RecentEvidenceWindow when unset).
+func (snap *FleetSnapshot) reportStale(t time.Time) bool {
+	return snap.GeneratedAt.Sub(t) > cmp.Or(snap.provisioningWindow, RecentEvidenceWindow)
 }
 
 // provisioningStatus is one slot's status from its reports: the newest report

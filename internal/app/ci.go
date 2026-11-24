@@ -184,6 +184,10 @@ type ciFolder struct {
 	judged *contract.Bundle
 	// carried is set when b holds acceptances carried from the baseline.
 	carried bool
+	// writtenCarried is asWritten with the same registry decisions carried
+	// in, set only when b was raised in memory and carried: a baseline an
+	// earlier CLI published as written holds this content.
+	writtenCarried *contract.Bundle
 	// carriedFrom is the release registry decisions were carried from
 	// (its b is nil): the baseline, or the newest final release below a
 	// candidate baseline, the one publish measures a version from.
@@ -443,7 +447,7 @@ func migrationNote(f *ciFolder) string {
 		return fmt.Sprintf("pacto.yaml is %s, kept at %s (%s)", m.From, m.From, m.Reason)
 	case m.State != migrationMigrated:
 		return ""
-	case f.b == f.asWritten:
+	case f.b == f.asWritten || f.b == f.writtenCarried:
 		return fmt.Sprintf("pacto.yaml is %s, published as %s (raises to %s when it next changes)", m.From, m.From, m.To)
 	case f.row.Changed == "no":
 		return fmt.Sprintf("pacto.yaml is %s, published as %s%s", m.From, m.To, migratedNote)
@@ -538,11 +542,16 @@ func (pl *ciPlanner) judge(ctx context.Context, f *ciFolder, repo string, declar
 		return
 	}
 	same, why := Unchanged(base.b, f.b)
-	if !same && migrated && !f.carried {
+	written := f.asWritten
+	if f.carried {
+		written = f.writtenCarried
+	}
+	if !same && migrated && written != nil {
 		// A baseline an earlier CLI published as written is this content
-		// too: a migration alone never republishes.
-		if sameWritten, whyWritten := Unchanged(base.b, f.asWritten); sameWritten {
-			same, why, f.b = true, whyWritten, f.asWritten
+		// too, with the same registry decisions carried: a migration alone
+		// never republishes.
+		if sameWritten, whyWritten := Unchanged(base.b, written); sameWritten {
+			same, why, f.b = true, whyWritten, written
 			f.recordImages()
 		}
 	}
@@ -586,10 +595,20 @@ func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase, dc 
 		return false
 	}
 	f.row.Notes = append(f.row.Notes, res.Notes...)
+	var written *contract.Bundle
+	if res.Bundle != f.b && f.asWritten != f.b {
+		// Raised in memory: the same decisions carried into the contract as
+		// written may be what an earlier CLI published. A carry that fails
+		// there leaves only the raised bundle to compare.
+		if w, err := carryForward(ctx, pl.acceptances(), base, f.asWritten, dc); err == nil {
+			written = w.Bundle
+		}
+	}
 	switch {
 	case res.Bundle == f.b:
 		f.row.Carried = res.Carried
-	case res.Pinned+res.Declared > 0 && f.b.Contract.Service.Version == base.version && !unchangedBy(base.b, res.Bundle):
+	case res.Pinned+res.Declared > 0 && f.b.Contract.Service.Version == base.version && !unchangedBy(base.b, res.Bundle) &&
+		(written == nil || !unchangedBy(base.b, written)):
 		// The declared version is published with other content: pinning a
 		// field would change its contract. Each decision waits for the next
 		// version, and says so.
@@ -597,6 +616,7 @@ func (pl *ciPlanner) carry(ctx context.Context, f *ciFolder, base carryBase, dc 
 		f.row.Carried = waiting(res.Carried)
 	default:
 		f.b, f.carried, f.row.Accepted, f.row.Carried = res.Bundle, true, res.Pinned, res.Carried
+		f.writtenCarried = written
 		f.recordImages()
 	}
 	return true
@@ -937,7 +957,7 @@ func (s *Service) ciImpacts(ctx context.Context, p *ci.Plan, folders []*ciFolder
 	if len(todo) == 0 {
 		return nil, nil, nil
 	}
-	fo := opts.Fleet
+	fo := opts.Fleet.withoutListings()
 	if len(fo.LocalRoots) == 0 {
 		fo.LocalRoots = []string{opts.Root}
 	}

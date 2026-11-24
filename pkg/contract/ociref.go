@@ -36,6 +36,62 @@ func InferredRef(ref string) (identity string, ok bool) {
 	return "", false
 }
 
+// ContributionsRepository is the one repository below a producer's
+// pacto-inferred path that holds the inferred records it contributes, one tag
+// per service version: <registry>/pacto-inferred/<producer>/services. No
+// external identity has this shape, so it never shares a repository with the
+// inferred contract of an external of the producer's name.
+const ContributionsRepository = "services"
+
+// ContributionRepository is the repository producer contributes its records
+// to under the registry path registryPath.
+func ContributionRepository(registryPath, producer string) string {
+	return registryPath + "/" + InferredRepository + "/" + producer + "/" + ContributionsRepository
+}
+
+// ContributionRef is the producer whose contribution repository ref names, as
+// in oci://ghcr.io/acme/pacto-inferred/my-idp/services:checkout_1.0.0. ok is
+// false for any other ref, including one where pacto-inferred is the first
+// path segment, as for [InferredRef], which still reports such a ref inferred.
+func ContributionRef(ref string) (producer string, ok bool) {
+	repo, _, _ := SplitOCIRef(TrimOCIScheme(ref))
+	segs := strings.Split(repo, "/")
+	for i := 2; i < len(segs)-1; i++ { // segs[0] is the registry host
+		if segs[i] == InferredRepository {
+			if i == len(segs)-3 && segs[i+2] == ContributionsRepository && validProducer(segs[i+1]) {
+				return segs[i+1], true
+			}
+			return "", false
+		}
+	}
+	return "", false
+}
+
+// ContributionGrant reads one allowedContractRepos prefix of a key whose
+// producer is producer. A prefix with no pacto-inferred segment after the
+// registry and first path segment grants nothing. One that is exactly
+// <path>/pacto-inferred/<producer> grants the contribution repository
+// returned. Any other prefix under pacto-inferred (the bare root, another
+// producer or a deeper path) is an error, so a producer is only ever granted
+// its own path.
+func ContributionGrant(prefix, producer string) (repository string, grant bool, err error) {
+	segs := strings.Split(prefix, "/")
+	// segs[0] is the registry host and segs[1] may be an organization named
+	// pacto-inferred, as in InferredRef.
+	i := slices.Index(segs[min(2, len(segs)):], InferredRepository) + 2
+	if i < 2 {
+		return "", false, nil
+	}
+	if i != len(segs)-2 || segs[i+1] != producer || !validProducer(producer) {
+		return "", false, fmt.Errorf("allowedContractRepos entry %q is under %s: a producer is granted only %s/%s/<its producerId>", prefix, InferredRepository, strings.Join(segs[:i], "/"), InferredRepository)
+	}
+	return ContributionRepository(strings.Join(segs[:i], "/"), producer), true, nil
+}
+
+// validProducer reports whether p can name a contribution path: one identity
+// segment and never host, the one class whose identity has two segments.
+func validProducer(p string) bool { return p != "host" && identitySegmentRE.MatchString(p) }
+
 // validIdentity reports whether s has the shape of an external identity.
 func validIdentity(s string) bool {
 	segs := strings.Split(s, "/")

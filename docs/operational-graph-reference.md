@@ -23,6 +23,11 @@ compliance evidence that a source carries.
   visible as limitations.
 - **Contracts in OCI** (`--oci <ref>`): the published revision catalogue,
   resolved cache-first so a pulled ref works offline.
+- **The organization index** (`--index <registry>/pacto-index`): every service
+  [the index lists](backstage-registry.md), pulled by digest with the `--oci`
+  checks, as source `registry-index` of kind `index`. It lists each inferred
+  contract it could not read as `INFERRED_CONTRACT_UNREAD`, which never makes
+  the answer partial.
 - **Local OCI cache** (`--cache`): every bundle already pulled to disk. Opt-in,
   because on a machine that has pulled contracts for months the cache holds
   everything anyone ever fetched. That is a useful offline baseline but a poor
@@ -120,6 +125,14 @@ compliance evidence that a source carries.
   not see stays `insufficient`. A failed read leaves the source unavailable; a
   truncated or empty map, or calls Pacto cannot attribute to a named service,
   leave it partial.
+- **Backstage catalog** (`--backstage-url <url>`, or
+  `PACTO_DASHBOARD_BACKSTAGE_URL` for `pacto dashboard`, with the reader token
+  in `PACTO_BACKSTAGE_TOKEN`): the owner, system and component dependencies
+  the catalog holds for each service Pacto knows, as `inferredOwner`,
+  `inferredBusinessDomain` and `inferred` edges of source kind `serviceFact`.
+  Source `backstage-catalog` is advisory: an unreachable or capped catalog is
+  its own state and never makes an answer partial. See
+  [Read owners from your Backstage catalog](backstage-catalog.md).
 
 `pacto fleet` and `pacto impact` read every source flag above. `pacto mcp
 --fleet` reads all but `--root`, which on `pacto mcp` selects a frozen catalog
@@ -429,6 +442,8 @@ dashboard labels it Owner unknown and never No declared owner.
 | Field or code | Meaning |
 |---|---|
 | `ownerProvenance` | `declared` (a revision's `pacto.yaml`), `attested`, `declared-via-target` (the running contract the operator read) or `inferred`, in that precedence |
+| `inferredOwner`, `inferredBusinessDomain` | An owner or business domain a source outside every contract reports, such as a [Backstage catalog](backstage-catalog.md), as `value`, `source`, `where` and `asOf`. `ownerProvenance` is `inferred` only when no other owner exists; `owner` stays empty and the value never becomes an owner claim |
+| `SERVICE_FACT_AMBIGUOUS` | A name a source reports matches more than one service, or two of its records give one service different values, so those values are left out |
 | `ownerSource` | For `attested` only: the file and line, the commit and the CI identity that signed it, such as `CODEOWNERS:7 at a1b2c3, signed by github.com/acme/invoices/.github/workflows/ci.yml` |
 | `provenance.signature.signerRepository`, `signerCommit` | On a revision, the repository and commit an accepted CI signer's certificate names |
 | `provenance.ownerRight` | On a revision, the owner rule's verdict on the owner it sets: `allowed`, `code` and `message` |
@@ -508,17 +523,17 @@ covers identities, the join order and catalogs.
 
 | Surface | Behaviour |
 |---|---|
-| Relationship | `toExternal` names the identity and `resolved` stays `false`, because no fleet service delivers it. It never gets `resolvedRevision` and never counts in impact, dependents or delivery. Only a dependency whose ref names `pacto-inferred/<identity>` gets `rangeStatus: unknown` with `rangeReason: INFERRED_PROVIDER` |
-| Provider | `provider` on the record holds the system's [inferred contract](inferred-contracts.md): `repository`, `revisions` (operator-signed first, each group newest first, each with `version`, `digest`, `ref`, `surface` and `signature`), `revisionsTotal`, and `rangeStatus: unknown` with `rangeReason: INFERRED_PROVIDER`. A restricted view that hides any source or consumer drops every `surface`. A contract under `pacto-inferred` whose `service.external` disagrees with its path is attached nowhere and raises `INFERRED_IDENTITY_MISMATCH` |
-| Attention | One `INFERRED_PROVIDER` item in the `knowledge` category per inferred contract that ranges check against, counting only visible consumers |
+| Relationship | `toExternal` names the identity and `resolved` stays `false`, because no fleet service delivers it. It never gets `resolvedRevision` and never counts in a service's impact, dependents or delivery; the external subject, `pacto impact --changed external:<identity>`, lists its consumers. Only a dependency whose ref names `pacto-inferred/<identity>` gets `rangeStatus: unknown` with `rangeReason: INFERRED_PROVIDER` |
+| Provider | `provider` on the record holds the system's [inferred contract](inferred-contracts.md): `repository`, `revisions` (operator-signed first, each group newest first, each with `version`, `digest`, `ref`, `surface` and `signature`), `revisionsTotal`, `rangeStatus: unknown` with `rangeReason: INFERRED_PROVIDER` and `change`, what moved between the two revisions shown first (`from`, `to`, `at`, `checked`, `added`, `removed`, `openapiFrom`, `openapiTo`; see [a change between revisions](inferred-contracts.md#a-change-between-revisions)). A restricted view that hides any source or consumer drops every `surface` and the `added` and `removed` of `change`. A contract under `pacto-inferred` whose `service.external` disagrees with its path is attached nowhere and raises `INFERRED_IDENTITY_MISMATCH` |
+| Attention | One `INFERRED_PROVIDER` item in the `knowledge` category per inferred contract that ranges check against, counting only visible consumers. One `EXTERNAL_CHANGED` item in the `knowledge` category per external system whose `change` is checked, moved the linked OpenAPI digest or the clients, and is at most 7 days old: `warning` when both digests are present and differ, `info` otherwise. Its next step is `pacto impact --changed external:<identity>`. A clients-only change raises none in a restricted view. One `UNOWNED_EXTERNAL` item in the `unowned` category per external system with consumers and no owner; see [attention categories](operational-graph-tallies.md#attention-categories) |
 | Snapshot | `externals`, one record per identity, and `externalCatalogs`, the catalogs used with `digest`, `origin`, `copy`, `signature` and `reason`; every answer's meta repeats `externalCatalogs` |
-| Record | `key`, `label`, `class`, `aliases`, `sources` (one per consumer and dependency position, each with `provenance`, `match` and `superseded` when a newer consumer revision no longer declares it), `sourcesTotal`, `catalog` (origin, digest and entry; absent when no entry classifies it), `joinedBy` (`identity`, `catalog-alias`, `host` or `normalized-name`), `consumers`, `consumersTotal`, `hiddenConsumers` |
+| Record | `key`, `label`, `class`, `aliases`, `sources` (one per consumer and dependency position, each with `provenance`, `match` and `superseded` when a newer consumer revision no longer declares it), `sourcesTotal`, `catalog` (origin, digest and entry; absent when no entry classifies it), `joinedBy` (`identity`, `catalog-alias`, `host` or `normalized-name`), `consumers`, `consumersTotal`, `hiddenConsumers` and `claim` once a declared contract [claims it](inferred-contracts.md#claim-an-external-system) (`service`, `ref` and `version` of its newest revision, `by`, the person whose declaration established it, `declaredVersion`, the version they declared, then `owner` and `ownerKey`, the owner Pacto uses for that service, absent when it has none or its owners conflict); `claimants` counts the services that claim it when more than one does, and then no claim counts; a viewer who may not read the claiming service gets only `hidden: true` |
 | Entities | `--kind external` (MCP `kind: external`) lists them, `--class` keeps one class; the default listing leaves them out |
 | Get | `pacto fleet get external:<identity>` and `pacto_fleet_get` with `service: external:<identity>` |
 | Search | A search on text alone, first page, adds up to 20 matching `externals`, by identity, label or alias, with `externalsTotal`; any other filter or a later page lists none |
-| Explain | `EXTERNAL_DECLARED` per source, then `EXTERNAL_CATALOG_MATCH`, `EXTERNAL_UNCLASSIFIED` (joined by identity or host) or `EXTERNAL_NAME_ONLY`, `EXTERNAL_SOURCES_TRUNCATED` when consumers are cut or hidden, and `EXTERNAL_CAP` when folded; status is always `Unknown` |
+| Explain | `EXTERNAL_DECLARED` per source, then `EXTERNAL_CATALOG_MATCH`, `EXTERNAL_UNCLASSIFIED` (joined by identity or host) or `EXTERNAL_NAME_ONLY`, `EXTERNAL_SOURCES_TRUNCATED` when consumers are cut or hidden, `EXTERNAL_CLAIMED` naming the claiming service or `EXTERNAL_UNCLAIMED` with where it is routed (except for `other-egress`), and `EXTERNAL_CAP` when folded; status is always `Unknown` |
 | Graph | Rooted at `external:<identity>`, it walks the consumers and their dependents (an unset direction means `dependents`); an explicit `direction: dependencies` is an invalid query |
 | Neighborhood | External systems are leaves beside the services that declare them; focusing one shows its consumers |
-| Overview | `externals` and `hiddenExternals` |
+| Overview | `externals`, `hiddenExternals` and `unownedExternals`, the `UNOWNED_EXTERNAL` items the unowned tile adds to the services with no owner |
 | Repository | An external system a revision's [inferred record](contract-reference/inferred-record.md#external-dependencies) names joins as an inferred edge whose sources have kind `repository` and name that `revision`, never as a service dependency, impact or gate input |
 | Cap | An answer that names more than 200 external systems folds the rest into `other-egress` and is partial with `EXTERNAL_CAP`; see [the cap](external-catalog-reference.md#the-cap) |

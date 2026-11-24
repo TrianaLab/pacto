@@ -7,6 +7,7 @@ import {
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
   exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
   causeText, historyWindow, windowSince, samePerson, classSourceLabel, accessSourceLabel, gateLabel, applierLine, serverNow,
+  placementTip, ladderCommand,
 } from './delivery.ts';
 import { changeSummary } from './changeFigure.ts';
 import {
@@ -442,6 +443,16 @@ describe('classSourceLabel and accessSourceLabel', () => {
 });
 
 describe('applier', () => {
+  it('labels the pacto.manifests gate', () => {
+    expect(gateLabel('pacto.manifests')).toBe('Objects stay in the Stage namespace');
+  });
+
+  it('explains an Unknown pacto.manifests verdict', () => {
+    const h = unknownHelp({ gate: 'pacto.manifests' });
+    expect(h).toContain('could not tell what this version applies');
+    expect(h).not.toContain('configured and reachable');
+  });
+
   it('labels the pacto.applier gate', () => {
     expect(gateLabel('pacto.applier')).toBe('Applier owns the workloads');
   });
@@ -490,5 +501,26 @@ describe('publisherSourceLabel', () => {
     expect(['rule', 'pin', 'policy', 'inferred', 'release'].map(publisherSourceLabel)).toEqual(['rule', 'pin', 'policy', 'inferred', 'release']);
     expect(publisherSourceLabel('none')).toBe('no publisher check');
     expect(publisherSourceLabel(undefined)).toBe('no publisher check');
+  });
+});
+
+describe('placementTip', () => {
+  it('says where the environment comes from and where the service runs and why', () => {
+    expect(placementTip({ source: 'inferred-confirmed', placement: { namespace: 'payments-staging', provenance: 'inferred', evidence: 'Argo CD source github.com/acme/payments', confirmedBy: 'bob' } }))
+      .toBe('From an inferred rung of the installation ladder a person confirmed. In namespace payments-staging, placement inferred (Argo CD source github.com/acme/payments), confirmed by bob.');
+  });
+  it('drops what the promoter did not write and is empty with no installation ladder', () => {
+    expect(placementTip({ source: 'ladder', placement: { provenance: 'default' } })).toBe('From the installation ladder the chart declares. Placement default.');
+    expect(placementTip({ source: 'hand-written' })).toBe('From a Stage a person wrote.');
+    expect(placementTip({ source: 'declared', placement: { provenance: '' as never } })).toBe("From the contract's environments[].");
+    expect(placementTip({})).toBe('');
+  });
+});
+
+describe('ladderCommand', () => {
+  it('is the command the server names, else the one for the proposal digest', () => {
+    const d = `sha256:${'5be1'.repeat(16)}`;
+    expect(ladderCommand({ command: `pacto delivery ladder confirm --proposal ${d}`, proposalDigest: d })).toBe(`pacto delivery ladder confirm --proposal ${d}`);
+    expect(ladderCommand({ command: '', proposalDigest: d })).toBe(`pacto delivery ladder confirm --proposal ${d}`);
   });
 });

@@ -40,9 +40,13 @@ type dashboardIdentity struct {
 	records   app.RecordRepo
 	trust     *delivery.TrustConfig
 	newClient func(*rest.Config) (dynamic.Interface, error)
-	served    func(*rest.Config, string) (bool, error)
-	now       func() time.Time
-	state     func(context.Context) authn.State
+	// scope is the sign-in cluster's API discovery, built once at start:
+	// discovery is the same for every caller.
+	scope  delivery.ScopeFunc
+	infra  delivery.InfraFunc
+	served func(*rest.Config, string) (bool, error)
+	now    func() time.Time
+	state  func(context.Context) authn.State
 	// viewer narrows the fleet views to what the signed-in person's Kubernetes
 	// RBAC lets them read; nil outside shared mode with sign-in.
 	viewer *authn.Viewer
@@ -171,7 +175,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		return nil, err
 	}
 	act := &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope, Infra: id.infra}
 	out := newDashDelivery(id, act, who)
 	if s := id.sharedReads(); s != nil && token != "" {
 		c, sc := *act, sharedClient{Interface: dyn, s: s, token: token}
@@ -364,12 +368,16 @@ func (a dashDelivery) Undo(ctx context.Context, ns, name, stage string) (*delive
 }
 
 // PublishRefusals reads the version-rule refusals pacto publish kept in each
-// service's contract bundle repository: the one the versions its Stages know
-// name. A service whose repository cannot be found or read makes the answer
-// partial, never "none".
-// ponytail: signatures are not checked (the dashboard holds no publisher
-// key), so the note says a refusal is what the registry holds; verify against
-// the key the Stage's OCIRepository verifies with if forged refusals matter.
+// service's contract bundle repository (the one the versions its Stages know
+// name) and the apply refusals the recorder kept on each service's stream in
+// the streams repository its Stages name. A service whose repository or
+// stream cannot be found or read makes the answer partial, never "none".
+// Rows are unsorted and uncapped: the server sorts, counts and caps once.
+// ponytail: publish refusal signatures are not checked (the dashboard holds
+// no publisher key), so the note says a refusal is what the registry holds;
+// verify against the key the Stage's OCIRepository verifies with if forged
+// refusals matter. Apply refusals are the recorder's and are verified with
+// the delivery trust config when one is set.
 func (a dashDelivery) PublishRefusals(ctx context.Context, ns string) (*dashboard.PublishRefusals, error) {
 	if a.d.Records == nil {
 		return nil, nil
@@ -379,24 +387,79 @@ func (a dashDelivery) PublishRefusals(ctx context.Context, ns string) (*dashboar
 		return nil, refusal(err)
 	}
 	repos, services := map[string]string{}, []string{}
+	// Apply refusal streams are keyed by the whole ServiceRef: two domains
+	// may name a service alike, and each keeps its own stream.
+	streams, refs := map[delivery.ServiceRef]string{}, []delivery.ServiceRef{}
+	listed := map[[2]string]bool{}
 	for i := range stages {
 		st := &stages[i]
-		svc := st.Spec.Service.Name
+		svc, ref := st.Spec.Service.Name, st.Spec.Service
+		listed[[2]string{st.Metadata.Namespace, st.Metadata.Name}] = true
 		if _, ok := repos[svc]; !ok {
 			services = append(services, svc)
 		}
 		if repos[svc] == "" {
 			repos[svc] = a.contractRepo(ctx, st)
 		}
+		if _, ok := streams[ref]; !ok {
+			refs = append(refs, ref)
+		}
+		if streams[ref] == "" {
+			streams[ref], _, _ = strings.Cut(st.Status.Stream.Anchor, "@")
+		}
 	}
 	out := &dashboard.PublishRefusals{Completeness: "complete", Refusals: []dashboard.PublishRefusal{},
-		Note: "read from each service's contract bundle repository; their signatures are not checked here"}
+		Note: "read from each service's contract bundle repository (refused publishes; their signatures are not checked here) " +
+			"and delivery record stream (refused promotes, verified with the delivery trust config)"}
 	for _, svc := range services {
 		if err := a.refusalsOf(ctx, svc, repos[svc], out); err != nil {
 			out.Completeness, out.Unreadable = "partial", append(out.Unreadable, svc+": "+err.Error())
 		}
 	}
+	for _, ref := range refs {
+		if err := a.applyRefusalsOf(ctx, ref, streams[ref], listed, out); err != nil {
+			out.Completeness, out.Unreadable = "partial", append(out.Unreadable, ref.Name+": "+err.Error())
+		}
+	}
 	return out, nil
+}
+
+// applyRefusalsOf appends the apply refusals of svc kept in the streams
+// repository repo, only those of a Stage the caller listed. No repository
+// means no recorder wrote a stream for its Stages, so none exists.
+func (a dashDelivery) applyRefusalsOf(ctx context.Context, svc delivery.ServiceRef, repo string, listed map[[2]string]bool, out *dashboard.PublishRefusals) error {
+	if repo == "" {
+		return nil
+	}
+	rr, err := a.d.Records(repo)
+	if err != nil {
+		return err
+	}
+	stream, verify := delivery.ApplyRefusalStream(svc), a.d.RecordVerifier()
+	bounded, cancel := delivery.WithRegistryTimeout(ctx)
+	defer cancel()
+	l, err := (&deliveryrecord.Reader{}).ListApplyRefusals(bounded, rr, svc, func(b []byte) error { return verify(stream, 0, b) })
+	if err != nil {
+		return fmt.Errorf("reading the refused promotes in %s: %w", repo, err)
+	}
+	for _, u := range l.Unreadable {
+		out.Completeness, out.Unreadable = "partial", append(out.Unreadable, svc.Name+": "+u)
+	}
+	// The stream is shared by every Stage of the service, those the caller
+	// cannot list included: refusals cut from it may be the caller's own.
+	if l.Cut {
+		out.Completeness, out.Unreadable = "partial", append(out.Unreadable,
+			fmt.Sprintf("%s: more than %d refused promotes; older ones were not read", svc.Name, deliveryrecord.MaxApplyRefusals))
+	}
+	for _, r := range l.Refusals {
+		p := r.Refusal
+		if !listed[[2]string{p.Namespace, p.Stage}] {
+			continue
+		}
+		out.Refusals = append(out.Refusals, dashboard.PublishRefusal{Service: p.Service.Name, Version: p.Version, Check: "manifests",
+			Namespace: p.Namespace, Stage: p.Stage, Digest: p.Digest, Code: p.Code, Reason: p.Message, Record: p.Record, At: p.At, Verified: a.d.Trust != nil})
+	}
+	return nil
 }
 
 // contractRepo is the contract bundle repository the first version st knows
@@ -450,6 +513,11 @@ func (a dashDelivery) Trust(ctx context.Context, stages []delivery.StageObject, 
 func (a dashDelivery) Can(ctx context.Context, verb, resource, ns string) (bool, error) {
 	ok, err := a.d.Can(ctx, verb, resource, ns)
 	return ok, refusal(err)
+}
+
+func (a dashDelivery) Environments(ctx context.Context) (*delivery.EnvironmentsView, []delivery.PlacementRow, bool, error) {
+	v, rows, readable, err := a.d.Environments(ctx)
+	return v, rows, readable, refusal(err)
 }
 
 func (a dashDelivery) WorkloadAccess(ctx context.Context, ns string, w delivery.WorkloadRef) delivery.WorkloadAccess {

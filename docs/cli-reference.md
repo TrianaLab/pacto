@@ -268,10 +268,12 @@ pacto ci [root] [flags]
 **Flags:**
 
 ```
+      --backstage-url string               base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]                 include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray                kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string              the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string                    add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray               registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray           base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --explain string                     explain one service's row: its folder, baseline, why it changed, its inferred fields and its consumers
       --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
@@ -279,7 +281,7 @@ pacto ci [root] [flags]
       --freshness duration                 mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]                  help for ci
       --image stringArray                  with --publish: the image <service> deploys, pinned by digest, as <service>=<repo>@sha256:...; Pacto builds, signs and copies none. A bare <repo>@sha256:... needs exactly one changed service
-      --index string                       organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                       organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]                   include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray                  local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray            base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -328,6 +330,74 @@ pacto ci init [dir] [flags]
       --force[=true|false]     replace a GitHub caller that has other content
   -h, --help[=true|false]      help for init
       --platform string        the CI platform to write the caller for, github or gitlab; default from the .github folder or .gitlab-ci.yml
+```
+
+---
+
+## `pacto claim`
+
+Claims an external system the fleet lists, such as stripe or
+aws/rds/eu-west-1/orders-db, for a team. The claim is a declared contract:
+service.external names the system, service.owner.team the team, and its
+pacto.inferred.yaml declaration names inferredFrom external:&lt;identity&gt;. It is
+published to &lt;registry&gt;/&lt;name&gt;, where the name is --name or the identity's
+last segment. No workload is read and nothing is copied from the inferred
+contract Pacto publishes under pacto-inferred; the kubeconfig cluster, when
+it is reachable, is read only for the installation signer policy.
+
+Without --yes it prints the plan and writes nothing; the plan ends with its
+intent digest. --yes prints the plan, then publishes it signed keyless by you
+through an interactive Sigstore login (a browser, or a device code with
+--device). No Git access is needed. Only that login writes a declared
+version: a key, an ambient OIDC token or a CI identity writes the next
+draft-&lt;n&gt; tag instead, and the output names the command a person runs to
+accept it with --from-draft.
+
+Naming the first owner of an external system takes a default approver of the
+installation's owner policy; changing it takes a person who belongs to the
+current owner or a default approver. Anyone else is refused before anything is
+pushed. The owner policy is read from the signed target snapshots in
+&lt;registry&gt;/pacto-targets, verified with --delivery-trust. The fleet routes an
+unclaimed external system to the default approvers for routing only: routing
+grants no right.
+
+```
+pacto claim <identity> [flags]
+```
+
+**Examples:**
+
+```
+  # What claiming stripe for team-platform would publish
+  pacto claim stripe --owner team-platform --registry ghcr.io/acme
+
+  # Claim it, signed by you
+  pacto claim stripe --owner team-platform --registry ghcr.io/acme --yes
+
+  # Accept a claim an agent wrote as a draft
+  pacto claim stripe --registry ghcr.io/acme --from-draft draft-1 --yes
+```
+
+**Flags:**
+
+```
+      --delivery-trust string    the trust config the target snapshots that carry the owner policy are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
+      --device[=true|false]      log in with a device code instead of a browser
+      --draft[=true|false]       write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set
+      --from-draft string        accept this draft-<n> tag, signed by you (a workload draft reads the workload again)
+      --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
+  -h, --help[=true|false]        help for claim
+      --intent string            the intent digest of the plan you reviewed: a different plan is refused
+      --name string              the service name the claim is published under (default: the identity's last segment)
+      --oidc-client-id string    OpenID Connect client of the Sigstore login (default "sigstore")
+      --oidc-issuer-url string   OpenID Connect issuer of the Sigstore login (default "https://oauth2.sigstore.dev/auth")
+      --owner string             the team that owns the external system (taken from the draft with --from-draft)
+      --registry string          the registry the contract is published to, as host/path
+      --rekor-url string         Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
+      --sign-key string          sign with this key file: a key names no person, so the run writes a draft
+      --timestamp-url string     timestamp authority to date the signature with
+      --trusted-root string      Sigstore trusted root JSON to verify with (default: public-good Sigstore)
+      --yes[=true|false]         publish the plan (or write a draft) after printing it
 ```
 
 ---
@@ -517,6 +587,7 @@ pacto dashboard [sources...] [flags]
 
 ```
       --allow-anonymous[=true|false]      serve beyond loopback without sign-in: everyone who reaches the address reads the whole fleet (also PACTO_DASHBOARD_ALLOW_ANONYMOUS)
+      --backstage-url string              base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN (also PACTO_DASHBOARD_BACKSTAGE_URL)
       --context stringArray               kubeconfig context to read live Pacto CRs from (repeatable, each cluster read once); outside a pod the named contexts replace the current one and people sign in against the first (also PACTO_DASHBOARD_CONTEXT)
       --cors-origin string                explicit cross-origin allowed to call the API (default: same-origin only)
       --declare-registry-config string    a Docker config.json with push access to --registry: a shared dashboard writes declarations and drafts only with this credential of its own, never with the credentials it reads registries with (also PACTO_DASHBOARD_DECLARE_REGISTRY_CONFIG)
@@ -528,6 +599,7 @@ pacto dashboard [sources...] [flags]
       --fulcio-url string                 Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
   -h, --help[=true|false]                 help for dashboard
       --host string                       bind address for the dashboard server (default "127.0.0.1")
+      --index string                      organization index whose every service the dashboard reads, as <registry>/pacto-index; none or unset reads none (also PACTO_DASHBOARD_INDEX; the operator sets it from its registry)
       --mcp[=true|false]                  serve MCP to agents at /mcp with the dashboard's sign-in: a Kubernetes token (token sign-in) or, with --oidc-issuer-url and --mcp-exchange-audience, an issuer token exchanged for the cluster (also PACTO_DASHBOARD_MCP)
       --mcp-exchange-audience string      the audience asked for when exchanging an issuer token, one the API server accepts; with it, every token from the dashboard's issuer must name the MCP URL as its audience; without it every token is checked as a Kubernetes token (also PACTO_DASHBOARD_MCP_EXCHANGE_AUDIENCE)
       --mcp-url string                    the /mcp URL as agents reach it, the RFC 9728 resource: absolute http(s), path exactly /mcp (no path prefix); empty: the request's own address, token sign-in only (also PACTO_DASHBOARD_MCP_URL)
@@ -550,7 +622,7 @@ pacto dashboard [sources...] [flags]
       --otlp-receiver string              address Collectors in the cluster export OTLP/HTTP JSON traces to, as http://HOST:PORT; Pacto maps spans to observed calls, keeps no span and serves nothing else there; empty turns it off (also PACTO_DASHBOARD_OTLP_RECEIVER)
       --owner-policy string               the mounted owner policy (the chart's declare block as policy.json) that decides who may set a service owner (also PACTO_DASHBOARD_OWNER_POLICY)
       --port int                          port for the dashboard server (default 3000)
-      --registry string                   the registry declarations made in the dashboard are published to (<host>/<path>); without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)
+      --registry string                   the installation registry (<host>/<path>): the dashboard lists the golden paths and offerings published under it, and declarations made in the dashboard are published there; without it the dashboard offers no Declare (also PACTO_DASHBOARD_REGISTRY)
       --rekor-url string                  Rekor transparency log the signature is recorded in (default "https://rekor.sigstore.dev")
       --review string                     how people are reviewed: cluster asks once about every namespace and needs a ClusterRole; local asks in each --namespace only, which a namespaced Role grants, and then services without a namespace show to nobody (also PACTO_DASHBOARD_REVIEW) (default "cluster")
       --session-idle-timeout duration     a session without a request for this long ends (default 1h)
@@ -629,7 +701,7 @@ pacto declare <service> [flags]
       --dir string               a folder pacto init --cluster wrote, declared instead of a new draft
       --draft[=true|false]       write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set
       --folder string            the folder of the repository the contract lives in (default: the folder a source names, else the root)
-      --from-draft string        accept this draft-<n> tag: the workload is read again and you sign
+      --from-draft string        accept this draft-<n> tag, signed by you (a workload draft reads the workload again)
       --fulcio-url string        Fulcio to get the signing certificate from (default "https://fulcio.sigstore.dev")
       --git-host string          the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)
   -h, --help[=true|false]        help for declare
@@ -796,7 +868,7 @@ pacto delivery describe <type> [flags]
 
 ### `pacto delivery environments`
 
-Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.
+Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo. Where the promoter publishes the installation ladder, each Stage also says where its environment comes from (declared, ladder, inferred-confirmed or hand-written) and its placement (namespace, provenance, evidence and who confirmed it), read from the Stage's annotations, which anyone who may edit the Stage can write. The environments with no Stage are listed with the reason; those the caller may not read are only counted, and with unplacedUnreadable that count is installation-wide, never narrowed by the filters.
 
 It runs the dashboard's own environments view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -872,7 +944,7 @@ pacto delivery history [flags]
 
 ### `pacto delivery inbox`
 
-Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services (every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them.
+Held operations whose decision by the caller the promoter would count: the caller may update the Stage's workload and, when owner teams narrow who may answer, is in a team the question names (break-glass also gets those that name no team), with the decision asked and the affected services; a change whose update rights could not be checked marks the answer partial. Also the frozen Stages of the caller's services (every frozen Stage they can read when owner teams do not narrow) and the Errored operations on them. When the promoter proposes rungs for the installation ladder, also that proposal with its asOf and completeness, and the exact pacto delivery ladder confirm command a person runs to confirm it; canConfirm counts the caller's groups, while the promoter counts only a grant to the person's own user.
 
 It runs the dashboard's own inbox view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -893,6 +965,46 @@ pacto delivery inbox [flags]
       --limit int            How many of each section per page; 0 means 25
       --q string             Keep only what names this text (namespace, Stage, service or change), ignoring case
       --service string       Keep only the Stages of the service with exactly this name and the changes on them; it narrows byEnvironment too, and a change on a Stage the caller cannot read is left out
+```
+
+### `pacto delivery ladder`
+
+Confirm the installation ladder, the environments Pacto creates Stages for
+
+```
+pacto delivery ladder [flags]
+```
+
+**Flags:**
+
+```
+  -h, --help[=true|false]   help for ladder
+```
+
+#### `pacto delivery ladder confirm`
+
+Confirm the installation ladder Pacto proposes: you sign it as yourself, and the promoter then creates Stages for the confirmed rungs. The ladder is the chart value delivery.environments.ladder plus the rungs Pacto proposes from namespaces and cluster names, each a leaf that takes its versions from the registry. pacto delivery inbox shows the proposal and its digest. The command signs keyless after a fresh login in your browser and records the confirmation in the approvals repository the promoter reads. You need approve on environmentladders.delivery.pacto.trianalab.io in the cluster, granted to your user (echo '{apiVersion: rbac.authorization.k8s.io/v1, kind: ClusterRole, metadata: {name: pacto-ladder-approver}, rules: [{apiGroups: [delivery.pacto.trianalab.io], resources: [environmentladders], verbs: [approve]}]}' | kubectl apply -f -, then kubectl create clusterrolebinding pacto-ladder-approver --clusterrole=pacto-ladder-approver --user=<your user>); groups are not checked, because a certificate names none. The operator must list approver signers in delivery.identities.signers. With --create-namespaces you also let Pacto create the namespaces it waits to place services in, when delivery.environments.createNamespaces is on: you must be allowed to read them in the ConfigMap pacto-delivery-placements.
+
+```
+pacto delivery ladder confirm [flags]
+```
+
+**Examples:**
+
+```
+  pacto delivery ladder confirm --proposal sha256:5be1...
+  pacto delivery ladder confirm --proposal sha256:5be1... --drop qa
+  pacto delivery ladder confirm --proposal sha256:5be1... --create-namespaces
+```
+
+**Flags:**
+
+```
+      --create-namespaces[=true|false]   also let Pacto create the namespaces it waits to place services in; you sign the list you can read
+      --drop stringArray                 a proposed rung to leave out, repeatable; Pacto never proposes it again
+  -h, --help[=true|false]                help for confirm
+      --issuer string                    the approver signer's OIDC issuer, when the installation lists several
+      --proposal string                  the proposal digest pacto delivery inbox showed you; nothing is signed when the proposal changed since
 ```
 
 ### `pacto delivery lifecycle`
@@ -1035,7 +1147,7 @@ pacto delivery record verify [<ref>] [flags]
 
 ### `pacto delivery refusals`
 
-Recent publishes Pacto refused, newest first, with the check that refused each and the version bump the change needs. recorded false means this cluster keeps no record of refused publishes, so an empty list proves nothing.
+Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing.
 
 It runs the dashboard's own refusals view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -1331,7 +1443,7 @@ pacto evidence send <envelope.json> [flags]
 
 ### `pacto evidence serve`
 
-Starts an HTTP host that accepts signed evidence envelopes at POST /api/evidence/v1/envelopes, verifies them against --trust, evaluates the carried evidence against its resolved contract and publishes accepted records to the contract registry as OCI 1.1 referrers of the exact contract revision each report is about. Every --subject is an immutable oci://&lt;repo&gt;@sha256:&lt;digest&gt; reference; the registry is the only durable store, so the host keeps no local state and survives restarts. GET .../health is an always-200 liveness probe; .../ready reports 503 while a subject cannot be resolved or its referrers enumerated; .../producers advertises trusted producer ids; .../targets exposes the latest accepted targets. Registry credentials come from the same sources as `pacto pull`. Exactly one server may write to a subject set. Serves until interrupted.
+Starts an HTTP host that accepts signed evidence envelopes at POST /api/evidence/v1/envelopes, verifies them against --trust, evaluates the carried evidence against its resolved contract and publishes accepted records to the contract registry: as OCI 1.1 referrers of the exact contract revision each report is about where the registry serves them, as write-once tags in &lt;prefix&gt;pacto-evidence otherwise. Every --subject is an immutable oci://&lt;repo&gt;@sha256:&lt;digest&gt; reference; every --subject-prefix (oci://&lt;registry&gt;/&lt;path&gt;/) accepts evidence for any immutable revision published under it, with no restart, and records each subject in &lt;prefix&gt;pacto-evidence. Set --subject or --subject-prefix. The registry is the only durable store, so the host keeps no local state and survives restarts. GET .../health is an always-200 liveness probe; .../ready reports 503 while an exact subject cannot be resolved, a prefix ledger cannot be listed or a registry cannot be probed (a prefix with an empty ledger is probed at its first commit); .../producers advertises trusted producer ids; .../targets exposes the latest accepted targets. Registry credentials come from the same sources as `pacto pull`. Exactly one server may write to a subject set. Serves until interrupted.
 
 ```
 pacto evidence serve [flags]
@@ -1347,7 +1459,8 @@ pacto evidence serve [flags]
       --listen-address string        host:port to listen on (supersedes --port)
       --port int                     port to listen on (127.0.0.1); superseded by --listen-address (default 8686)
       --producer stringArray         advertised trusted producer id (repeatable)
-      --subject stringArray          exact contract revision evidence is stored on: oci://<repo>@sha256:<digest> (repeatable, required)
+      --subject stringArray          exact contract revision evidence is stored on: oci://<repo>@sha256:<digest> (repeatable; set --subject or --subject-prefix)
+      --subject-prefix stringArray   registry prefix whose immutable revisions evidence may be stored on: oci://<registry>/<path>/ (repeatable)
       --trust string                 trust store: a public-key file or a directory of <keyId>.pub files
 ```
 
@@ -1465,7 +1578,7 @@ pacto export [flags]
 
 Write the services Pacto knows as one multi-document YAML file of Backstage catalog entities: a Component per service, an API per interface, a Resource per external system, a System per business domain and a stub Component, tagged pacto-observed, per observed caller with no contract. Every entity says how Pacto knows it (pacto.trianalab.io/provenance), when (as-of) and how completely (completeness); an inferred value never fills spec.owner, spec.system, spec.dependsOn or spec.consumesApis.
 
-The export reads the same sources as pacto fleet, except that it scans no local directory unless --local is set. When a source could not be read, or the fleet is empty, it writes nothing and exits 2, so a scheduled sync never drops the services that source holds; --allow-partial writes the file anyway. A --namespace scope whose namespaces were all read is not a failure: the file is written and each entity says partial.
+The export reads the same sources as pacto fleet, except that it scans no local directory unless --local is set. When a source could not be read, or the fleet is empty, it writes nothing and exits 2, so a scheduled sync never drops the services that source holds; --allow-partial writes the file anyway. A --namespace scope whose namespaces were all read is not a failure: the file is written and each entity says partial. With --index it reads every service the organization index lists, pulled by digest, and the inferred contracts they name; add --target-snapshot for the inferred services the clusters published.
 
 ```
 pacto export backstage [flags]
@@ -1476,22 +1589,25 @@ pacto export backstage [flags]
 ```
   pacto export backstage --oci ghcr.io/acme/payments --oci ghcr.io/acme/ledger > catalog/pacto-entities.yaml
   pacto export backstage --root oci://ghcr.io/acme/platform --k8s -o catalog/pacto-entities.yaml
+  pacto export backstage --index oci://ghcr.io/acme/pacto-index --target-snapshot oci://ghcr.io/acme/pacto-targets > catalog/pacto-entities.yaml
 ```
 
 **Flags:**
 
 ```
       --allow-partial[=true|false]    write the file even when the fleet is partial or empty
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray          registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for backstage
-      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                  organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray             local bundle root(s) to scan (repeatable; none unless set)
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1517,16 +1633,18 @@ pacto fleet [flags]
 **Flags:**
 
 ```
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray          registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for fleet
-      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                  organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -1540,7 +1658,7 @@ pacto fleet [flags]
 
 ### `pacto fleet attention`
 
-Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract. --category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor.
+Lists what needs attention, most severe first, each item with its reason and next step. --category undeclared lists runtime calls no contract declares and callers with no contract. --category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor. --category unowned lists services and external systems with no owner; an external system ranks by how many services use it.
 
 ```
 pacto fleet attention [flags]
@@ -1586,7 +1704,7 @@ pacto fleet entities [text] [flags]
       --domain string                    exact registry path, the domain part of a service key
       --environment string               with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment
       --failed[=true|false]              with --kind offering, offerings with at least one failed provisioning request
-      --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge
+      --gap string                       services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability: an extension capability no evaluator or trusted producer checks), or unknown for those Pacto cannot judge
       --group string                     inferred services the cluster groups under this key (rule/namespace/name: workload.group.key in pacto fleet entity --output-format json)
       --has-non-compliant[=true|false]   owners and domains with at least one non-compliant service only
   -h, --help[=true|false]                help for entities
@@ -1830,7 +1948,7 @@ pacto fleet snapshot [flags]
 
 ### `pacto fleet status`
 
-Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services that use a deprecated or past-sunset provider, services with no declared owner and undeclared runtime dependencies. With no category flag it reports every category.
+Reports what needs attention: non-compliant, unknown, invalid and stale targets, revisions without readiness, unresolved dependencies, dependencies whose provider version is outside the declared range, services that use a deprecated or past-sunset provider, services and external systems with no owner and undeclared runtime dependencies. With no category flag it reports every category.
 
 ```
 pacto fleet status [flags]
@@ -1852,7 +1970,7 @@ pacto fleet status [flags]
       --stats-registry string               also write a coverage run record of the whole fleet to this stats repository (unsigned statistics; none with --namespace); never read from PACTO_STATS_REGISTRY
       --undeclared[=true|false]             report runtime calls no contract declares and callers with no contract
       --unknown[=true|false]                report targets with unknown compliance
-      --unowned[=true|false]                report services with no declared owner
+      --unowned[=true|false]                report services and external systems with no owner
       --unresolved-deps[=true|false]        report unresolved declared dependencies
       --unsatisfied-ranges[=true|false]     report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)
 ```
@@ -1947,6 +2065,8 @@ With --running, impact judges &lt;new&gt; against the revisions of its service t
 
 With --unavailable, --removed or --regressed, impact answers what happens if that service becomes unavailable, is removed or a revision of it regressed. --unavailable and --removed also take offering:&lt;name&gt;, which asks the same of every service that provides the platform offering. Consumers are graded breaks (every edge on their path is required), may degrade (an optional edge) or unknown. The gate is unverified (exit 2) when anything depends on the service and clear (exit 0) only when the complete snapshot shows nothing does. --regressed with an artifact digest reads delivery's recorded failures with your own cluster credentials when a cluster is reachable.
 
+--changed external:&lt;identity&gt; and --unavailable external:&lt;identity&gt; ask what a change or an outage of an external system, such as a vendor API nobody here controls, does to every service that uses it. Each consumer row says where the use was seen (declared, observed, inferred, pod-spec or repository), the client major its record names (always possible) and the range it pins. A change puts every consumer in attention; an outage breaks a declared required use, may degrade a declared optional one and is unknown for the rest. The gate is always unverified (exit 2): an external system is never verified. When a consumer pins no range, the answer ends with the dependencies block that pins one on its inferred contract, or declares the external system when it has none.
+
 The answer ends in a release gate, and the exit status follows it:
   0  clear: the change is not BREAKING and every service that references its policy passes the new policy, or the snapshot is complete and no service depends on the changed one.
   1  blocked: a consumer that runs on a known target does not accept the new version of a BREAKING change, or its contract fails the changed service's new policy, whatever the classification.
@@ -1960,7 +2080,7 @@ When you pass no --k8s, --target-state, --evidence-url or --target-snapshot, imp
 From the same ref impact also reads the consumers published to the organization index, &lt;host&gt;/<first path segment>/pacto-index then &lt;host&gt;/pacto-index, checks them against the target snapshot it reads and prints a Consumers line; --index names another &lt;registry&gt;/pacto-index, --index none reads none, a --root list skips it and a pair of --local folders reads no index.
 
 ```
-pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> [flags]
+pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed <service> | --regressed <service>@<revision> | --changed external:<identity> [flags]
 ```
 
 **Examples:**
@@ -1987,6 +2107,11 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
   # What breaks if every provider of the postgresql offering becomes unavailable
   pacto impact --unavailable offering:postgresql --local .
 
+  # Which consumers a change of the Stripe API affects, and what a Stripe
+  # outage does
+  pacto impact --changed external:stripe --local .
+  pacto impact --unavailable external:stripe --local .
+
   # What a regressed artifact affects, with delivery's recorded failures
   pacto impact --regressed payments-service@sha256:<digest> --local .
 ```
@@ -1994,17 +2119,20 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
 **Flags:**
 
 ```
+      --backstage-url string            base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]              include every bundle in the local OCI cache as an offline baseline revision
+      --changed string                  what a change of this external system (external:<identity>) does to every service that uses it; each consumer needs attention
       --context stringArray             kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string           the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string                 add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray            registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray        base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string         organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fingerprints string             a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration              mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]               help for impact
       --include-observed[=true|false]   let observed (runtime) relationships raise consumer confidence
-      --index string                    organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                    organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]                include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray               local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray         base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -2024,8 +2152,8 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
       --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --target-snapshot stringArray     signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
-      --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed)
-      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering
+      --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed); refused with external:<identity>
+      --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering and external:<identity> of an external system
 ```
 
 ---
@@ -2109,8 +2237,8 @@ written, and the Status block says what was checked and what Pacto cannot
 tell yet. Each plugin the path names is listed with the binary it resolves
 to; only the ones you name with --run-plugins run, never with --plan, and
 the files they return are added like the path's own. --delivery plans the
-cluster pieces from the created contract when the path publishes manifests
-under publish.deploy; otherwise the delivery step says why none were planned.
+Pacto resource from the created contract when the path publishes manifests
+under publish.deploy; otherwise the delivery step says why none was planned.
 
 It only adds files and missing .pactoignore lines; any other file already
 there is yours and is left as it is, so running it twice is safe. --plan shows exactly what would be added and
@@ -2141,15 +2269,14 @@ pacto init [dir...] [flags]
       --call-window duration               with --cluster: how far back a call counts as a dependency (at least 1m, default 24h)
       --cluster[=true|false]               draft a contract for every workload in the cluster that no Pacto describes, reading the current kubeconfig context
       --continue string                    with --cluster: resume the read where a run --max-items stopped while listing workloads left off
-      --delivery[=true|false]              also declares each --env in pacto.yaml with an empty values file, and writes the cluster pieces of a manifests deploy: the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; a chart deploy gets no applier object
+      --delivery[=true|false]              also writes delivery/pacto.yaml, the Pacto resource that ships inside every version of a manifests deploy; Pacto creates each environment's Stage once delivery is on
       --describe-only[=true|false]         write a contract that only describes the service: its next steps say how to validate it, never how to publish it
       --domain string                      business domain, such as payments
-      --env strings                        environments for --delivery: declared in the contract and given a Stage each, in promotion order (default [test,prod])
       --external-catalog string            organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_EXTERNAL_CATALOG)
       --fleet strings                      folders of other services' contracts to find the services that use this one
       --from string                        a golden path to create the service from: an oci:// reference or a directory
   -h, --help[=true|false]                  help for init
-      --insecure-registry[=true|false]     with --delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)
+      --insecure-registry[=true|false]     with --delivery: the registry speaks plain HTTP, so the next steps say how the Pacto resource reads its contract over plain HTTP (a local registry only)
       --max-items int                      with --cluster: the most items read per kind of object; a kind cut short reads as partial (default 10000)
       --name string                        service name (default: the workload's name, then the folder's)
       --namespace strings                  with --cluster: a namespace to read; repeat it for more (default: every namespace)
@@ -2158,7 +2285,7 @@ pacto init [dir...] [flags]
       --owner string                       the team that owns the service, as a bare name such as billing (default: the workload's team label)
       --plan[=true|false]                  show what would be added and change nothing
       --registry string                    where to publish, as host/path (default: read from the workload's image)
-      --registry-secret string             with --delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with
+      --registry-secret string             with --delivery: the docker-registry Secret, in the namespace of delivery/pacto.yaml, that the Pacto resource logs in to a private registry with
       --run-plugins strings                run these plugins the golden path names, by name (see the plan's plugin steps); each step prints the binary it runs
       --set stringArray                    set a contract value (e.g. --set service.version=2.0.0)
       --trust string                       the trust config the golden path's signature is verified with: a PEM public key or a trust config file (default $PACTO_DELIVERY_TRUST)
@@ -2289,7 +2416,7 @@ When a bundle reference (local directory or oci:// ref) is given, the server als
 
 With --root, the server exposes a read-only contract catalog: the given roots plus their dependency closure, resolved once at startup and then frozen, so the session keeps its startup view even when a registry tag moves. Roots that fail to resolve stay visible as partial knowledge. The catalog grants no authorization and executes nothing.
 
-With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --mira-source, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
+With --fleet, the server exposes the read-only operational-graph query tools over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, --evidence-url, --traces, --mira-source, --backstage-url, --oci, --cache, --k8s, --namespace and --freshness) compose that snapshot and are read in --fleet mode only.
 
 With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, the dashboard's delivery views (caller, inbox, environments, autonomy, published and refusals, scoped by --namespace like the dashboard's), plus propose and cancel only when the apiserver says the caller is an agent (a service account, or an agent by the identity policy Pacto delivery publishes). It has no approve tool.
 
@@ -2334,6 +2461,7 @@ pacto mcp [bundle-ref] [flags]
       --audience string                  with --auth-issuer: the audience incoming tokens must carry (default --resource)
       --auth stringArray                 credential for a security scheme as name=value (repeatable)
       --auth-issuer string               OpenID issuer whose bearer tokens every HTTP request must carry
+      --backstage-url string             base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --base-url string                  base URL for live invocation (overrides the OpenAPI servers[] URL)
       --cache[=true|false]               include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray              kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
@@ -2343,6 +2471,7 @@ pacto mcp [bundle-ref] [flags]
       --delivery-namespace string        in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
       --delivery-trust string            the trust config delivery records (in --delivery mode), the golden paths pacto_create creates from and the target snapshots (the owner policy pacto_declare reads included) pacto_impact and --target-snapshot read are verified with (a PEM public key or a YAML trust config: the recorder's key for records, the operator's advertised installation key for a target snapshot, which verifies only under a key scoped to its cluster: streams ["<uid>/*/*"]; default $PACTO_DELIVERY_TRUST)
       --detected string                  add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray             registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray         base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --exchange-audience string         with --fleet or --delivery over HTTP with --auth-issuer: the audience to exchange for, one the apiserver accepts (default "pacto-cli")
       --exchange-client-id string        with --fleet or --delivery over HTTP with --auth-issuer: the server's own OAuth client, which exchanges each caller's token for the cluster (RFC 8693); its secret comes from PACTO_MCP_EXCHANGE_CLIENT_SECRET
@@ -2352,7 +2481,7 @@ pacto mcp [bundle-ref] [flags]
       --freshness duration               mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]                help for mcp
       --host string                      bind address for HTTP transport; beyond loopback it needs --auth-issuer, and on loopback without it every request carries the bearer printed at launch (default "127.0.0.1")
-      --index string                     organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                     organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]                 include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray                local bundle root(s) to scan in --fleet mode (repeatable); over HTTP none unless set (default [.])
       --mira-source stringArray          base URL of a Mira node whose service map supplies observed calls between services (repeatable)
@@ -2629,6 +2758,9 @@ pacto push <ref> [flags]
 
   # Force overwrite an existing artifact
   pacto push oci://ghcr.io/acme/my-service-pacto -p my-service --force
+
+  # Contribute an inferred record, signed with the producer's evidence key
+  pacto push oci://ghcr.io/acme/pacto-inferred/my-idp/services -p checkout --sign-key ~/.pacto/keys/my-idp.key
 ```
 
 **Flags:**
@@ -2639,6 +2771,7 @@ pacto push <ref> [flags]
       --index string         organization index repository for this version's entry, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the contract's repository; none writes no entry)
   -p, --path string          path to contract directory (default: current directory)
       --set stringArray      set a contract value (e.g. --set service.version=2.0.0)
+      --sign-key file        sign the pushed digest with the file key, kept outside the pushed directory: a PEM private key or a seed pacto evidence keygen wrote
       --values stringArray   values file to merge into the contract (can be repeated; last wins)
 ```
 
@@ -2716,17 +2849,19 @@ pacto stats [flags]
 **Flags:**
 
 ```
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --by string                     group the numbers by service, owner, domain, repository, environment
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray          registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for stats
-      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                  organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --kind stringArray              total only run records of this kind: diff, impact, publish, operation, coverage (repeatable)
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
@@ -2784,16 +2919,18 @@ pacto tui [flags]
 **Flags:**
 
 ```
+      --backstage-url string          base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from PACTO_BACKSTAGE_TOKEN
       --cache[=true|false]            include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray           kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
       --delivery-trust string         the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $PACTO_DELIVERY_TRUST)
       --detected string               add what the operator detected as inferred rows, and the workloads it linked to a published contract as targets: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON (linked.json beside it holds the linked workloads)
+      --discover stringArray          registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)
       --evidence-url stringArray      base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)
       --external-catalog string       organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST, else PACTO_EXTERNAL_CATALOG; a tag is refused
       --fingerprints string           a file (YAML or JSON) of the workload managers and promoters this installation runs, as the chart's fingerprints value: each promoter found reads promotion owned by <product> in the detected providers
       --freshness duration            mark target evidence older than this as stale (the dashboard's window; 0 skips the check and every answer says so) (default 24h0m0s)
   -h, --help[=true|false]             help for tui
-      --index string                  organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)
+      --index string                  organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it (default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; every other fleet command reads every service it lists as a published revision; none reads none
       --k8s[=true|false]              include live Pacto CRs, workloads and the calls a service mesh records from the current Kubernetes cluster
       --local stringArray             local bundle root(s) to scan (repeatable) (default [.])
       --mira-source stringArray       base URL of a Mira node whose service map supplies observed calls between services (repeatable)

@@ -5,7 +5,7 @@
   import { shortDigest, formatCount, countOf } from '../lib/format.ts';
   import { RANGE_NOT_DECLARED } from '../lib/entityLabels.ts';
   import SearchPick from '../components/SearchPick.svelte';
-  import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, fleetOfferingsUrl, fleetEntityUrl, hashForHref, replaceHash, parseHash } from '../lib/router.ts';
+  import { fleetChangesUrl, fleetOverviewUrl, fleetServicesUrl, fleetOfferingsUrl, fleetExternalsUrl, fleetEntityUrl, hashForHref, replaceHash, parseHash } from '../lib/router.ts';
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import EntityLink from '../components/EntityLink.svelte';
@@ -25,6 +25,7 @@
   import { OUTCOMES, EFFECTS, EFFECT_META, effectOf } from '../lib/impactFigure.ts';
   import { formatRelative } from '../lib/dateFormat.ts';
   import ProvenanceMark from '../components/ProvenanceMark.svelte';
+  import CopyableIdentifier from '../components/CopyableIdentifier.svelte';
   import { advisoryText, breakText, rangesLine, unknownRanges } from '../lib/acceptance.ts';
 
   // The Change analysis workspace: ONE screen for the two halves of a single question --
@@ -54,6 +55,12 @@
   // there is no service, no revision pair and no regression, only the event.
   const offeringKey = $derived(params.svc ? '' : params.offering || '');
   const offeringRef = $derived({ kind: 'offering', key: offeringKey, label: offeringKey });
+  // An external event (517-S4) asks about a system nobody here controls: no service, no
+  // revision Pacto publishes, only whether it changes or becomes unavailable.
+  const externalKey = $derived(params.svc || params.offering ? '' : params.external || '');
+  // No subject in the route asks for one; an offering or external subject has no revisions to load.
+  const subjectless = $derived(!serviceKey && !offeringKey && !externalKey);
+  const noRevisions = $derived(!!offeringKey || !!externalKey);
   // A legacy compare bookmark carried only a display name. It is resolved to a canonical
   // ServiceKey through the Product API (never guessed) and the URL is then canonicalized.
   const legacyName = $derived(params.name || '');
@@ -88,22 +95,31 @@
 
   // Which question: compare two revisions, or what if this service... (event mode).
   const EVENT_KINDS = [
+    { value: 'changed', label: 'changes' },
     { value: 'unavailable', label: 'becomes unavailable' },
     { value: 'removed', label: 'is removed' },
     { value: 'regressed', label: 'regressed' },
   ];
   // An offering has many providers, so a regression (one revision) is not a question about it.
-  const eventKinds = untrack(() => (offeringKey ? EVENT_KINDS.filter((k) => k.value !== 'regressed') : EVENT_KINDS));
-  let mode = $state(untrack(() => (offeringKey || params.event || params.mode === 'event' ? 'event' : 'compare')));
+  // Only an external system changes outside Pacto's view; it is never removed or regressed by a revision.
+  const eventKinds = untrack(() => (externalKey ? EVENT_KINDS.filter((k) => k.value === 'changed' || k.value === 'unavailable')
+    : EVENT_KINDS.filter((k) => k.value !== 'changed' && (!offeringKey || k.value !== 'regressed'))));
+  let mode = $state(untrack(() => (offeringKey || externalKey || params.event || params.mode === 'event' ? 'event' : 'compare')));
   // A link may name an event this build does not know (a typo, a newer build): it is
   // never answered as another one, the form says so instead.
   const unknownEvent = untrack(() => (params.event && !eventKinds.some((k) => k.value === params.event) ? params.event : ''));
-  // A known event an offering cannot answer (a regression) is told apart from an unknown one.
-  const eventNeedsService = !!unknownEvent && EVENT_KINDS.some((k) => k.value === unknownEvent);
-  let eventKind = $state(untrack(() => (params.event && !unknownEvent ? params.event : 'unavailable')));
+  // A known event the subject cannot answer is told apart from an unknown one: an offering
+  // is never regressed, only an external system changes, and an external system is never
+  // removed or regressed.
+  const knownEvent = !!unknownEvent && EVENT_KINDS.some((k) => k.value === unknownEvent);
+  const eventNeedsService = untrack(() => unknownEvent === 'regressed' && !!offeringKey);
+  const eventNeedsExternal = untrack(() => unknownEvent === 'changed' && !externalKey);
+  const eventNotExternal = untrack(() => knownEvent && !!externalKey);
+  let eventKind = $state(untrack(() => (params.event && !unknownEvent ? params.event : externalKey ? 'changed' : 'unavailable')));
   let eventRev = $state(untrack(() => params.rev || ''));
   const isEvent = $derived(mode === 'event');
-  const outcomeKeys = $derived(isEvent ? EFFECTS : OUTCOMES);
+  // Attention is an external change's effect only.
+  const outcomeKeys = $derived(!isEvent ? OUTCOMES : externalKey && eventKind === 'changed' ? EFFECTS : EFFECTS.filter((k) => k !== 'attention'));
 
   // Selection.
   let fromRevKey = $state('');
@@ -128,7 +144,8 @@
   let limShown = $state(8);
   // The consumers table lists one outcome when a lane's link asked for it (T3): the
   // lane's count is that list's total. The figure always shows every outcome.
-  let outcome = $state(untrack(() => ((params.event ? EFFECTS : OUTCOMES).includes(params.outcome) ? params.outcome : '')));
+  // Read through outcomeKeys, so a link never seeds an effect its question cannot carry.
+  let outcome = $state(untrack(() => (outcomeKeys.includes(params.outcome) ? params.outcome : '')));
   // A restored link to one outcome opens the table on it once the answer is in.
   let showTable = untrack(() => !!outcome);
 
@@ -257,9 +274,10 @@
     serviceQuery = name;
     const my = ++serviceSearchSeq;
     serviceSearching = true;
+    const askedAt = location.hash;
     try {
       const res = await api.fleetEntities({ kinds: ['service'], text: name, limit: NAME_LOOKUP_LIMIT });
-      if (my !== serviceSearchSeq) return;
+      if (my !== serviceSearchSeq || location.hash !== askedAt) return;
       const { matches: exact, complete } = boundedMatches(res, (e) => e.label === name || e.key === name);
       if (complete && exact.length === 1) { replaceHash(fleetChangesUrl(exact[0].key, { correlationID: params.correlationID })); return; }
       // Only a complete page may narrow the picker to the exact matches: on a truncated one
@@ -287,7 +305,7 @@
   });
   onDestroy(() => { serviceSearchSeq++; });
   // An offering event link is the whole question, so it answers on load like a service one.
-  onMount(() => { if (offeringKey && params.event && !unknownEvent) analyze(0); });
+  onMount(() => { if (noRevisions && params.event && !unknownEvent) analyze(0); });
 
   onMount(async () => {
     // The include-observed control is a placebo unless an observation source exists;
@@ -298,21 +316,25 @@
   });
 
   async function analyze(offset = 0, paging = false, asked = false) {
-    if (offeringKey) { if (!eventKind) return; }
+    if (noRevisions) { if (!eventKind) return; }
     else if (!serviceKey || (isEvent ? eventKind === 'regressed' && !eventRev.trim() : !fromRevKey || !toRevKey)) return;
+    if (outcome && !outcomeKeys.includes(outcome)) outcome = '';
     const gen = ++analyzeGen;
     if (!paging) readerAsked = asked;
     if (paging && result) pagingConsumers = true;
     else analyzing = true;
     analyzeError = null;
     staleSnapshot = false;
+    // The URL this analysis was asked from: a reader who navigates during the
+    // request owns the URL, and a late write must not take them back here.
+    const askedAt = location.hash;
     try {
       const question = isEvent
         ? { event: eventKind, revision: eventKind === 'regressed' ? eventRev.trim() : undefined }
         : { fromRevisionKey: fromRevKey, toRevisionKey: toRevKey };
       const res = await api.fleetImpactByIdentity({
         snapshotId: snapshotId || undefined,
-        ...(offeringKey ? { offeringKey } : { serviceKey }),
+        ...(externalKey ? { externalKey } : offeringKey ? { offeringKey } : { serviceKey }),
         ...question,
         includeObserved,
         limit: CONSUMER_PAGE,
@@ -325,7 +347,7 @@
       // The analyzed pair becomes the URL, so the exact analysis is shareable and
       // restorable. A replaceState (not a push) keeps Back on the previous SCREEN rather
       // than on every selector tweak.
-      history.replaceState(null, '', changesUrl(outcome));
+      if (location.hash === askedAt) history.replaceState(null, '', changesUrl(outcome));
       if (showTable) { showTable = false; await tick(); openConsumers(); }
     } catch (e) {
       if (gen !== analyzeGen) return;
@@ -338,8 +360,8 @@
     }
   }
 
-  const changesUrl = (o = '') => (offeringKey
-    ? fleetChangesUrl('', { offering: offeringKey, event: eventKind, outcome: o, correlationID: params.correlationID })
+  const changesUrl = (o = '') => (noRevisions
+    ? fleetChangesUrl('', { offering: offeringKey, external: externalKey, event: eventKind, outcome: o, correlationID: params.correlationID })
     : isEvent
     ? fleetChangesUrl(serviceKey, { event: eventKind, rev: eventKind === 'regressed' ? eventRev.trim() : '', outcome: o, correlationID: params.correlationID })
     : fleetChangesUrl(serviceKey, { old: fromRevKey, new: toRevKey, observed: includeObserved, outcome: o, correlationID: params.correlationID }));
@@ -414,6 +436,7 @@
   const trail = $derived.by(() => {
     const root = [{ label: 'Overview', href: fleetOverviewUrl() }];
     if (offeringKey) return [...root, { label: 'Offerings', href: fleetOfferingsUrl() }, { label: offeringKey, href: fleetEntityUrl('offering', offeringKey) }, { label: 'Change analysis' }];
+    if (externalKey) return [...root, { label: 'Externals', href: fleetExternalsUrl() }, { label: externalRef.label || externalKey, href: fleetEntityUrl('external', externalKey) }, { label: 'Change analysis' }];
     if (!serviceKey) return [...root, { label: 'Change analysis' }];
     const svc = serviceDetail?.entity;
     return [
@@ -442,8 +465,22 @@
   const cShownTo = $derived((consumers.offset ?? 0) + (consumers.count ?? 0));
   const cHasPrev = $derived((consumers.offset ?? 0) > 0);
   const cHasNext = $derived(consumers.nextOffset != null);
-  const canAnalyze = $derived(!analyzing && (offeringKey ? true : !!serviceKey && (isEvent ? eventKind !== 'regressed' || !!eventRev.trim() : !!fromRevKey && !!toRevKey)));
-  const subjectNoun = $derived(offeringKey ? 'offering' : 'service');
+  const canAnalyze = $derived(!analyzing && (noRevisions ? true : !!serviceKey && (isEvent ? eventKind !== 'regressed' || !!eventRev.trim() : !!fromRevKey && !!toRevKey)));
+  const subjectNoun = $derived(offeringKey ? 'offering' : externalKey ? 'external system' : 'service');
+  // The external's own ref, once the answer names it (its label and href).
+  const externalRef = $derived(result?.service?.kind === 'external' ? result.service : { kind: 'external', key: externalKey, label: externalKey });
+  // What changed in the external's inferred contract, in one line: the versions, the
+  // OpenAPI digests cut short (the full link in the title) and the client values.
+  const extChange = $derived(result?.external?.change ?? null);
+  const clientValues = (xs, sign) => (xs ?? []).filter((v) => v.startsWith('clients ')).map((v) => `${sign}${v.slice(8)}`);
+  const extClients = $derived(extChange ? [...clientValues(extChange.added, '+'), ...clientValues(extChange.removed, '−')] : []);
+  // One line: the first few values, the rest counted; the title holds more, still bounded.
+  const MAX_CLIENTS_SHOWN = 3, MAX_CLIENTS_TITLE = 50;
+  const cappedClients = (n) => extClients.slice(0, n).join(' ') + (extClients.length > n ? ` and ${formatCount(extClients.length - n)} more` : '');
+  const linkDigest = (/** @type {string} */ l) => { const i = l.lastIndexOf('@sha256:'); return i < 0 ? l : `sha256:${shortDigest(l.slice(i + 1))}`; };
+  // Where an external answer's consumer uses it: a consumer only an inferred source names is muted.
+  const SOURCE_WORDS = { declared: 'declared', observed: 'observed', 'pod-spec': 'pod spec', repository: 'repository' };
+  const inferredOnlySources = (c) => !!c.sources?.length && !c.sources.some((x) => x === 'declared' || x === 'observed');
   // A regression names a version or an artifact digest: the service's revisions are
   // offered, and any digest may be typed.
   const revisionChoices = $derived(revisions.flatMap((r) => [
@@ -456,7 +493,7 @@
   // per question, not per page of consumers.
   const planAsk = $derived.by(() => {
     const svc = serviceDetail?.entity;
-    if (!result || deliveryState !== 'enabled' || offeringKey || !svc?.label) return null;
+    if (!result || deliveryState !== 'enabled' || noRevisions || !svc?.label) return null;
     const ev = result.event;
     if (ev && ev.kind !== 'regressed') return null;
     const contract = ev ? '' : revisions.find((x) => x.key === result.newRevision?.key)?.secondary ?? '';
@@ -477,7 +514,7 @@
   const regression = $derived(result?.regression ?? []);
   const deliveryUnread = $derived(limitations.items.filter((l) => l.code === 'DELIVERY_EVIDENCE_UNAVAILABLE'));
   const REGRESSION_KIND = { failed: 'Failed', check: 'Check failed', rollback: 'Rolled back' };
-  const EFFECT_BADGE = { breaks: 'badge-err', 'may-degrade': 'badge-warn', unknown: 'badge-neutral' };
+  const EFFECT_BADGE = { breaks: 'badge-err', 'may-degrade': 'badge-warn', attention: 'badge-info', unknown: 'badge-neutral' };
   const MAX_EVIDENCE_LINES = 3;
   // A revision reads as its version and a short digest: the service is already named
   // above the pickers, and two revisions of one version differ only by content.
@@ -492,10 +529,10 @@
 
 <PageHeader
   title="Change analysis"
-  subtitle={offeringKey ? 'Who a platform offering reaches if every provider becomes unavailable or is removed.' : isEvent ? 'Who a service reaches if it becomes unavailable, is removed or regresses.' : 'What changed between two revisions and who it reaches.'}
+  subtitle={offeringKey ? 'Who a platform offering reaches if every provider becomes unavailable or is removed.' : externalKey ? 'Who an external system reaches if it changes or becomes unavailable.' : isEvent ? 'Who a service reaches if it becomes unavailable, is removed or regresses.' : 'What changed between two revisions and who it reaches.'}
 />
 
-{#if !serviceKey && !offeringKey}
+{#if subjectless}
   <!-- No service in the route: search for one (product entities API, search-first so
        any service is discoverable), then navigate to /fleet/changes/:serviceKey. It
        wears the SHARED .disco-* discovery language (styles/components.css), the same
@@ -536,15 +573,15 @@
 
     <p class="disco-more" data-testid="changes-discovery-more">Or <a href={fleetServicesUrl()}>browse services</a> and use Compare revisions on one.</p>
   </section>
-{:else if loadingRevs && !offeringKey}
+{:else if loadingRevs && !noRevisions}
   <EmptyState loading message="Loading service revisions…" />
-{:else if loadError && !offeringKey}
+{:else if loadError && !noRevisions}
   <EmptyState error title="Couldn’t load this service" message={loadError instanceof ApiError ? loadError.message : String(loadError)} onRetry={() => loadRevisions(serviceKey)} />
 {:else}
   <!-- No page navigator: the answer sits under the pickers and every part behind it is a
        fold, so the page is one screen and going back to change a revision is no scroll. -->
   <form class="workspace-controls" id="sec-revisions" onsubmit={(e) => { e.preventDefault(); analyze(0, false, true); }}>
-    {#if !offeringKey}
+    {#if !noRevisions}
     <fieldset class="ca-mode" data-testid="changes-mode">
       <legend class="visually-hidden">Question</legend>
       <label class="ca-mode-opt"><input type="radio" name="ca-mode" value="compare" checked={!isEvent} onchange={() => setMode('compare')} /> Compare two revisions</label>
@@ -555,13 +592,13 @@
       <!-- No "Service" caption here: EntityLink already carries the kind chip, and the
            breadcrumb above already says which service. Three labels for one fact is how
            a screen starts reading like a form instead of a sentence. -->
-      {#if offeringKey}<EntityLink ref={offeringRef} showStatus={false} />{:else if serviceDetail?.entity}<EntityLink ref={serviceDetail.entity} showStatus={false} />{:else}<code>{serviceKey}</code>{/if}
+      {#if offeringKey}<EntityLink ref={offeringRef} showStatus={false} />{:else if externalKey}<EntityLink ref={externalRef} showStatus={false} />{:else if serviceDetail?.entity}<EntityLink ref={serviceDetail.entity} showStatus={false} />{:else}<code>{serviceKey}</code>{/if}
     </div>
     {#if isEvent}
     <div class="selectors">
       <div class="field">
         <label for="impact-event">What if this {subjectNoun}</label>
-        <select id="impact-event" value={eventKind} onchange={(e) => { eventKind = e.currentTarget.value; }}>
+        <select id="impact-event" value={eventKind} onchange={(e) => { eventKind = e.currentTarget.value; if (outcome && !outcomeKeys.includes(outcome)) outcome = ''; }}>
           {#each eventKinds as k (k.value)}<option value={k.value}>{k.label}</option>{/each}
         </select>
       </div>
@@ -632,6 +669,27 @@
          ranked highlights, so paging the table below never changes it. Its card says what
          changed, who it reaches and what the gate decides; the table stays the full answer. -->
     <ImpactFigure impact={result} autoplay={readerAsked} laneHref={(o) => changesUrl(o)} onlane={showOutcome} />
+    {#if extChange || result.pin}
+      <!-- An external answer: what changed in its inferred contract in one line, and the
+           range pin a consumer that declares none can paste, collapsed. -->
+      <div class="ca-ranges t-meta" data-testid="changes-external">
+        {#if extChange}
+          <p class="ca-ext-change" data-testid="changes-external-change"><span>Inferred contract <bdi>{extChange.from}</bdi> → <bdi>{extChange.to}</bdi></span>
+            {#if extChange.openapiFrom || extChange.openapiTo}<span>OpenAPI <span class="mono" title={extChange.openapiFrom ?? ''}>{extChange.openapiFrom ? linkDigest(extChange.openapiFrom) : 'none'}</span> → <span class="mono" title={extChange.openapiTo ?? ''}>{extChange.openapiTo ? linkDigest(extChange.openapiTo) : 'none'}</span></span>{/if}
+            {#if extClients.length}<span data-testid="changes-external-clients" title={cappedClients(MAX_CLIENTS_TITLE)}>clients <bdi>{cappedClients(MAX_CLIENTS_SHOWN)}</bdi></span>{/if}
+            {#if !extChange.checked}<span>unchecked: no source checked these revisions</span>{/if}
+          </p>
+        {/if}
+        {#if result.pin}
+          <details class="disclosure ca-pin" data-testid="changes-pin">
+            <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>Pin a range</summary>
+            <div class="ca-pin-head"><span>For a consumer that declares no range, in its pacto.yaml:</span> <CopyableIdentifier value={result.pin} label="range pin" iconOnly /></div>
+            <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long snippet scrolls sideways; focus lets a keyboard reader scroll it) -->
+            <pre class="ca-pin-snippet" tabindex="0"><code>{result.pin}</code></pre>
+          </details>
+        {/if}
+      </div>
+    {/if}
     {#if result.ranges || result.notes?.length || result.advisories?.length}
       <!-- One muted line: the range coverage the answer used, its scope and unknown ranges in the mark, then its notes
            and a possible break on an inferred interface, with its details in the mark (a mark in the What changed
@@ -763,13 +821,14 @@
                   {@const ev = (c.evidence ?? []).filter((e) => e.kind !== 'inferred-record')}
                   {@const inferredOnly = c.provenance === 'inferred' && !!c.via?.includes('inferred')}
                   {@const targets = c.targets ?? []}
-                  <tr data-testid="consumer-row">
+                  <tr data-testid="consumer-row" class:row-muted={inferredOnlySources(c)}>
                     <td data-label="Consumer" class="consumer-cell">
                       <div class="cell-stack">
                         {#if highlighted.has(c.service?.key)}<span class="badge badge-accent">Highlighted</span>{/if}
                         <!-- A caller no contract describes has no page: its name is text. -->
                         {#if c.uncontracted}<bdi class="cell-clip" title={c.service?.label || c.service?.key}>{c.service?.label || c.service?.key}</bdi><span class="badge badge-neutral">uncontracted</span>
                         {:else}<EntityLink ref={c.service} showStatus={false} />{/if}
+                        {#if c.client}<span class="t-meta" data-testid="consumer-client" title={`From ${c.client.revision}'s manifest; confidence ${c.client.confidence}: a library in a manifest proves no call`}>{c.client.sdk} v{c.client.major}</span>{/if}
                         {#if c.direct}<span class="badge badge-info">Direct</span>{:else}<span class="badge badge-neutral">Transitive · depth {c.depth}</span>{/if}
                         {#if c.break}<span data-testid="consumer-break"><ProvenanceMark label={`About ${c.break.state} ${c.service?.label || c.service?.key}`} text={breakText(c.break)} /></span>{/if}
                       </div>
@@ -796,6 +855,7 @@
                         <!-- Only a declared dependency is required or optional: an observed, uncontracted,
                              configuration or policy edge declares neither. -->
                         {#if c.direct && isEvent && c.via?.includes('dependency')}<span class="badge {c.required ? 'badge-err' : 'badge-warn'}" data-testid="consumer-requirement">{c.required ? 'required' : 'optional'}</span>{/if}
+                        {#if c.sources?.length}<span data-testid="consumer-sources"><ProvenanceMark label={`About where ${c.service?.label || c.service?.key} uses it`} text={`Seen as ${c.sources.map((x) => SOURCE_WORDS[x] ?? x).join(' and ')}.`} /></span>{/if}
                         <span class="pill" title={[CONFIDENCE_EXPLAIN[c.confidence] || '', ...recordEv.map((e) => `Source: ${e.message}.`)].filter(Boolean).join(' ')}>{c.confidence}</span>
                       </div>
                       {#if ev.length}
@@ -886,6 +946,10 @@
       {#if eventNeedsService}
         <EmptyState title="A regression needs a service" message="A regression belongs to one revision of one service: open one of the providers and ask there." />
         <p class="disco-more" data-testid="changes-event-needs-service"><a href={fleetServicesUrl({ offering: offeringKey })}>Providers of {offeringKey}</a></p>
+      {:else if eventNeedsExternal}
+        <div data-testid="changes-event-needs-external"><EmptyState title="A change is asked of an external system" message="Only an external system changes outside Pacto's view. For a change of this {subjectNoun}, compare two of its revisions." /></div>
+      {:else if eventNotExternal}
+        <div data-testid="changes-event-not-external"><EmptyState title="Not a question about an external system" message="Pacto publishes no revision of an external system, so it is never removed or regressed here. Ask what happens if it changes or becomes unavailable." /></div>
       {:else if unknownEvent}
         <EmptyState identity title="Unknown event" message="The link asks about “{unknownEvent}”, which this dashboard does not know. Choose what happens to the {subjectNoun} and press Ask." />
       {:else if eventKind === 'regressed' && !eventRev.trim()}
@@ -936,6 +1000,12 @@
   .ca-stack { border-top: 1px solid var(--c-border); }
   .ca-ranges { margin-block: var(--sp-2); color: var(--c-text-3); min-inline-size: 0; overflow-wrap: anywhere; }
   .ca-ranges p { margin: 0; display: flex; align-items: center; gap: var(--sp-1); flex-wrap: wrap; }
+  /* Its parts are separate facts: a word gap apart, never read as one run. */
+  .ca-ranges p.ca-ext-change { column-gap: var(--sp-2); }
+  .ca-pin summary { cursor: pointer; }
+  .ca-pin-head { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; }
+  .ca-pin-snippet { margin: var(--sp-1) 0 0; padding: var(--sp-2) var(--sp-3); overflow-x: auto; max-inline-size: 100%; background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--text-xs); }
+  .row-muted td { color: var(--c-text-3); }
   .ca-plan { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; margin-block: var(--sp-3); }
   .ca-fold { border-bottom: 1px solid var(--c-border); padding: var(--sp-2) 0; scroll-margin-top: calc(var(--navbar-h) + var(--sp-4)); }
   .ca-fold > summary h2 { margin: 0; }

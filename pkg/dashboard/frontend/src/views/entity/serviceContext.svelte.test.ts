@@ -91,6 +91,29 @@ describe('service page: contract fact', () => {
   });
 });
 
+describe('service page: inferred domain', () => {
+  beforeEach(() => detailFn.mockReset());
+  const inferred = { value: 'billing', source: 'backstage-catalog', where: 'component:default/payments', asOf: '2026-11-14T12:00:00Z' };
+
+  it('shows an inferred domain beside No domain', async () => {
+    const { target, done } = await render(detail({ inferredBusinessDomain: inferred }));
+    const f = fact(target, 'service-domain')!;
+    expect(text(f)).toContain('No domain');
+    const note = f.querySelector('[data-testid="domain-inferred"]');
+    expect(note?.textContent).toBe('inferred: billing');
+    expect(note?.getAttribute('title')).toBe('billing');
+    expect(f.querySelectorAll('button[aria-label="About the inferred domain"]')).toHaveLength(1);
+    expect(f.querySelector('[role="note"]')?.textContent).toContain('backstage-catalog (component:default/payments)');
+    done();
+  });
+
+  it('shows no inferred domain when none is reported', async () => {
+    const { target, done } = await render(detail());
+    expect(fact(target, 'service-domain')!.querySelector('[data-testid="domain-inferred"]')).toBeNull();
+    done();
+  });
+});
+
 describe('service page: owner fact', () => {
   beforeEach(() => detailFn.mockReset());
   const unowned = fleetAttentionUrl({ service: KEY, category: 'unowned' });
@@ -818,6 +841,38 @@ describe('service page: inferred by Pacto', () => {
     sec.dispatchEvent(new Event('toggle'));
     flushSync();
     expect(text(sec)).toContain('Pacto could not read the inferred record');
+    done();
+  });
+});
+
+describe('service page: a contributed service', () => {
+  beforeEach(() => detailFn.mockReset());
+  const contribution = { producer: 'my-idp', repository: 'ghcr.io/acme/pacto-inferred/my-idp/services', ref: 'ghcr.io/acme/pacto-inferred/my-idp/services@sha256:ab12' };
+  const contributed = () => ({ ...detail({ contribution }), entity: ref('service', KEY, 'payments', { declaration: 'inferred' }) });
+
+  it('hides its Delivery and owner blocks: a producer record sets no owner and delivers nothing', async () => {
+    const { target, done } = await render(contributed());
+    expect(fact(target, 'service-delivery')).toBeNull();
+    expect(fact(target, 'service-owner')).toBeNull();
+    expect(fact(target, 'service-contract')).toBeTruthy();
+    done();
+  });
+
+  it('calls the producer record a record, and credits its values to the producer', async () => {
+    const field = { field: 'dependencies[fraud]', value: 'fraud', source: 'export.json:1', confidence: 'likely', provenance: 'inferred' };
+    const { target, done } = await render({ ...contributed(), service: { ...contributed().service, inferredFields: preview([field]) } });
+    expect(text(fact(target, 'service-contract')!.querySelector('.se-k'))).toBe('Record');
+    const sec = fact(target, 'service-inferred')!;
+    expect(text(sec.querySelector('summary'))).toContain('Contributed by my-idp');
+    expect(text(sec)).not.toContain('Declare one');
+    expect(text(sec)).not.toContain("service's folder");
+    done();
+  });
+
+  it('keeps both blocks on a declared service', async () => {
+    const { target, done } = await render(detail());
+    expect(fact(target, 'service-delivery')).toBeTruthy();
+    expect(fact(target, 'service-owner')).toBeTruthy();
     done();
   });
 });

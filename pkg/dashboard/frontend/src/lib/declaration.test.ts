@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { declarationLine, declarationNote } from './declaration.ts';
+import { declarationLine, declarationNote, declarationParts } from './declaration.ts';
 
 const signer = { subject: 'ana@acme.com', issuer: 'https://accounts.google.com', class: 'human' as const };
 const coverage = [
@@ -59,6 +59,11 @@ describe('declarationNote', () => {
     expect(note).toContain('Accepted dependencies[payments] ^2.0.0 and dependencies[ledger] ^1.0.0.');
     expect(note).toContain('The cluster read could not see 2 services and 3 callers.');
     expect(note).toContain('never clear a gate');
+  });
+  it('says nothing of cluster facts for a claim of an external system, which reads no cluster', () => {
+    const note = declarationNote({ declaration: { state: 'declared', signatureChecked: true, signer, inferredFrom: 'external:aws/rds/eu-west-1/orders-db' } });
+    expect(note).toContain('Signed by ana@acme.com');
+    expect(note).not.toContain('Cluster facts');
   });
   it('says the claimed subject only as a claim when the signature was not checked', () => {
     const note = declarationNote(unverified);
@@ -121,5 +126,19 @@ describe('declarationNote', () => {
   });
   it('names a draft the declaration accepted', () => {
     expect(declarationNote({ declaration: { ...checked.declaration, draft: 'draft-3' } })).toContain('Accepted draft draft-3.');
+  });
+});
+
+describe('declarationParts', () => {
+  it('links the external system a claim came from', () => {
+    const claim = { declaration: { ...checked.declaration, inferredFrom: 'external:aws/rds/eu-west-1/orders-db' } };
+    expect(declarationParts(claim)).toEqual({ before: 'Declared by ana@acme.com from ', link: 'external aws/rds/eu-west-1/orders-db',
+      href: '#/fleet/externals/aws%2Frds%2Feu-west-1%2Forders-db', after: '' });
+    expect(declarationLine(claim)).toBe('Declared by ana@acme.com from external aws/rds/eu-west-1/orders-db');
+  });
+  it('links nothing for a workload, an unverified signer or none', () => {
+    expect(declarationParts(checked).href).toBe('');
+    expect(declarationParts({ declaration: { ...unverified.declaration, inferredFrom: 'external:stripe' } }).href).toBe('');
+    expect(declarationParts({})).toEqual({ before: '', link: '', href: '', after: '' });
   });
 });

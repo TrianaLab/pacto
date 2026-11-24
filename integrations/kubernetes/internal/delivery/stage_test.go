@@ -252,6 +252,25 @@ func noWitnessLockedOrEmpty(t *testing.T) {
 	}
 }
 
+// A Stage that is not Ready raises no automatic promote: it would be
+// refused, and each refusal names the next promote anew.
+func TestNotReadyStageRaisesNoAutoPromote(t *testing.T) {
+	up := stageObj(dB)
+	up.Name = "up"
+	up.Status.Verified, up.Status.Offered = []string{dB}, []string{dB}
+	s := stageObj(dA)
+	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
+	e := newEnv(t, s, up) // no apply OCIRepository: not Ready
+	for range 3 {
+		if err := e.reconcileStage("payments-prod"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ops := e.ops(); len(ops) != 0 {
+		t.Fatalf("a Stage that is not Ready raised %d operations", len(ops))
+	}
+}
+
 func TestStageReconcileErrors(t *testing.T) {
 	e := newEnv(t)
 	if err := e.reconcileStage("missing"); err != nil {
@@ -286,7 +305,7 @@ func TestStageReconcileErrors(t *testing.T) {
 	up.Status.Verified, up.Status.Offered = []string{dB}, []string{dB}
 	s = stageObj(dA)
 	s.Spec.Candidates = delivery.Candidates{UpstreamStage: &delivery.StageRef{Name: "up"}}
-	e = newEnv(t, s, up)
+	e = newEnv(t, s, up, ociRepo("payments", dA, "", false))
 	e.fails["create/Operation"] = true
 	if e.reconcileStage("payments-prod") == nil {
 		t.Fatal("a failed promote create must surface")
@@ -609,7 +628,7 @@ func unreadableApplierReady(t *testing.T) {
 	if err := e.reconcileStage("payments-prod"); err != nil {
 		t.Fatalf("no CRD: %v", err)
 	}
-	if r := conditionOf(e.getStage().Status.Conditions, "Ready"); r == nil || r.Reason != "ApplierUnreadable" || !strings.Contains(r.Message, "CRD is not installed") {
+	if r := conditionOf(e.getStage().Status.Conditions, "Ready"); r == nil || r.Reason != delivery.ReadyReasonNoApplier || !strings.Contains(r.Message, "CRD is not installed") {
 		conds := e.getStage().Status.Conditions
 		t.Fatalf("no CRD: conditions %+v", conds)
 	}
@@ -678,7 +697,7 @@ func TestReadyReasonsMatchOperator(t *testing.T) {
 		delivery.ReadyReasonNoCandidateSource, delivery.ReadyReasonApplierUnreadable, delivery.ReadyReasonApplierUnlabelled,
 		delivery.ReadyReasonApplierMultiSource, delivery.ReadyReasonApplierNotOCI, delivery.ReadyReasonApplierNotAutomated,
 		delivery.ReadyReasonApplierNotChartRef, delivery.ReadyReasonApplierConflict, delivery.ReadyReasonApplierUnknown,
-		delivery.ReadyReasonRegistryUnreadable, delivery.ReadyReasonPublisherUnverifiable} {
+		delivery.ReadyReasonRegistryUnreadable, delivery.ReadyReasonPublisherUnverifiable, delivery.ReadyReasonNoApplier} {
 		shared[r] = delivery.ReadyFix(r) != ""
 	}
 	// The reasons named by an identifier in the operator.
@@ -823,5 +842,22 @@ func TestStageWritesApplierOnlyOnChange(t *testing.T) {
 	must(t, e.reconcileStage("payments-prod"))
 	if a := e.getStage().Status.Applier; a.State != delivery.ApplierUnknown || a.Since != "2026-10-20T10:00:02Z" {
 		t.Fatalf("a new result moves since: %+v", a)
+	}
+}
+
+// TestApplierReadyNoApplier: a Stage whose OCIRepository API the cluster
+// does not serve reads Ready=False NoApplier with the shared message.
+func TestApplierReadyNoApplier(t *testing.T) {
+	e := newEnv(t, stageObj(dA))
+	e.st.Cluster.Client = interceptor.NewClient(e.c, interceptor.Funcs{Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
+		if kindOf(obj) == "OCIRepository" {
+			return &meta.NoKindMatchError{GroupKind: schema.GroupKind{Group: "source.toolkit.fluxcd.io", Kind: "OCIRepository"}, SearchedVersions: []string{"v1"}}
+		}
+		return c.Get(ctx, key, obj, opts...)
+	}})
+	c, _, err := e.st.applierReady(context.Background(), e.getStage())
+	if err != nil || c == nil || c.Status != "False" || c.Reason != delivery.ReadyReasonNoApplier ||
+		!strings.HasPrefix(c.Message, "no applier: install Flux or Argo CD") || !strings.Contains(c.Message, "CRD is not installed") {
+		t.Fatalf("want Ready=False NoApplier: %+v %v", c, err)
 	}
 }

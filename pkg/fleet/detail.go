@@ -71,6 +71,9 @@ type OwnershipInfo struct {
 	// Source is where an attested owner was read ([ServiceRecord.OwnerSource]),
 	// set only on a service whose owner is attested.
 	Source string `json:"source,omitempty" doc:"Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance"`
+	// Inferred is [ServiceRecord.InferredOwner], set only on a service whose
+	// owner provenance is inferred: presentation only.
+	Inferred *InferredFact `json:"inferred,omitempty" doc:"The owner a source outside every contract reports, set on a service whose owner provenance is inferred"`
 	// Blocked is set only on a revision whose owner the owner rule refused
 	// or could not check ([ownerBlocked]), so its service does not take it.
 	Blocked string `json:"blocked,omitempty" enum:"OWNER_DECLARATION_REFUSED,OWNER_DECLARATION_UNVERIFIED" doc:"Set on a revision whose owner its service does not take: OWNER_DECLARATION_REFUSED when its signer may not set it, OWNER_DECLARATION_UNVERIFIED when the owner rule could not check it. Empty when the owner counts"`
@@ -343,6 +346,9 @@ func keysBounded[V any](m map[string]V, limit int) (keys []string, all bool) {
 type ServiceDetailData struct {
 	Domain    string         `json:"domain,omitempty"`
 	Ownership *OwnershipInfo `json:"ownership,omitempty"`
+	// InferredBusinessDomain is [ServiceRecord.InferredBusinessDomain], set
+	// only when the service declares no business domain: presentation only.
+	InferredBusinessDomain *InferredFact `json:"inferredBusinessDomain,omitempty" doc:"A business domain a source outside every contract reports, set only when the service declares none. Never a domain"`
 	// OwnerRevision is the newest revision that declares an owner, the one the
 	// service owner is taken from and where its contacts are shown. Nil when no
 	// revision declares one (the owner, if any, comes from a target).
@@ -380,6 +386,9 @@ type ServiceDetailData struct {
 	// ContractCompleteness is the service's contract checklist; nil for a golden
 	// path or an inferred service.
 	ContractCompleteness *ServiceCompleteness `json:"contractCompleteness,omitempty"`
+	// Contribution is the producer's record of a service only contributions
+	// describe; nil for any other service.
+	Contribution *ServiceContribution `json:"contribution,omitempty"`
 	// Summary aggregates the COMPLETE target/revision/edge populations. The
 	// previews below are bounded, so a consumer that needs a proportion or a total
 	// must read it here and never count preview Items.
@@ -758,6 +767,7 @@ type TargetDetailData struct {
 	Revision        *EntityRef      `json:"revision,omitempty"`
 	LinkState       string          `json:"linkState" enum:"exact,inferred,ambiguous,unresolved"`
 	Scope           string          `json:"scope,omitempty"`
+	ReportedBy      string          `json:"reportedBy,omitempty" doc:"The producer that reported this target through an Evidence Server"`
 	Kind            string          `json:"kind,omitempty"`
 	Compliance      string          `json:"compliance" enum:"Compliant,NonCompliant,Unknown,Warning,Invalid,Reference,NotEvaluated"`
 	Coverage        *Coverage       `json:"coverage,omitempty"`
@@ -1401,7 +1411,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		return nil, err
 	}
 	s := view.Service
-	if s.Inferred() {
+	if s.inferredWorkload() {
 		return q.inferredServiceDetail(s), nil
 	}
 	summary, inUse := q.serviceSummary(view)
@@ -1425,6 +1435,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	data := &ServiceDetailData{
 		Domain:                 s.Domain,
 		Ownership:              ownership,
+		InferredBusinessDomain: inferredBusinessDomain(s),
 		OwnerRevision:          q.ownerRevision(s),
 		Lifecycle:              serviceLifecycle(newestReadable(view.Revisions)),
 		Capabilities:           stringsPreview(slices.DeleteFunc(q.serviceCapabilities(s), func(c string) bool { return c == "" })),
@@ -1437,6 +1448,7 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		Configurations:         cfgs,
 		InferredFields:         q.inferredPreview(cur),
 		ContractCompleteness:   q.serviceCompleteness(s),
+		Contribution:           s.Contribution,
 		Summary:                summary,
 		// Newest first, in revision chronology: a version list ordered by content
 		// digest is unreadable as history.
@@ -1466,9 +1478,14 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 		ReplacesHidden:     view.ReplacesHidden,
 		Fields:             view.Fields,
 	}
+	actions := []string{"open-graph", "compare", "impact"}
+	if s.Contribution != nil {
+		// A contribution has no contract to compare or change.
+		actions = actions[:1]
+	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,
-		Service: data, Actions: []string{"open-graph", "compare", "impact"}, ReplacedFrom: view.ReplacedFrom,
+		Service: data, Actions: actions, ReplacedFrom: view.ReplacedFrom,
 	}, nil
 }
 
@@ -1498,7 +1515,7 @@ func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 		Validation:           findingsPreview(rev.Validation),
 		Stages:               append([]ValidationStage{}, rev.Stages...),
 		Environments:         environmentsPreview(MarkExpired(rev.Environments, q.snap.GeneratedAt)),
-		Capabilities:         capabilitiesPreview(rev.Contract.Capabilities),
+		Capabilities:         capabilitiesPreview(rev.Contract.Capabilities, rev.Extensions),
 		Interfaces:           interfacesPreview(rev.Contract.Interfaces, rev.Tools, rev.SpecsRead, q.snap.GeneratedAt),
 		Breaks:               q.breaksPreview(rev),
 		InferredUnreadable:   rev.recordUnreadable,
@@ -1544,6 +1561,7 @@ func (q *Query) targetDetail(key string) (*EntityDetail, error) {
 		Service:    q.serviceRef(t.ServiceKey),
 		LinkState:  targetLinkState(t),
 		Scope:      t.Scope,
+		ReportedBy: t.ReportedBy,
 		Kind:       t.Kind,
 		Compliance: t.Compliance,
 		Coverage:   t.Coverage,
@@ -1868,12 +1886,12 @@ func (q *Query) offeringUsesIn(edges []Relationship, match func(provider *Servic
 		})
 	}
 	var lims []Limitation
-	idx, uidx := q.provisioningIndex(), q.usageIndex()
+	idx, uidx, hint := q.provisioningIndex(), q.usageIndex(), q.provisioningHint()
 	for j, k := range keys {
 		q.fillSuccessorRanges(&uses[j])
 		if provisioning && k.via != RelationshipPolicyRef {
 			var conflicts, usageConflicts []Limitation
-			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx)
+			uses[j].Provisioning, conflicts = q.provisioningFor(uses[j], rels[k], keptRev[k], idx, hint)
 			uses[j].Consumption, usageConflicts = q.usageFor(uses[j], rels[k], keptRev[k], uidx)
 			lims = append(append(lims, conflicts...), usageConflicts...)
 		}
@@ -2413,6 +2431,9 @@ func (q *Query) entitiesFromSource(key string) []EntityRef {
 func serviceOwnership(snap *FleetSnapshot, s *ServiceRecord) *OwnershipInfo {
 	info := ownerInfo(s.Owner)
 	info.Provenance, info.Source = s.OwnerProvenance, s.OwnerSource
+	if s.OwnerProvenance == OwnerProvenanceInferred {
+		info.Inferred = jsonClone(s.InferredOwner)
+	}
 	var conflicts []string
 	if ownerDisputed(snap, s) {
 		// A conflict is a disagreement of IDENTITY, and it is spelled out with the
@@ -2429,6 +2450,15 @@ func serviceOwnership(snap *FleetSnapshot, s *ServiceRecord) *OwnershipInfo {
 	}
 	info.Conflicts = stringsPreview(conflicts)
 	return info
+}
+
+// inferredBusinessDomain is the business domain a source reports for s, nil
+// when s declares one.
+func inferredBusinessDomain(s *ServiceRecord) *InferredFact {
+	if s.BusinessDomain != "" {
+		return nil
+	}
+	return jsonClone(s.InferredBusinessDomain)
 }
 
 // ownerDisputeRevisions is the revisions behind a service's disputed owner and

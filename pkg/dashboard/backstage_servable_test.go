@@ -83,3 +83,30 @@ func TestBackstageServable(t *testing.T) {
 		}
 	}
 }
+
+// A Backstage catalog read as a source is advisory: its outage, or the
+// limitation its facts raise, never blocks the export back to Backstage.
+func TestBackstageServableIgnoresAdvisorySource(t *testing.T) {
+	snap := &fleet.FleetSnapshot{
+		Completeness: fleet.CompletenessPartial, Services: map[fleet.ServiceKey]*fleet.ServiceRecord{"pay": {Key: "pay"}},
+		Sources: []fleet.SourceState{
+			{ID: "k8s", Kind: fleet.SourceKindKubernetes, Status: fleet.SourcePartial},
+			{ID: "backstage-catalog", Kind: "backstage-catalog", Status: fleet.SourceUnavailable, Advisory: true},
+		},
+		Limitations: []fleet.Limitation{fleet.NamespaceScopeLimitation("k8s", []string{"payments"}, 0), {Code: fleet.LimitationSourcePartial, Source: "k8s"}},
+	}
+	if reason, ok := BackstageServable(snap); !ok {
+		t.Fatalf("refused: %s", reason)
+	}
+}
+
+func TestBackstageServableIgnoresAdvisoryLimitation(t *testing.T) {
+	snap := &fleet.FleetSnapshot{
+		Completeness: fleet.CompletenessPartial, Services: map[fleet.ServiceKey]*fleet.ServiceRecord{"pay": {Key: "pay"}},
+		Sources:     []fleet.SourceState{{ID: "backstage-catalog", Kind: "backstage-catalog", Status: fleet.SourcePartial, Advisory: true}},
+		Limitations: []fleet.Limitation{{Code: fleet.LimitationServiceFactAmbiguous, Source: "backstage-catalog"}},
+	}
+	if reason, ok := BackstageServable(snap); !ok {
+		t.Fatalf("refused: %s", reason)
+	}
+}

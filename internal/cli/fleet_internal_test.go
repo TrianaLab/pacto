@@ -314,3 +314,71 @@ func TestEntryPointCommandOnlyForListViews(t *testing.T) {
 		t.Fatalf("services entry point: %q", got)
 	}
 }
+
+// TestFleetOptionsReadIndex: --index names the repository every fleet reader
+// reads every listed service from; none and unset read none, and Index
+// keeps the value impact reads.
+func TestFleetOptionsReadIndex(t *testing.T) {
+	const repo = "oci://r.example/acme/pacto-index"
+	commands := map[string]func() *cobra.Command{
+		"fleet": func() *cobra.Command { return newFleetCommand(newTestService(t), viper.New(), deps{}, &runRecorder{}) },
+		"tui":   func() *cobra.Command { return newTUICommand(newTestService(t), viper.New(), defaultDeps()) },
+		"mcp":   func() *cobra.Command { return newMCPCommand(newTestService(t), "v", defaultDeps()) },
+	}
+	for name, newCmd := range commands {
+		for value, want := range map[string]string{"": "", "none": "", repo: repo} {
+			cmd := newCmd()
+			var args []string
+			if value != "" {
+				args = []string{"--index", value}
+			}
+			if err := cmd.ParseFlags(args); err != nil {
+				t.Fatalf("%s: %v", name, err)
+			}
+			if o := fleetOptions(cmd); o.ReadIndex != want || o.Index != value {
+				t.Errorf("%s --index %q: ReadIndex %q, Index %q", name, value, o.ReadIndex, o.Index)
+			}
+		}
+	}
+}
+
+// TestDiscoverFlagReachesFleetOptions pins --discover on every surface that
+// shares the fleet source flags, and fleetOptions hands each value to
+// Discover; pacto impact and pacto ci declare it and say they ignore it.
+func TestDiscoverFlagReachesFleetOptions(t *testing.T) {
+	root := NewRootCommand(newTestService(t), VersionInfo{Version: "test"})
+	for _, path := range [][]string{{"fleet", "entities"}, {"mcp"}, {"tui"}, {"stats"}, {"export", "backstage"}, {"impact"}, {"ci"}} {
+		cmd, _, err := root.Find(path)
+		if err != nil || cmd.Flag("discover") == nil {
+			t.Errorf("pacto %v does not declare --discover (%v)", path, err)
+			continue
+		}
+		if !strings.Contains(cmd.Flag("discover").Usage, "pacto impact and pacto ci ignore it") {
+			t.Errorf("pacto %v --discover help = %q", path, cmd.Flag("discover").Usage)
+		}
+	}
+	search, _, _ := root.Find([]string{"fleet", "search"})
+	if err := search.ParseFlags([]string{"--discover", "ghcr.io/acme", "--discover", "oci://r.example"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fleetOptions(search).Discover; !slices.Equal(got, []string{"ghcr.io/acme", "oci://r.example"}) {
+		t.Errorf("Discover = %v", got)
+	}
+	stats, _, _ := root.Find([]string{"stats"})
+	if u := stats.Flag("registry").Usage; !strings.Contains(u, "stats repository") {
+		t.Errorf("pacto stats --registry = %q, want the stats repository", u)
+	}
+}
+
+// TestFleetSourceArgsRoundTripsDiscover: two --discover values come back as
+// two --discover= arguments.
+func TestFleetSourceArgsRoundTripsDiscover(t *testing.T) {
+	cmd := &cobra.Command{Use: "x"}
+	addFleetSourceFlags(cmd.Flags())
+	if err := cmd.ParseFlags([]string{"--discover", "ghcr.io/acme", "--discover", "r.example/p"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := fleetSourceArgs(cmd); !slices.Equal(got, []string{"--discover=ghcr.io/acme", "--discover=r.example/p"}) {
+		t.Errorf("fleetSourceArgs = %v", got)
+	}
+}

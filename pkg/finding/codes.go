@@ -73,6 +73,7 @@ const (
 	CodeInferredRecordInvalid          Code = "INFERRED_RECORD_INVALID"        // pacto.inferred.yaml is malformed or cites a file the bundle lacks or holds with another digest
 	CodeDeclarationRangeNotAccepted    Code = "DECLARATION_RANGE_NOT_ACCEPTED" // pacto.yaml declares a range the record only proposed and the declaration did not accept
 	CodeDeclarationAcceptedMismatch    Code = "DECLARATION_ACCEPTED_MISMATCH"  // a range the declaration accepted, or a draft requested, is not the compatibility pacto.yaml declares
+	CodeDeclarationExternalMismatch    Code = "DECLARATION_EXTERNAL_MISMATCH"  // a declaration claims an external system the contract's service.external does not name
 	CodeCarriedFieldNotDeclared        Code = "CARRIED_FIELD_NOT_DECLARED"     // pacto.inferred.yaml says a field was carried from a registry declaration, and pacto.yaml does not declare it
 
 	// Family 1 — confirmed violations (emitted only by Evaluate). Registry: {RuntimeDrift, Error}.
@@ -187,6 +188,7 @@ var registry = map[Code]codeMeta{
 	CodeInferredRecordInvalid:          {CategoryInvalidFile, SeverityError},
 	CodeDeclarationRangeNotAccepted:    {CategoryInvalidFile, SeverityError},
 	CodeDeclarationAcceptedMismatch:    {CategoryInvalidFile, SeverityError},
+	CodeDeclarationExternalMismatch:    {CategoryInvalidFile, SeverityError},
 	CodeCarriedFieldNotDeclared:        {CategoryInvalidFile, SeverityError},
 
 	// Family 1 — confirmed violations

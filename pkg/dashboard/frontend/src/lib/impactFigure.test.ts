@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { impactModel, eventModel, effectOf, outcomeOf, classificationLabel, answerText, OUTCOMES, EFFECTS } from './impactFigure.ts';
+import { impactModel, eventModel, effectOf, outcomeOf, classificationLabel, answerText, eventQuestion, eventStamp, OUTCOMES, EFFECTS } from './impactFigure.ts';
 import { timeline, sessionKey } from './narrate.ts';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
@@ -250,6 +250,26 @@ describe('eventModel (an event answer)', () => {
     expect(eventModel(event({ breaks: 1 }, { ev: { kind: 'regressed', revision: '1.2.0' } })).lead).toBe('If redis regressed at 1.2.0');
     expect(eventModel(event({ breaks: 1 }, { ev: { kind: 'regressed', revision: `sha256:${'a'.repeat(64)}` } })).lead).toBe('If redis regressed at sha256:aaaaaaaaaaaa');
   });
+  it('draws an Attention lane only when a consumer needs attention', () => {
+    const changed = eventModel(event({ attention: 3 }, { ev: { kind: 'changed', external: 'stripe' } }));
+    expect(changed.lanes.map((l) => [l.key, l.label, l.tone, l.hatch])).toEqual([
+      ['breaks', 'Breaks', 'err', false], ['may-degrade', 'May degrade', 'warn', false], ['attention', 'Attention', 'info', false], ['unknown', 'Unknown', 'neutral', true]]);
+    expect(changed.lanes.find((l) => l.key === 'attention')!.decides).toBe(true);
+    expect(changed.lead).toBe('If redis changes');
+    expect(changed.caption).toBe('3 consumers need attention.');
+    expect(eventModel(event({ attention: 1 }, { ev: { kind: 'changed' } })).caption).toBe('1 consumer needs attention.');
+    expect(eventModel(event({ breaks: 1 })).lanes.map((l) => l.key)).toEqual(['breaks', 'may-degrade', 'unknown']);
+    expect(effectOf({ effect: 'attention' })).toBe('attention');
+  });
+  it('names in the alt only the lanes it draws', () => {
+    expect(eventModel(event({ breaks: 1 })).alt).not.toContain('attention');
+    expect(eventModel(event({ attention: 2 }, { ev: { kind: 'changed', external: 'stripe' } })).alt).toContain('2 attention');
+  });
+  it('words the change step around what Pacto cannot compare, never around signatures', () => {
+    const steps = eventModel(event({ attention: 2 }, { ev: { kind: 'changed', external: 'stripe' } })).steps;
+    expect(steps[2].cap).toBe("Pacto cannot compare an external system's operations, so every consumer of redis needs attention.");
+    expect(steps.map((x) => x.cap).join(' ')).not.toMatch(/checked/);
+  });
   it('effectOf falls back to unknown, never to compatible', () => {
     expect(effectOf({ effect: 'breaks' })).toBe('breaks');
     expect(effectOf({})).toBe('unknown');
@@ -268,5 +288,17 @@ describe('eventModel (an event answer)', () => {
   it('says "at least" in the reach step of a partial answer', () => {
     expect(eventModel(event({ breaks: 4 }, { completeness: 'partial' })).steps[1].cap).toBe('It reaches at least 4 consumers that depend on redis.');
     expect(eventModel(event({ breaks: 4 })).steps[1].cap).toBe('It reaches the 4 consumers that depend on redis.');
+  });
+});
+
+describe('event question and stamp', () => {
+  const ev = (kind: string) => ({ service: { key: 'svc:x', label: 'x' }, event: { kind } }) as any;
+  it('asks who needs attention for a changed external system, who breaks otherwise', () => {
+    expect(eventQuestion(ev('changed'))).toBe('If x changes, who needs attention?');
+    expect(eventQuestion(ev('removed'))).toBe('If x is removed, who breaks?');
+  });
+  it('stamps the kind, or What if', () => {
+    expect(eventStamp(ev('changed'))).toBe('Changed');
+    expect(eventStamp(ev('other'))).toBe('What if');
   });
 });

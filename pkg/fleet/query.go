@@ -986,7 +986,7 @@ func (q *Query) Graph(gq GraphQuery) (*GraphResult, error) {
 	res.Edges, res.Unresolved = q.graphEdges(nodeSet, rootSvc, dir, scopeRev, gq.IncludeObserved)
 	if s := q.snap.Services[rootSvc]; s != nil && s.Inferred() {
 		limitationFirst(&res.Meta, Limitation{
-			Code: LimitationServiceInferred, Source: s.Workload.Source,
+			Code: LimitationServiceInferred, Source: s.inferredSource(),
 			Message: "no contract Pacto read describes " + s.Name + ", so the graph knows none of its declared dependencies or dependents; with observed calls included it shows the calls sources saw, labelled inferred",
 		})
 	}
@@ -1450,7 +1450,13 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	for _, r := range replaces {
 		res.Reasons = append(res.Reasons, Reason{Code: ReasonReplacesInferred, Message: r.Line(q.snap.GeneratedAt), Source: cmp.Or(string(r.Revision), string(r.Target))})
 	}
-	if s.Inferred() {
+	if c := s.Contribution; c != nil {
+		res.Reasons = append(res.Reasons, Reason{
+			Code: LimitationServiceInferred, Source: s.inferredSource(), ObservedAt: copyTime(c.AsOf),
+			Message: "only " + c.Producer + "'s contribution describes this service; it never satisfies a dependency or clears a gate",
+		})
+	}
+	if s.inferredWorkload() {
 		res.Reasons = append(res.Reasons, Reason{
 			Code: LimitationServiceInferred, Source: s.Workload.Source, ObservedAt: copyTime(s.Workload.ObservedAt),
 			Message: "no contract Pacto read describes this workload; it never satisfies a dependency or clears a gate",
@@ -1461,6 +1467,9 @@ func (q *Query) explainService(s *ServiceRecord) *ExplainResult {
 	}
 	for _, tk := range s.Targets {
 		res.Reasons = append(res.Reasons, targetReasons(q.snap.Targets[tk])...)
+	}
+	for _, r := range statusRevisions(q.snap, s) {
+		res.Reasons = append(res.Reasons, extensionReasons(r)...)
 	}
 	for i := range q.snap.Relationships {
 		rel := q.snap.Relationships[i]

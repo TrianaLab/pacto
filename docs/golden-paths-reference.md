@@ -54,6 +54,44 @@ registry. A path with no `publish.bundle` records a path relative to the new
 contract, or only the folder name when that path would climb above the home
 folder, so no host folder such as `/Users/<name>` is published.
 
+## Discovery
+
+With a registry to discover (`--discover`, `pacto dashboard --registry` or the
+chart's `registry`), the fleet gains a source named `registry` that lists every
+golden path and offering published under that `<host>[/<path>]`:
+
+1. the newest confirmed entry of each service in
+   [`<registry>/pacto-index`](publishing.md#the-organization-index-entry);
+2. the newest version tag of each repository the registry's `_catalog` lists
+   under the path. The walk skips `pacto-index`, `pacto-targets`,
+   `pacto-evidence` and every repository under `pacto-inferred`, whose
+   contracts have their own readers and trust rules.
+
+Pacto reads each candidate's manifest to tell its
+[bundle type](publishing.md#bundle-type), and reads the config labels of a
+bundle pushed before bundles were typed. It pulls only templates and
+offerings, by digest, with the same signature and owner checks as `--oci`. It
+keeps a pulled revision only when its contract declares `service.template` or
+`service.offering` and its `service.name` matches its repository's last path
+segment, so a bundle pushed under another name never stands in for a real
+path. A discovered offering that runs nowhere is a declared service with no
+target. `pacto impact` and `pacto ci` ignore discovery. On a dashboard or MCP
+server that discovers, a partial listing never makes an impact answer
+partial, since templates and offerings consume no service.
+
+Listings are kept for a minute. The source reads complete only when the index
+was read or is absent and `_catalog` was served, with no bound hit. Otherwise it
+is partial with one of these limitations, which name the host, the path and the
+index repository, never another repository or a digest:
+
+| Code | Meaning |
+|------|---------|
+| `REGISTRY_LISTING_INDEX_ONLY` | The registry serves no `_catalog`, or refused it to this credential; only what the index lists was found |
+| `REGISTRY_LISTING_NONE` | No index and no `_catalog`: the golden paths and offerings under the path are unknown |
+| `REGISTRY_LISTING_TRUNCATED` | A bound (2000 services, the page limit) or the read timeout stopped a listing |
+| `REGISTRY_LISTING_UNAVAILABLE` | A listing failed; when both fail the source is unavailable |
+| `REGISTRY_LISTING_ENTRY_UNREADABLE` | A count of listed bundles that could not be read or that do not match their repository; a restricted view gives no count |
+
 ## Filters
 
 | Parameter | Values | Effect |

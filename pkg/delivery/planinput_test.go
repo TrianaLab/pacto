@@ -15,6 +15,9 @@ type fakeSources struct {
 	upErr     error
 	stages    []StageObject
 	described []string
+	// inspection is what Manifests answers; inspected counts its calls.
+	inspection ManifestInspection
+	inspected  int
 }
 
 func (f *fakeSources) Revisions(context.Context, StageObject, string, string) (Revision, Revision) {
@@ -27,6 +30,10 @@ func (f *fakeSources) Pactos(context.Context) ([]PactoView, error)   { return ni
 func (f *fakeSources) Stages(context.Context) ([]StageObject, error) { return f.stages, nil }
 func (f *fakeSources) Kustomizations(context.Context) ([]KustomizationView, error) {
 	return nil, errors.New("no kustomizations")
+}
+func (f *fakeSources) Manifests(context.Context, StageObject, string) ManifestInspection {
+	f.inspected++
+	return f.inspection
 }
 func (f *fakeSources) Describe(_ context.Context, _ StageObject, d string) Revision {
 	f.described = append(f.described, d)
@@ -41,7 +48,7 @@ func TestAssemblePlanInput(t *testing.T) {
 	stage := StageObject{Metadata: ObjectMeta{Namespace: "prod", Name: "payments"}, Spec: stageSpec(), Status: StageStatus{Pointer: dA}}
 	src := &fakeSources{from: rev(dA, c1, bundle("payments", "1.0.0")), to: rev(dB, c2, bundle("payments", "1.1.0")),
 		upstream: &StageStatus{Offered: []string{dB}}, why: "", stages: []StageObject{stage}}
-	in, err := AssemblePlanInput(context.Background(), src, promote(dA, dB), stage, ClassAgent, now)
+	in, err := AssemblePlanInput(context.Background(), src, promote(dA, dB), stage, ClassAgent, now, false)
 	if err != nil || in.To.Bundle == nil || in.Upstream == nil || len(in.Stages) != 1 || in.Snapshot == nil || in.Class != ClassAgent || in.Status.Pointer != dA {
 		t.Fatalf("promote input: %v %+v", err, in)
 	}
@@ -49,7 +56,7 @@ func TestAssemblePlanInput(t *testing.T) {
 		t.Fatal("candidates are read through the sources")
 	}
 	src.upErr = errors.New("apiserver down")
-	if _, err := AssemblePlanInput(context.Background(), src, promote(dA, dB), stage, ClassAgent, now); err == nil {
+	if _, err := AssemblePlanInput(context.Background(), src, promote(dA, dB), stage, ClassAgent, now, false); err == nil {
 		t.Fatal("a failed upstream read must stop planning")
 	}
 }
@@ -64,16 +71,16 @@ func TestAssemblePlanInputOtherTypes(t *testing.T) {
 		upstream: &StageStatus{Offered: []string{dB}}, stages: []StageObject{stage}}
 	rollback := promote(dB, dA)
 	rollback.Type = TypeRollback
-	in, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassController, now)
+	in, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassController, now, false)
 	if err != nil || in.To.Bundle == nil || in.From.Bundle == nil || in.Snapshot != nil || in.Upstream != nil {
 		t.Fatalf("the promoter's rollback reads both versions and no graph: %v %+v", err, in)
 	}
 	back := promote(dA, dB) // from the running pointer
 	back.Type = TypeRollback
-	if in, _ = AssemblePlanInput(context.Background(), src, back, stage, ClassController, now); strings.Join(PlanFor(context.Background(), in).Floor.Owners, ",") != "team-payments" {
+	if in, _ = AssemblePlanInput(context.Background(), src, back, stage, ClassController, now, false); strings.Join(PlanFor(context.Background(), in).Floor.Owners, ",") != "team-payments" {
 		t.Fatalf("the promoter's rollback is held for the running service's team: %+v", PlanFor(context.Background(), in))
 	}
-	agent, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassAgent, now)
+	agent, err := AssemblePlanInput(context.Background(), src, rollback, stage, ClassAgent, now, false)
 	if err != nil || agent.From.Bundle == nil || agent.Snapshot == nil || agent.Upstream != nil {
 		t.Fatalf("an agent's rollback reads the graph, never the upstream: %v %+v", err, agent)
 	}
@@ -81,7 +88,7 @@ func TestAssemblePlanInputOtherTypes(t *testing.T) {
 		t.Fatalf("a rollback's plan carries the version it rolls back to, got %q", p.ToVersion)
 	}
 	freeze := OperationSpec{Type: TypeFreeze, Facet: FacetFreeze}
-	if in, err := AssemblePlanInput(context.Background(), src, freeze, stage, ClassAgent, now); err != nil || in.To.Bundle != nil {
+	if in, err := AssemblePlanInput(context.Background(), src, freeze, stage, ClassAgent, now, false); err != nil || in.To.Bundle != nil {
 		t.Fatalf("a freeze reads nothing: %v %+v", err, in)
 	}
 }

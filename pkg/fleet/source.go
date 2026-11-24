@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"encoding/json"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -26,6 +27,15 @@ const SourceKindKubernetes = "kubernetes"
 // Deployments, StatefulSets, DaemonSets and CronJobs of a cluster. It reports
 // inferred services and never a target.
 const SourceKindKubernetesWorkloads = "kubernetes-workloads"
+
+// SourceKindRegistryListing is the Kind of a source listing the golden paths
+// and offerings published under a registry prefix (--discover). Templates
+// and offerings never consume a service, so its health never makes an
+// impact or gate answer partial.
+const SourceKindRegistryListing = "registry"
+
+// nonConsumerSourceKinds are the kinds whose sources never name a consumer.
+var nonConsumerSourceKinds = []string{SourceKindKubernetesWorkloads, SourceKindRegistryListing}
 
 // SourceKindEvidenceHTTP and SourceKindTargetState are the Kinds of the
 // sources that report operational targets outside Kubernetes: the Evidence
@@ -117,6 +127,9 @@ type Collection struct {
 	// surfaced, so "an invalid record exists" is never confused with "no record
 	// exists". Messages must already be sanitized.
 	Limitations []Limitation
+	// Notes are limitations that leave the source's state as it is: what a
+	// source did not read that never makes its answer partial.
+	Notes []Limitation
 	// Observed carries runtime-observed dependency edges (e.g. from OpenTelemetry
 	// traces or a service mesh) this source witnessed. Endpoint names are raw
 	// observed identities; [Build] resolves each to a unique domain-qualified
@@ -137,6 +150,9 @@ type Collection struct {
 	// Provisioning is provider-reported state of what a consumer's
 	// configuration reference or dependency asked for. It is never a target.
 	Provisioning []RawProvisioning
+	// Extensions are verified reports on a revision's extension capabilities;
+	// never a target.
+	Extensions []RawExtension
 	// Usage is provider-reported usage and cost of what a consumer's
 	// configuration reference or dependency asked for. It is never a target
 	// and never changes compliance.
@@ -151,6 +167,12 @@ type Collection struct {
 	// an inferred service and never a target, so it never counts in
 	// compliance, link or target tallies. Their cluster is [Collection.Cluster].
 	InferredServices []RawInferredService
+	// ServiceFacts are values a source outside every contract reports for a
+	// service it names: an owner, a business domain and the services it depends
+	// on. [Build] keeps them as inferred values beside the declared fields and as
+	// inferred edges: they never fill a declared field, never become an owner
+	// claim and never enter an index a gate reads.
+	ServiceFacts []RawServiceFact
 	// Providers are rows describing what this source detected and read;
 	// Build copies them, fills Source and Cluster and never lets a row claim
 	// better health than the source.
@@ -161,6 +183,44 @@ type Collection struct {
 	// ClusterLinks are member link facts by cluster id, read only from a
 	// [SourceKindMemberLinks] source.
 	ClusterLinks map[string]ClusterLink
+}
+
+// RawServiceFact is what a source outside every contract (an IDP's catalog)
+// reports for one service it names. [Build] matches it to a service by
+// ServiceKey when set, else by Name, and never guesses: a name that matches
+// more than one service gives no value.
+type RawServiceFact struct {
+	// Name is the source's name for the service, matched case-insensitively
+	// against the name of exactly one fleet service.
+	Name string
+	// ServiceKey, when set, is the only service the fact may match.
+	ServiceKey ServiceKey
+	// Entity is the source's own reference for the record it read, such as
+	// component:default/ledger. It says where a value came from.
+	Entity string
+	// Owner is the owner the source reports; only its canonical key is kept.
+	Owner contract.Owner
+	// BusinessDomain is the business domain the source reports; a value that
+	// is no valid service.domain slug is dropped.
+	BusinessDomain string
+	// DependsOn are the services the source says this one depends on.
+	DependsOn []RawFactRef
+	// ObservedAt is when the source read the record.
+	ObservedAt *time.Time
+	// Exported marks a record Pacto itself wrote to the source: reading it
+	// back would echo Pacto's own values, so [Build] skips it.
+	Exported bool
+}
+
+// RawFactRef names a service a [RawServiceFact] depends on, matched like the
+// fact itself.
+type RawFactRef struct {
+	// Name is the source's name for the service.
+	Name string
+	// ServiceKey, when set, is the only service the reference may match.
+	ServiceKey ServiceKey
+	// Entity is the source's own reference for the service.
+	Entity string
 }
 
 // RawInferredService is one workload a source read (Kind is Deployment,
@@ -228,6 +288,29 @@ type RawProvisioning struct {
 	Verified                     bool
 }
 
+// RawExtension is one producer's report on the extension capability Ref that
+// the consumer revision (Service, Domain, Digest) declares, under the report
+// Subject. Present and
+// Details are set only for an Observed outcome. Cluster is the cluster of the
+// Evidence Server that accepted it. Verified is true only for records accepted
+// through signed envelopes; [Build] drops every other one.
+type RawExtension struct {
+	Subject       string          `json:"subject,omitempty"`
+	Service       string          `json:"service"`
+	Domain        string          `json:"domain,omitempty"`
+	Digest        string          `json:"digest"`
+	Ref           string          `json:"ref"`
+	Present       *bool           `json:"present,omitempty"`
+	Details       json.RawMessage `json:"details,omitempty"`
+	Outcome       string          `json:"outcome"`
+	Producer      string          `json:"producer"`
+	ProducerKeyID string          `json:"producerKeyId,omitempty"`
+	ObservedAt    time.Time       `json:"observedAt"`
+	AcceptedAt    *time.Time      `json:"acceptedAt,omitempty"`
+	Cluster       *Cluster        `json:"cluster,omitempty"`
+	Verified      bool            `json:"verified,omitempty"`
+}
+
 // RawUsage is one provider report on how much of the resource a consumer
 // revision asked for is used and what it costs: [RawProvisioning] with Metrics
 // and Cost in place of Phase. Provider, ExternalRef, Metrics and Cost are set
@@ -290,6 +373,21 @@ type RawRevision struct {
 	// was planned from (pacto ci), or "". An inferred service.name that
 	// baseline declares is the same service, not a competing claim.
 	Baseline string
+	// Contributor is set only by a source that read the revision from a
+	// producer's contribution repository and verified its signature. Build
+	// reads such a revision as a contributed, inferred service.
+	Contributor *Contributor
+}
+
+// Contributor is the producer whose contribution repository a revision was
+// read from. KeyID is the key that verified its signature; ReadAt is when the
+// source read it and AsOf the signed manifest's created time, zero when
+// unknown. NewerRefused is the newest version of the service the source
+// refused before reading this older one, empty when it read the newest.
+type Contributor struct {
+	Producer, KeyID string
+	ReadAt, AsOf    time.Time
+	NewerRefused    string
 }
 
 // OwnerView is raw as the owner rule reads it, before Build: its service,

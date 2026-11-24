@@ -16,12 +16,15 @@ import (
 // as written. inferred reports whether ref lies under pacto-inferred at all,
 // the one predicate impact and delivery use too: such a ref is never a
 // service. key is empty when the identity does not parse (the reserved
-// other-egress, or a host identity of the wrong arity), so it names no
-// external system either.
+// other-egress, or a host identity of the wrong arity) and for a producer's
+// contribution repository, so it names no external system either.
 func inferredLocation(ref string) (key ExternalKey, id string, inferred bool) {
 	id, inferred = contract.InferredRef(ref)
 	if !inferred {
 		return "", "", false
+	}
+	if _, contributed := contract.ContributionRef(ref); contributed {
+		return "", id, true
 	}
 	if parsed, err := externalid.Parse(id); err == nil {
 		key = ExternalKey(parsed)
@@ -122,10 +125,11 @@ func externalProvider(revs []*ContractRevision) *ExternalProvider {
 		}
 		return -1 // keys are unique, so never equal
 	})
+	change := newestChange(revs)
 	unsigned := slices.DeleteFunc(slices.Clone(revs), operatorSigned)
 	revs = append(slices.DeleteFunc(revs, func(r *ContractRevision) bool { return !operatorSigned(r) }), unsigned...)
 	repo, _, _ := contract.SplitOCIRef(contract.TrimOCIScheme(revs[0].ResolvedRef))
-	p := &ExternalProvider{Repository: repo, RevisionsTotal: len(revs), RangeStatus: RangeUnknown, RangeReason: RangeReasonInferredProvider}
+	p := &ExternalProvider{Repository: repo, RevisionsTotal: len(revs), RangeStatus: RangeUnknown, RangeReason: RangeReasonInferredProvider, Change: change}
 	kept, _, _ := boundSlice(revs, MaxExternalSources)
 	for i, r := range kept {
 		pr := ExternalProviderRevision{Version: r.Version, Digest: r.Digest, Ref: r.ResolvedRef}
@@ -143,12 +147,27 @@ func externalProvider(revs []*ContractRevision) *ExternalProvider {
 
 // operatorSigned reports whether only this installation's operator signed
 // rev (see [SignatureSourceOperator]): a range is never checked against it.
+// newestChange is the change of chrono, newest first: between the two
+// newest operator-signed revisions when there are two, so an unsigned tag
+// never displaces a signed pair, else between the two newest revisions
+// (unchecked). Always older to newer, never in trust order.
+func newestChange(chrono []*ContractRevision) *ExternalProviderChange {
+	if signed := slices.DeleteFunc(slices.Clone(chrono), func(r *ContractRevision) bool { return !operatorSigned(r) }); len(signed) > 1 {
+		return providerChange(signed[0], signed[1])
+	}
+	if len(chrono) > 1 {
+		return providerChange(chrono[0], chrono[1])
+	}
+	return nil
+}
+
 func operatorSigned(rev *ContractRevision) bool {
 	return rev.Provenance != nil && rev.Provenance.Signature.Source == SignatureSourceOperator
 }
 
 // withoutSurface is p as a restricted view sees it: every revision keeps its
-// version, digest, ref and signature, and no surface. The surface was
+// version, digest, ref and signature, and no surface; its change keeps no
+// surface value. The surface was
 // computed elsewhere, from consumers and sources (fleet source ids, never
 // namespaces) this view cannot check against what it hides, and values a
 // partial run carried forward name consumers that may have left. So every
@@ -164,6 +183,12 @@ func withoutSurface(p *ExternalProvider) *ExternalProvider {
 			out.Revisions[i].Surface, out.SurfaceHidden = nil, true
 		}
 	}
+	if c := p.Change; c != nil && len(c.Added)+len(c.Removed) > 0 {
+		// The versions, the check and the catalog-derived link stay.
+		hidden := *c
+		hidden.Added, hidden.Removed = nil, nil
+		out.Change, out.SurfaceHidden = &hidden, true
+	}
 	return &out
 }
 
@@ -178,20 +203,24 @@ func inferredRefReason(key ExternalKey) string {
 const matchInferredContract = "its inferred contract"
 
 // joinInferredRef joins dependency idx of rev, whose ref names key's inferred
-// contract, to that external system: the consumer is counted on its record,
-// and a declared range is unknown with reason INFERRED_PROVIDER. A ref whose
-// identity (path, as written) does not parse joins nothing and stays
+// contract, to that external system: the consumer is counted on its record.
+// A declared range on any ref under pacto-inferred is unknown with reason
+// INFERRED_PROVIDER. A ref whose identity (path, as written) does not parse,
+// or that names a producer's contributed records, joins nothing and stays
 // unresolved with its reason.
 func joinInferredRef(snap *FleetSnapshot, cat *externalcatalog.Catalog, rk RevisionKey, rev *ContractRevision, idx int, dep contract.Dependency, key ExternalKey, path string, rel *Relationship) {
+	if dep.Compatibility != "" {
+		rel.RangeStatus, rel.RangeReason = RangeUnknown, RangeReasonInferredProvider
+	}
 	if key == "" {
 		rel.Reason = "the ref names " + contract.InferredRepository + "/" + path + ", which is no external identity, so it joins no external system and is never a service"
+		if producer, ok := contract.ContributionRef(dep.Ref); ok {
+			rel.Reason = "the ref names " + producer + "'s contributed record, never a service"
+		}
 		return
 	}
 	recordExternalDeclaration(snap, cat, rk, rev, idx, dep, key, matchInferredContract)
 	rel.ToExternal, rel.Reason = key, inferredRefReason(key)
-	if dep.Compatibility != "" {
-		rel.RangeStatus, rel.RangeReason = RangeUnknown, RangeReasonInferredProvider
-	}
 }
 
 // inferredProviderGroup is the declared ranges checked against one inferred
@@ -201,6 +230,13 @@ type inferredProviderGroup struct {
 	service   string
 	name      string
 	consumers []ServiceKey
+	// claimed is the repository of the contract that claims the external
+	// system, and claimHidden says a service the viewer may not read claims
+	// it.
+	claimed     string
+	claimHidden bool
+	// claimants is set when more than one service claims it.
+	claimants bool
 }
 
 // inferredProviderAttention reports one knowledge item per inferred provider a
@@ -210,7 +246,9 @@ type inferredProviderGroup struct {
 func (q *Query) inferredProviderAttention() []AttentionItem {
 	groups := map[string]*inferredProviderGroup{}
 	for _, rel := range q.snap.Relationships {
-		if rel.Provenance != ProvenanceDeclared || rel.RangeReason != RangeReasonInferredProvider {
+		// A ref that joins no provider (other-egress, a contribution) names
+		// nothing to declare; its edge reason says so.
+		if rel.Provenance != ProvenanceDeclared || rel.RangeReason != RangeReasonInferredProvider || rel.ToExternal == "" && rel.ToService == "" {
 			continue
 		}
 		k := ExternalSubjectPrefix + string(rel.ToExternal)
@@ -236,7 +274,9 @@ func (q *Query) inferredProviderAttention() []AttentionItem {
 // inferredProviderGroup is the empty group of rel's provider.
 func (q *Query) inferredProviderGroup(rel Relationship) *inferredProviderGroup {
 	if rel.ToExternal != "" {
-		return &inferredProviderGroup{entity: externalEntityRef(q.externalRecord(rel.ToExternal)), name: string(rel.ToExternal)}
+		rec := q.externalRecord(rel.ToExternal)
+		return &inferredProviderGroup{entity: externalEntityRef(rec), name: string(rel.ToExternal),
+			claimed: rec.ClaimedRepository(), claimHidden: rec.Claim != nil && rec.Claim.Hidden, claimants: rec.Claimants > 1}
 	}
 	svc := q.snap.Services[rel.ToService]
 	return &inferredProviderGroup{entity: serviceEntityRef(svc), service: string(svc.Key), name: svc.Name}
@@ -263,30 +303,62 @@ func (g *inferredProviderGroup) item() AttentionItem {
 	}
 }
 
-// nextAction is the action of nextStep: pacto declare for a service, a
-// hand-written contract for an external system (pacto declare reads only
-// workloads) or a service whose name no command may carry.
+// nextAction is the action of nextStep: pacto declare for a service, pacto
+// claim for an unclaimed external system, a contract edit for a claimed one
+// (or a service whose name no command may carry) and none when a service the
+// viewer may not read claims it: a hidden claim never invites a second one.
 func (g *inferredProviderGroup) nextAction() *NextAction {
-	if a := declareAction(g.name, ""); a != nil && g.service != "" {
-		return a
+	switch {
+	case g.service != "":
+		if a := declareAction(g.name, ""); a != nil {
+			return a
+		}
+	case g.claimHidden || g.claimants:
+		return nil
+	case g.claimed == "":
+		return claimAction(g.name)
 	}
 	return editContract()
 }
 
-// nextStep is the step that fixes g today. A service is declared with pacto
-// declare; pacto declare reads only workloads, so an external system's
-// declared contract is written by hand until pacto claim exists (517-S5).
+// nextStep is the step that fixes g today.
 func (g *inferredProviderGroup) nextStep() string {
-	if g.service != "" {
+	switch {
+	case g.service != "":
 		return "Declare a contract for " + g.name + " with pacto declare, then point the ranges at it"
+	case g.claimHidden:
+		return hiddenClaimStep
+	case g.claimants:
+		return claimantsStep
 	}
-	return InferredExternalNextStep(g.name)
+	return InferredExternalNextStep(g.name, g.claimed)
+}
+
+// hiddenClaimStep is the next step of an external system a service the
+// viewer may not read claims: it never invites a second claim.
+const hiddenClaimStep = "Claimed by a service you cannot see; ask the installation's default approvers"
+
+// InferredNextStep is [InferredExternalNextStep] for r, the record of
+// external id as the viewer sees it: a hidden claimer names nothing and
+// invites no second claim.
+func (r *ExternalRecord) InferredNextStep(id string) string {
+	switch {
+	case r != nil && r.Claim != nil && r.Claim.Hidden:
+		return hiddenClaimStep
+	case r != nil && r.Claimants > 1:
+		return claimantsStep
+	}
+	return InferredExternalNextStep(id, r.ClaimedRepository())
 }
 
 // InferredExternalNextStep is how to replace external id's inferred contract
-// with a declared one today.
-func InferredExternalNextStep(id string) string {
-	return "Write a contract with service.external: " + id + ", publish it outside " + contract.InferredRepository + ", then point the ranges at it"
+// with a declared one: claim it, or point the ranges at claimed, the
+// repository of the contract that claims it.
+func InferredExternalNextStep(id, claimed string) string {
+	if claimed != "" {
+		return "Point the ranges at " + claimed + ", the claimed contract of " + id
+	}
+	return "Claim " + id + " with pacto claim " + id + " --owner <team>, then point the ranges at the claimed contract"
 }
 
 // SignatureWords says what sig, the signature check of an inferred

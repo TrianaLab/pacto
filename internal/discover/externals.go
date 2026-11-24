@@ -180,7 +180,7 @@ func externalFields(xs []External, taken func(field string) bool, declared func(
 	used := map[string]bool{} // names this loop already gave
 	for _, k := range slices.Sorted(maps.Keys(byID)) {
 		group := byID[k]
-		id, name := group[0].Identity, DependencyName(group[0].Identity)
+		id, name := group[0].Identity, contract.ExternalDependencyName(group[0].Identity)
 		if r := group[0].Resource; r != nil {
 			name = contract.SanitizeName(r.Name)
 		}
@@ -261,19 +261,8 @@ func (x External) source() string { return Value{Path: x.Path, Line: x.Line}.sou
 
 // externalYAML declares the external id under the dependency name.
 func externalYAML(name, id string) string {
-	return fmt.Sprintf("dependencies:\n  - name: %s\n    external: true\n    identity: %s\n    required: true\n    version: <the API version you call>\n", name, id)
+	return contract.ExternalDependencyYAML(contract.Dependency{Name: name, External: true, Identity: id, Required: true, Version: "<the API version you call>"})
 }
-
-// DependencyName is the identity when it is a valid dependency name, else
-// its last component made one.
-func DependencyName(id string) string {
-	if dependencyNameRE.MatchString(id) {
-		return id
-	}
-	return contract.SanitizeName(id[strings.LastIndex(id, "/")+1:])
-}
-
-var dependencyNameRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 // CatalogInputs are the catalogs cat was built from, as "<origin> <digest>":
 // what a record names as its catalog inputs.

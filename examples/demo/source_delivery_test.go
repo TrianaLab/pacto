@@ -292,7 +292,7 @@ func storyProblems(t *testing.T, d *demoDelivery) {
 
 	// The refused publish (B4).
 	r, _ := d.PublishRefusals(t.Context(), "")
-	if len(r.Refusals) != 1 || r.Refusals[0].RequiredBump != "major" || r.Refusals[0].Verified {
+	if len(r.Refusals) != 2 || r.Refusals[0].RequiredBump != "major" || r.Refusals[0].Verified {
 		t.Fatalf("refusals: %+v", r)
 	}
 }
@@ -883,5 +883,131 @@ func TestDemoStagesRecordRegistryMode(t *testing.T) {
 	}
 	if n == 0 {
 		t.Fatal("no demo Stage has a record stream")
+	}
+}
+
+// TestDemoRefusalsListAPromote: the refused list holds one refused promote
+// beside the refused publish, on a Stage and version of the story.
+func TestDemoRefusalsListAPromote(t *testing.T) {
+	_, h := demoServer(t)
+	var out struct {
+		Total    int                        `json:"total"`
+		Refusals []dashboard.PublishRefusal `json:"refusals"`
+	}
+	if code := call(t, h, "GET", "/api/delivery/refusals", "", &out); code != 200 || out.Total != 2 {
+		t.Fatalf("refusals %d %+v", code, out)
+	}
+	i := slices.IndexFunc(out.Refusals, func(r dashboard.PublishRefusal) bool { return r.Check == "manifests" })
+	if i < 0 {
+		t.Fatalf("no refused promote: %+v", out.Refusals)
+	}
+	r := out.Refusals[i]
+	// Simulated: it advertises no record the tab cannot open, and is not
+	// verified.
+	if r.Service != "pay-agent" || r.Namespace != story.Prod || r.Stage != "pay-agent" || r.Digest != digest(r.Service, r.Version) ||
+		versionOf(r.Service, r.Digest) == "" || r.Verified || r.Record != "" ||
+		!strings.Contains(r.Reason, "ClusterRoleBinding pay-agent-admin is cluster-scoped") {
+		t.Fatalf("refused promote: %+v", r)
+	}
+	if d, _ := demoServer(t); d.stage(story.Prod, r.Stage) == nil {
+		t.Fatalf("no Stage %s in prod", r.Stage)
+	}
+}
+
+// TestDemoInspectedPlanComesFromPlanFor: prod/checkout inspects what a
+// promote applies, and the pacto.manifests verdict comes from PlanFor over a
+// simulated inspection of checkout's workload.
+func TestDemoInspectedPlanComesFromPlanFor(t *testing.T) {
+	_, h := demoServer(t)
+	req := `{"namespace":"` + story.Prod + `","stage":"checkout","onBehalfOf":"dana@example.com","to":"` + digest("checkout", "1.9.0") + `"}`
+	var p delivery.PlanAnswer
+	if code := call(t, h, "POST", "/api/delivery/plan", req, &p); code != 200 {
+		t.Fatalf("plan %d", code)
+	}
+	i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateManifests })
+	if i < 0 {
+		t.Fatalf("no pacto.manifests verdict: %+v", p.Verdicts)
+	}
+	v := p.Verdicts[i]
+	if v.Result != delivery.Pass || !strings.Contains(v.Citation["artifact"], "simulated") ||
+		v.Citation["objects"] != "Deployment checkout, Service checkout" || v.Message != "every one of the 2 objects stays in prod" {
+		t.Fatalf("pacto.manifests: %+v", v)
+	}
+	// Only the chosen Stage is inspected.
+	req = strings.Replace(req, `"namespace":"`+story.Prod+`"`, `"namespace":"prod-eu"`, 1)
+	if code := call(t, h, "POST", "/api/delivery/plan", req, &p); code != 200 ||
+		slices.ContainsFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateManifests }) {
+		t.Fatalf("prod-eu plan %d %+v", code, p.Verdicts)
+	}
+}
+
+// TestDemoStagesAreManaged: payments' Stages are the ones Pacto created from
+// the installation ladder, labelled and annotated as the promoter writes them,
+// so the board marks where each runs and who confirmed it; every other Stage
+// was written by a person.
+func TestDemoStagesAreManaged(t *testing.T) {
+	_, h := demoServer(t)
+	rows := environments(t, h, "")
+	for _, c := range []struct{ ns, svc, source, provenance, by string }{
+		{story.Test, "payments", delivery.DesiredFromLadder, delivery.PlacementObserved, ""},
+		{story.Prod, "payments", delivery.DesiredFromLadder, delivery.PlacementDefault, story.Alice.User},
+		{story.Prod, "orders", delivery.PlacementFromStage, delivery.PlacementDeclared, ""},
+	} {
+		r := rowOf(t, rows, c.ns, c.svc)
+		if r.Source != c.source || r.Placement == nil || r.Placement.Provenance != c.provenance || r.Placement.Namespace != c.ns || r.Placement.ConfirmedBy != c.by {
+			t.Errorf("%s/%s: source %q placement %+v", c.ns, c.svc, r.Source, r.Placement)
+		}
+	}
+	var out struct {
+		Unplaced []dashboard.UnplacedRow `json:"unplaced"`
+	}
+	if code := call(t, h, "GET", "/api/delivery/environments", "", &out); code != 200 {
+		t.Fatalf("environments %d", code)
+	}
+	// The Helm-owned one says why in its evidence.
+	if len(out.Unplaced) != 2 || out.Unplaced[0].Service != "checkout" || out.Unplaced[0].Environment != demoLeaf ||
+		out.Unplaced[0].Reason != "namespace orders belongs to orders (team-orders)" ||
+		out.Unplaced[1].Reason != "owned by Helm (release fraud, release annotations): Pacto does not add another applier" {
+		t.Errorf("unplaced %+v", out.Unplaced)
+	}
+}
+
+// TestDemoLadderProposal: the inbox offers the open installation ladder
+// proposal with the digest ProposalDigest gives, and only a person may
+// confirm it.
+func TestDemoLadderProposal(t *testing.T) {
+	d, h := demoServer(t)
+	ladder := func() dashboard.InboxLadder {
+		t.Helper()
+		var out struct {
+			Ladder *dashboard.InboxLadder `json:"ladder"`
+		}
+		if code := call(t, h, "GET", "/api/delivery/inbox", "", &out); code != 200 || out.Ladder == nil {
+			t.Fatalf("inbox %d, ladder %v", code, out.Ladder)
+		}
+		return *out.Ladder
+	}
+	l := ladder()
+	names := func(rs []delivery.LadderRung) (out []string) {
+		for _, r := range rs {
+			out = append(out, r.Name)
+		}
+		return out
+	}
+	if !slices.Equal(names(l.Declared), []string{story.Test, story.Prod}) || !slices.Equal(names(l.Confirmed), []string{demoLeaf}) ||
+		len(l.Proposal) != 1 || l.Proposal[0].Name != "perf" || l.Proposal[0].Source != "namespaces *-perf, 3 found" {
+		t.Fatalf("ladder %+v", l)
+	}
+	if l.ProposalDigest != delivery.ProposalDigest(l.Proposal) || l.Command != "pacto delivery ladder confirm --proposal "+l.ProposalDigest {
+		t.Errorf("digest %q command %q", l.ProposalDigest, l.Command)
+	}
+	if l.CanConfirm {
+		t.Error("the agent persona may confirm the installation ladder")
+	}
+	if err := d.SetPersona(story.Alice.Name, true); err != nil {
+		t.Fatal(err)
+	}
+	if !ladder().CanConfirm {
+		t.Error("alice may not confirm the installation ladder")
 	}
 }

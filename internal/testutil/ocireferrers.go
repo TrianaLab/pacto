@@ -84,6 +84,8 @@ func (r *referrersRegistry) serveOverride(w http.ResponseWriter, req *http.Reque
 		w.WriteHeader(http.StatusUnauthorized)
 	case r.opts.CatalogStatus != 0 && req.URL.Path == "/v2/_catalog":
 		http.Error(w, `{"errors":[{"code":"UNSUPPORTED"}]}`, r.opts.CatalogStatus)
+	case req.Method == http.MethodGet && req.URL.Path == "/v2/_catalog":
+		ServeCatalog(w, req, CatalogOf(r.inner))
 	case (r.opts.TagsLink || r.opts.TagsUnknownLast) && req.Method == http.MethodGet && strings.HasSuffix(req.URL.Path, "/tags/list"):
 		r.tagsWithLink(w, req)
 	default:
@@ -172,6 +174,38 @@ func (r *referrersRegistry) tagsWithLink(w http.ResponseWriter, req *http.Reques
 		w.Header().Set("Link", fmt.Sprintf(`<%s?%s>; rel="next"`, req.URL.Path, next.Encode()))
 	}
 	body, _ := json.Marshal(page)
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+
+// CatalogOf is every repository inner's catalog names, in its order.
+func CatalogOf(inner http.Handler) []string {
+	rec := httptest.NewRecorder()
+	inner.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/v2/_catalog", nil))
+	var page struct {
+		Repositories []string `json:"repositories"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &page)
+	return page.Repositories
+}
+
+// ServeCatalog answers a _catalog request from names as the distribution
+// spec says, where go-containerregistry's registry does not: sorted, the
+// names after ?last=, at most ?n= of them, and a next-page Link while more
+// remain.
+func ServeCatalog(w http.ResponseWriter, req *http.Request, names []string) {
+	names = append([]string(nil), names...)
+	sort.Strings(names)
+	q := req.URL.Query()
+	if last := q.Get("last"); last != "" {
+		names = names[sort.Search(len(names), func(i int) bool { return names[i] > last }):]
+	}
+	if n, err := strconv.Atoi(q.Get("n")); err == nil && n > 0 && len(names) > n {
+		names = names[:n]
+		next := url.Values{"n": {strconv.Itoa(n)}, "last": {names[n-1]}}
+		w.Header().Set("Link", fmt.Sprintf(`<%s?%s>; rel="next"`, req.URL.Path, next.Encode()))
+	}
+	body, _ := json.Marshal(map[string][]string{"repositories": names})
 	w.Header().Set("Content-Type", "application/json")
 	_, _ = w.Write(body)
 }

@@ -42,6 +42,7 @@ var excludedFromTUI = map[string]string{
 	"cluster remove":       "a person's keyless signed decision, run from a terminal with a browser login; the TUI never acts",
 	"cluster map-groups":   "a person's keyless signed decision, run from a terminal with a browser login; the TUI never acts",
 	"cluster list":         "member clusters are not fleet entities; read from the Data sources Clusters block",
+	"claim":                "pacto declare for an external system: logs a person in to Sigstore, signs and writes to a registry; the TUI never acts",
 	"ci init":              "writes a CI file into the local repository, a step a person reviews and commits; the TUI never writes",
 	"run":                  "wraps a process and lives as long as it does",
 	"fleet reconcile":      "requires a --traces file, which no selection can supply",
@@ -73,6 +74,7 @@ var excludedFromTUI = map[string]string{
 	// Delivery changes what runs. The TUI is a read-only screen over the fleet, and a keystroke that
 	// proposes, cancels or approves would be the one place it acts; these stay explicit shell commands.
 	"delivery approve":         "a person's decision, made deliberately at a prompt",
+	"delivery ladder confirm":  "signs as a person in the browser",
 	"delivery caller":          "names the caller to delivery, which is not a fleet entity",
 	"delivery autonomy":        "reads the dashboard's autonomy view of Stages, which are not fleet entities",
 	"delivery environments":    "reads the dashboard's board of Stages, which are not fleet entities",

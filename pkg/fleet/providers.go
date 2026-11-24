@@ -48,6 +48,10 @@ const (
 	// ProviderFlux is the row of the Flux Kustomizations, HelmReleases and
 	// GitRepositories a workload source listed for the same reason.
 	ProviderFlux = "flux"
+	// ProviderApplier is the detected row that says no GitOps engine API is
+	// served in its cluster; under profile idp it proposes the Flux the
+	// Pacto release installs.
+	ProviderApplier = "applier"
 	// UseRepositoryProvenance: Pacto names the repository a group deploys
 	// from out of what the row read.
 	UseRepositoryProvenance = "repository-provenance"
@@ -57,6 +61,12 @@ const (
 	// UseReporting: the row's product reports provisioning or usage to Pacto,
 	// the reporting adapters row family.
 	UseReporting = "reporting"
+	// UseReportedTargets: the row's producer reports targets through an
+	// Evidence Server.
+	UseReportedTargets = "reported-targets"
+	// UseContributedRecords: the row's producer contributes inferred
+	// services through its signed records.
+	UseContributedRecords = "contributed-records"
 	// ProviderRegistryPrefix prefixes the id of the row of a registry host an
 	// OCI source read: registry:ghcr.io.
 	ProviderRegistryPrefix = "registry:"
@@ -75,11 +85,37 @@ const (
 	// UseExternalEgress: Pacto reads calls leaving the cluster, to Externals,
 	// from what the row read.
 	UseExternalEgress = "external-egress"
+	// ProviderCrossplane is the row of the Crossplane the operator detected.
+	ProviderCrossplane = "crossplane"
+	// CrossplaneNoneFound starts the evidence of a Crossplane row that found
+	// no Crossplane, so a reader tells it apart with no detect import.
+	CrossplaneNoneFound = "none found"
 )
 
 // LimitationRegistryProbeFailed: Pacto could not probe a registry host, so it
 // does not know which mode it would use there.
 const LimitationRegistryProbeFailed = "REGISTRY_PROBE_FAILED"
+
+// Limitation codes of a registry discovery source: why the golden paths and
+// offerings under a registry prefix may be more than it lists.
+const (
+	// LimitationRegistryListingIndexOnly: the registry serves no _catalog
+	// (or refused it to the credential), so only what the organization index
+	// lists was found.
+	LimitationRegistryListingIndexOnly = "REGISTRY_LISTING_INDEX_ONLY"
+	// LimitationRegistryListingNone: there is no organization index and the
+	// registry serves no _catalog, so nothing under the prefix was listed.
+	LimitationRegistryListingNone = "REGISTRY_LISTING_NONE"
+	// LimitationRegistryListingTruncated: a bound or the read timeout stopped
+	// a listing; what lies past it is unknown.
+	LimitationRegistryListingTruncated = "REGISTRY_LISTING_TRUNCATED"
+	// LimitationRegistryListingUnavailable: a listing failed.
+	LimitationRegistryListingUnavailable = "REGISTRY_LISTING_UNAVAILABLE"
+	// LimitationRegistryListingEntryUnreadable: listed bundles that could not
+	// be read, or that did not match their repository, were left out; the
+	// limitation counts them and names none.
+	LimitationRegistryListingEntryUnreadable = "REGISTRY_LISTING_ENTRY_UNREADABLE"
+)
 
 // Row ids, UsedFor value and limitation codes of the service mesh rows.
 const (
@@ -129,7 +165,7 @@ type Provider struct {
 	Objects      []ProviderObject `json:"objects,omitempty" doc:"The objects the evidence names, at most 20"`
 	ObjectsTotal int              `json:"objectsTotal,omitempty" doc:"How many objects the row had before the cap or your permissions narrowed it"`
 	Limitations  []Limitation     `json:"limitations,omitempty"`
-	Offers       []ProviderOffer  `json:"offers,omitempty" doc:"Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing"`
+	Offers       []ProviderOffer  `json:"offers,omitempty" doc:"Pacto integrations that fit this provider, offered because it was detected; Pacto installs nothing; a person turns each one on"`
 	// Provenance, AsOf, Hint, Details and Scope are set on a row Pacto
 	// detected (see pkg/detect); a row a source reported directly leaves them
 	// empty. The operator's Installation row, from the same detection, is the
@@ -154,6 +190,9 @@ type Provider struct {
 	// Services are the services whose revisions a registry row's host served;
 	// Restrict drops the row when every one is hidden. Never serialised.
 	Services []ServiceKey `json:"-"`
+	// producer is what a producer row was built from (see [ProducerRow]), so
+	// Build and Restrict can build it again. Never serialised.
+	producer *producerInput
 }
 
 // ProviderObject is one object a provider row's evidence names. Namespace is
@@ -319,6 +358,7 @@ const reportingAdapterID = "reporting-adapter/"
 // the Evidence Server lists those producers to anyone on GET /producers.
 func restrictedProviders(out *FleetSnapshot, rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNames []string, visible func(cluster, namespace string) bool, workloadVisible func(cluster, namespace, kind string) bool, srcClusters map[string]string) []Provider {
 	rows = slices.DeleteFunc(slices.Clone(rows), func(p Provider) bool { return strings.HasPrefix(p.ID, reportingAdapterID) })
+	rows = restrictProducerRows(rows, out.Targets, sourceStates(out.Sources))
 	rows = append(restrictProviders(rows, hiddenSvc, hiddenNames, visible, workloadVisible, out.Clusters, srcClusters), finalizeRows(reportingRows(out.Provisioning), sourceStates(out.Sources))...)
 	slices.SortStableFunc(rows, func(a, b Provider) int { return cmp.Or(cmp.Compare(a.Source, b.Source), cmp.Compare(a.ID, b.ID)) })
 	return rows
@@ -513,16 +553,21 @@ func allServicesHidden(p Provider, hiddenSvc map[ServiceKey]bool) bool {
 
 // hideCluster takes from p its cluster when shown does not name it, and
 // reports whether p stays. A declared row goes whole: the Installation row's
-// details and push error name the cluster's snapshot tag.
+// details and push error name the cluster's snapshot tag. The Applier row
+// goes whole too: its proposal is for that cluster's Pacto release.
 func hideCluster(p *Provider, shown map[string]bool) bool {
 	if shown[p.Cluster] {
 		return true
 	}
-	if p.Provenance == ProvenanceDeclared && p.Cluster != "" {
+	if (p.Provenance == ProvenanceDeclared || p.ID == ProviderApplier) && p.Cluster != "" {
 		return false
 	}
 	p.Evidence, p.Limitations = hideDetectedCluster(*p)
-	p.Cluster = ""
+	if p.Cluster != "" {
+		// The kept row names no cluster, and its hint is for that cluster.
+		p.Hint = ""
+	}
+	p.Cluster, p.ClusterID = "", ""
 	return true
 }
 

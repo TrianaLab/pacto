@@ -132,7 +132,7 @@ func TestOpenAPI_FiniteEnums(t *testing.T) {
 		{"link state", sortedSet("exact", "inferred", "ambiguous", "unresolved")},
 		{"difference", sortedSet("matched", "expected-not-observed", "observed-not-expected", "insufficient")},
 		{"direction", sortedSet("dependencies", "dependents", "both")},
-		{"impact outcome", sortedSet("incompatible", "unknown", "compatible", "unclassified", "breaks", "may-degrade")},
+		{"impact outcome", sortedSet("incompatible", "unknown", "compatible", "unclassified", "breaks", "may-degrade", "attention")},
 		{"lifecycle filter", sortedSet("deprecated", "sunset")},
 		{"accept refusal", sortedSet("AcceptNothingProposed", "NotPublished", "DraftNotFound", "PlanStale", "SignerUnverified")},
 	}

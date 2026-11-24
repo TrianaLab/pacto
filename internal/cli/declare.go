@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
 	"k8s.io/client-go/dynamic"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/gitexport"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -77,55 +79,77 @@ pacto.inferred.yaml as inferred.`,
 				return err
 			}
 			if req.Draft && req.FromDraft != "" {
-				return errors.New("--draft writes a new draft and --from-draft accepts one: pass only one of them")
+				return errDraftAndFromDraft
 			}
 			dyn, err := declareDynamic(req)
 			if err != nil {
 				return err
 			}
 			req.Dynamic = dyn
-			asJSON := v.GetString(outputFormatKey) == "json"
-			req.Signing.Prompt = func(s string) { _, _ = fmt.Fprintln(cmd.ErrOrStderr(), s) }
-			req.Signing.FreshLogin = d.freshLogin
-			pr := &exportPR{d: d, req: req, gitHost: req.GitHost}
-			if !yes {
-				p, err := d.planDeclare(svc, cmd.Context(), req)
-				if err == nil && req.PR {
-					err = pr.resolve(cmd.Context(), p)
-				}
-				return printDeclare(cmd, asJSON, p, nil, err)
-			}
-			if !asJSON || req.PR {
-				req.OnPlan = func(p *app.DeclarePlan) error {
-					if req.PR {
-						if err := pr.resolve(cmd.Context(), p); err != nil {
-							return err
-						}
-					}
-					if !asJSON {
-						printDeclarePlan(cmd.OutOrStdout(), p)
-					}
-					return nil
-				}
-			}
-			res, err := d.declare(svc, cmd.Context(), req)
-			if err == nil && req.PR {
-				err = pr.export(cmd.Context(), res)
-			}
-			return printDeclare(cmd, asJSON, nil, res, err)
+			return declareRun(cmd, svc, v, d, req, yes)
 		},
 	}
 	f := cmd.Flags()
 	f.StringVarP(&req.Namespace, "namespace", "n", "", "the namespace of the workload (default: every namespace the name is found in)")
 	f.StringVar(&req.Dir, "dir", "", "a folder pacto init --cluster wrote, declared instead of a new draft")
-	f.StringVar(&req.Registry, "registry", "", "the registry the contract is published to, as host/path")
 	f.StringSliceVar(&req.Accept, "accept", nil, "a dependency whose proposed range you accept as declared; repeat it for more")
-	f.BoolVar(&yes, "yes", false, "publish the plan (or write a draft) after printing it")
-	f.StringVar(&req.IntentDigest, "intent", "", "the intent digest of the plan you reviewed: a different plan is refused")
-	f.BoolVar(&req.Draft, "draft", false, "write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set")
-	f.StringVar(&req.FromDraft, "from-draft", "", "accept this draft-<n> tag: the workload is read again and you sign")
 	f.IntVar(&req.MaxItems, "max-items", 0, "the most items read per kind of object; a kind cut short reads as partial (default 10000)")
 	f.DurationVar(&req.CallWindow, "call-window", 0, "how far back a call counts as a dependency (at least 1m, default 24h)")
+	f.BoolVar(&req.PR, "pr", false, "open a pull request with your own Git token after the bundle is written; needs --yes to write")
+	f.StringVar(&req.Repository, "repository", "", "the service's source repository URL, used over every source Pacto reads; confirms an image label for --pr")
+	f.StringVar(&req.Folder, "folder", "", "the folder of the repository the contract lives in (default: the folder a source names, else the root)")
+	f.StringVar(&req.RepoMap, "repo-map", "", "a YAML file mapping service names to {repository, folder}; read only with --pr")
+	f.StringVar(&req.GitHost, "git-host", "", "the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)")
+	declareFlags(f, &req, &yes)
+	return cmd
+}
+
+// errDraftAndFromDraft refuses a run that would both write and accept a
+// draft.
+var errDraftAndFromDraft = errors.New("--draft writes a new draft and --from-draft accepts one: pass only one of them")
+
+// declareRun plans req, or with yes carries it out, and prints the answer.
+func declareRun(cmd *cobra.Command, svc *app.Service, v *viper.Viper, d deps, req app.DeclareRequest, yes bool) error {
+	asJSON := v.GetString(outputFormatKey) == "json"
+	req.Signing.Prompt = func(s string) { _, _ = fmt.Fprintln(cmd.ErrOrStderr(), s) }
+	req.Signing.FreshLogin = d.freshLogin
+	pr := &exportPR{d: d, req: req, gitHost: req.GitHost}
+	if !yes {
+		p, err := d.planDeclare(svc, cmd.Context(), req)
+		if err == nil && req.PR {
+			err = pr.resolve(cmd.Context(), p)
+		}
+		return printDeclare(cmd, asJSON, p, nil, err)
+	}
+	if !asJSON || req.PR {
+		req.OnPlan = func(p *app.DeclarePlan) error {
+			if req.PR {
+				if err := pr.resolve(cmd.Context(), p); err != nil {
+					return err
+				}
+			}
+			if !asJSON {
+				printDeclarePlan(cmd.OutOrStdout(), p)
+			}
+			return nil
+		}
+	}
+	res, err := d.declare(svc, cmd.Context(), req)
+	if err == nil && req.PR {
+		err = pr.export(cmd.Context(), res)
+	}
+	return printDeclare(cmd, asJSON, nil, res, err)
+}
+
+// declareFlags registers the flags pacto declare and pacto claim share:
+// where the contract is published, who signs it and how a draft is written
+// or accepted.
+func declareFlags(f *pflag.FlagSet, req *app.DeclareRequest, yes *bool) {
+	f.StringVar(&req.Registry, "registry", "", "the registry the contract is published to, as host/path")
+	f.BoolVar(yes, "yes", false, "publish the plan (or write a draft) after printing it")
+	f.StringVar(&req.IntentDigest, "intent", "", "the intent digest of the plan you reviewed: a different plan is refused")
+	f.BoolVar(&req.Draft, "draft", false, "write a draft-<n> a person accepts later, without a person's login: signed only by --sign-key or an ambient OIDC token when one is set")
+	f.StringVar(&req.FromDraft, "from-draft", "", "accept this draft-<n> tag, signed by you (a workload draft reads the workload again)")
 	f.StringVar(&req.Signing.Key, "sign-key", "", "sign with this key file: a key names no person, so the run writes a draft")
 	f.StringVar(&req.Signing.OIDCIssuer, "oidc-issuer-url", "https://oauth2.sigstore.dev/auth", "OpenID Connect issuer of the Sigstore login")
 	f.StringVar(&req.Signing.OIDCClient, "oidc-client-id", "sigstore", "OpenID Connect client of the Sigstore login")
@@ -134,20 +158,18 @@ pacto.inferred.yaml as inferred.`,
 	f.StringVar(&req.Signing.TimestampURL, "timestamp-url", "", "timestamp authority to date the signature with")
 	f.StringVar(&req.Signing.RekorURL, "rekor-url", signing.PublicRekor, "Rekor transparency log the signature is recorded in")
 	f.StringVar(&req.Signing.TrustedRoot, "trusted-root", "", "Sigstore trusted root JSON to verify with (default: public-good Sigstore)")
-	f.BoolVar(&req.PR, "pr", false, "open a pull request with your own Git token after the bundle is written; needs --yes to write")
-	f.StringVar(&req.Repository, "repository", "", "the service's source repository URL, used over every source Pacto reads; confirms an image label for --pr")
-	f.StringVar(&req.Folder, "folder", "", "the folder of the repository the contract lives in (default: the folder a source names, else the root)")
-	f.StringVar(&req.RepoMap, "repo-map", "", "a YAML file mapping service names to {repository, folder}; read only with --pr")
-	f.StringVar(&req.GitHost, "git-host", "", "the Git host API that serves the repository, when its URL does not say: github, gitlab, bitbucket (Cloud) or gitea (Forgejo too)")
 	f.StringVar(&req.DeliveryTrust, "delivery-trust", "", "the trust config the target snapshots that carry the owner policy are verified with: "+
 		"a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
-	return cmd
 }
 
 // declareSubject reads the workload argument into req: name, ns/name,
-// ns/Kind/name or k8s:ns/Kind/name. Any other <kind>: subject is refused.
+// ns/Kind/name or k8s:ns/Kind/name. An external system is claimed with
+// pacto claim; any other <kind>: subject is refused.
 func declareSubject(req *app.DeclareRequest, arg string) error {
 	if kind, rest, ok := strings.Cut(arg, ":"); ok {
+		if kind+":" == fleet.ExternalSubjectPrefix {
+			return errors.New("claim an external system with pacto claim " + rest + " --owner <team>")
+		}
 		if kind != "k8s" {
 			return fmt.Errorf("pacto declare reads a workload, not %s: offerings and templates are declared by a later release", kind+":")
 		}
@@ -159,14 +181,14 @@ func declareSubject(req *app.DeclareRequest, arg string) error {
 
 // declareDynamic is the kubeconfig client the declaration reads the cluster
 // with. A run without a registry is refused before any read, so it builds
-// none; a --dir run whose client fails declares the folder with its cluster
-// facts dropped.
+// none; a --dir run or a claim whose client fails declares with its cluster
+// facts dropped (a claim reads only the installation signer policy there).
 func declareDynamic(req app.DeclareRequest) (dynamic.Interface, error) {
 	if req.Registry == "" {
 		return nil, nil
 	}
 	dyn, err := initDynamic()
-	if err != nil && req.Dir == "" {
+	if err != nil && req.Dir == "" && !strings.HasPrefix(req.Service, fleet.ExternalSubjectPrefix) {
 		return nil, fmt.Errorf("declaring a workload reads the cluster: %w", err)
 	}
 	if err != nil {
@@ -404,11 +426,14 @@ func complete(rows []contract.InferredCoverage) int {
 // printed.
 func printDeclareResult(w io.Writer, res *app.DeclareResult) {
 	p := res.Plan
+	id, claim := contract.InferredFromExternal(p.InferredFrom)
 	switch {
 	case p.Unchanged != "":
 		printDeclarePlan(w, &p)
 	case !res.Executed:
 		return
+	case claim:
+		printClaimResult(w, res, id)
 	case res.Draft:
 		_, _ = fmt.Fprintf(w, "wrote %s (%s): a person accepts it with %s\n", res.Tag, res.Published, p.AcceptCLI)
 	default:
@@ -491,4 +516,17 @@ func (x *exportPR) export(ctx context.Context, res *app.DeclareResult) error {
 	}
 	res.PullRequest = &app.PullRequestResult{URL: opened.URL, Login: opened.Login, Branch: opened.Branch, TokenSource: p.PullRequest.TokenSource}
 	return nil
+}
+
+// printClaimResult prints what a claim of external system id wrote: the
+// claimed version and who signed it, or the draft and the command a person
+// accepts it with.
+func printClaimResult(w io.Writer, res *app.DeclareResult, id string) {
+	p := res.Plan
+	if res.Draft {
+		_, _ = fmt.Fprintf(w, "wrote %s of %s%s (%s): a person accepts it with %s --yes\n", res.Tag, fleet.ExternalSubjectPrefix, id, res.Published, p.AcceptCLI)
+		return
+	}
+	_, _ = fmt.Fprintf(w, "claimed %s%s -> oci://%s:%s\n", fleet.ExternalSubjectPrefix, id, p.BundleRepo, p.Version)
+	_, _ = fmt.Fprintf(w, "  signed by %s (person), inferredFrom: %s, no Git write\n", p.Signer.Subject, id)
 }

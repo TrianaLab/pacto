@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	_ "embed"
+	"encoding/json"
 	"maps"
 	"slices"
 	"strconv"
@@ -106,7 +107,10 @@ func demoInstallationConfig() (func(context.Context) (*fleet.InstallationDeclare
 // cluster collector that observes it are not the same thing (section 0b, Data source
 // vs Collector), telemetry comes from a third, and an environment nobody could reach
 // is what makes the snapshot honestly partial.
-func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[string]*contract.Bundle, error) {
+//
+// claims are the revisions a visitor claimed external systems with in this
+// tab (source_declare.go): they join the default registry, never published.
+func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) (*fleet.FleetSnapshot, map[string]*contract.Bundle, error) {
 	col := &fleet.Collection{}
 	byRef := map[string]*contract.Bundle{}
 	revisions := func(s *EmbedSource, registry string) []fleet.RawRevision {
@@ -136,6 +140,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	handover, handoverBundle, handedOver := demoHandover(demoNow(), prodCluster.ID)
 	col.Revisions = append(col.Revisions, handover)
 	byRef[handover.ResolvedRef] = handoverBundle
+	for _, c := range claims {
+		col.Revisions = append(col.Revisions, c)
+		byRef[c.ResolvedRef] = c.Bundle
+	}
 	col.Providers = []fleet.Provider{demoRegistryRow(demoNativeRegistry, col.Revisions)}
 
 	// One more registry, the payments story's own domain: the contracts the
@@ -196,6 +204,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 		Providers:    []fleet.Provider{crdRow, demoKernelEgressRow()},
 		Targets:      targets,
 		Provisioning: demoProvisioning(src),
+		Extensions:   demoExtensionRecords(src),
 		Usage:        demoUsage(src),
 		ExternalUses: demoExternalUses(demoNow()),
 		// The kernel observer names a caller with no contract by its workload,
@@ -227,10 +236,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	// A registry mirror that answered, but not with everything it holds: partial is a
 	// third source state, distinct from available and unavailable, and the source
 	// health strip is meant to distinguish all three.
-	// It also holds stripe's inferred contract (source_inferred.go), which the
+	// It also holds stripe's two inferred contracts (source_inferred.go), which the
 	// fleet shows on the stripe external, never as a service.
 	mirror := fleet.NewMemorySource("registry-mirror", "oci", &fleet.Collection{
-		Revisions:   []fleet.RawRevision{demoInferredRevision()},
+		Revisions:   demoInferredRevisions(),
 		State:       &fleet.SourceState{Status: fleet.SourcePartial},
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationSourcePartial, Source: "registry-mirror", Message: "tag listing truncated by the mirror"}},
 	})
@@ -258,13 +267,24 @@ func buildDemoFleet(src, partnersSrc *EmbedSource) (*fleet.FleetSnapshot, map[st
 	linked := fleet.NewMemorySource("k8s-production-linked", fleet.SourceKindLinked, &fleet.Collection{
 		Cluster: prodCluster, Targets: linkedTargets,
 	})
+	// The organization's Backstage catalog: owners, systems and dependencies
+	// it holds, read as inferred values beside the declared ones.
+	catalogSource, err := demoBackstageSource(demoNow())
+	if err != nil {
+		return nil, nil, err
+	}
+	// acme-idp speaks through the open seams (source_contribution.go).
+	evidence, err := demoEvidenceServer(prodCluster)
+	if err != nil {
+		return nil, nil, err
+	}
 	cat, err := demoCatalog()
 	if err != nil {
 		return nil, nil, err
 	}
 	// The hub's approved members (source_clusters.go), each one cluster of its own,
 	// and their link facts.
-	sources := append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow())},
+	sources := append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow()), catalogSource, evidence},
 		append(traceSources, append(demoMemberSources(), demoMemberLinks())...)...)
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
@@ -519,6 +539,33 @@ func demoProvisioning(src *EmbedSource) []fleet.RawProvisioning {
 			Outcome: string(evidence.Observed), Producer: "security-adapter", ObservedAt: at},
 	}
 }
+
+// demoExtensions is what two trusted producers report on the extension
+// capabilities payments-service declares. The dispute auditor reports 2.0.1's
+// payments.trianalab.com/dispute present, with its last audit time as its own
+// details, so that revision reads covered; the refund checker reports 1.2.1's
+// payments.trianalab.com/refund absent, so that revision reads failing. No
+// target runs either revision and neither is the current one, so neither
+// check moves payments-service's status. Both are marked Verified because
+// the WASM demo stands in for the Evidence Server, which accepts only signed
+// extension reports from a key granted the ref. They are dated off the demo
+// clock, so they stay current.
+func demoExtensions(src *EmbedSource) []fleet.RawExtension {
+	at := demoNow().Add(-20 * time.Minute)
+	present, absent := true, false
+	return []fleet.RawExtension{
+		{Service: "payments-service", Digest: demoDigest(src, "payments-service", "2.0.1"), Ref: "payments.trianalab.com/dispute",
+			Present: &present, Details: json.RawMessage(`{"lastAudit":"` + at.Format(time.RFC3339) + `"}`), Outcome: string(evidence.Observed),
+			Producer: "dispute-auditor", ProducerKeyID: "dispute-auditor-2026", ObservedAt: at, Verified: true},
+		{Service: "payments-service", Digest: demoDigest(src, "payments-service", "1.2.1"), Ref: "payments.trianalab.com/refund",
+			Present: &absent, Outcome: string(evidence.Observed), Producer: "refund-checker", ProducerKeyID: "refund-checker-2026",
+			ObservedAt: at, Verified: true},
+	}
+}
+
+// demoExtensionRecords is demoExtensions; TestDemoExtensionChecks swaps it to
+// build the demo without extension reports and compare the tallies.
+var demoExtensionRecords = demoExtensions
 
 // demoUsage is what the platform adapter reports about the usage and cost of
 // catalog-service 1.3.0's database in production. It is marked Verified because

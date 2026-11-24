@@ -91,8 +91,9 @@ rules:
     resources: [deployments]
     verbs: [create, delete, get, patch, update]
   {{- end }}
-  {{- if .Values.evidence.enabled }}
-  # Evidence Server lifecycle. No storage permission of any kind: the server is
+  {{- if include "pacto-operator.evidenceManaged" . }}
+  # Evidence Server lifecycle (evidence.enabled, or profile idp, where the
+  # operator runs it only while its prerequisites hold). No storage permission of any kind: the server is
   # stateless and accepted evidence lives in the contract registry, so the
   # operator has nothing durable to create in the cluster.
   - apiGroups: [""]

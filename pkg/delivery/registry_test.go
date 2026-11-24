@@ -18,6 +18,10 @@ func (mapRegistry) Annotations(context.Context, string) (map[string]string, erro
 	return map[string]string{ContractAnnotation: "oci://r/consumer@" + c1}, nil
 }
 
+func (mapRegistry) Layer(context.Context, string, int64) (string, []byte, error) {
+	return "", nil, errors.New("no layers")
+}
+
 func (m mapRegistry) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
 	if b := m[ref]; b != nil {
 		return b, nil
@@ -50,6 +54,10 @@ func TestResolveRevisionConfigRefs(t *testing.T) {
 type annRegistry map[string]string
 
 func (a annRegistry) Annotations(context.Context, string) (map[string]string, error) { return a, nil }
+
+func (annRegistry) Layer(context.Context, string, int64) (string, []byte, error) {
+	return "", nil, errors.New("no layers")
+}
 
 func (annRegistry) Pull(context.Context, string) (*contract.Bundle, error) {
 	return bundle("consumer", "1.0.0"), nil

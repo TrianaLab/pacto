@@ -337,3 +337,27 @@ func TestLinkSessionDeliveryRefused(t *testing.T) {
 	expect(t, errors.As(err, &de) && de.Status == http.StatusForbidden && de.Code == "SignInLinkReadsFleet" && !built,
 		"a link session reads the fleet only: %v built=%v", err, built)
 }
+
+// TestDashDeliveryEnvironmentsRefusal: the installation ladder is read with
+// the caller's client, and a refused read reaches the dashboard as a
+// DeliveryError with the apiserver's status.
+func TestDashDeliveryEnvironmentsRefusal(t *testing.T) {
+	id, _ := localAPI(t)
+	id.policyNS = "ops"
+	next := id.newClient
+	var asked string
+	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
+		c, err := next(cfg)
+		c.(*dynamicfake.FakeDynamicClient).PrependReactor("get", "configmaps", func(a k8stesting.Action) (bool, runtime.Object, error) {
+			asked = a.GetNamespace() + "/" + a.(k8stesting.GetAction).GetName()
+			return true, nil, apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, delivery.EnvironmentsConfigMap, errors.New("no"))
+		})
+		return c, err
+	}
+	api, err := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
+	expect(t, err == nil, "delivery: %v", err)
+	v, rows, readable, err := api.Environments(context.Background())
+	var de *dashboard.DeliveryError
+	expect(t, errors.As(err, &de) && de.Status == http.StatusForbidden && v == nil && rows == nil && !readable && asked == "ops/"+delivery.EnvironmentsConfigMap,
+		"refused: %v %q", err, asked)
+}

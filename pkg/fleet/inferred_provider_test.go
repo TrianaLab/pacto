@@ -230,12 +230,42 @@ func TestInferredRefWithoutRangeHasNoReason(t *testing.T) {
 	if rel := depEdge(t, q, "checkout", "stripe-pinned"); rel.RangeStatus != "" || rel.RangeReason != "" {
 		t.Errorf("edge = %+v", rel)
 	}
-	// A ref under pacto-inferred with no identity below it resolves as before.
-	for _, id := range []string{"Not_An_ID", "other-egress"} {
-		q = infFleet(t, nil, svc("checkout", "shop", contract.Dependency{Name: "x", Ref: "oci://ghcr.io/acme/pacto-inferred/" + id, Compatibility: "^1"}))
-		if rel := depEdge(t, q, "checkout", "x"); rel.ToExternal != "" || rel.RangeReason != "" || !rel.missing() {
-			t.Errorf("%s: edge = %+v", id, rel)
-		}
+	// A ref with no identity below pacto-inferred is no inferred ref at all.
+	q = infFleet(t, nil, svc("checkout", "shop", contract.Dependency{Name: "x", Ref: "oci://ghcr.io/acme/pacto-inferred/Not_An_ID", Compatibility: "^1"}))
+	if rel := depEdge(t, q, "checkout", "x"); rel.ToExternal != "" || rel.RangeReason != "" || !rel.missing() {
+		t.Errorf("Not_An_ID: edge = %+v", rel)
+	}
+	// The reserved other-egress joins nothing, and its declared range is unknown.
+	q = infFleet(t, nil, svc("checkout", "shop", contract.Dependency{Name: "x", Ref: "oci://ghcr.io/acme/pacto-inferred/other-egress", Compatibility: "^1"}))
+	if rel := depEdge(t, q, "checkout", "x"); rel.ToExternal != "" || rel.RangeStatus != RangeUnknown || rel.RangeReason != RangeReasonInferredProvider || !rel.missing() {
+		t.Errorf("other-egress: edge = %+v", rel)
+	}
+}
+
+func TestInferredLocationContributionJoinsNoExternal(t *testing.T) {
+	key, id, inferred := inferredLocation("oci://ghcr.io/acme/pacto-inferred/my-idp/services:checkout_1.0.0")
+	if key != "" || id != "my-idp/services" || !inferred {
+		t.Fatalf("inferredLocation = %q %q %v", key, id, inferred)
+	}
+}
+
+// TestDependencyOnContributionRefIsNeverAServiceOrExternal: a dependency
+// pinned at a producer's contribution repository joins no service and no
+// external system, and a declared range on it is unknown, never checked.
+func TestDependencyOnContributionRefIsNeverAServiceOrExternal(t *testing.T) {
+	ref := "oci://ghcr.io/acme/pacto-inferred/my-idp/services:checkout_1.0.0"
+	q := infFleet(t, nil, svc("orders", "shop", contract.Dependency{Name: "checkout", Ref: ref, Compatibility: "^1"}), svc("checkout", "shop"))
+	rel := depEdge(t, q, "orders", "checkout")
+	if rel.ToService != "" || rel.ToExternal != "" || rel.Resolved || rel.RangeStatus != RangeUnknown || rel.RangeReason != RangeReasonInferredProvider ||
+		rel.Reason != "the ref names my-idp's contributed record, never a service" {
+		t.Errorf("edge = %+v", rel)
+	}
+	if items := q.inferredProviderAttention(); len(items) != 0 {
+		t.Errorf("attention = %+v", items)
+	}
+	q = infFleet(t, nil, svc("orders", "shop", contract.Dependency{Name: "checkout", Ref: ref}))
+	if rel := depEdge(t, q, "orders", "checkout"); rel.RangeStatus != "" || rel.RangeReason != "" {
+		t.Errorf("no range: edge = %+v", rel)
 	}
 }
 
@@ -397,10 +427,9 @@ func TestInferredProviderAttentionOnePerProvider(t *testing.T) {
 
 func TestInferredProviderAttentionNextActionDeclare(t *testing.T) {
 	items := inferredItems(t, infFleet(t, []RawRevision{stripeProvider()}, svc("checkout", "shop", pinStripe("^2023.10"))))
-	// pacto declare reads only workloads, so an external's step is the one
-	// that exists today: a hand-written contract naming it.
-	if len(items) != 1 || items[0].NextAction == nil || *items[0].NextAction != *editContract() ||
-		items[0].NextStep != "Write a contract with service.external: stripe, publish it outside pacto-inferred, then point the ranges at it" ||
+	// An unclaimed external system is claimed with pacto claim.
+	if len(items) != 1 || !reflect.DeepEqual(items[0].NextAction, claimAction("stripe")) ||
+		items[0].NextStep != "Claim stripe with pacto claim stripe --owner <team>, then point the ranges at the claimed contract" ||
 		strings.Contains(items[0].Reason, "published") {
 		t.Errorf("items = %+v", items)
 	}
@@ -660,5 +689,69 @@ func TestDivertedRevisionKeepsLimitationsAndMergesCopies(t *testing.T) {
 	}
 	if r := snap.Externals["stripe"].Provider.Revisions[0]; r.Signature == nil || r.Signature.Source != SignatureSourceOperator || r.Surface == nil {
 		t.Errorf("merged revision = %+v", r)
+	}
+}
+
+// TestRestrictedViewCountsIndexNames: an index entry or inferred contract a
+// source could not read may be one only a hidden service names, so a
+// restricted view counts them per source and names neither.
+func TestRestrictedViewCountsIndexNames(t *testing.T) {
+	r, tg := infSvc("checkout", "shop")
+	idx := &Collection{
+		Limitations: []Limitation{{Code: LimitationIndexEntryInvalid, Source: "registry-index", Message: "index entry secret-svc.1.0.0 not used: its bundle could not be read: denied"}},
+		Notes:       []Limitation{{Code: LimitationInferredContractUnread, Source: "registry-index", Message: "ref oci://ghcr.io/acme/pacto-inferred/stripe:1.0.0 could not be resolved: not found"}},
+	}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Revisions: []RawRevision{r}, Targets: []RawTarget{tg}}),
+		NewMemorySource("registry-index", "index", idx))
+	if err != nil {
+		t.Fatal(err)
+	}
+	view := NewQuery(snap).Restrict(anyCluster(func(ns string) bool { return ns == "shop" }), nil)
+	var codes []string
+	for _, l := range view.snap.Limitations {
+		if strings.Contains(l.Message, "stripe") || strings.Contains(l.Message, "secret-svc") {
+			t.Errorf("restricted view names %+v", l)
+		}
+		if l.Source == "registry-index" {
+			codes = append(codes, l.Code)
+		}
+	}
+	if !slices.Contains(codes, LimitationIndexEntryInvalid) || !slices.Contains(codes, LimitationInferredContractUnread) {
+		t.Errorf("counts lost: %v", codes)
+	}
+}
+
+// TestCollectionNotesNeverDegradeTheSource: a note reaches the snapshot and
+// leaves its source available and the answer complete.
+func TestCollectionNotesNeverDegradeTheSource(t *testing.T) {
+	r, tg := infSvc("checkout", "shop")
+	note := Limitation{Code: LimitationInferredContractUnread, Source: "idx", Message: "unread"}
+	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
+		NewMemorySource("k8s", SourceKindKubernetes, &Collection{Revisions: []RawRevision{r}, Targets: []RawTarget{tg}}),
+		NewMemorySource("idx", "index", &Collection{Notes: []Limitation{note}}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Completeness != CompletenessComplete || !slices.Contains(snap.Limitations, note) || snap.Sources[1].Status != SourceAvailable {
+		t.Errorf("%s %+v %+v", snap.Completeness, snap.Sources, snap.Limitations)
+	}
+}
+
+func TestInferredNextStepOfRecord(t *testing.T) {
+	var none *ExternalRecord
+	cases := map[string]struct {
+		rec  *ExternalRecord
+		want string
+	}{
+		"no record": {none, InferredExternalNextStep("stripe", "")},
+		"unclaimed": {&ExternalRecord{}, InferredExternalNextStep("stripe", "")},
+		"claimed":   {&ExternalRecord{Claim: &ExternalClaim{Ref: "ghcr.io/acme/stripe@sha256:a"}}, InferredExternalNextStep("stripe", "ghcr.io/acme/stripe")},
+		"hidden":    {&ExternalRecord{Claim: &ExternalClaim{Hidden: true}}, hiddenClaimStep},
+	}
+	for name, c := range cases {
+		if got := c.rec.InferredNextStep("stripe"); got != c.want {
+			t.Errorf("%s: %q", name, got)
+		}
 	}
 }

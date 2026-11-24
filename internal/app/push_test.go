@@ -11,6 +11,9 @@ import (
 	"testing"
 	"testing/fstest"
 
+	"github.com/google/go-containerregistry/pkg/crane"
+	"github.com/google/go-containerregistry/pkg/name"
+	ggcrremote "github.com/google/go-containerregistry/pkg/v1/remote"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -666,5 +669,34 @@ func TestPushFailsOnUnresolvableConfigRef(t *testing.T) {
 	r, _ := svc.Validate(context.Background(), ValidateOptions{Path: dir})
 	if len(r.Errors) != 1 || r.Errors[0].Code != "CONFIG_REF_UNRESOLVED" {
 		t.Fatalf("errors = %+v", r.Errors)
+	}
+}
+
+// TestPushLegacyTagIsUnchanged: a tag an older Pacto wrote holds the legacy
+// digest of the same content. A push leaves it where it is and still writes
+// the missing index entry.
+func TestPushLegacyTagIsUnchanged(t *testing.T) {
+	ir := newIndexReg(t)
+	svc, dir := pushIndexService(ir), writeTestBundle(t)
+	b, err := svc.ResolveBundle(t.Context(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, _ := oci.BundleDigests(b)
+	legacy := ir.host + "/acme/svc:1.0.0"
+	img, _ := oci.LegacyBundleImage(b)
+	ref, _ := name.ParseReference(legacy, name.Insecure)
+	if err := ggcrremote.Write(ref, img); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.Push(t.Context(), PushOptions{Ref: "oci://" + ir.host + "/acme/svc", Path: dir})
+	if err != nil || !res.Unchanged || res.Digest != ds.Legacy || res.Index != "indexed as "+ir.host+"/acme/pacto-index:"+pushTag(ir) {
+		t.Fatalf("push: %v %+v", err, res)
+	}
+	if got, err := crane.Digest(legacy, crane.Insecure); err != nil || got != ds.Legacy {
+		t.Fatalf("the tag moved to %s (%v)", got, err)
+	}
+	if e := readEntry(t, ir.host+"/acme/pacto-index", pushTag(ir)); e.Bundle != ir.host+"/acme/svc@"+ds.Legacy {
+		t.Fatalf("entry %+v", e)
 	}
 }

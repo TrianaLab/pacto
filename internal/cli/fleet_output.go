@@ -63,19 +63,59 @@ func printFleetService(cmd *cobra.Command, sv *fleet.ServiceView, format string)
 		if more := sv.ReplacesTotal - len(sv.Replaces); more > 0 {
 			_, _ = fmt.Fprintf(w, "  %d more\n", more)
 		}
-		_, _ = fmt.Fprintf(w, "Owner: %s%s\n", orDash(s.Owner.DisplayString()), tui.OwnerProvenanceMark(s.OwnerProvenance, s.OwnerSource))
+		printServiceOwner(w, s)
+		printInferredDomain(w, s)
 		_, _ = fmt.Fprintf(w, "Status: %s\n", orDash(s.Status))
 		_, _ = fmt.Fprintf(w, "Sources: %v\n", s.Sources)
+		if s.Contribution != nil {
+			_, _ = fmt.Fprintln(w, s.Contribution.Line(sv.Meta.AsOf))
+		}
 		if s.Workload != nil {
 			_, _ = fmt.Fprintln(w, strings.Join(s.Workload.Lines(), "\n"))
 		}
 		printFields(w, sv.Fields, sv.ReplacesHidden)
 		printRevisions(w, sv.Revisions)
-		printServiceTargets(w, sv.Targets)
+		printServiceTargets(w, sv.Targets, sv.Meta.AsOf)
+		printExtensionChecks(w, sv.Revisions)
 		printServiceEdges(w, sv)
 		warnPartial(cmd, sv.Meta)
 		return nil
 	}, nil)
+}
+
+// printServiceOwner prints a service's owner line. An owner only a source
+// outside every contract reports reads unknown, with the inferred value on
+// its own line, so it never reads as the owner.
+func printServiceOwner(w io.Writer, s *fleet.ServiceRecord) {
+	if s.OwnerProvenance != fleet.OwnerProvenanceInferred || s.InferredOwner == nil {
+		_, _ = fmt.Fprintf(w, "Owner: %s%s\n", orDash(s.Owner.DisplayString()), tui.OwnerProvenanceMark(s.OwnerProvenance, s.OwnerSource, nil))
+		return
+	}
+	_, _ = fmt.Fprintln(w, "Owner: unknown")
+	_, _ = fmt.Fprintln(w, inferredLine(tui.InferredOwnerLabel(s.InferredOwner.Value), s.InferredOwner))
+}
+
+// printInferredDomain prints the business domain a source reports for a
+// service that declares none; nothing otherwise.
+func printInferredDomain(w io.Writer, s *fleet.ServiceRecord) {
+	if s.BusinessDomain != "" || s.InferredBusinessDomain == nil {
+		return
+	}
+	domain := "none"
+	if s.BusinessDomainUnknown {
+		domain = "unknown"
+	}
+	_, _ = fmt.Fprintln(w, "Domain: "+domain)
+	_, _ = fmt.Fprintln(w, inferredLine(s.InferredBusinessDomain.Value, s.InferredBusinessDomain))
+}
+
+// inferredLine is "  inferred: <label> (<source> <where>, asOf <time>)".
+func inferredLine(label string, f *fleet.InferredFact) string {
+	from := strings.TrimSpace(f.Source + " " + f.Where)
+	if f.AsOf != nil {
+		from += ", asOf " + f.AsOf.UTC().Format(time.RFC3339)
+	}
+	return "  inferred: " + label + " (" + from + ")"
 }
 
 // printReplacedFrom says the answer is about the service that replaced the
@@ -132,14 +172,51 @@ func printRevisions(w io.Writer, revs []*fleet.ContractRevision) {
 	}
 }
 
-func printServiceTargets(w io.Writer, targets []*fleet.TargetRecord) {
+// printExtensionChecks prints one line per extension check that counts
+// toward the service status: its state, the producer, when it observed and
+// why the check is not covered.
+func printExtensionChecks(w io.Writer, revs []*fleet.ContractRevision) {
+	for _, r := range revs {
+		for _, c := range r.Extensions {
+			if !c.CountsTowardStatus {
+				continue
+			}
+			line := fmt.Sprintf("Extension %s (v%s): %s", c.Ref, r.Version, c.State)
+			if c.Producer != "" {
+				line += " by " + c.Producer
+			}
+			if c.AsOf != nil {
+				line += " (as of " + c.AsOf.UTC().Format(time.RFC3339) + ")"
+			}
+			if c.Reason != "" {
+				line += ": " + c.Reason
+			}
+			_, _ = fmt.Fprintln(w, line)
+		}
+	}
+}
+
+func printServiceTargets(w io.Writer, targets []*fleet.TargetRecord, asOf time.Time) {
 	if len(targets) == 0 {
 		return
 	}
 	_, _ = fmt.Fprintf(w, "Targets (%d):\n", len(targets))
 	for _, t := range targets {
-		_, _ = fmt.Fprintf(w, "  %s  compliance=%s stale=%t%s\n", t.Key, t.Compliance, t.Stale, linkedMark(t.Link))
+		_, _ = fmt.Fprintf(w, "  %s  compliance=%s stale=%t%s%s\n", t.Key, t.Compliance, t.Stale, reportedMark(t, asOf), linkedMark(t.Link))
 	}
+}
+
+// reportedMark names the producer that reported a target through an
+// Evidence Server and its evidence age, or nothing.
+func reportedMark(t *fleet.TargetRecord, asOf time.Time) string {
+	if t.ReportedBy == "" {
+		return ""
+	}
+	age := "unknown"
+	if t.EvidenceAt != nil {
+		age = fleet.Age(asOf.Sub(*t.EvidenceAt))
+	}
+	return " reportedBy=" + t.ReportedBy + " evidence=" + age
 }
 
 // linkedMark names how a target was linked with no Pacto, or nothing.
@@ -211,6 +288,7 @@ func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey
 		consumers = "consumer"
 	}
 	_, _ = fmt.Fprintf(w, "%s  external, %s  (used by %d %s)\n", rec.Key, rec.Class, rec.ConsumersTotal, consumers)
+	printExternalOwner(w, rec)
 	label := "sources"
 	line := func(format string, a ...any) {
 		_, _ = fmt.Fprintf(w, "  %-7s  "+format+"\n", append([]any{label}, a...)...)
@@ -257,6 +335,25 @@ func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey
 	printExternalProvider(w, rec.Provider)
 }
 
+// printExternalOwner prints who owns an external system: the claiming
+// service's team, a claim the viewer may not read, or none, routed for
+// routing only. Other egress is no system to claim, so it prints nothing.
+func printExternalOwner(w io.Writer, rec fleet.ExternalRecord) {
+	line := "unclaimed, routed to the default approvers (routing only)"
+	switch c := rec.Claim; {
+	case rec.Key == fleet.OtherEgress:
+		return
+	case rec.Claimants > 1:
+		line = fmt.Sprintf("claimed by %d services, so no claim counts until all but one are retracted", rec.Claimants)
+	case c == nil:
+	case c.Hidden:
+		line = "claimed by a service you cannot see"
+	default:
+		line = fmt.Sprintf("%s (claimed by %s %s)", cmp.Or(c.Owner, "no verified owner"), c.Service, c.Version)
+	}
+	_, _ = fmt.Fprintf(w, "  owner    %s\n", line)
+}
+
 // printExternalProvider is the inferred contract block of an external
 // system; nothing when no source read one.
 func printExternalProvider(w io.Writer, p *fleet.ExternalProvider) {
@@ -301,6 +398,9 @@ func printFleetTarget(cmd *cobra.Command, tv *fleet.TargetView, format string) e
 		_, _ = fmt.Fprintf(w, "Revision: %s\n", rev)
 		if t.Link != nil {
 			_, _ = fmt.Fprintf(w, "Linked: %s\n", t.Link.Line(tv.Meta.AsOf))
+		}
+		if l := t.ReportedLine(tv.Meta.AsOf); l != "" {
+			_, _ = fmt.Fprintln(w, l)
 		}
 		_, _ = fmt.Fprintf(w, "Stale: %t\n", t.Stale)
 		if t.Coverage != nil {

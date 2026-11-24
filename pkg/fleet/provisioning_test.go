@@ -403,7 +403,7 @@ func TestProvisioningForWithoutReports(t *testing.T) {
 		"unknown revision": {{FromRevision: "missing", Type: RelationshipConfigRef, To: "db"}},
 		"repeated":         {known, known},
 	} {
-		got, lims := q.provisioningFor(OfferingUse{}, rels, nil, nil)
+		got, lims := q.provisioningFor(OfferingUse{}, rels, nil, nil, provisioningHint{})
 		if len(got) != 1 || got[0].Phase != StatusUnknown || got[0].Reason != noProvisioningReport || len(lims) != 0 {
 			t.Errorf("%s: %+v %+v", name, got, lims)
 		}

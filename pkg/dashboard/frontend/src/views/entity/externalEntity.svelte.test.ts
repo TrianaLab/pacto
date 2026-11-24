@@ -129,6 +129,42 @@ describe('ExternalEntity inferred contract', () => {
     expect(t2.querySelector('[data-testid="inferred-surface-meta"]')?.textContent).toMatch(/; complete$/);
   });
 
+  const change = (o: Record<string, unknown> = {}) => ({
+    from: '0.0.1', to: '0.0.2', at: new Date(Date.now() - 2 * 3600_000).toISOString(), checked: true,
+    openapiFrom: `oci://registry.example/vendor/stripe-openapi@sha256:${'a'.repeat(64)}`, openapiTo: `oci://registry.example/vendor/stripe-openapi@sha256:${'b'.repeat(64)}`,
+    added: ['clients stripe-go/77'], removed: ['clients stripe-go/76'], ...o,
+  });
+  it('caps the change values in the tip', () => {
+    const many = Array.from({ length: 2000 }, (_, i) => `hosts h${i}.example:443`);
+    const t = render({ ...provider({ surface }), change: change({ added: many, removed: null }) });
+    const tip = t.querySelector('[data-testid="external-provider-change"] [role="note"]')?.textContent ?? '';
+    expect(tip).toContain('hosts h9.example:443');
+    expect(tip).not.toContain('hosts h10.example:443');
+    expect(tip).toContain('and 1,990 more');
+  });
+  it('the inferred contract disclosure says what changed', () => {
+    const t = render({ ...provider({ surface }), change: change() });
+    const line = t.querySelector('#sec-inferred-contract [data-testid="external-provider-change"]') as HTMLElement;
+    expect(line.querySelector('.xe-change-words')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Changed 0.0.1 → 0.0.2 (2 hours ago)');
+    expect(line.querySelector('button[aria-label="About this change"]')).toBeTruthy();
+    const tip = line.querySelector('[role="note"]')?.textContent ?? '';
+    expect(tip).toContain(`OpenAPI oci://registry.example/vendor/stripe-openapi@sha256:${'a'.repeat(64)} → oci://registry.example/vendor/stripe-openapi@sha256:${'b'.repeat(64)}`);
+    expect(tip).toContain('added clients stripe-go/77');
+    expect(tip).toContain('removed clients stripe-go/76');
+  });
+
+  it('an unchecked change says unchecked', () => {
+    const t = render({ ...provider({ surface }), change: change({ checked: false, added: null, removed: null }) });
+    const line = t.querySelector('[data-testid="external-provider-change"]') as HTMLElement;
+    expect(line.querySelector('.xe-change-words')?.textContent?.replace(/\s+/g, ' ').trim()).toBe('Changed 0.0.1 → 0.0.2 (2 hours ago), unchecked');
+    expect(line.querySelector('[role="note"]')?.textContent).toContain("No source checked these revisions' signatures");
+  });
+
+  it('no change line without a change', () => {
+    const t = render(provider({ surface }));
+    expect(t.querySelector('[data-testid="external-provider-change"]')).toBeNull();
+  });
+
   it('caps each list at 12 with its total and a Show all button', () => {
     const hosts = Array.from({ length: 2000 }, (_, i) => value(`h${String(i).padStart(4, '0')}.s3.amazonaws.com:443`, ['k8s']));
     const t = render(provider({ surface: { ...surface, hosts } }));
@@ -141,5 +177,84 @@ describe('ExternalEntity inferred contract', () => {
     flushSync();
     expect(list.querySelectorAll('li').length).toBe(2000);
     expect(t.querySelector('[data-testid="inferred-surface-ports-show-all"]')).toBeNull();
+  });
+});
+
+describe('ExternalEntity owner', () => {
+  const render = (rec: Record<string, unknown>, props: Record<string, unknown> = {}) => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const detail = { external: { external: { key: 'stripe', label: 'Stripe', class: 'vendor-api', consumers: [], consumersTotal: 2, ...rec }, consumers: [] } };
+    const c = mount(ExternalEntity, { target, props: { detail, ...props } });
+    flushSync();
+    cleanup = () => { unmount(c); target.remove(); };
+    return target;
+  };
+  const tip = (t: HTMLElement) => t.querySelector('[data-testid="external-owner"] [data-tip], [data-testid="external-owner"] [title]');
+
+  it('says an unclaimed system is routed for routing only, with a Claim button only for a caller who can declare', () => {
+    const t = render({});
+    expect(t.querySelector('[data-testid="external-owner-unclaimed"]')?.textContent).toContain('Unclaimed');
+    expect(t.querySelector('[data-testid="external-owner"]')?.innerHTML).toContain("Routed to the installation's default approvers (routing only; it grants no right)");
+    expect(t.querySelector('[data-testid="external-claim"]')).toBeNull();
+    cleanup?.();
+    const w = render({}, { canDeclare: true });
+    const btn = w.querySelector('[data-testid="external-claim"]') as HTMLButtonElement;
+    expect(btn.getAttribute('aria-expanded')).toBe('false');
+    btn.click();
+    flushSync();
+    expect(btn.getAttribute('aria-expanded')).toBe('true');
+    expect(w.querySelector('[data-testid="claim-fields"]')).toBeTruthy();
+  });
+
+  it('names the owner and the claiming service, with who declared it in the mark', () => {
+    const t = render({ claim: { service: 'payments-stripe', version: '0.2.0', declaredVersion: '0.1.0', owner: 'team-platform', ownerKey: 'team:team-platform', by: 'ana@acme.com', ref: 'ghcr.io/acme/payments-stripe@sha256:abc' } }, { canDeclare: true });
+    const line = t.querySelector('[data-testid="external-owner-claimed"]');
+    expect(line?.textContent?.replace(/\s+/g, ' ')).toContain('team-platform, claimed by payments-stripe 0.2.0');
+    expect(line?.querySelector('a[href="#/owners/team%3Ateam-platform"]')).toBeTruthy();
+    expect(line?.querySelector('a[href="#/fleet/services/payments-stripe"]')?.getAttribute('title')).toBe('payments-stripe');
+    expect(tip(t as HTMLElement)).toBeTruthy();
+    // The claim names the version it was established at, apart from the newest revision.
+    expect(line?.innerHTML).toContain('Claim established by ana@acme.com at 0.1.0; newest revision ghcr.io/acme/payments-stripe@sha256:abc');
+    // A claim again opens the panel with the claimed name.
+    (t.querySelector('[data-testid="external-claim"]') as HTMLButtonElement).click();
+    flushSync();
+    expect((t.querySelector('[data-testid="claim-name"]') as HTMLInputElement).value).toBe('payments-stripe');
+  });
+
+  it('says when the claiming service has no verified owner', () => {
+    const t = render({ claim: { service: 'payments-stripe', version: '0.2.0' } });
+    expect(t.querySelector('[data-testid="external-owner-claimed"]')?.textContent).toContain('No verified owner');
+    expect(t.querySelector('[data-testid="external-owner-claimed"]')?.innerHTML).toContain('Claim established by an unnamed person');
+  });
+
+  it('links a DRI-only owner by its dri key', () => {
+    const t = render({ claim: { service: 'payments-stripe', version: '0.2.0', owner: 'alice', ownerKey: 'dri:alice' } });
+    const line = t.querySelector('[data-testid="external-owner-claimed"]');
+    expect(line?.querySelector('a[href="#/owners/dri%3Aalice"]')).toBeTruthy();
+    expect(line?.querySelector('a[href="#/owners/team%3Aalice"]')).toBeNull();
+  });
+
+  it('says more than one claim counts as none, with no Claim button', () => {
+    const t = render({ claimants: 2 }, { canDeclare: true });
+    expect(t.querySelector('[data-testid="external-owner-claimants"]')?.textContent).toBe('Claimed by 2 services, so no claim counts until all but one are retracted');
+    expect(t.querySelector('[data-testid="external-owner-unclaimed"]')).toBeNull();
+    expect(t.querySelector('[data-testid="external-claim"]')).toBeNull();
+  });
+
+  it('shows a claim the caller cannot see with no Claim button', () => {
+    const t = render({ claim: { hidden: true } }, { canDeclare: true });
+    expect(t.querySelector('[data-testid="external-owner-hidden"]')?.textContent).toBe('Claimed by a service you cannot see');
+    expect(t.querySelector('[data-testid="external-claim"]')).toBeNull();
+  });
+
+  it('shows no owner on the other-egress node', () => {
+    const t = render({ key: 'other-egress', class: 'other-egress' }, { canDeclare: true });
+    expect(t.querySelector('[data-testid="external-owner"]')).toBeNull();
+  });
+
+  it('opens the claim panel back from a signing login', () => {
+    const t = render({}, { canDeclare: true, declareQuery: { open: true, signed: 'sha256:i1' } });
+    expect(t.querySelector('[data-testid="claim-fields"]')).toBeTruthy();
   });
 });

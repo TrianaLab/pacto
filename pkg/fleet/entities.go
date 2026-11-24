@@ -480,7 +480,7 @@ func (q *Query) clusterMembers(cluster string) (map[ServiceKey]bool, map[Revisio
 		}
 	}
 	for k, s := range q.snap.Services {
-		if s.Inferred() && s.Workload.Cluster == cluster {
+		if s.inferredWorkload() && s.Workload.Cluster == cluster {
 			svc[k] = true
 		}
 	}
@@ -822,7 +822,7 @@ func (q *Query) offeringListRefs() ([]EntityRef, map[string]*offeringFacts) {
 func (q *Query) serviceListRef(s *ServiceRecord, created OriginCount) EntityRef {
 	ref := serviceEntityRef(s)
 	ref.Targets = len(s.Targets)
-	if s.Inferred() {
+	if s.inferredWorkload() {
 		ref.Image, ref.Group, ref.Repository = inferredListFacts(s.Workload)
 	}
 	if s.Template {

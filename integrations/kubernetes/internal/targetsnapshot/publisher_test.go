@@ -331,7 +331,7 @@ func TestTargetPublisherUnionsEvidenceTargets(t *testing.T) {
 	}))
 	defer srv.Close()
 	e := newTargetsEnv(t, fakeReader(snapshotObjects()...))
-	e.p.EvidenceURL, e.p.HTTP = srv.URL, srv.Client()
+	e.p.EvidenceURL, e.p.HTTP = func() string { return srv.URL }, srv.Client()
 	if err := e.p.publish(context.Background()); err != nil {
 		t.Fatal(err)
 	}
@@ -353,7 +353,8 @@ func TestTargetPublisherUnionsEvidenceTargets(t *testing.T) {
 	} {
 		name := tc.name
 		mu.Lock()
-		e.p.EvidenceURL, answer, status = tc.url, tc.answer, tc.status
+		url := tc.url
+		e.p.EvidenceURL, answer, status = func() string { return url }, tc.answer, tc.status
 		mu.Unlock()
 		if err := e.p.publish(context.Background()); err != nil {
 			t.Fatalf("%s: %v", name, err)
@@ -369,5 +370,26 @@ func checkEvidencePartial(t *testing.T, name string, s core.TargetSnapshot) {
 	if sec := s.Sources[2]; s.Evidence != nil || s.Completeness != fleet.CompletenessPartial || sec.Completeness != fleet.CompletenessPartial ||
 		len(sec.Limitations) != 1 || len(s.Pactos) != 1 {
 		t.Fatalf("%s: snapshot %+v", name, s)
+	}
+}
+
+// TestTargetPublisherCarriesExtensionReports: a v6 body with an extension
+// report rides in the snapshot and maps back to a verified extension record.
+func TestTargetPublisherCarriesExtensionReports(t *testing.T) {
+	body := `{"schemaVersion":"` + evidenceingest.TargetsSchemaVersionExtensions + `","generatedAt":"2026-11-22T10:00:00Z",` +
+		`"health":{"status":"ready","subjects":1,"failedSubjects":0,"invalidArtifacts":0},"truncated":false,"targets":[],` +
+		`"extensions":[{"subject":"r/web/prod/extension/backup","service":"web","contractRef":"oci://r/web@sha256:aa","producer":"acme-backup",` +
+		`"ref":"x.acme.io/backup","outcome":"Observed","present":true,"evidenceAt":"2026-11-22T09:00:00Z","acceptedAt":"2026-11-22T09:01:00Z"}]}`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(body)) }))
+	defer srv.Close()
+	e := newTargetsEnv(t, fakeReader(snapshotObjects()...))
+	e.p.EvidenceURL, e.p.HTTP = func() string { return srv.URL }, srv.Client()
+	if err := e.p.publish(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := e.pushed(t)
+	col, err := evidenceingest.TargetsCollection("ev", s.Evidence)
+	if err != nil || len(col.Extensions) != 1 || !col.Extensions[0].Verified || s.Sources[2].Completeness != fleet.CompletenessComplete {
+		t.Fatalf("snapshot %+v, evidence %+v %v", s, col, err)
 	}
 }

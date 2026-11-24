@@ -13,8 +13,8 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
-       test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
-       test-acceptance-kind-profiles test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-delivery-environments test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
+       test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -133,8 +133,8 @@ ci-perf-envtest:
 test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrade test-acceptance-kind-reconcile \
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
 	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
-	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-least-privilege \
-	test-acceptance-kind-profiles test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review
+	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-delivery-environments test-acceptance-kind-least-privilege \
+	test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -153,6 +153,15 @@ test-acceptance-kind-least-privilege:
 # idp runs delivery and the dashboard's capability answer says so.
 test-acceptance-kind-profiles:
 	bash tests/acceptance/kind/profiles.sh
+
+# Profile idp on a real API server: the Evidence Server runs only once the
+# registry serves OCI Referrers and the trust Secret holds a key, the recorder
+# stays off without a signer and the detected rows say why; idp.crossplane.install
+# bootstraps upstream Crossplane; profile default then removes every idp piece
+# and keeps observation, the target snapshot push and delivery, while the
+# Crossplane CRDs and resources stay.
+test-acceptance-kind-idp:
+	bash tests/acceptance/kind/idp.sh
 
 # Multi-cluster reads on two real API servers: one dashboard started with
 # --context on the runner reads two kind clusters (an alias context of the
@@ -254,6 +263,26 @@ test-acceptance-kind-gitops-kargo:
 # Application applies the promote and the rollback.
 test-acceptance-kind-delivery-argocd:
 	bash tests/acceptance/kind/delivery-argocd.sh
+
+# Profile idp from an empty cluster: Flux arrives only through the Pacto
+# release's idp.flux.install value (vendored upstream, first at upgradeFrom),
+# manifests, Kustomize and Helm ship through it, helm upgrade moves Flux to the
+# pinned version with the workloads untouched, the manifest inspector refuses a
+# ClusterRoleBinding with a signed record, and turning the value off or
+# uninstalling Pacto leaves Flux and the workloads running. flux-vendor-verify
+# (network) first proves files/flux/ is the pinned upstream release.
+test-acceptance-kind-delivery-idp-flux:
+	$(MAKE) -C integrations/kubernetes flux-vendor-verify
+	bash tests/acceptance/kind/delivery-idp-flux.sh
+
+# The installation ladder under profile idp: services published with no
+# environments[] get managed Stages on suspended Flux objects that a person's
+# first approval unlocks, a Helm-owned workload and a namespace of another team
+# are never taken, a confirmed preview rung gets a leaf Stage, a temporary
+# environment retires after it expires and a delete made while the promoter
+# was down is reported once.
+test-acceptance-kind-delivery-environments:
+	bash tests/acceptance/kind/delivery-environments.sh
 
 # eBPF runtime conformance: the operator-managed node agent attaches to a real
 # kernel, and every runtime contract field's documented verdict is reproduced

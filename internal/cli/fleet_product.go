@@ -54,7 +54,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f.String("environment", "", "with --kind target, targets in this environment (the delivery.pacto.trianalab.io/environment label); with --consumes and --phase, only the consumers whose status in that phase is in this environment")
 	f.String("cluster", "", "entities in this cluster, by its UID as meta.clusters lists it: targets, services with a target or an inferred workload there and revisions a target there runs; other kinds ignore it")
 	f.String("ownership", "", "how ownership is declared on a service (consistent, conflicting, unowned, unknown or unidentified; conflicting means owners disagree: targets run different owners, or one version declares two; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)")
-	f.String("gap", "", "services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability), or unknown for those Pacto cannot judge")
+	f.String("gap", "", "services whose contracts leave this out (no-summary, no-domain, no-interface-docs, no-readiness, not-deployed, unverified-capability: an extension capability no evaluator or trusted producer checks), or unknown for those Pacto cannot judge")
 	f.String("status", "", "canonical compliance status")
 	addTemplateFlag(f)
 	addDeclarationFlag(cmd)
@@ -259,7 +259,8 @@ func newFleetAttentionCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 		Short: "List what needs attention, most severe first",
 		Long: "Lists what needs attention, most severe first, each item with its reason and next step. " +
 			"--category undeclared lists runtime calls no contract declares and callers with no contract. " +
-			"--category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor.",
+			"--category lifecycle lists services that use a deprecated or past-sunset provider, or whose range refuses its successor. " +
+			"--category unowned lists services and external systems with no owner; an external system ranks by how many services use it.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			q, err := buildQuery(cmd, svc)
@@ -921,6 +922,9 @@ func provisioningText(st fleet.ProvisioningStatus) string {
 	}
 	if st.Reason != "" {
 		s += ": " + st.Reason
+	}
+	if st.Suggestion != "" {
+		s += "; " + st.Suggestion
 	}
 	return s
 }

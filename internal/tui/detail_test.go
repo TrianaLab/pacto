@@ -907,3 +907,38 @@ func TestRenderTargetDetailLink(t *testing.T) {
 		t.Fatalf("an unlinked target shows no link:\n%s", b.String())
 	}
 }
+
+// A contributed service's page names its producer, record and age.
+func TestRenderServiceDetailContribution(t *testing.T) {
+	asOf := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	recorded := asOf.Add(-3 * time.Hour)
+	var b strings.Builder
+	renderServiceDetail(&b, "checkout", &fleet.ServiceDetailData{
+		Contribution: &fleet.ServiceContribution{Producer: "my-idp", Ref: "ghcr.io/acme/pacto-inferred/my-idp/services@sha256:ab12", AsOf: &recorded},
+	}, fleet.CompletenessComplete, asOf)
+	if out := b.String(); !strings.Contains(out, "Contributed by my-idp from ghcr.io/acme/pacto-inferred/my-idp/services@sha256:ab12, recorded 3h ago; inferred, never clears a gate") {
+		t.Fatalf("missing contribution line:\n%s", out)
+	}
+	b.Reset()
+	renderServiceDetail(&b, "ledger", &fleet.ServiceDetailData{}, fleet.CompletenessComplete, asOf)
+	if strings.Contains(b.String(), "Contributed by") {
+		t.Fatalf("a declared service names a producer:\n%s", b.String())
+	}
+}
+
+// A target an Evidence Server delivered says who reported it in place of its
+// scope; a target-state external target keeps its scope.
+func TestRenderTargetDetailReportedBy(t *testing.T) {
+	asOf := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	at := asOf.Add(-3 * time.Minute)
+	var b strings.Builder
+	renderTargetDetail(&b, &fleet.TargetDetailData{Service: fleet.EntityRef{Label: "ledger"}, Scope: "my-idp", ReportedBy: "my-idp", EvidenceAt: &at}, asOf)
+	if out := b.String(); !strings.Contains(out, "reported by:") || !strings.Contains(out, "my-idp (evidence 3m ago)") || strings.Contains(out, "scope:") {
+		t.Fatalf("missing reported-by field:\n%s", out)
+	}
+	b.Reset()
+	renderTargetDetail(&b, &fleet.TargetDetailData{Service: fleet.EntityRef{Label: "ledger"}, Scope: "acme-idp", Kind: "external"}, asOf)
+	if out := b.String(); !strings.Contains(out, "scope:") || strings.Contains(out, "reported by") {
+		t.Fatalf("a target-state target lost its scope:\n%s", out)
+	}
+}

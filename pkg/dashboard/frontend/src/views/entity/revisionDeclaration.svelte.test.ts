@@ -47,6 +47,14 @@ describe('RevisionEntity, declaration', () => {
     expect(visible(l)).toContain('cluster read 1 of 1 source complete');
   });
 
+  it('links the external system a claim came from', () => {
+    render({ inferred: [], declaration: { ...signed, inferredFrom: 'external:stripe' } });
+    const a = line()!.querySelector('bdi a') as HTMLAnchorElement;
+    expect(a.getAttribute('href')).toBe('#/fleet/externals/stripe');
+    expect(a.textContent).toBe('external stripe');
+    expect(line()!.querySelector('bdi')!.textContent).toBe(`Declared by ${LONG} from external stripe`);
+  });
+
   it('declaration with zero inferred items still renders inferred-declaration', () => {
     render({ inferred: [], inferredTotal: 0, declaration: signed });
     expect(line()).toBeTruthy();

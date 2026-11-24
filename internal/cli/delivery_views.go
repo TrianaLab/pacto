@@ -17,11 +17,11 @@ import (
 // pacto_delivery_* read tools.
 var deliveryViews = []struct{ route, short string }{
 	{"caller", "Show who you are to delivery: the user the API server names and your actor class"},
-	{"inbox", "Show what waits on you: held changes your teams may answer, frozen Stages and the Errored changes on them"},
-	{"environments", "Show every Stage by service and environment: what it runs and whether it is verified, failed, frozen or held"},
+	{"inbox", "Show what waits on you: held changes your teams may answer, frozen Stages, the Errored changes on them and an installation ladder proposal"},
+	{"environments", "Show every Stage by service and environment: what it runs, whether it is verified, failed, frozen or held, and where it runs and why"},
 	{"autonomy", "Show the path to autonomy: each Stage's level, the next level Pacto proposes and what blocks it"},
 	{"published", "Show the versions the Stages know per service and whether Flux or the registry watch verified their signature"},
-	{"refusals", "Show the publishes Pacto refused and the version bump each change needs"},
+	{"refusals", "Show the publishes and promotes Pacto refused: the version bump a refused publish needs and the Stage of a refused promote"},
 	{"trust", "Show which publishers each service accepts: the rule, the signed policy, the pinned identities and the signers waiting for a person"},
 }
 

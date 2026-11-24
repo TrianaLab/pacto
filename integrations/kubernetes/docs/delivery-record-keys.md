@@ -33,6 +33,11 @@ namespace that `dashboard.delivery.trust` names, as in
 `{configMap: delivery-trust, key: trust.yaml}`. Without it, records are read
 unchecked and every answer says it is partial.
 
+The recorder also signs a record of each promote the manifest inspector
+refused, on the stream `apply-refusals/<domain or ->/<service>`. A key that
+names `streams` must also match those, for example with `apply-refusals/*/*`,
+or `pacto delivery refusals` lists them unverified.
+
 ## Revoke a key
 
 When a key leaks, rotate the recorder to a new key first. Then keep the old

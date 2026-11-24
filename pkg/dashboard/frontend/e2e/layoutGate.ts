@@ -306,6 +306,29 @@ export function installScaleFixture(): void {
         usedFor: ['proposal for registryPullSecret: it needs push on <registry>/pacto-*; a pod pull Secret usually grants pull only'],
         hint: `--set registryPullSecret=${secret}`,
       });
+      // The Applier row (511-S4): no GitOps engine served under profile idp, so it
+      // proposes the one Flux install value, the longest hint a detected row carries.
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'applier', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Applier',
+        evidence: `none found none of kustomize.toolkit.fluxcd.io/v1, helm.toolkit.fluxcd.io/v2 and argoproj.io/v1alpha1 is served; no applier: install Flux or Argo CD (from API discovery, cluster ${clusters[0]})`,
+        status: 'available', cluster: clusters[0], usedFor: ['proposal for delivery in profile idp; set it on the Pacto release yourself'],
+        hint: 'Set idp.flux.install=true on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator --version <version> -n <namespace> --reset-then-reuse-values --set idp.flux.install=true',
+      });
+      // The two profile idp pieces (515-S2) with their longest reasons: the Evidence
+      // Server on a 253-character registry host with its trust Secret, and the recorder
+      // off because its signing method fails a recorder check.
+      const host = `${'h'.repeat(63)}.${'o'.repeat(63)}.${'s'.repeat(63)}.${'t'.repeat(59)}.io`;
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'evidence', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Evidence',
+        evidence: `on ${host} serves OCI Referrers; the trust Secret holds 2 public keys (from operator evidence gate, cluster ${clusters[0]})`,
+        status: 'available', cluster: clusters[0], usedFor: ['Evidence Server for provisioning reports (profile idp)'],
+        objects: [{ kind: 'Secret', namespace: 'n'.repeat(63), name: longName('pacto-operator-evidence-trust') }],
+      });
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'recorder', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Recorder',
+        evidence: `off: the signing method fails a recorder check; see helm template with delivery.recorder.enabled=true (from chart values, cluster ${clusters[0]})`,
+        status: 'available', cluster: clusters[0], usedFor: ['signed delivery records (profile idp)'],
+      });
       // A live edge-source row (509-S9): the OTLP receiver's Collector row, partial
       // with a long reason, the full receiver snippet for a 63-character namespace as its
       // hint and the evidence suffix every edge source appends.
@@ -317,7 +340,17 @@ export function installScaleFixture(): void {
         hint: `exporters: {otlphttp/pacto: {endpoint: "http://pacto-dashboard.${'n'.repeat(63)}:4318", encoding: json}}`,
         limitations: [{ code: 'EDGE_SOURCE_PARTIAL', source: 'otlp-receiver', message: `not exporting to pacto-dashboard.${'n'.repeat(63)}:4318; ${longName('requests-used-protobuf-set-encoding-json')}` }],
       });
-      doc.total = 33;
+      // A producer's row (509-S11): a 200-character producer id and a 300-character
+      // contribution repository, stale with its reason, both uses at once.
+      const producer = longName('producer-acme-idp').padEnd(200, 'p').slice(0, 200);
+      const contributions = `registry.example.com/${longName('contributions-org')}/pacto-inferred/${producer}/services`.padEnd(300, 'c').slice(0, 300);
+      (doc.providers as Record<string, unknown>[]).push({
+        id: `producer/${producer}`, source: 'evidence-server', name: producer, cluster: clusters[0], status: 'stale', asOf: new Date(Date.now() - 40 * 86_400_000).toISOString(),
+        usedFor: ['reported-targets', 'contributed-records'],
+        evidence: `reports targets through the Evidence Server; newest report 40d ago; contributes inferred services from ${contributions}`,
+        limitations: [{ code: 'PROVIDER_SOURCE_DEGRADED', message: 'recorded 40d ago' }],
+      });
+      doc.total = 37;
       const meta = doc.meta as Record<string, unknown>;
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []), ...Array.from({ length: 6 }, (_, i) => ({
         id: longName(`unreadable-cluster-${i}`), kind: 'kubernetes', status: 'unavailable', revisionCount: 0, targetCount: 0,
@@ -331,7 +364,19 @@ export function installScaleFixture(): void {
       meta.sources = [...((meta.sources as unknown[] | undefined) ?? []),
         { id: longName('otlp-receiver'), kind: 'otlp-receiver', status: 'partial', advisory: true, revisionCount: 0, targetCount: 0 },
         { id: longName('detected-jaeger'), kind: 'traces', status: 'partial', advisory: true, revisionCount: 0, targetCount: 0 }];
+      // The whole organization index (516-S3): one current index in the kind tally, so the
+      // trust figure says "organization index", and its row at the top of the list.
+      meta.sourceCounts = { ...SOURCE_COUNTS, availableByKind: [{ kind: 'kubernetes', count: 43 }, { kind: 'index', count: 1 }] };
+      const ents = doc.entities as Record<string, unknown>[] | undefined;
+      // The list's first page only: the least-healthy figure asks for 8.
+      if (ents?.length && Number(q.get('limit') || 25) > 8 && !q.get('offset')) {
+        ents.pop();
+        ents.unshift({ kind: 'source', key: 'registry-index', label: 'registry-index', status: 'available', href: '/fleet/sources/registry-index' });
+      }
     }
+    // The index's /api/sources row: the fleet UI lists it in the phone drawer's sources
+    // (the desktop sources popover renders only without the fleet UI).
+    if (route === '/api/sources' && Array.isArray(doc.sources)) (doc.sources as unknown[]).push({ type: 'index', enabled: true });
     if (route === '/api/fleet/overview') {
       const s = doc.summary as Record<string, unknown>;
       s.inferredServices = 12400; s.inferredUnverified = 310;
@@ -398,6 +443,18 @@ export function installScaleFixture(): void {
       for (const c of (doc.columns as { nodes?: Record<string, unknown>[] }[] | undefined) ?? []) for (const n of c.nodes ?? []) long(n);
     }
     if (route === '/api/fleet/attention') {
+      // 517-S4: an EXTERNAL_CHANGED item (the demo raises none: no source checked its
+      // revisions) with a 200-character identity, so its label and reason wrap at scale.
+      if (q.get('category') === 'knowledge') {
+        const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+        const items = (doc.items as Record<string, unknown>[] | undefined) ?? [];
+        doc.items = [{
+          entity: { kind: 'external', key: id, label: id, secondary: 'managed-cloud', status: 'Unknown', href: `/fleet/externals/${id}` },
+          label: `${id}'s linked OpenAPI document moved: 412 consumers to review`, severity: 'warning', code: 'EXTERNAL_CHANGED', category: 'knowledge',
+          summary: 'External system changed', nextStep: `pacto impact --changed external:${id}`,
+          reason: `the organization catalog's linked OpenAPI digest for ${id} moved from sha256:${'3e9a'.repeat(16)} to sha256:${'7c21'.repeat(16)} between 0.0.1233 and 0.0.1234`,
+        }, ...items];
+      }
       page(doc, 2400);
       scaleTally(doc.severities as Record<string, number>, 2400);
       // Every category holds items, so each bar and its label are drawn at scale.
@@ -448,6 +505,19 @@ export function installScaleFixture(): void {
       delete x.catalog; delete rec.catalog;
       Object.assign(rec, { class: 'unclassified', joinedBy: 'normalized-name', consumersTotal: 120, sourcesTotal: 140, hiddenConsumers: 3 });
       x.foldedInto = 'other-egress';
+      // 517-S5: a claim by a service the viewer cannot see.
+      rec.claim = { hidden: true };
+    }
+    // 'external entity, claimed' (517-S5): the Owner block at its longest, a 63-character
+    // owner and claiming service.
+    // 'external entity, claimed, no verified owner': the same claim with no owner.
+    const claimed = (window as unknown as { __externalClaimed?: boolean | 'ownerless' }).__externalClaimed;
+    if (route === '/api/fleet/entities/external' && claimed) {
+      const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
+      const name = `payments-${'stripe-gateway-'.repeat(5)}`.slice(0, 63).replace(/-+$/, '');
+      const owner = `team-${'platform-'.repeat(8)}`.slice(0, 63).replace(/-+$/, '');
+      rec.claim = { service: name, version: '0.12.0', declaredVersion: '0.1.0', ...(claimed === 'ownerless' ? {} : { owner, ownerKey: `team:${owner}` }),
+        by: `${longName('ana')}@acme.example`, ref: `ghcr.io/${longName('acme')}/${name}@sha256:${'c1'.repeat(32)}` };
     }
     // 'external entity, inferred contract' (517-S3): the provider block at its longest, a
     // 200-character managed-cloud identity, operator-signed, from a partial run with long
@@ -467,6 +537,12 @@ export function installScaleFixture(): void {
             hosts: fifty((i) => `${longName(`inferred-host-${i}`).replace(/[^a-z0-9-]/g, '')}.eu-west-1.rds.amazonaws.com:5432`),
             ports: fifty((i) => String(5000 + i)), clients: fifty((i) => `@aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/3`) },
         }],
+        // 517-S4: the change line at its longest: checked, full links, 2,000 values each way.
+        change: { from: '0.0.1233', to: '0.0.1234', at: seen, checked: true,
+          openapiFrom: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'3e9a'.repeat(16)}`,
+          openapiTo: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'7c21'.repeat(16)}`,
+          added: Array.from({ length: 2000 }, (_, i) => `clients @aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/4`),
+          removed: Array.from({ length: 2000 }, (_, i) => `clients @aws-sdk/${longName(`client-${i}`).replace(/[^a-z0-9-]/g, '')}/3`) },
       };
     }
     // 509-S3: an inferred service's Group and Repository facts at their longest.
@@ -583,6 +659,14 @@ export function installScaleFixture(): void {
       for (const r of (doc.frozen as Record<string, unknown>[] | undefined) ?? []) {
         for (const o of (r.offers as Record<string, unknown>[] | undefined) ?? []) o.reason = longName(String(o.reason ?? 'offer'));
       }
+      // The installation ladder proposal at its largest (511-S5): 16 proposed rungs with
+      // long names and sources and the full 64-hex digest the command carries.
+      const ladder = doc.ladder as Record<string, unknown> | undefined;
+      if (ladder) {
+        const digest = `sha256:${'5be1c0de'.repeat(8)}`;
+        ladder.proposal = Array.from({ length: 16 }, (_, i) => ({ name: longName(`rung-${i}`), source: longName(`namespaces *-rung-${i}, ${i + 2} found`), provenance: 'inferred' }));
+        Object.assign(ladder, { proposalDigest: digest, command: `pacto delivery ladder confirm --proposal ${digest}` });
+      }
     }
     // The environments figure at fleet scale: 60 environments with long names and a
     // declared chain through them, Stages in the thousands; the board stays the engine's.
@@ -614,6 +698,17 @@ export function installScaleFixture(): void {
         for (const k of ['readyFix', 'readyMessage', 'sourceRevision', 'contractRef']) if (typeof r[k] === 'string') r[k] = longName(r[k] as string);
         const lc = r.lastCheck as { verdicts?: Record<string, unknown>[] } | undefined;
         for (const v of lc?.verdicts ?? []) v.message = longName(String(v.message ?? v.gate));
+        // Every row's placement mark at its longest (511-S5).
+        r.source = i % 2 ? 'inferred-confirmed' : 'ladder';
+        r.placement = { namespace: longName(`placement-${String(r.namespace)}`), provenance: i % 2 ? 'inferred' : 'observed', source: 'gitops-source',
+          evidence: longName(`Argo CD source ${String(r.service)}`), confirmedBy: i % 2 ? `oidc:${longName('alice')}@acme.example` : undefined };
+      }
+      // 2000 environments not placed, each with a long reason, collapsed under the board.
+      if (Array.isArray(doc.environments)) {
+        doc.unplaced = Array.from({ length: 2000 }, (_, i) => ({ service: longName(`unplaced-${i}`), environment: longName(`rung-${i % 16}`), source: 'ladder',
+          placement: { namespace: longName(`namespace-${i}`), provenance: 'inferred', source: 'inferred-from' }, reason: longName(`namespace refused ${i}`) }));
+        // and more hidden in namespaces the reader cannot list, counted under the list.
+        doc.unplacedHidden = 1234;
       }
     }
     // The Why card at its longest: many reasons, each with a long message and fix.
@@ -683,7 +778,9 @@ export function installScaleFixture(): void {
         const pv = base.provider as Record<string, unknown>;
         const phases = [
           { phase: 'Failed', verified: true, producer: longName('platform-adapter'), source: 'evidence', asOf: '2026-11-10T07:00:00Z' },
-          { phase: 'Unknown', verified: false, source: 'target-state', stale: true, reportedPhase: 'Ready', reason: longName('the last report is older than the provisioning window'), asOf: '2026-07-29T09:40:00Z' },
+          { phase: 'Unknown', verified: false, source: 'target-state', stale: true, reportedPhase: 'Ready', reason: longName('the last report is older than the provisioning window'), asOf: '2026-07-29T09:40:00Z',
+            // The step a person may take (515-S2), its longest form: a 253-rune cluster name, then the docs URL form.
+            suggestion: `Crossplane detected in ${'c'.repeat(253)}: accept its inferred offerings; no provisioner found: see Write an adapter (https://pacto.run/latest/provision-infrastructure/#write-an-adapter)` },
           { phase: 'Ready', verified: false, producer: longName('platform-adapter'), source: 'target-state', asOf: '2026-11-10T07:00:00Z' },
         ];
         // Usage per environment: reported, unknown with untrusted figures and long figures.
@@ -737,14 +834,17 @@ export function installScaleFixture(): void {
       if (typeof changes?.completenessReason === 'string') changes.completenessReason = longName(changes.completenessReason);
     }
     // A revision's and a target's environments at their longest: names, files and owners.
-    const lengthenEnv = (d: Record<string, unknown> | undefined) => {
+    // Every third revision environment has no values file (pactoVersion 2.6), so its
+    // "No values file" slot is drawn at scale too.
+    const lengthenEnv = (d: Record<string, unknown> | undefined, i = 1) => {
       if (!d) return;
-      d.name = longName(String(d.name ?? 'env')); d.file = longName(String(d.file ?? 'file'));
+      d.name = longName(String(d.name ?? 'env'));
+      if (i % 3) d.file = longName(String(d.file ?? 'file')); else delete d.file;
       if (d.owner) d.owner = { team: longName(String((d.owner as { team?: string }).team ?? 'team')) };
     };
     if (route === '/api/fleet/entities/revision') {
       const rev = doc.revision as Record<string, unknown> | undefined;
-      for (const d of (rev?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []) lengthenEnv(d);
+      for (const [i, d] of ((rev?.environments as { items?: Record<string, unknown>[] } | undefined)?.items ?? []).entries()) lengthenEnv(d, i);
       // pactoVersion 2.5 at its longest: 20 announced break consumers of 25 with a long
       // reason (every other one linked to the service it names), a 5-digit port on
       // every interface, a long inferred source and a dependency named from its ref
@@ -780,9 +880,39 @@ export function installScaleFixture(): void {
           { code: 'DISCOVERY_TRUNCATED', source: '.', message: 'discovery stopped after 5000 files; 4000 files were not read, so results are partial' },
           ...Array.from({ length: 19 }, (_, i) => ({ code: 'DISCOVERY_UNSUPPORTED_FILE', source: longSource(`helmfile-${i}.yaml`), message: longName(`helmfile-${i}.yaml is not read: a format Pacto does not read`) })),
         ] };
+        // Extension checks (516-S9) at their longest: covered, failing with two producers,
+        // unknown stale with a long reason, and a ref nobody reports on (no check).
+        const extRef = (s: string) => `${longName(`x.${s}.example.io`)}/${longName(s)}`;
+        const extCheck = (ref: string, state: string, more: Record<string, unknown>) => ({ ref, state, provenance: 'observed',
+          producer: longName('producer-acme-backup'), producerKeyId: longName('producer-acme-backup-key-2026'), source: longName('evidence-prod'),
+          asOf: '2026-11-10T07:00:00Z', ...more });
+        const refs = ['backup', 'restore', 'audit', 'quota'].map(extRef);
+        const caps = rev.capabilities as { items?: Record<string, unknown>[]; total?: number; count?: number } | undefined;
+        if (caps) {
+          caps.items = [
+            // A dotted producer id with no hyphen or space breaks only through overflow-wrap.
+            { type: 'extension', ref: refs[0], check: extCheck(refs[0], 'covered', { producer: longName('producer-acme-backup').replace(/[-\s]/g, '.') }) },
+            { type: 'extension', ref: refs[1], check: extCheck(refs[1], 'failing', { producers: [longName('producer-acme-backup'), longName('producer-dr-audit')],
+              reason: longName('reported absent by producer-acme-backup') }) },
+            { type: 'extension', ref: refs[2], check: extCheck(refs[2], 'unknown', { stale: true, reason: longName('the last report is older than the freshness window') }) },
+            { type: 'extension', ref: refs[3] },
+          ];
+          caps.total = caps.count = caps.items.length;
+        }
       }
     }
+    // A contributed service (509-S11) at its longest: a 200-character producer, a
+    // 300-character repository, its digest ref and a 64-character key id.
+    const contribution = (doc.service as Record<string, unknown> | undefined)?.contribution as Record<string, unknown> | undefined;
+    if (route === '/api/fleet/entities/service' && contribution) {
+      const producer = longName('producer-acme-idp').padEnd(200, 'p').slice(0, 200);
+      const repository = `registry.example.com/${longName('contributions-org')}/pacto-inferred/${producer}/services`.padEnd(300, 'c').slice(0, 300);
+      Object.assign(contribution, { producer, repository, ref: `${repository}@sha256:${'ab12'.repeat(16)}`, keyId: 'k'.repeat(64) });
+    }
     if (route === '/api/fleet/entities/target') {
+      // A target a producer reported (509-S11), its producer at 200 characters.
+      const t = doc.target as Record<string, unknown> | undefined;
+      if (t?.reportedBy) t.reportedBy = longName('producer-acme-idp').padEnd(200, 'p').slice(0, 200);
       const env = (doc.target as Record<string, unknown> | undefined)?.environment as Record<string, unknown> | undefined;
       if (env?.check) lengthenEnv(env.check as Record<string, unknown>);
       // A cluster name at its longest (63 characters); the UID and the keys stay the engine's.
@@ -873,6 +1003,20 @@ export function installScaleFixture(): void {
         for (const v of svc.versions ?? []) if (typeof v.sourceRevision === 'string') v.sourceRevision = longName(v.sourceRevision);
       }
     }
+    // The refused list at its longest (511-S4): 20 rows of both kinds, with service and
+    // namespace and Stage names at the 63-character Kubernetes limit, a record on every refused promote
+    // and more refusals read than the list holds.
+    if (route === '/api/delivery/refusals') {
+      const at63 = (s: string) => (s + '-' + 'x'.repeat(63)).slice(0, 63);
+      Object.assign(doc, { recorded: true, completeness: 'complete', total: 57,
+        refusals: Array.from({ length: 20 }, (_, i) => (i % 2
+          ? { service: at63(`payments-settlement-${i}`), version: `2.5.${i}`, check: 'manifests', namespace: at63(`payments-production-${i}`), stage: at63(`payments-production-eu-west-${i}`),
+            digest: `sha256:${String(i).padStart(64, 'd')}`, code: 'RawInfraInArtifact', record: `sha256:${String(i).padStart(64, '0')}`, reason: `ClusterRoleBinding ${at63('orders-admin')} is cluster-scoped`,
+            at: `2026-11-21T10:${String(59 - i).padStart(2, '0')}:00Z`, verified: true }
+          : { service: at63(`orders-reconciliation-${i}`), version: `1.9.${i}`, check: 'version', requiredBump: 'major', baseline: `1.8.${i}`,
+            reason: 'the change is BREAKING, so it needs a major bump', actor: `system:serviceaccount:agents:${at63('pay-agent')}`,
+            at: `2026-11-21T10:${String(59 - i).padStart(2, '0')}:00Z`, verified: false })) });
+    }
     // A version's lifecycle at its longest: long environment, Stage and record names, a
     // long note and the newest 50 events on every Stage.
     if (route === '/api/delivery/lifecycle') {
@@ -901,11 +1045,14 @@ export function installScaleFixture(): void {
         ...Array.from({ length: 9 }, (_, i) => longName(`consumer-${i}`)),
       ];
       const V = ['incompatible', 'unknown', 'compatible'];
-      const E = ['breaks', 'may-degrade', 'unknown'];
       let req: Record<string, unknown> = {};
       try { req = JSON.parse(body ?? '{}'); } catch { /* no body */ }
       const outcome = String(req.outcome ?? '');
       const event = String(req.event ?? '');
+      // An external change puts every consumer in the Attention lane (517-S4).
+      const attention = !!req.externalKey && event === 'changed';
+      const E = attention ? ['attention'] : ['breaks', 'may-degrade', 'unknown'];
+      const SOURCES = ['declared', 'observed', 'pod-spec', 'repository'];
       // Every fact the table renders, long: via, evidence (one stale), more than 20
       // targets, resources with phases and an owner link, on items and highlights alike.
       const consumer = (name: string, i: number) => {
@@ -930,6 +1077,8 @@ export function installScaleFixture(): void {
           ],
           resources: event === 'removed' ? Array.from({ length: 3 }, (_, r) => ({ entry: longName(`database-${r}`), environment: longName(`production-${r}`), phase: ['Ready', 'Failed', 'Provisioning'][r], provenance: 'observed', verified: true })) : undefined,
           resourcesTotal: event === 'removed' ? 24 : undefined,
+          sources: req.externalKey ? SOURCES.slice(0, 1 + (i % 4)) : undefined,
+          client: req.externalKey ? { sdk: longName(`stripe-go-client-${i}`), major: 2026, confidence: 'possible', revision: `${key}@sha256:${'ab12'.repeat(16)}` } : undefined,
         };
       };
       const all = names.map(consumer);
@@ -940,16 +1089,30 @@ export function installScaleFixture(): void {
           return { kind: 'service', key, label: longName(`provider-${i}`), href: `/fleet/services/${encodeURIComponent(key)}` };
         });
       }
+      // An external answer at its longest: a 200-character identity, a change with full
+      // links and 2,000 values each way, and a long multi-line pin.
+      if (req.externalKey) {
+        const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+        const repo = `registry.example.com/acme/pacto-inferred/${id}`;
+        doc.external = { identity: id, class: 'managed-cloud', provider: repo,
+          change: { from: '0.0.1233', to: '0.0.1234', at: '2026-11-16T08:00:00Z', checked: false,
+            openapiFrom: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'3e9a'.repeat(16)}`,
+            openapiTo: `oci://registry.example.com/acme/vendor/${id}-openapi@sha256:${'7c21'.repeat(16)}`,
+            added: Array.from({ length: 2000 }, (_, i) => `clients ${longName(`stripe-go-${i}`)}/77`),
+            removed: Array.from({ length: 2000 }, (_, i) => `clients ${longName(`stripe-go-${i}`)}/76`) } };
+        doc.pin = `dependencies:\n  - name: ${longName('orders-db-replica')}\n    ref: oci://${repo}\n    required: true\n    compatibility: "${'>=2023.10.16 <2026.0.0 || '.repeat(6)}^2026.1"\n`;
+      }
       // A leaf (the real answer lists no consumer) draws the clear answer: every lane
-      // empty and the gate under them, the shape a complete snapshot gives it.
+      // empty and the gate under them, the shape a complete snapshot gives it. An
+      // external is never verified, so its leaf stays unverified.
       const leaf = !!event && !cs.total;
-      if (leaf) {
+      if (leaf && !req.externalKey) {
         doc.gate = 'clear';
         doc.gateReason = longName('no contract in the complete snapshot declares a dependency on it and no observation source saw a caller; a service with no contract can still call it');
       } else if (event) {
         // The event population: lanes by effect sum to the total, and each lane's list
         // (filtered by effect, never by verdict) totals its lane.
-        const byOutcome = [{ key: 'breaks', count: 1900 }, { key: 'may-degrade', count: 1300 }, { key: 'unknown', count: 800 }];
+        const byOutcome = attention ? [{ key: 'attention', count: 4000 }] : [{ key: 'breaks', count: 1900 }, { key: 'may-degrade', count: 1300 }, { key: 'unknown', count: 800 }];
         const listed = outcome ? all.filter((c) => c.effect === outcome) : all;
         Object.assign(cs, {
           items: listed.slice(0, 10), highlights: all.slice(0, 8), total: 4000, direct: 1400, count: Math.min(10, listed.length), offset: 0, limit: 10,
@@ -1073,7 +1236,8 @@ export function installScaleFixture(): void {
     // An inferred service at its longest: a 63-character namespace, a 253-character
     // name, a digest image, 20 ports, three probes with long paths, a 200-character
     // `from` path and calls at the detail preview bound (200), truncated.
-    if (route === '/api/fleet/entities/service' && (doc.entity as { declaration?: string } | undefined)?.declaration === 'inferred') {
+    if (route === '/api/fleet/entities/service' && (doc.entity as { declaration?: string } | undefined)?.declaration === 'inferred'
+      && !(doc.service as Record<string, unknown>).contribution) { // a contribution names no workload
       const svc = doc.service as Record<string, unknown>;
       const ns = 'paymentsproductionnortheuropewestonealphabravocharliedeltaecho1';
       const name = `legacy-billing-${'reconciliation-settlement-ledger-export-'.repeat(7)}`.slice(0, 253);
@@ -1087,6 +1251,33 @@ export function installScaleFixture(): void {
       };
       svc.calls = { total: 1200, count: 200, truncated: true,
         items: Array.from({ length: 200 }, (_, i) => ({ kind: 'service', key: `load/call-${i}`, label: `call-${i}`, href: `/fleet/services/load%2Fcall-${i}` })) };
+      // An owner and a domain a catalog reports (516-S4), at 120 characters each, with a
+      // long entity reference: muted text that truncates and one mark each.
+      const where = `component:${'platform-engineering-'.repeat(3)}default/${'legacy-billing-reconciliation-'.repeat(3)}`;
+      const fact = (value: string) => ({ value, source: 'backstage-catalog', where, asOf: '2026-11-14T09:00:00Z' });
+      const ownership = { ...(svc.ownership as object), declared: false, provenance: 'inferred',
+        inferred: fact(`team:${'settlement-reconciliation-platform-'.repeat(4)}`.slice(0, 120)) } as Record<string, unknown>;
+      delete ownership.ref;
+      svc.ownership = ownership;
+      svc.inferredBusinessDomain = fact(`${'finance-operations-billing-and-'.repeat(4)}`.slice(0, 120));
+      (doc.entity as Record<string, unknown>).businessDomain = '';
+    }
+    // 516-S4: a contract service with no owner and no domain whose catalog reports both,
+    // at 120 characters each: the No declared owner link and the No domain badge, each
+    // followed by a muted note and one mark, inside the .se-fact rows. Scoped to the
+    // demo's analytics-pipeline, whose catalog entry already gives it a domain.
+    if (route === '/api/fleet/entities/service' && (doc.entity as { key?: string } | undefined)?.key === 'analytics-pipeline') {
+      const svc = doc.service as Record<string, unknown>;
+      const where = `component:${'platform-engineering-'.repeat(3)}default/${'analytics-pipeline-ingestion-'.repeat(3)}`;
+      const fact = (value: string) => ({ value, source: 'backstage-catalog', where, asOf: '2026-11-14T09:00:00Z' });
+      const ownership = { ...(svc.ownership as object), declared: false, provenance: 'inferred',
+        inferred: fact(`team:${'settlement-reconciliation-platform-'.repeat(4)}`.slice(0, 120)) } as Record<string, unknown>;
+      delete ownership.ref;
+      svc.ownership = ownership;
+      svc.inferredBusinessDomain = fact(`${'finance-operations-billing-and-'.repeat(4)}`.slice(0, 120));
+      const ent = doc.entity as Record<string, unknown>;
+      ent.businessDomain = '';
+      ent.businessDomainUnknown = false;
     }
     // A replacement at its longest (509-S4): a cluster-qualified inferred key with a
     // 63-character namespace and a 253-character name, on the Replaces line and on the
@@ -1173,10 +1364,12 @@ export function installScaleFixture(): void {
   // unverified signer whose namespace the viewer may not read: no rows, no namespace and
   // no hidden count (its cluster facts were already dropped). 'notAllowed' answers it as a
   // checked signature the installation signer policy refuses.
+  // inspected (511-S4) adds to every plan a failed pacto.manifests verdict citing 50 long
+  // objects and two refusals, the longest citation the manifest inspector writes.
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off' };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' | 'external'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off'; __pactoInspected?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1525,6 +1718,15 @@ export function installScaleFixture(): void {
         declaration: { state: 'declared', signatureChecked: false, claimedSubject: `${'mallory'.repeat(10)}@unverified.example.com`, inferredFromHidden: true } });
       return;
     }
+    if (flags.__pactoClusterFacts === 'external') {
+      // 517-S5: a claim of an external system with a 200-character managed-cloud
+      // identity, so the linked 'from external <id>' line wraps; a claim reads no cluster.
+      const id = `aws/rds/123456789012/eu-west-1/${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+      Object.assign(rev, { inferred: [], inferredTotal: 0,
+        declaration: { state: 'declared', signatureChecked: true, signer: { subject: `${'ana'.repeat(25)}@acme.example.com`, issuer: 'https://accounts.google.com', class: 'human' },
+          inferredFrom: `external:${id}` } });
+      return;
+    }
     if (flags.__pactoClusterFacts === 'notAllowed') {
       Object.assign(rev, { inferred: [], inferredTotal: 0,
         declaration: { state: 'declared', signatureChecked: true, claimedSubject: 'mallory@gmail.com', baseline: '1.4.0',
@@ -1769,6 +1971,11 @@ export function installScaleFixture(): void {
       return res;
     }
     if (declared) clusterFacts(doc);
+    if (flags.__pactoInspected && method === 'POST' && route === '/api/delivery/plan' && Array.isArray(doc.verdicts)) {
+      const refused = [`ClusterRoleBinding ${longName('orders-admin')} is cluster-scoped`, `Deployment ${longName('orders')} is in ${longName('kube-system')}, outside prod`];
+      doc.verdicts.push({ gate: 'pacto.manifests', phase: 'pre', result: 'Fail', message: `the version reaches outside prod: ${refused.join('; ')}`,
+        citation: { artifact: 'manifests', objects: `${Array.from({ length: 50 }, (_, i) => `Deployment ${longName(`orders-${i}`)}`).join(', ')} and 12 more`, refused: refused.join('; ') } });
+    }
     if (flags.__pactoMultiCluster && method === 'GET' && route === '/api/fleet/entities' && doc.meta) {
       const n63 = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
       (doc.meta as Record<string, unknown>).clusters = [
@@ -2292,6 +2499,23 @@ export const declareRoute = (mode: DeclareMode | '') => async (page: Page) => {
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
 
+/** Opens stripe's page with its Claim panel planned (517-S5): the demo's own declarer
+ *  when mode is empty, else the declare fixture's refusal; the owner and name at their
+ *  longest. Reload: the flag is read per answer and the init script runs only on a new
+ *  document. */
+export const claimRoute = (mode: '' | 'refused') => async (page: Page) => {
+  if (mode) await page.addInitScript((m) => { (window as unknown as { __pactoDeclare?: string }).__pactoDeclare = m; }, mode);
+  await page.goto('/#/fleet/externals/stripe?declare=1');
+  await page.reload();
+  const panel = page.getByTestId('declare');
+  await panel.getByTestId('claim-owner').fill(`team-${'platform-'.repeat(8)}`.slice(0, 63).replace(/-+$/, ''));
+  await panel.getByTestId('claim-name').fill(`stripe-${'payments-'.repeat(8)}`.slice(0, 63).replace(/-+$/, ''));
+  await panel.getByTestId('claim-plan').click();
+  await expect(panel.getByTestId(mode === 'refused' ? 'refusal' : 'declare-signer').first()).toBeVisible({ timeout: 30_000 });
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
 export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed') => async (page: Page) => {
   const flag = (m: string) => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = m; };
   await page.addInitScript(flag, mode);
@@ -2697,6 +2921,17 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    // 517-S5: a revision declared by a claim of an external system, its 200-character
+    // identity linked to the External page. Reload: the flag is read per answer.
+    name: 'revision entity, external claim',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __pactoClusterFacts?: string }).__pactoClusterFacts = 'external'; });
+      await firstLink('#/fleet/revisions?service=newsletter-service', '/fleet/revisions/')(page);
+      await page.reload();
+      await expect(page.getByTestId('inferred-declaration').locator('a[href^="#/fleet/externals/aws"]')).toBeVisible({ timeout: 30_000 });
+    },
+  },
+  {
     // pacto ci raised the authored pactoVersion in memory: muted text, behind badge and
     // the provenance mark that ends the row. Reload: the init script runs on a new document.
     name: 'revision entity, migrated contract',
@@ -2790,6 +3025,19 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },
+  {
+    // The scale fixture's extension rows (516-S9) live in the closed Capabilities
+    // section, which mounts nothing: open it so SPEC 22-24 run over the rows.
+    name: 'revision entity, extension checks open',
+    open: async (page) => {
+      await firstLink('#/fleet/revisions?service=payments-service', '/fleet/revisions/')(page);
+      const sec = page.locator('details').filter({ has: page.locator('summary.ps-head', { hasText: 'Capabilities' }) }).first();
+      await expect(sec, 'Capabilities is on the page').toBeAttached({ timeout: 30_000 });
+      await sec.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+      await expect(page.locator('[data-testid=ext-check]').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
   { name: 'target list', list: true, hash: '#/fleet/targets' },
   { name: 'target entity', open: firstLink('#/fleet/targets', '/fleet/targets/') },
   {
@@ -2833,6 +3081,19 @@ export const ROUTES: Route[] = [
   { name: 'offering entity adapters', hash: '#/fleet/offerings/security-scanning' },
   { name: 'offering entity unresolved uses', hash: '#/fleet/offerings/shared-config' },
   { name: 'change analysis offering event', hash: '#/fleet/changes?offering=postgresql&event=unavailable' },
+  { name: 'change analysis external changed', hash: '#/fleet/changes?external=stripe&event=changed' },
+  { name: 'change analysis external unavailable', hash: '#/fleet/changes?external=stripe&event=unavailable' },
+  { name: 'change analysis external not a question', hash: '#/fleet/changes?external=stripe&event=removed' },
+  {
+    // The pin is collapsed and the gate skips a closed disclosure: open it so its long snippet is measured.
+    name: 'change analysis external pin',
+    open: async (page) => {
+      await page.goto('/#/fleet/changes?external=stripe&event=changed');
+      const pin = page.locator('details[data-testid="changes-pin"]');
+      await expect(pin).toBeVisible({ timeout: 30_000 });
+      await pin.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+    },
+  },
   {
     // The successor range line is component state, never in the URL: type the range.
     name: 'offering entity postgresql range',
@@ -2859,6 +3120,16 @@ export const ROUTES: Route[] = [
       await block.getByText("What this installation's operator saw").click();
       // G1 measures only what is visible: both summaries are open before it does.
       await expect(block.locator('.xe-surface li').last()).toBeVisible({ timeout: 30_000 });
+      // The change line's tooltip at its longest (517-S4): focus opens it on every pointer.
+      // An open tip overlays the page by design, so G1 would count it as overlapping text:
+      // it is checked here to stay inside the viewport, then closed before the matrix measures.
+      const line = block.getByTestId('external-provider-change');
+      await line.getByRole('button').focus();
+      const tip = line.locator('.help-body');
+      await expect(tip).toBeVisible({ timeout: 30_000 });
+      expect(await tip.evaluate((el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= document.documentElement.clientWidth; })).toBe(true);
+      await page.keyboard.press('Escape');
+      await expect(tip).toBeHidden();
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
@@ -3098,6 +3369,17 @@ export const ROUTES: Route[] = [
     },
   },
   {
+    name: 'propose with inspected objects',
+    open: async (page) => {
+      await page.evaluate(() => { (window as unknown as { __pactoInspected?: boolean }).__pactoInspected = true; });
+      const panel = await openPropose(page);
+      const verdict = panel.getByTestId('plan-verdicts').locator('li.vl-item').filter({ hasText: 'pacto.manifests' });
+      await verdict.locator('summary').click();
+      await expect(verdict.locator('.vl-cite dt', { hasText: 'objects' })).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  {
     name: 'propose panel, fresh plan banner',
     open: async (page) => {
       const panel = await openPropose(page, true);
@@ -3194,6 +3476,9 @@ export const ROUTES: Route[] = [
     },
   },
   { name: 'service replaced inferred', hash: '#/fleet/services/experiment-service' },
+  // 509-S11: a producer's contributed service and a target it reported.
+  { name: 'contributed service', hash: `#/fleet/services/${encodeURIComponent('registry.example%2Fstory%2Fpacto-inferred%2Facme-idp/ledger-sync')}` },
+  { name: 'reported target', hash: `#/fleet/targets/${encodeURIComponent('acme-idp/external/fraud')}` },
   { name: 'target linked', hash: `#/fleet/targets/${encodeURIComponent('growth/kubernetes/Deployment%2Fcampaigns')}` },
   { name: 'replaced inferred key', hash: `#/fleet/services/${encodeURIComponent('k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fprod%2FDeployment%2Fexperiments')}` },
   {
@@ -3268,6 +3553,63 @@ export const ROUTES: Route[] = [
       await eu.getByRole('button', { name: 'About cluster eu-prod' }).click();
       await expect(eu.locator('[role="note"]')).toBeVisible();
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  // 516-S4: the owner and domain a catalog reports for an inferred service, at 120
+  // characters each (the inferred-service fixture above).
+  {
+    name: 'service entity, inferred owner from a catalog',
+    open: async (page) => {
+      await page.goto('/#/fleet/services?declaration=inferred');
+      const a = page.locator('main a[href*="/fleet/services/"][href*="legacy-billing"]').first();
+      await expect(a).toBeVisible({ timeout: 20_000 });
+      await page.goto(`/${await a.getAttribute('href')}`);
+      await expect(page.locator('[data-testid="owner-inferred"]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-testid="domain-inferred"]')).toBeVisible();
+    },
+  },
+  // 516-S4: the same notes on a contract service's page, after the No declared owner
+  // link and the No domain badge (the analytics-pipeline fixture above).
+  {
+    name: 'service entity, contract service with an inferred owner from a catalog',
+    open: async (page) => {
+      await page.goto('/#/fleet/services/analytics-pipeline');
+      await expect(page.locator('[data-testid="service-owner"] [data-testid="owner-inferred"]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.locator('[data-testid="service-domain"] [data-testid="domain-inferred"]')).toBeVisible();
+    },
+  },
+  // 517-S5: the External page's Owner block claimed, unclaimed with its Claim button
+  // (the demo plans claims), the Claim panel planned and refused.
+  { name: 'external entity, claimed, no verified owner', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalClaimed?: string }).__externalClaimed = 'ownerless'; }); await page.goto('/#/fleet/externals/stripe'); await page.reload(); await expect(page.getByTestId('external-owner-claimed')).toContainText('No verified owner', { timeout: 30_000 }); } },
+  { name: 'external entity, claimed', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __externalClaimed?: boolean }).__externalClaimed = true; }); await page.goto('/#/fleet/externals/stripe'); await page.reload(); await expect(page.getByTestId('external-owner-claimed')).toBeVisible({ timeout: 30_000 }); } }, // reload: the init script only runs on a new document
+  { name: 'external entity, unclaimed with claim', open: async (page) => { await page.goto('/#/fleet/externals/stripe'); await expect(page.getByTestId('external-claim')).toBeVisible({ timeout: 30_000 }); } },
+  { name: 'external entity, claim panel', open: claimRoute('') },
+  { name: 'external entity, claim refused', open: claimRoute('refused') },
+  // 511-S5: the installation ladder proposal opened as a person who may confirm it (the
+  // default persona is an agent, which sees no Confirm), with the long command shown.
+  {
+    name: 'delivery inbox, ladder proposal',
+    open: async (page) => {
+      await page.goto('/#/delivery/inbox');
+      await page.getByTestId('identity-trigger').click({ timeout: 30_000 });
+      await page.getByRole('button', { name: 'Switch person' }).click();
+      await page.getByTestId('demo-persona-alice').click();
+      const ladder = page.getByTestId('inbox-ladder');
+      await ladder.locator('summary').click({ timeout: 30_000 });
+      await ladder.getByRole('button', { name: 'Confirm', exact: true }).click({ timeout: 30_000 });
+      await expect(ladder.getByTestId('ladder-confirm')).toBeVisible();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  // 511-S5: the environments not placed, opened under the board.
+  {
+    name: 'delivery environments, unplaced open',
+    open: async (page) => {
+      await page.goto('/#/delivery/environments');
+      const unplaced = page.getByTestId('environments-unplaced');
+      await unplaced.locator('summary').click({ timeout: 30_000 });
+      await expect(unplaced.getByTestId('unplaced-row').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
 ];

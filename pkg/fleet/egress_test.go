@@ -177,3 +177,23 @@ func TestRedactDetectedInferredRowsUnchanged(t *testing.T) {
 		}
 	}
 }
+
+func TestExternalDetailOffersImpact(t *testing.T) {
+	q := egressFleet(t, map[string]string{"checkout": "shop"}, []ObservedEdge{{From: "checkout", To: "api.stripe.com", Count: 1}}, nil)
+	d, err := q.EntityDetail(KindExternal, "stripe")
+	if err != nil || !slices.Equal(d.Actions, []string{"impact"}) {
+		t.Fatalf("actions = %+v, %v", d, err)
+	}
+}
+
+func TestOtherEgressOffersNoImpact(t *testing.T) {
+	var observed []ObservedEdge
+	for i := range MaxExternalNodes + 1 {
+		observed = append(observed, ObservedEdge{From: "web", To: fmt.Sprintf("api.vendor%03d.com", i), Count: 1})
+	}
+	q := egressFleet(t, map[string]string{"web": "shop"}, observed, nil)
+	other, err := q.EntityDetail(KindExternal, string(OtherEgress))
+	if err != nil || other.Actions != nil {
+		t.Fatalf("other egress actions = %+v, %v", other, err)
+	}
+}

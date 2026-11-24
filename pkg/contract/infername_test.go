@@ -237,3 +237,11 @@ type growingFile struct{}
 func (growingFile) Stat() (fs.FileInfo, error) { return fstest.MapFS{"x": file("")}.Stat("x") }
 func (growingFile) Read(p []byte) (int, error) { return len(p), nil }
 func (growingFile) Close() error               { return nil }
+
+func TestValidServiceName(t *testing.T) {
+	for s, want := range map[string]bool{"stripe": true, "my--vendor": true, strings.Repeat("a", 63): true, strings.Repeat("a", 64): false, "": false, "-x": false, "Bad": false, "a/b": false} {
+		if got := ValidServiceName(s); got != want {
+			t.Errorf("%q: %v", s, got)
+		}
+	}
+}

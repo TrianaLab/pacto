@@ -130,8 +130,19 @@ func restrictExternal(out *FleetSnapshot, rec *ExternalRecord) *ExternalRecord {
 		}
 	}
 	r.Provider = withoutSurface(rec.Provider)
+	r.Claim = restrictClaim(out, rec.Claim)
 	finalizeExternal(&r)
 	return &r
+}
+
+// restrictClaim is c as out's viewer sees it: a claimer out does not hold
+// becomes a hidden claim naming no service, ref, version or person, and
+// keeps whether it has an owner.
+func restrictClaim(out *FleetSnapshot, c *ExternalClaim) *ExternalClaim {
+	if c == nil || out.Services[c.Service] != nil {
+		return c
+	}
+	return &ExternalClaim{Hidden: true, ownerless: c.ownerless}
 }
 
 // ExternalSubjectPrefix marks an external system where a service is
@@ -201,6 +212,16 @@ func (q *Query) sortedExternals() []*ExternalRecord {
 // Its status is always unknown: Pacto never observes an external's health.
 func externalEntityRef(r *ExternalRecord) EntityRef {
 	return EntityRef{Kind: KindExternal, Key: string(r.Key), Label: r.Label, Secondary: r.Class, Status: StatusUnknown}
+}
+
+// ExternalRef is the route-neutral reference to the external system key in
+// snap, for callers outside the package: its record's, or a bare reference
+// when snap holds no record of it.
+func ExternalRef(snap *FleetSnapshot, key ExternalKey) EntityRef {
+	if r := snap.Externals[key]; r != nil {
+		return externalEntityRef(r)
+	}
+	return EntityRef{Kind: KindExternal, Key: string(key), Label: string(key), Status: StatusUnknown}
 }
 
 // externalListRef is an external list row: its reference with how many

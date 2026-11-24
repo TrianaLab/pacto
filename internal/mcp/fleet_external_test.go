@@ -266,3 +266,11 @@ func TestMCPFleetGetExternalProvider(t *testing.T) {
 		}
 	}
 }
+
+// pacto_fleet_status sorts by severity, code and name: only
+// pacto_fleet_attention ranks UNOWNED_EXTERNAL by consumers.
+func TestFleetStatusDescriptionClaimsNoRank(t *testing.T) {
+	if d := fleetStatusTool().Description; strings.Contains(d, "UNOWNED_EXTERNAL, ranked") || !strings.Contains(d, "pacto_fleet_attention ranks it") {
+		t.Errorf("description = %q", d)
+	}
+}

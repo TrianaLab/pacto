@@ -54,14 +54,14 @@ Delivery is the `pacto-operator` chart's `delivery` section, off by default. Tur
 It needs no identity values: whoever may update a Stage's workload decides
 ([who may decide](delivery-identity.md#who-may-decide)).
 
-If you set `crds.install=false` to manage the CRDs yourself, apply the
+With `crds.install=false`, apply the
 delivery CRDs before you turn delivery on. The promoter and the recorder do not
 start without them:
 
 --8<-- "integrations/kubernetes/docs/generated/_delivery-crd-apply.md"
 
 This needs Helm 3.14 or later. Delivery runs in `delivery.namespace`
-(`pacto-delivery`, never the release or node agent namespace), where the operator holds no
+(`pacto-delivery`), where the operator holds no
 role, so it cannot act as the promoter. It reads its Secrets only when
 [watched or granted](least-privilege.md): prefer KMS or keyless recorder
 signing. Set `delivery.createNamespace=false` to
@@ -117,19 +117,47 @@ The promoter emits a Kubernetes Event on an operation when it waits on a person
 answer) and when it concludes (its outcome). It emits one on a Stage when it
 raises a rollback (`RollbackRaised`), freezes (`Frozen`) or stops being watched
 (`RecheckUnknown`, `RecheckFailed`).
-It emits `EnvironmentCreated` on a Stage the first time it reconciles it, with
-the Stage's creation time, and `EnvironmentDeleted` when the Stage is deleted.
-Each names one Stage, such as "Stage test/payments-pr-482 for payments in
-pr-482 was deleted"; other Stages for the same environment are unaffected. A
-promoter restart emits neither again, a Stage whose status was reset emits
-`EnvironmentCreated` again with its original creation time, and a Stage deleted
-while the promoter is down emits nothing.
+It emits `EnvironmentCreated` and `EnvironmentDeleted` on a Stage
+([when](../../contract-reference/environments.md#create-list-compare-and-retire)).
 
 ## Upgrading
 
 [Upgrade the operator](upgrade.md) as usual: `helm upgrade` updates the
 delivery CRDs; `helm.sh/resource-policy: keep` keeps them, their history
 and `delivery.namespace` on [uninstall](installation.md#uninstall).
+
+## IDP mode
+
+Under `profile: idp` delivery is on. Where no GitOps engine runs, the Applier
+row on Data sources proposes one value of your Pacto release:
+
+```text
+Set idp.flux.install=true on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator --version <version> -n <namespace> --reset-then-reuse-values --set idp.flux.install=true
+```
+
+The chart then installs upstream Flux 2.10.1 and upgrades it with the release;
+nobody runs a separate install ([what it adds](profiles.md#the-packaged-flux)).
+Pacto then creates each service's Stages and Flux objects from the
+[installation ladder](delivery-environments.md).
+
+Turning the value off or `helm uninstall` keeps Flux and the workloads it
+applied (`helm.sh/resource-policy: keep`). Keep it, or remove it
+in this order, which stops the controllers so nothing is pruned:
+
+```bash
+kubectl -n flux-system scale deployment -l app.kubernetes.io/part-of=flux --replicas=0
+# Labelled apply objects need break-glass to delete (see below)
+for crd in $(kubectl get crd -l app.kubernetes.io/part-of=flux -o name | cut -d/ -f2); do
+  kubectl get "$crd" -A --no-headers -o custom-columns=NS:.metadata.namespace,N:.metadata.name |
+    while read -r ns n; do
+      kubectl -n "$ns" patch "$crd" "$n" --type merge -p '{"metadata":{"finalizers":null}}'
+      kubectl -n "$ns" delete "$crd" "$n"
+    done
+done
+kubectl delete clusterrolebinding,clusterrole -l app.kubernetes.io/part-of=flux
+kubectl delete namespace flux-system
+kubectl delete crd -l app.kubernetes.io/part-of=flux
+```
 
 ## How a change moves
 
@@ -167,7 +195,31 @@ flowchart LR
   fail their schemas. A contract with no environments passes it.
   `pacto.applier` refuses a promote while the Stage's
   [`status.applier`](delivery-reach.md#which-manager-applies-a-stage) reads
-  `Conflict` or `Unknown`.
+  `Conflict` or `Unknown`. A Stage whose applier API the cluster does not
+  serve reads `no applier: install Flux or Argo CD` and never promotes.
+  `pacto.manifests`, on wherever delivery is enabled
+  (`delivery.manifestInspector: false` opts out), reads the version's Flux or
+  Helm artifact before the pointer moves, under the path the Stage's
+  Kustomizations in its own namespace build. It refuses a cluster-scoped kind, a
+  chart's `crds/`, an object outside the Stage namespace, a kustomization
+  `namespace:` or an applier `targetNamespace` elsewhere, a RoleBinding to a
+  ClusterRole and any Pacto delivery, Flux or Argo CD object, each with a
+  signed refusal on `pacto delivery refusals`. It asks a person about what it
+  cannot read: a templated or unknown kind, a `${` substitution, a
+  kustomization or applier object that transforms the artifact, a nested
+  kustomization, jsonnet, a YAML alias or merge key and a RoleBinding that
+  grants a group, a user or another namespace's ServiceAccount. That question
+  joins any later gate's, so a breaking change still asks its consumers'
+  owners. It judges every chart template as if it renders, so a ClusterRole
+  behind an `if` is refused too. Rollbacks skip it.
+  Under `profile: idp` infrastructure reaches a cluster only as a dependency
+  on an offering, so it also refuses raw infrastructure with the code
+  `RawInfraInArtifact`: Crossplane claims, composite resources, definitions,
+  compositions and every managed resource (the `claim`, `composite` and
+  `managed` discovery categories, and the `*.crossplane.io` and
+  `*.upbound.io` groups). The next step it names is to declare a dependency on
+  an offering. Under `default` and `hardened` it asks a person about those
+  objects instead.
 - After: the Pacto contract check counts only when
   `status.evaluatedRevision` names this version's contract digest and the
   current workload generation. `Compliant` and `Warning` pass, `NonCompliant`
@@ -194,11 +246,9 @@ Flux Kustomization applies the apply `OCIRepository`, both carry the
 `serviceAccountName` and sets none of `images`,
 `patches`, `components`, `postBuild`, `namePrefix`, `nameSuffix`, `kubeConfig`,
 `suspend` or `decryption`, and the `OCIRepository` sets no `spec.ignore`. Without a
-`serviceAccountName` Flux applies each version as kustomize-controller, which
-is cluster-admin in a default install, so a version whose contract did not
-change could ship a ClusterRoleBinding and an automatic level would apply it:
-the levels judge only the contract. `pacto init --delivery`
-writes a namespaced deployer account for each environment. On
+`serviceAccountName` Flux applies each version as kustomize-controller,
+cluster-admin in a default install, and the levels judge only the contract;
+in IDP mode Pacto creates a namespaced deployer account for each service. On
 Argo CD it is `True` when the Application carries the label, has one source and sets no
 Kustomize images, patches or components, Helm parameters, values or value
 files, or plugin. Otherwise it is `False` and the reason

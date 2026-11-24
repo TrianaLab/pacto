@@ -16,6 +16,7 @@ package main
 import (
 	"cmp"
 	"context"
+	"errors"
 	"flag"
 	"fmt"
 	"net/http"
@@ -30,6 +31,8 @@ import (
 
 	"k8s.io/apimachinery/pkg/runtime"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -142,10 +145,34 @@ func runPromoter(args []string) error {
 		"A file (YAML or JSON) of the workload managers and promoters this installation runs, "+
 			"as the chart's fingerprints value. A workload a configured manager applies reads external: <product>, "+
 			"and the promoter writes no pointer for it.")
+	environments := fs.Bool("environments", false,
+		"Publish the installation ladder and the rungs Pacto proposes from the cluster in the ConfigMap "+
+			core.EnvironmentsConfigMap+" of the promoter's namespace.")
+	ladder := fs.String("environment-ladder", "staging,production",
+		"The installation ladder, comma-separated in promotion order: each rung takes what the one before verified.")
+	ladderRepo := fs.String("ladder-repository", "",
+		"The approvals repository (host/path) people push signed installation ladder confirmations to. "+
+			"Empty reads none, so only the declared installation ladder holds.")
+	createAppliers := fs.Bool("environment-create-appliers", false,
+		"For a service no applier runs yet, create the suspended Flux objects of each placed environment and its "+
+			"deployer identity (profile idp). Needs --environment-deployer-role.")
+	deployerRole := fs.String("environment-deployer-role", "",
+		"The ClusterRole each service's deployer account is bound to in its own namespace by a RoleBinding.")
+	createNamespaces := fs.Bool("environment-create-namespaces", false,
+		"Create the namespace a service is placed in when it does not exist: at once for a declared or observed "+
+			"placement, once a person's installation ladder confirmation allows it for any other.")
+	retireAfter := fs.Duration("environment-retire-after", delivery.DefaultRetireAfter,
+		"How long a Stage Pacto created is kept after its environment leaves the installation ladder or the "+
+			"contract, or a temporary environment expires, before Pacto retires it.")
+	sink := fs.String("cdevents-sink", "", "A URL to POST a CDEvent to when a Stage Pacto created from the "+
+		"installation ladder is created or deleted (environment.created, environment.deleted), best effort.")
 	zopts := zap.Options{}
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zopts)))
+	if *createAppliers && *deployerRole == "" {
+		return errors.New("--environment-create-appliers needs --environment-deployer-role")
+	}
 
 	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-promoter", float32(*qps), *burst)
 	if err != nil {
@@ -156,10 +183,11 @@ func runPromoter(args []string) error {
 		return err
 	}
 
-	clusterID, err := kubeClusterID(mgr)
+	ident, err := kubeIdentity(mgr)
 	if err != nil {
 		return err
 	}
+	clusterID := ident.ID
 	scope, keychain := writerScope(*registry, *statsRepository)
 	insecure := oci.EnvInsecureRegistries()
 	providers, err := core.ParseProviders(*gateProviders)
@@ -174,8 +202,15 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
+	// Discovery is cached for the life of the process; Infra invalidates it
+	// once on a kind it does not list, so a Crossplane kind served after
+	// start is read, and one still missing reads Unknown, never Pass.
+	dc, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
+	if err != nil {
+		return err
+	}
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Cache: mgr.GetCache(), CacheApplications: *argocd,
-		NoFlux: !*flux, FluxHelm: *fluxHelm, Managers: managers,
+		NoFlux: !*flux, FluxHelm: *fluxHelm, Managers: managers, Infra: kubecluster.Infra(memory.NewMemCacheClient(dc)),
 		Registry: func(hosts ...string) core.Registry {
 			return oci.NewClient(keychain, oci.WithInsecureRegistries(slices.Concat(insecure, hosts)...))
 		}}
@@ -198,6 +233,22 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
+	envs := &delivery.EnvironmentReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(),
+		Namespace: os.Getenv("POD_NAMESPACE"), ClusterID: clusterID, ClusterName: ident.Name, NameSource: ident.NameSource,
+		Ladder: delivery.SplitList(*ladder), Off: !*environments, Now: time.Now,
+		Resync: *resync, Policy: policy, LadderRepository: *ladderRepo,
+		RecordOptions: recordOpts, Registry: *registry, Cluster: cluster,
+		Accepted: pubs.NewestAccepted, Placement: pubs.VerifiedPlacement,
+		CreateAppliers: *createAppliers, DeployerRole: *deployerRole, CreateNamespaces: *createNamespaces,
+		RetireAfter: *retireAfter,
+		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
+		Events: mgr.GetEventRecorderFor("pacto-delivery")}
+	if *sink != "" {
+		envs.CDEvents = &delivery.Events{Sink: *sink, Source: "/pacto-delivery/" + clusterID}
+	}
+	if err := envs.SetupWithManager(mgr); err != nil {
+		return err
+	}
 	if err := (&delivery.OperationReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, Gates: gates, Now: time.Now, Poll: *poll, Records: *records,
 		RecordOptions: recordOpts,
@@ -206,13 +257,14 @@ func runPromoter(args []string) error {
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events:            mgr.GetEventRecorderFor("pacto-delivery"),
 		Stats:             stats,
+		Environments:      envs,
 		AdmissionPolicies: delivery.SplitList(*admissionPolicies)}).SetupWithManager(mgr); err != nil {
 		return err
 	}
 	if err := (&delivery.StageReconciler{Client: mgr.GetClient(), APIReader: mgr.GetAPIReader(), Cluster: cluster,
 		Policy: policy, Workers: *workers, ClusterID: clusterID, Gates: gates, Now: time.Now,
 		Resync: *resync, AdmissionPolicies: delivery.SplitList(*admissionPolicies), Freshness: *authFreshness,
-		Publishers: pubs,
+		Publishers: pubs, Environments: envs,
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events: mgr.GetEventRecorderFor("pacto-delivery")}).SetupWithManager(mgr); err != nil {
 		return err
@@ -397,6 +449,17 @@ func newManager(metricsAddr, probeAddr string, leaderElect bool, id string,
 		LeaderElection:         leaderElect,
 		LeaderElectionID:       id,
 	})
+}
+
+// kubeIdentity reads the cluster id and display name (kubecluster.Identify).
+// The promoter may not list nodes, so the name is the uid's unless a node
+// label is readable.
+func kubeIdentity(mgr ctrl.Manager) (kubecluster.Identity, error) {
+	dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return kubecluster.Identity{}, err
+	}
+	return kubecluster.Identify(context.Background(), dyn, "")
 }
 
 // kubeClusterID reads the cluster half of every stream id: the kube-system

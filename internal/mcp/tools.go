@@ -79,12 +79,11 @@ func createTool() *mcpsdk.Tool {
 			"dry_run":                      {Type: "boolean", Description: "If true, validate and return result without writing files"},
 			"pactify":                      {Type: "boolean", Description: "Read the existing service folder at path (Dockerfile, Kubernetes manifests, Helm charts, Kustomize, Compose, interface specs, catalog-info.yaml, GitOps objects, and CODEOWNERS from the enclosing repository root) and plan its contract like `pacto init`; uses name, owner, path and dry_run, and ignores the intent arguments"},
 			"describe_only":                {Type: "boolean", Description: "With pactify: the Next lines say how to validate the contract, never how to publish it, and delivery is refused. Use it when you are asked to describe or document a service"},
-			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan, for a manifests deploy, the Pacto resource, a Stage per environment and a Flux OCIRepository and Kustomization; for a chart deploy no applier object, and the Next line names the Stage spec.applyRef (not with describe_only; with pactify the deploy artifact is the one pacto ci --publish assembles from the folder; with from, the golden path must publish a manifests or chart artifact under publish.deploy)"},
+			"delivery":                     {Type: "boolean", Description: "With pactify or from: also plan, for a manifests deploy, delivery/pacto.yaml, the Pacto resource that ships inside every version (Pacto creates each environment's Stage once delivery is on); for a chart deploy nothing, and the Next line names the Stage spec.applyRef (not with describe_only; with pactify the deploy artifact is the one pacto ci --publish assembles from the folder; with from, the golden path must publish a manifests or chart artifact under publish.deploy)"},
 			"registry":                     {Type: "string", Description: "With pactify: where to publish, as host/path (default: read from the workload's image)"},
-			"environments":                 {Type: "string", Description: "With delivery: JSON array of environments in promotion order (default [\"test\",\"prod\"]); each is declared in pacto.yaml with an empty values file and gets a Stage"},
 			"no_transparency_log":          {Type: "boolean", Description: "With from only: write transparencyLog: false under the golden path's publish.sign"},
-			"insecure_registry":            {Type: "boolean", Description: "With delivery: the Flux OCIRepositories read the registry over plain HTTP (a local registry only)"},
-			"registry_secret":              {Type: "string", Description: "With delivery: the docker-registry Secret, in each environment's namespace, that Flux and the Pacto resource log in to a private registry with"},
+			"insecure_registry":            {Type: "boolean", Description: "With delivery: the registry speaks plain HTTP, so the Next lines say how the Pacto resource reads its contract over plain HTTP (a local registry only)"},
+			"registry_secret":              {Type: "string", Description: "With delivery: the docker-registry Secret, in the namespace of delivery/pacto.yaml, that the Pacto resource logs in to a private registry with"},
 			"fleet_roots":                  {Type: "string", Description: "With pactify: JSON array of folders of other services' contracts, searched for the services that use this one"},
 			"paths":                        {Type: "string", Description: "With pactify: JSON array of service folders, each planned like path and named after its folder (name is ignored); dry_run defaults to true"},
 			"cluster":                      {Type: "boolean", Description: "With pactify: draft a contract for every workload in the current kubeconfig context that no Pacto describes, into path/<namespace>/<name>, with each service it was seen calling as a dependency with compatibility unknown and a proposed range, in a comment, from the lowest version the Pactos describing it report when they agree on one contract; dry_run defaults to true"},
@@ -124,7 +123,6 @@ type createArgs struct {
 	DescribeOnly              bool   `json:"describe_only"`
 	Delivery                  bool   `json:"delivery"`
 	Registry                  string `json:"registry"`
-	Environments              string `json:"environments"`
 	FleetRoots                string `json:"fleet_roots"`
 	NoTransparencyLog         bool   `json:"no_transparency_log"`
 	InsecureRegistry          bool   `json:"insecure_registry"`
@@ -209,7 +207,6 @@ func pactifyFolder(ctx context.Context, args createArgs, base pactify.Options) (
 		Catalog: base.Catalog, CatalogUnavailable: base.CatalogUnavailable}
 	var paths []string
 	if err := unmarshalFields([]jsonField{
-		{"environments", args.Environments, &opts.Environments},
 		{"fleet_roots", args.FleetRoots, &opts.FleetRoots},
 		{"paths", args.Paths, &paths},
 		{"namespaces", args.Namespaces, &cluster.Namespaces},
@@ -294,7 +291,6 @@ func createFromPath(ctx context.Context, args createArgs, init Initializer) (*mc
 		Delivery: args.Delivery, InsecureRegistry: args.InsecureRegistry, RegistrySecret: args.RegistrySecret}
 	req := FromRequest{Ref: args.From}
 	if err := unmarshalFields([]jsonField{
-		{"environments", args.Environments, &opts.Environments},
 		{"values", args.Values, &req.Values},
 		{"set", args.Set, &req.Set},
 		{"run_plugins", args.RunPlugins, &req.RunPlugins},
@@ -371,7 +367,7 @@ func editTool() *mcpsdk.Tool {
 			"add_dependencies":             {Type: "string", Description: "JSON array of dependencies to add: [{name, ref, required?, compatibility?}] (name is derived from ref when omitted). For a service your company runs with Pacto whose contract is not published yet, give ref as the OCI repository its contract will be published at and compatibility as the versions you accept: Pacto reports it as unresolved until it is published. A dependency this Pacto system does not deliver adds external: true; with no contract to point at, give {name, external: true, version} instead of ref, and its compatibility stays Unknown. Add identity (for example stripe or host/corp-legacy.example) to name the external system it is when its name is not an alias the external catalog knows; it needs pactoVersion 2.5. Leave compatibility out when the versions it accepts are not known: it is written as unknown, impact cannot tell whether a change to that dependency breaks this service, and a BREAKING change to it stays unverified."},
 			"add_configuration_refs":       {Type: "string", Description: "JSON array of configuration references to add: [{name?, ref, required?, configuration?, values?}], each pointing at a published contract whose configuration this service takes, such as a platform offering's. configuration names which of the referenced contract's configurations it takes (needed when it declares more than one) and values are this service's values for it. Before anything is written the edited bundle gets the check pacto_check runs: the referenced contract must resolve when the service depends on it, and every value given inline or in an environment file must match its selected configuration schema. configuration or values need pactoVersion 2.4"},
 			"remove_configuration_refs":    {Type: "string", Description: "JSON array of configuration references to remove, each by name or ref: [\"db\"]. Their values are removed from every environment file"},
-			"add_environments":             {Type: "string", Description: "JSON array of environments to add: [{name, file?, lifetime?, expires?, owner?}]. file defaults to environments/<name>.yaml and is created holding {} when it does not exist. Values an existing file already holds are checked like set_environment_values before anything is written. lifetime is temporary or persistent; expires is an RFC 3339 time and needs lifetime temporary; owner is {team, dri?, contacts?} when the environment's owner is not the service owner. Needs pactoVersion 2.3, or 2.4 with lifetime, expires or owner"},
+			"add_environments":             {Type: "string", Description: "JSON array of environments to add: [{name, file?, noFile?, lifetime?, expires?, owner?}]. file defaults to environments/<name>.yaml unless noFile is true, and is created holding {} when it does not exist; noFile declares the environment with no values file, so each configuration runs on its defaults, and needs pactoVersion 2.6. Values an existing file already holds are checked like set_environment_values before anything is written. lifetime is temporary or persistent; expires is an RFC 3339 time and needs lifetime temporary; owner is {team, dri?, contacts?} when the environment's owner is not the service owner. Needs pactoVersion 2.3, or 2.4 with lifetime, expires or owner"},
 			"remove_environments":          {Type: "string", Description: "JSON array of environment names to remove: [\"pr-482\"]. Each file no other environment names is deleted. Checked like every edit before anything is written; nothing in a cluster changes"},
 			"set_environment_values":       {Type: "string", Description: "JSON array of values to merge into environment files: [{environment, configuration, values}]. The environment and configuration must be declared, by the contract or this edit. Objects merge key by key and a null removes its key. The merged values are checked against the configuration's schema, a referenced contract's included, before anything is written"},
 			"lifecycle":                    {Type: "string", Description: "JSON object that sets service.lifecycle: {deprecated, sunset?, successor?}, dates as YYYY-MM-DD and successor as an absolute URL such as the oci:// reference of the service that replaces this one; {clear: true} removes it. Setting it needs pactoVersion 2.4"},
@@ -587,6 +583,7 @@ type property struct {
 	Description string
 	Enum        []string // optional: closed set of allowed string values
 	Items       string   // with Type array: the type of each item
+	Pattern     string   // optional: the regular expression a string value matches
 }
 
 // inputSchema builds the tool's declared JSON Schema. It is the schema the SDK
@@ -615,6 +612,9 @@ func inputSchema(props map[string]property, required []string) map[string]any {
 		}
 		if p.Items != "" {
 			entry["items"] = map[string]any{"type": p.Items}
+		}
+		if p.Pattern != "" {
+			entry["pattern"] = p.Pattern
 		}
 		if len(p.Enum) > 0 {
 			vals := make([]any, 0, len(p.Enum)+1)

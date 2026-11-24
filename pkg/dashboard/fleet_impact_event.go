@@ -3,19 +3,22 @@ package dashboard
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // fleetImpactEvent answers what happens if b.ServiceKey becomes unavailable,
 // is removed or regressed, or b.OfferingKey (every provider of it) becomes
-// unavailable or is removed, over the viewer's snapshot. A service or an
-// offering the viewer may not see answers exactly as one that does not exist.
+// unavailable or is removed, or b.ExternalKey changes or becomes unavailable,
+// over the viewer's snapshot. A service, an offering or an external system
+// the viewer may not see answers exactly as one that does not exist.
 func (s *Server) fleetImpactEvent(ctx context.Context, q *fleet.Query, b impactRequest) (*fleetImpactPostOutput, error) {
 	if err := eventRequestErr(b); err != nil {
 		return nil, err
@@ -25,12 +28,17 @@ func (s *Server) fleetImpactEvent(ctx context.Context, q *fleet.Query, b impactR
 	snap := q.SnapshotForSerialization()
 	key := fleet.ServiceKey(b.ServiceKey)
 	switch {
+	case b.ExternalKey != "":
+		// The viewer's snapshot holds no external only hidden consumers name.
+		if snap.Externals[fleet.ExternalKey(b.ExternalKey)] == nil {
+			return nil, huma.Error404NotFound("no external system with this externalKey")
+		}
 	case b.OfferingKey != "" && !providesOffering(snap, b.OfferingKey):
 		return nil, huma.Error404NotFound("no offering with this offeringKey")
 	case b.OfferingKey == "" && snap.Services[key] == nil:
 		return nil, huma.Error404NotFound("no service with this serviceKey")
 	}
-	ev := impact.Event{Kind: b.Event, Service: b.ServiceKey, Offering: b.OfferingKey, Revision: b.Revision}
+	ev := impact.Event{Kind: b.Event, Service: b.ServiceKey, Offering: b.OfferingKey, External: b.ExternalKey, Revision: b.Revision}
 	var reg *impact.Regression
 	if ev.Kind == impact.EventRegressed {
 		reg = s.regressionEvidence(ctx, key, ev.Revision)
@@ -42,17 +50,45 @@ func (s *Server) fleetImpactEvent(ctx context.Context, q *fleet.Query, b impactR
 // eventRequestErr refuses an event request that does not name exactly one
 // subject, or that pairs a field with the wrong event.
 func eventRequestErr(b impactRequest) error {
+	if err := eventSubjectErr(b); err != nil {
+		return err
+	}
 	switch {
-	case (b.ServiceKey == "") == (b.OfferingKey == ""):
-		return huma.Error422UnprocessableEntity("serviceKey", errors.New("an event request needs exactly one of serviceKey and offeringKey"))
 	case b.FromRevisionKey != "" || b.ToRevisionKey != "":
-		return huma.Error422UnprocessableEntity("event", errors.New("an event is asked of one service or offering: send it without fromRevisionKey and toRevisionKey"))
+		return huma.Error422UnprocessableEntity("event", errors.New("an event is asked of one service, offering or external system: send it without fromRevisionKey and toRevisionKey"))
 	case b.OfferingKey != "" && b.Event == impact.EventRegressed:
 		return huma.Error422UnprocessableEntity("offeringKey", errors.New("event regressed names one service: a regression belongs to one revision"))
 	case b.Event == impact.EventRegressed && b.Revision == "":
 		return huma.Error422UnprocessableEntity("revision", errors.New("event regressed needs the revision that regressed"))
 	case b.Event != impact.EventRegressed && b.Revision != "":
 		return huma.Error422UnprocessableEntity("revision", errors.New("revision is read only with event regressed"))
+	}
+	return nil
+}
+
+// eventSubjectErr refuses an event request that names no subject or more
+// than one, or asks an external system an event it cannot answer.
+func eventSubjectErr(b impactRequest) error {
+	subjects := 0
+	for _, k := range []string{b.ServiceKey, b.OfferingKey, b.ExternalKey} {
+		if k != "" {
+			subjects++
+		}
+	}
+	switch {
+	case subjects != 1:
+		return huma.Error422UnprocessableEntity("serviceKey", errors.New("an event request needs exactly one of serviceKey, offeringKey and externalKey"))
+	case b.Event == impact.EventChanged && b.ExternalKey == "":
+		return huma.Error422UnprocessableEntity("event", errors.New("event changed is asked of an external system: send externalKey"))
+	case b.ExternalKey != "" && b.Event != impact.EventChanged && b.Event != impact.EventUnavailable:
+		return huma.Error422UnprocessableEntity("externalKey", errors.New("an external system is asked with event changed or unavailable"))
+	}
+	if b.ExternalKey != "" {
+		// Syntax only, before the existence check: a malformed key is in no
+		// snapshot, so refusing it reveals nothing about hidden externals.
+		if _, err := externalid.Parse(b.ExternalKey); err != nil {
+			return huma.Error422UnprocessableEntity("externalKey", fmt.Errorf("%w; find its identity with pacto fleet search", err))
+		}
 	}
 	return nil
 }

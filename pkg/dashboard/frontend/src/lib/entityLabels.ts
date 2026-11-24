@@ -9,6 +9,7 @@
 
 import { formatCount } from './format.ts';
 import { formatDateTime, formatWhen } from './dateFormat.ts';
+import type { components } from './generated/schema.ts';
 
 export type Tone = 'ok' | 'warn' | 'err' | 'info' | 'neutral';
 
@@ -156,6 +157,13 @@ export function ownerProvenanceText(p: string | undefined): string {
   }
 }
 
+// inferredFactText is the tooltip of a value a source outside every contract reports
+// (fleet InferredFact): the source, the record it read and when, and that it never decides.
+export function inferredFactText(f: components['schemas']['Fleet.InferredFact']): string {
+  const when = formatDateTime(f.asOf);
+  return `Inferred from ${f.source}${f.where ? ` (${f.where})` : ''}${when ? ` as of ${when}` : ''}. Pacto never routes approvals or clears a gate on it.`;
+}
+
 // ── relationship difference: see differenceLabel/differenceTone in lib/graphState.ts ──
 
 // provenanceLabel names where a relationship's knowledge came from. The wire enum
@@ -229,7 +237,7 @@ const ATTENTION_CAUSES: Record<string, string> = {
   NO_DOMAIN: 'The contract declares no business domain',
   NO_INTERFACE_DOCS: 'An interface declares no document',
   NOT_DEPLOYED: 'No source reports an operational target of this service',
-  UNVERIFIED_CAPABILITY: 'An extension capability no evaluator checks',
+  UNVERIFIED_CAPABILITY: 'An extension capability no evaluator or trusted producer checks',
   INFERRED_PROVIDER: 'A dependency range points at an inferred contract, so Pacto never checks it',
   CROSS_ENVIRONMENT_CALL: 'A workload in one environment calls a workload in another',
   CROSS_ENVIRONMENT_PREVIEW_CALL: 'A workload calls a workload in a preview environment',

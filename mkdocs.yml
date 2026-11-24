@@ -216,6 +216,8 @@ nav:
       - Provision infrastructure through contracts: provision-infrastructure.md
       - Create a service from a golden path: golden-paths.md
       - Export services to Backstage: backstage.md
+      - Export from the registry offline: backstage-registry.md
+      - Read owners from your Backstage catalog: backstage-catalog.md
       - Example contracts: examples/index.md
       - Composition patterns: patterns/index.md
       - CI with GitHub Actions: github-actions.md
@@ -269,6 +271,7 @@ nav:
           - Record keys: integrations/kubernetes/delivery-record-keys.md
           - Run records: integrations/kubernetes/delivery-run-records.md
           - Setup and gates: integrations/kubernetes/delivery-setup.md
+          - Environments and the installation ladder: integrations/kubernetes/delivery-environments.md
           - Plan, propose and approve: integrations/kubernetes/delivery-operations.md
           - Status, progress and lifecycle: integrations/kubernetes/delivery-status.md
           - Health checks: integrations/kubernetes/delivery-health.md
@@ -292,7 +295,9 @@ nav:
       - Lockfile: lockfile.md
       - Packaging ignore: pactoignore.md
       - Evidence: evidence.md
+      - Evidence storage: evidence-storage.md
       - Provider reports: provider-reports.md
+      - Write a source: write-a-source.md
       - Plugin development: plugins.md
       # Kubernetes pages are owned by integrations/kubernetes/docs and assembled
       # into this site by release/scripts/mkdocs_integration_hook.py. Reference

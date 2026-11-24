@@ -1040,6 +1040,16 @@ func TestBehaviorWordingEdges(t *testing.T) {
 	}
 }
 
+// TestBehaviorFilelessEnvironment: an environment with no values file shows
+// none in the File column.
+func TestBehaviorFilelessEnvironment(t *testing.T) {
+	var b strings.Builder
+	writeEnvironments(&b, &contractview.ServiceDetails{Environments: []fleet.EnvironmentResult{{Name: "pr-412", Status: fleet.EnvironmentPass}}}, &sectionNumberer{})
+	if !strings.Contains(b.String(), "| `pr-412` | none | Passed |") {
+		t.Errorf("a file-less environment reads none\n%s", b.String())
+	}
+}
+
 // TestRefLessRenderersNotExternal: a dependency by name shows its range and
 // says by name, never external.
 func TestRefLessRenderersNotExternal(t *testing.T) {

@@ -1,0 +1,45 @@
+{{- /*
+Upstream Flux under idp.flux.install: the source, kustomize and helm
+controllers of the release in files/flux/VERSION, vendored byte for byte by
+hack/vendor-flux.sh. The render adds Pacto's labels (upstream labels win, so
+Flux's own selectors keep matching), helm.sh/resource-policy keep on every
+object (uninstalling Pacto or turning the value off leaves Flux and what it
+applied), the multi-tenancy lockdown on the kustomize and helm controllers, no
+--events-addr (no notification-controller runs) and, on a binding, only the
+subjects among the vendored ServiceAccounts (upstream's crd-controller binding
+also names the controllers Pacto leaves out).
+ponytail: the args edit assumes upstream keeps one container per controller
+Deployment; flux-vendor-check fails the bump if that changes.
+*/}}
+{{- if include "pacto-operator.idpFlux" . }}
+{{- $labels := merge (dict "app.kubernetes.io/version" (include "pacto-operator.fluxVersion" .)) (include "pacto-operator.labels" . | fromYaml) }}
+{{- $lockdown := dict
+  "kustomize-controller" (list "--no-cross-namespace-refs=true" "--default-service-account=default" "--no-remote-bases=true")
+  "helm-controller" (list "--no-cross-namespace-refs=true" "--default-service-account=default") }}
+{{- $accounts := list }}
+{{- range $path, $_ := .Files.Glob "files/flux/serviceaccount-*.yaml" }}
+{{- $accounts = append $accounts ($.Files.Get $path | fromYaml).metadata.name }}
+{{- end }}
+{{- range $path, $_ := .Files.Glob "files/flux/*.yaml" }}
+{{- $obj := $.Files.Get $path | fromYaml }}
+{{- if eq $obj.kind "ClusterRoleBinding" }}
+{{- $subjects := list }}
+{{- range $obj.subjects }}
+{{- if has .name $accounts }}{{ $subjects = append $subjects . }}{{ end }}
+{{- end }}
+{{- $_ := set $obj "subjects" $subjects }}
+{{- end }}
+{{- $_ := set $obj.metadata "labels" (merge ($obj.metadata.labels | default dict) $labels) }}
+{{- $_ := set $obj.metadata "annotations" (merge (dict "helm.sh/resource-policy" "keep") ($obj.metadata.annotations | default dict)) }}
+{{- if eq $obj.kind "Deployment" }}
+{{- $c := index $obj.spec.template.spec.containers 0 }}
+{{- $args := list }}
+{{- range $c.args }}
+{{- if not (hasPrefix "--events-addr=" .) }}{{ $args = append $args . }}{{ end }}
+{{- end }}
+{{- $_ := set $c "args" (concat $args (get $lockdown $obj.metadata.name | default list)) }}
+{{- end }}
+---
+{{ toYaml $obj }}
+{{- end }}
+{{- end }}

@@ -747,6 +747,20 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     unmount(component); document.body.removeChild(target);
   });
 
+  it('leaves the URL alone when the reader navigated away while the analysis ran', async () => {
+    let answer!: (v: unknown) => void;
+    impactFn.mockReturnValue(new Promise((r) => { answer = r; }));
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    location.hash = '#/fleet/graph';
+    answer(impactResult());
+    await new Promise((r) => setTimeout(r, 20));
+    expect(location.hash).toBe('#/fleet/graph');
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('restores an event link and runs it on load, but a bare mode=event only shows the form', async () => {
     impactFn.mockResolvedValue(eventResult());
     const idle = mountView({ svc: 'domain-a/payments', mode: 'event' });
@@ -806,6 +820,178 @@ describe('ChangeAnalysisView — migrating a legacy compare bookmark by NAME', (
     expect(target.textContent).not.toContain('Unknown event');
     expect(target.textContent).toContain('A regression belongs to one revision of one service');
     expect(target.querySelector('[data-testid="changes-event-needs-service"] a')?.getAttribute('href')).toBe('#/fleet/services?offering=postgresql');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  // An external event (517-S4): the subject is a system nobody here controls.
+  const extRef = ref('external', 'stripe', 'stripe');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
+  const externalResult = (o: any = {}): any => {
+    const base = eventResult().consumers.items[0];
+    return eventResult({
+      service: extRef, changedOwner: undefined, event: { kind: 'changed', external: 'stripe' },
+      gate: 'unverified', gateReason: 'an external system is never verified',
+      external: { identity: 'stripe', class: 'vendor-api', provider: 'registry.example/acme/pacto-inferred/stripe',
+        change: { from: '0.0.4', to: '0.0.5', checked: false, at: '2026-07-29T09:00:00Z',
+          openapiFrom: `oci://registry.example/vendor/stripe-openapi@sha256:${'3e9a'.repeat(16)}`, openapiTo: `oci://registry.example/vendor/stripe-openapi@sha256:${'7c21'.repeat(16)}`,
+          added: ['clients stripe-go/77'], removed: ['clients stripe-go/76'] } },
+      pin: 'dependencies:\n  - name: stripe\n    ref: oci://registry.example/acme/pacto-inferred/stripe\n    required: true\n    compatibility: "^2023.10"\n',
+      consumers: { ...eventResult().consumers, byOutcome: [{ key: 'attention', count: 2 }],
+        items: [
+          { ...base, effect: 'attention', sources: ['declared', 'observed'], client: { sdk: 'stripe-go', major: 76, confidence: 'possible', revision: 'domain-a/billing@1.0.0' } },
+          { ...base, service: ref('service', 'domain-a/news', 'news'), effect: 'attention', required: false, provenance: 'inferred', via: ['inferred'], sources: ['repository'], targets: [], targetsTotal: 0, staleTargets: [], evidence: [] },
+        ] },
+      ...o,
+    });
+  };
+
+  it('asks an external system what changes', async () => {
+    impactFn.mockResolvedValue(externalResult());
+    const { target, component } = mountView({ external: 'stripe', event: 'changed' });
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    const body = impactFn.mock.calls[0][0];
+    expect(body).toMatchObject({ externalKey: 'stripe', event: 'changed', limit: 100, offset: 0 });
+    expect(body.serviceKey).toBeUndefined();
+    expect(body.offeringKey).toBeUndefined();
+    expect(detailFn).not.toHaveBeenCalled();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-figure"]')).toBeTruthy());
+    expect(target.textContent).toContain('Who an external system reaches if it changes or becomes unavailable.');
+    expect(target.querySelector('label[for="impact-event"]')?.textContent).toBe('What if this external system');
+    expect(target.querySelector('.svc-line a')?.getAttribute('href')).toBe('#/fleet/externals/stripe');
+    const crumbs = Array.from(target.querySelectorAll('nav a, nav span')).map((n) => n.textContent?.trim()).filter(Boolean);
+    expect(crumbs).toEqual(expect.arrayContaining(['Overview', 'Externals', 'stripe', 'Change analysis']));
+    expect(target.querySelector('[data-testid="changes-mode"]')).toBeNull();
+    await vi.waitFor(() => expect(location.hash).toBe('#/fleet/changes?external=stripe&event=changed'));
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('offers changed and unavailable for an external, never removed or regressed', async () => {
+    const idle = mountView({ external: 'stripe' });
+    await vi.waitFor(() => expect(idle.target.querySelector('#impact-event')).toBeTruthy());
+    const ev = idle.target.querySelector('#impact-event') as HTMLSelectElement;
+    expect([...ev.options].map((o) => o.textContent)).toEqual(['changes', 'becomes unavailable']);
+    expect(ev.value).toBe('changed');
+    unmount(idle.component); document.body.removeChild(idle.target);
+
+    for (const kind of ['removed', 'regressed']) {
+      const { target, component } = mountView({ external: 'stripe', event: kind });
+      await vi.waitFor(() => expect(target.querySelector('#impact-event')).toBeTruthy());
+      await new Promise((r) => setTimeout(r, 20));
+      expect(impactFn).not.toHaveBeenCalled();
+      expect(target.textContent).not.toContain('Unknown event');
+      expect(target.querySelector('[data-testid="changes-event-not-external"]')).toBeTruthy();
+      unmount(component); document.body.removeChild(target);
+    }
+  });
+
+  it('says a change is asked of an external system, never that a service or offering needs a regression', async () => {
+    for (const params of [{ offering: 'postgresql', event: 'changed' }, { svc: 'domain-a/payments', event: 'changed' }]) {
+      const { target, component } = mountView(params);
+      await vi.waitFor(() => expect(target.querySelector('#impact-event')).toBeTruthy());
+      await new Promise((r) => setTimeout(r, 20));
+      expect(impactFn).not.toHaveBeenCalled();
+      expect(target.textContent).not.toContain('Unknown event');
+      expect(target.textContent).not.toContain('A regression');
+      expect(target.querySelector('[data-testid="changes-event-needs-external"]')).toBeTruthy();
+      unmount(component); document.body.removeChild(target);
+    }
+  });
+
+  it('never sends attention for a question that cannot carry it', async () => {
+    impactFn.mockResolvedValue(eventResult());
+    const link = mountView({ svc: 'domain-a/payments', event: 'unavailable', outcome: 'attention' });
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    expect(impactFn.mock.calls[0][0].outcome).toBeUndefined();
+    unmount(link.component); document.body.removeChild(link.target);
+
+    impactFn.mockReset();
+    impactFn.mockResolvedValue(externalResult());
+    const { target, component } = mountView({ external: 'stripe', event: 'changed', outcome: 'attention' });
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    expect(impactFn.mock.calls[0][0].outcome).toBe('attention');
+    const ev = target.querySelector('#impact-event') as HTMLSelectElement;
+    ev.value = 'unavailable'; ev.dispatchEvent(new Event('change', { bubbles: true }));
+    flushSync();
+    (Array.from(target.querySelectorAll('button')).find((b) => b.textContent?.trim() === 'Ask') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalledTimes(2));
+    expect(impactFn.mock.calls[1][0]).toMatchObject({ event: 'unavailable' });
+    expect(impactFn.mock.calls[1][0].outcome).toBeUndefined();
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('caps the clients of the change line and counts the rest', async () => {
+    const many = (n: number, v: number) => Array.from({ length: n }, (_, i) => `clients ${'x'.repeat(120)}-${i}/${v}`);
+    const r = externalResult();
+    r.external.change = { ...r.external.change, added: many(2000, 77), removed: many(2000, 76) };
+    impactFn.mockResolvedValue(r);
+    const { target, component } = mountView({ external: 'stripe', event: 'changed' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-external-clients"]')).toBeTruthy());
+    const clients = target.querySelector('[data-testid="changes-external-clients"]') as HTMLElement;
+    expect(clients.textContent).toContain('and 3,997 more');
+    expect(clients.textContent!.length).toBeLessThan(600);
+    expect(clients.title).toContain('and 3,950 more');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('shows the provider change line and the pin collapsed', async () => {
+    impactFn.mockResolvedValue(externalResult());
+    const { target, component } = mountView({ external: 'stripe', event: 'changed' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="changes-external-change"]')).toBeTruthy());
+    const line = target.querySelector('[data-testid="changes-external-change"]') as HTMLElement;
+    const text = line.textContent?.replace(/\s+/g, ' ').trim() ?? '';
+    expect(text).toContain('0.0.4 → 0.0.5');
+    expect(text).toContain('sha256:3e9a3e9a → sha256:7c217c21');
+    expect(text).toContain('+stripe-go/77');
+    expect(text).toContain('unchecked: no source checked these revisions');
+    const digests = Array.from(line.querySelectorAll('[title]')).map((e) => e.getAttribute('title'));
+    expect(digests).toContain(`oci://registry.example/vendor/stripe-openapi@sha256:${'3e9a'.repeat(16)}`);
+    const pin = target.querySelector('details[data-testid="changes-pin"]') as HTMLDetailsElement;
+    expect(pin.open).toBe(false);
+    expect(pin.querySelector('pre')?.textContent).toContain('compatibility: "^2023.10"');
+    expect(pin.querySelector('button[aria-label]')).toBeTruthy();
+    // A checked change carries no unchecked word; an answer with no change shows no line.
+    unmount(component); document.body.removeChild(target);
+    impactFn.mockResolvedValue(externalResult({ pin: undefined, external: { identity: 'stripe', class: 'vendor-api' } }));
+    const bare = mountView({ external: 'stripe', event: 'changed' });
+    await vi.waitFor(() => expect(bare.target.querySelector('[data-testid="impact-figure"]')).toBeTruthy());
+    expect(bare.target.querySelector('[data-testid="changes-external-change"]')).toBeNull();
+    expect(bare.target.querySelector('[data-testid="changes-pin"]')).toBeNull();
+    unmount(bare.component); document.body.removeChild(bare.target);
+  });
+
+  it("an external answer marks each consumer's sources and client major", async () => {
+    impactFn.mockResolvedValue(externalResult());
+    const { target, component } = mountView({ external: 'stripe', event: 'changed' });
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="consumer-row"]')).toHaveLength(2));
+    const [billing, news] = Array.from(target.querySelectorAll('[data-testid="consumer-row"]'));
+    expect(billing.querySelector('[data-label="Effect"] .badge')?.textContent).toBe('Attention');
+    const mark = billing.querySelector('[data-testid="consumer-sources"]')!;
+    expect(mark.querySelector('button[aria-label="About where billing uses it"]')).toBeTruthy();
+    expect(mark.textContent).toContain('Seen as declared and observed.');
+    const client = billing.querySelector('[data-testid="consumer-client"]')!;
+    expect(client.textContent).toBe('stripe-go v76');
+    expect(client.getAttribute('title')).toContain('possible');
+    expect(billing.classList.contains('row-muted')).toBe(false);
+    // Only a repository names news: muted, never a second list.
+    expect(news.classList.contains('row-muted')).toBe(true);
+    expect(news.querySelector('[data-testid="consumer-sources"]')?.textContent).toContain('Seen as repository.');
+    expect(news.querySelector('[data-testid="consumer-client"]')).toBeNull();
+    expect(target.querySelectorAll('th')).toHaveLength(6);
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('an external subject never shows the pick-a-service state or the revision loaders', async () => {
+    let resolve: (v: unknown) => void = () => {};
+    impactFn.mockReturnValue(new Promise((r) => { resolve = r; }));
+    const { target, component } = mountView({ external: 'stripe', event: 'unavailable' });
+    await vi.waitFor(() => expect(impactFn).toHaveBeenCalled());
+    expect(target.querySelector('[data-testid="impact-service-picker"]')).toBeNull();
+    expect(target.textContent).not.toContain('Loading service revisions');
+    expect(target.textContent).not.toContain('Couldn’t load this service');
+    resolve(externalResult({ event: { kind: 'unavailable', external: 'stripe' } }));
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="impact-figure"]')).toBeTruthy());
+    expect(detailFn).not.toHaveBeenCalled();
+    expect(target.querySelector('[data-testid="changes-plan"]')).toBeNull();
     unmount(component); document.body.removeChild(target);
   });
 

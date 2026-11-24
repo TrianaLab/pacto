@@ -126,6 +126,17 @@ type PlanInput struct {
 	// only for a blocked change, and it must be bounded (ResolveRevision is).
 	// Nil reads nothing: every candidate is unknown.
 	Candidates func(ctx context.Context, stage StageObject, digest string) Revision
+	// InspectManifests is the published ClassPolicy.ManifestInspector: a
+	// promote runs pacto.manifests over Manifests.
+	InspectManifests bool
+	// RefuseRawInfra is the published ClassPolicy.RefuseRawInfra: raw
+	// infrastructure in the artifact fails pacto.manifests instead of asking
+	// a person.
+	RefuseRawInfra bool
+	// Manifests inspects the deploy artifact of To. It reads the registry,
+	// so pacto.manifests calls it only once pacto.published did not fail and
+	// pacto.applier passed (AssemblePlanInput sets it lazily).
+	Manifests func(ctx context.Context) ManifestInspection
 	// Gates are the promoter's gate providers, like RequireOwnerTeam
 	// promoter configuration: the suites pre-gate reads which checks run on
 	// an eval provider. A client plans with ClassPolicy.PlanGates, the types
@@ -377,8 +388,10 @@ func predict(in PlanInput, p *Plan) Prediction {
 	return PredictProceeds
 }
 
-// promoteGates runs pacto.published, pacto.applier, pacto.diff and pacto.impact and derives
-// the approval floor. A version pacto publish did not publish goes no further.
+// promoteGates runs pacto.published, pacto.applier, pacto.manifests (with the
+// inspector on), pacto.diff and pacto.impact and derives the approval floor. A
+// version pacto publish did not publish goes no further, and neither does one
+// whose deploy artifact the inspector refuses.
 func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	pub := publishedGate(in)
 	p.Verdicts = append(p.Verdicts, pub)
@@ -390,6 +403,18 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	// it by answering another question.
 	if !applierGate(in, p) {
 		return
+	}
+	if in.InspectManifests && in.Manifests != nil {
+		ok, unread := manifestsGate(ctx, in, p, pub)
+		if !ok {
+			return
+		}
+		// An unknown inspection is asked after every later gate, joined with
+		// their questions: a breaking change still asks its consumers'
+		// owners, and accepting the unknown never skips them.
+		if unread != "" {
+			defer holdFor(p, AcceptUnknown, "Pacto cannot tell "+unread, "Pacto cannot tell "+unread+". Accept the unknown?")
+		}
 	}
 	if pub.Result == Unknown {
 		p.Floor = Floor{Human: true, Decision: AcceptUnknown}
@@ -469,7 +494,7 @@ func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.C
 	st := validation.EnvironmentStageWith(c, bundleFS, refs)
 	for _, e := range st.Errors {
 		if under(e.Path) {
-			loc := e.File
+			loc := cmp.Or(e.File, e.Path) // a file-less environment's finding is at environments[i]
 			if e.Line > 0 {
 				loc += ":" + strconv.Itoa(e.Line)
 			}

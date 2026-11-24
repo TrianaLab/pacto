@@ -120,8 +120,11 @@ type ConfigurationRefInput struct {
 // environments/<name>.yaml. Lifetime, Expires and Owner are the declared
 // fields of pactoVersion 2.4.
 type EnvironmentInput struct {
-	Name     string          `json:"name"`
-	File     string          `json:"file,omitempty"`
+	Name string `json:"name"`
+	File string `json:"file,omitempty"`
+	// NoFile declares the environment with no values file; needs
+	// pactoVersion 2.6.
+	NoFile   bool            `json:"noFile,omitempty"`
 	Lifetime string          `json:"lifetime,omitempty"`
 	Expires  string          `json:"expires,omitempty"`
 	Owner    *contract.Owner `json:"owner,omitempty"`
@@ -663,7 +666,9 @@ func hasIdentity(deps []DependencyInput) bool {
 // meaning to keep, so it is never raised through contract.Upgrade.
 func createMinVersion(input CreateInput) string {
 	switch {
-	case input.Version == "", len(undeclaredRanges(input.Dependencies)) > 0, hasIdentity(input.Dependencies):
+	case input.Version == "":
+		return contract.Current()
+	case len(undeclaredRanges(input.Dependencies)) > 0, hasIdentity(input.Dependencies):
 		return "2.5"
 	case input.Domain != "":
 		return "2.4"
@@ -677,6 +682,8 @@ func createMinVersion(input CreateInput) string {
 // or "" when any version has them. Removing a field needs no newer version.
 func editMinVersion(input EditInput) string {
 	switch {
+	case needs26(input):
+		return "2.6"
 	case len(undeclaredRanges(input.AddDependencies)) > 0, hasIdentity(input.AddDependencies):
 		return "2.5"
 	case needs24(input):
@@ -687,6 +694,12 @@ func editMinVersion(input EditInput) string {
 		return "2.1"
 	}
 	return ""
+}
+
+// needs26 reports whether input adds an environment with no values file,
+// which pactoVersion 2.6 allows.
+func needs26(input EditInput) bool {
+	return slices.ContainsFunc(input.AddEnvironments, func(in EnvironmentInput) bool { return in.NoFile })
 }
 
 // needs24 reports whether input sets a field pactoVersion 2.4 added.
@@ -946,8 +959,8 @@ func editFiles(dir string, m map[string]any, input EditInput) (map[string][]byte
 func orphanEnvironmentFiles(before, after []contract.Environment, files map[string][]byte) []string {
 	var changes []string
 	for _, env := range before {
-		if slices.ContainsFunc(after, func(e contract.Environment) bool { return e.Name == env.Name }) {
-			continue
+		if env.File == "" || slices.ContainsFunc(after, func(e contract.Environment) bool { return e.Name == env.Name }) {
+			continue // a file-less environment leaves no file behind
 		}
 		// Only a clean path inside the bundle is deleted, keyed as the
 		// validation FS and the write both see it, and never pacto.yaml.
@@ -1269,7 +1282,7 @@ func declaredEnvironments(m map[string]any) []contract.Environment {
 }
 
 // addEnvironments declares each environment, its file defaulting to
-// environments/<name>.yaml.
+// environments/<name>.yaml, or with no file when NoFile is set.
 func addEnvironments(m map[string]any, inputs []EnvironmentInput) ([]string, error) {
 	if len(inputs) == 0 {
 		return nil, nil
@@ -1280,9 +1293,15 @@ func addEnvironments(m map[string]any, inputs []EnvironmentInput) ([]string, err
 		if slices.ContainsFunc(declaredEnvironments(m), func(e contract.Environment) bool { return e.Name == in.Name }) {
 			return nil, fmt.Errorf("environment %q is already declared", in.Name)
 		}
-		file := cmp.Or(in.File, "environments/"+in.Name+".yaml")
-		entry := map[string]any{"name": in.Name, "file": file}
-		change := fmt.Sprintf("added environment %q (%s)", in.Name, file)
+		entry := map[string]any{"name": in.Name}
+		change := fmt.Sprintf("added environment %q (no values file)", in.Name)
+		switch {
+		case in.NoFile && in.File != "":
+			return nil, fmt.Errorf("environment %q: give file or noFile, not both", in.Name)
+		case !in.NoFile:
+			entry["file"] = cmp.Or(in.File, "environments/"+in.Name+".yaml")
+			change = fmt.Sprintf("added environment %q (%s)", in.Name, entry["file"])
+		}
 		if in.Lifetime != "" {
 			entry["lifetime"] = in.Lifetime
 			change += ", " + in.Lifetime
@@ -1342,9 +1361,15 @@ func environmentFiles(dir string, m map[string]any, input EditInput, gone []stri
 		if !slices.Contains(configNames(m), in.Configuration) {
 			return nil, fmt.Errorf("configuration %q is not declared", in.Configuration)
 		}
+		if slices.ContainsFunc(envs, func(e contract.Environment) bool { return e.Name == in.Environment && e.File == "" }) {
+			return nil, fmt.Errorf("environment %q declares no values file, so it takes no values; give it a file to set values", in.Environment)
+		}
 	}
 	var changes []string
 	for _, env := range envs {
+		if env.File == "" {
+			continue // no values file: nothing to read or write
+		}
 		values, exists, err := readEnvironmentValues(dir, env)
 		if err != nil {
 			return nil, err
@@ -2113,7 +2138,7 @@ func summarizeContract(c *contract.Contract) ContractSummary {
 	}
 
 	for _, env := range c.Environments {
-		s.Environments = append(s.Environments, env.Name+" ("+env.File+")")
+		s.Environments = append(s.Environments, env.Name+" ("+cmp.Or(env.File, "no values file")+")")
 	}
 
 	return s

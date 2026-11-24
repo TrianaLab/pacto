@@ -289,7 +289,7 @@ func TestDeploymentAC_WithEvidenceSourceURL(t *testing.T) {
 		Enabled:           true,
 		Image:             "img:v1",
 		Namespace:         "test-ns",
-		EvidenceSourceURL: "http://pacto-evidence.test-ns.svc:8686",
+		EvidenceSourceURL: func() string { return "http://pacto-evidence.test-ns.svc:8686" },
 	}
 	ac := deploymentAC(cfg)
 	deploy, ok := ac.(*appsv1ac.DeploymentApplyConfiguration)
@@ -301,8 +301,8 @@ func TestDeploymentAC_WithEvidenceSourceURL(t *testing.T) {
 	for _, env := range container.Env {
 		if *env.Name == "PACTO_EVIDENCE_SOURCE_URL" {
 			found = true
-			if *env.Value != cfg.EvidenceSourceURL {
-				t.Errorf("expected PACTO_EVIDENCE_SOURCE_URL=%q, got %q", cfg.EvidenceSourceURL, *env.Value)
+			if *env.Value != cfg.EvidenceSourceURL() {
+				t.Errorf("expected PACTO_EVIDENCE_SOURCE_URL=%q, got %q", cfg.EvidenceSourceURL(), *env.Value)
 			}
 		}
 	}
@@ -489,6 +489,18 @@ func TestApplySetsStatsRegistryEnv(t *testing.T) {
 	cfg := Config{Image: "i", Namespace: "n", StatsRegistry: "ghcr.io/acme/pacto-stats"}
 	if v, ok := envValue(cfg, "PACTO_STATS_REGISTRY"); !ok || v != "ghcr.io/acme/pacto-stats" {
 		t.Fatalf("PACTO_STATS_REGISTRY: got %q, %v", v, ok)
+	}
+}
+
+// TestDashboardIndexEnv: the dashboard reads the organization index the
+// operator names from its own registry, and none when the operator names none.
+func TestDashboardIndexEnv(t *testing.T) {
+	cfg := Config{Image: "i", Namespace: "n", Index: "ghcr.io/acme/pacto-index"}
+	if v, ok := envValue(cfg, "PACTO_DASHBOARD_INDEX"); !ok || v != "ghcr.io/acme/pacto-index" {
+		t.Fatalf("PACTO_DASHBOARD_INDEX: got %q, %v", v, ok)
+	}
+	if v, ok := envValue(Config{Image: "i", Namespace: "n"}, "PACTO_DASHBOARD_INDEX"); ok {
+		t.Fatalf("no index configured, yet PACTO_DASHBOARD_INDEX=%q", v)
 	}
 }
 
@@ -813,5 +825,27 @@ func TestAuthEnvMCP(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// The evidence env follows the gate on every apply: on wires the source,
+// off (empty) wires none.
+func TestDashboardEvidenceEnvFollowsGate(t *testing.T) {
+	url := ""
+	cfg := Config{Enabled: true, Image: "img:v1", Namespace: "test-ns", EvidenceSourceURL: func() string { return url }}
+	has := func() bool {
+		for _, env := range deploymentAC(cfg).(*appsv1ac.DeploymentApplyConfiguration).Spec.Template.Spec.Containers[0].Env {
+			if *env.Name == "PACTO_EVIDENCE_SOURCE_URL" {
+				return *env.Value == url
+			}
+		}
+		return false
+	}
+	if has() {
+		t.Fatal("gate off wired the evidence source")
+	}
+	url = "http://pacto-evidence.test-ns.svc:8686"
+	if !has() {
+		t.Fatal("gate on did not wire the evidence source")
 	}
 }

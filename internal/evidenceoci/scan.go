@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/opencontainers/go-digest"
 	ocispec "github.com/opencontainers/image-spec/specs-go/v1"
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
@@ -27,6 +28,9 @@ type subjectScan struct {
 	// valid Pacto record. Any non-zero count means this subject's evidence is
 	// incomplete: the read is partial and a write must fail closed.
 	Invalid int
+	// seen holds the manifest digest of every record found, so a record
+	// also read from a write-once tag counts once.
+	seen map[digest.Digest]bool
 }
 
 // scanSubject enumerates every referrer of subjectDesc and returns the evidence
@@ -41,12 +45,13 @@ type subjectScan struct {
 // an authoritative empty operational graph. Fetching each candidate costs a few
 // extra small requests and can never turn present evidence into absent evidence.
 func scanSubject(ctx context.Context, repo *remote.Repository, subj Subject, subjectDesc ocispec.Descriptor) (subjectScan, error) {
-	var out subjectScan
+	out := subjectScan{seen: map[digest.Digest]bool{}}
 	err := repo.Referrers(ctx, subjectDesc, "", func(page []ocispec.Descriptor) error {
 		for _, desc := range page {
 			switch rec, state := readReferrer(ctx, repo, subj, subjectDesc, desc); state {
 			case referrerRecord:
 				out.Found = append(out.Found, rec)
+				out.seen[desc.Digest] = true
 			case referrerMalformed:
 				out.Invalid++
 			}
@@ -75,7 +80,9 @@ const (
 
 // readReferrer classifies and, when it is Pacto's, decodes one referrer. desc is
 // the referring artifact's own descriptor; subjectDesc is the resolved contract
-// revision it must be bound to.
+// revision it must be bound to. A zero subjectDesc, for a revision the registry
+// no longer holds, binds the record to the subject descriptor its own manifest
+// carries, whose digest must still be subj's.
 //
 // An artifact the registry listed but then could not serve is malformed rather
 // than a separate transport failure: either way this subject's evidence set is
@@ -97,6 +104,9 @@ func readReferrer(ctx context.Context, repo *remote.Repository, subj Subject, su
 	}
 	if !claimsPactoType(desc, manifest) {
 		return evidenceingest.Record{}, referrerForeign
+	}
+	if subjectDesc.Digest == "" {
+		subjectDesc = manifestSubject(manifest)
 	}
 	payloadDesc, err := ValidateManifest(manifest, subj, subjectDesc)
 	if err != nil {
@@ -130,4 +140,15 @@ func claimsPactoType(desc ocispec.Descriptor, manifest []byte) bool {
 	// decode that decides whether it is VALID runs next.
 	_ = json.Unmarshal(manifest, &declared)
 	return declared.ArtifactType == ArtifactType
+}
+
+// manifestSubject is the subject descriptor manifest names, zero when it names
+// none or does not parse; ValidateManifest then refuses it.
+func manifestSubject(manifest []byte) ocispec.Descriptor {
+	var m ocispec.Manifest
+	_ = json.Unmarshal(manifest, &m)
+	if m.Subject == nil {
+		return ocispec.Descriptor{}
+	}
+	return *m.Subject
 }

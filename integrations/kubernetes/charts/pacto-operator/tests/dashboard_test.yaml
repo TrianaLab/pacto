@@ -3,6 +3,7 @@ templates:
   - templates/dashboard-service.yaml
   - templates/dashboard-ingress.yaml
   - templates/dashboard-httproute.yaml
+  - templates/deployment.yaml
 tests:
   # --- Service ---
   - it: should create a dashboard Service by default
@@ -157,3 +158,80 @@ tests:
     asserts:
       - hasDocuments:
           count: 0
+
+  # --- Backstage catalog ---
+  - it: dashboard backstage url and token secret render flags
+    template: templates/deployment.yaml
+    set:
+      dashboard.backstage.url: https://backstage.acme.internal
+      dashboard.backstage.tokenSecret.name: backstage-reader
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-backstage-url=https://backstage.acme.internal"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-backstage-token-secret=backstage-reader"
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-backstage-token-key=token"
+
+  - it: nothing renders when unset
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "^--dashboard-backstage"
+
+  - it: token secret without url fails
+    template: templates/deployment.yaml
+    set:
+      dashboard.backstage.tokenSecret.name: backstage-reader
+    asserts:
+      - failedTemplate:
+          errorPattern: "backstage"
+
+  - it: the schema refuses a backstage url that is not http or https
+    template: templates/deployment.yaml
+    set:
+      dashboard.backstage.url: ftp://x
+    asserts:
+      - failedTemplate:
+          errorPattern: "backstage"
+
+  # --- Organization index ---
+  - it: points the dashboard at the installation's organization index by default
+    template: templates/deployment.yaml
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-index=auto"
+
+  - it: reads no organization index with dashboard.index none
+    template: templates/deployment.yaml
+    set:
+      dashboard.index: none
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-index=none"
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: "--dashboard-index=auto"
+
+  - it: refuses a dashboard.index other than auto or none, so the chart never names another host
+    template: templates/deployment.yaml
+    set:
+      dashboard.index: ghcr.io/other/pacto-index
+    asserts:
+      - failedTemplate:
+          errorPattern: "(?i)index"
+
+  - it: passes no dashboard index when the dashboard is disabled
+    template: templates/deployment.yaml
+    set:
+      dashboard.enabled: false
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: "--dashboard-index"

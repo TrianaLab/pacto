@@ -24,11 +24,15 @@
 //
 // Registry credentials, when needed, come from PACTO_REGISTRY_USERNAME /
 // PACTO_REGISTRY_PASSWORD / PACTO_REGISTRY_TOKEN (same env as the pacto CLI).
-// Prints "<service>:<version> <digest>" per pushed bundle to stdout.
+// Prints "<service>:<version> <digest>" per pushed bundle to stdout, and
+// "<service>:<version> <digest> unchanged" for a tag that already holds the
+// bundle (typed, or untyped as a Pacto before 4.7 pushed it), which is never
+// re-pushed.
 package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"io/fs"
@@ -50,8 +54,8 @@ func main() {
 }
 
 func run(args []string, stdout, stderr io.Writer) error {
-	// --print-digests: compute each bundle's deterministic OCI digest locally and
-	// print "<svc>:<version> <digest>" WITHOUT pushing. The demo publisher uses this
+	// --print-digests: compute each bundle's deterministic OCI digests locally and
+	// print "<svc>:<version> <typed> <legacy>" WITHOUT pushing. The demo publisher uses this
 	// for a byte-exact absent/identical/conflict gate before touching the registry.
 	if len(args) == 3 && args[0] == "--seed-cache" {
 		return seedCache(args[1], args[2])
@@ -95,55 +99,44 @@ func run(args []string, stdout, stderr io.Writer) error {
 			_, _ = fmt.Fprintf(stderr, "skipped: %s (no declared version, not publishable)\n", filepath.Base(dir))
 			continue
 		}
+		ds, err := oci.BundleDigests(b)
+		if err != nil {
+			return fmt.Errorf("digest %s: %w", dir, err)
+		}
 		if printOnly {
-			d, err := bundleDigest(b)
-			if err != nil {
-				return fmt.Errorf("digest %s: %w", dir, err)
-			}
-			_, _ = fmt.Fprintf(stdout, "%s:%s %s\n", name, version, d)
+			_, _ = fmt.Fprintf(stdout, "%s:%s %s %s\n", name, version, ds.Typed, ds.Legacy)
 			continue
 		}
 		// Client.Push takes a bare registry ref (no oci:// scheme), matching what
 		// the CLI passes after graph.ParseDependencyRef strips the scheme.
 		ref := fmt.Sprintf("%s/%s:%s", coord, name, version)
-		digest, err := client.Push(ctx, ref, b)
+		digest, err := pushOnce(ctx, client, ref, b, ds)
 		if err != nil {
-			return fmt.Errorf("push %s: %w", ref, err)
+			return err
 		}
 		_, _ = fmt.Fprintf(stdout, "%s:%s %s\n", name, version, digest)
 	}
 	return nil
 }
 
-// bundleDigest computes the deterministic OCI digest a bundle would be published
-// under, WITHOUT pushing: build the image, consume its layer stream to finalize the
-// digest (streamed layers know it only after the stream is read), then read it.
-// Packing is content-deterministic, so this equals the digest Push produces.
-func bundleDigest(b *contract.Bundle) (string, error) {
-	img, err := oci.BundleImage(b)
+// pushOnce pushes b to ref unless ref already holds either digest of b, so a
+// tag an older Pacto wrote untyped never moves. An unchanged tag prints its
+// remote digest followed by "unchanged": the live-resolution proof still finds
+// it. A resolve error other than not-found fails: never push on no answer.
+func pushOnce(ctx context.Context, client oci.BundleStore, ref string, b *contract.Bundle, ds oci.Digests) (string, error) {
+	remote, err := client.Resolve(ctx, ref)
+	var nf *oci.ArtifactNotFoundError
+	switch {
+	case err == nil && ds.Same(remote):
+		return remote + " unchanged", nil
+	case err != nil && !errors.As(err, &nf):
+		return "", fmt.Errorf("resolve %s: %w", ref, err)
+	}
+	digest, err := client.Push(ctx, ref, b)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("push %s: %w", ref, err)
 	}
-	layers, err := img.Layers()
-	if err != nil {
-		return "", err
-	}
-	for _, l := range layers {
-		rc, err := l.Compressed()
-		if err != nil {
-			return "", err
-		}
-		if _, err := io.Copy(io.Discard, rc); err != nil {
-			_ = rc.Close()
-			return "", err
-		}
-		_ = rc.Close()
-	}
-	d, err := img.Digest()
-	if err != nil {
-		return "", err
-	}
-	return d.String(), nil
+	return digest, nil
 }
 
 // bundleDirs returns every directory under root that holds a pacto.yaml, sorted.
@@ -190,11 +183,14 @@ func seedCache(dir, ref string) error {
 	if err != nil {
 		return err
 	}
-	d, err := bundleDigest(b)
+	ds, err := oci.BundleDigests(b)
 	if err != nil {
 		return err
 	}
-	store := oci.NewCachedStore(localStore{bundle: b, digest: d})
+	// ponytail: seeds the legacy digest, the one every published demo tag and
+	// committed lock holds. A demo version first published typed needs the
+	// typed digest here; pick per bundle when the first one ships.
+	store := oci.NewCachedStore(localStore{bundle: b, digest: ds.Legacy})
 	if store.CacheDir() == "" {
 		return fmt.Errorf("no cache directory: set XDG_CACHE_HOME")
 	}

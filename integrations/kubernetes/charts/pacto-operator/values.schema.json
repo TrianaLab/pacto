@@ -366,6 +366,30 @@
         }
       ]
     },
+    "idp": {
+      "description": "Pieces profile idp installs with this release on a person's confirmation.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "crossplane": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "install": {
+              "type": "boolean",
+              "description": "Install upstream Crossplane with this release. Needs profile idp; refused when Crossplane is already installed."
+            }
+          }
+        },
+        "flux": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "install": { "type": "boolean", "description": "Install upstream Flux with this release (profile idp only)." }
+          }
+        }
+      }
+    },
     "registryPullSecret": {
       "type": "string",
       "description": "namespace/name of an existing Secret that authenticates to registry; the chart grants get on that Secret only.",
@@ -671,6 +695,30 @@
             "miraURL": { "type": "string" }
           }
         },
+        "backstage": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "The Backstage catalog the dashboard reads inferred owners, systems and dependencies from. The token is only for a configured url.",
+          "properties": {
+            "url": { "type": "string", "pattern": "^$|^https?://" },
+            "tokenSecret": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "name": { "type": "string" },
+                "key": { "type": "string", "minLength": 1 }
+              }
+            }
+          },
+          "if": {
+            "properties": { "tokenSecret": { "properties": { "name": { "minLength": 1 } }, "required": ["name"] } },
+            "required": ["tokenSecret"]
+          },
+          "then": {
+            "properties": { "url": { "minLength": 1 } },
+            "required": ["url"]
+          }
+        },
         "declare": {
           "type": ["object", "null"],
           "additionalProperties": false,
@@ -684,6 +732,11 @@
               }
             }
           }
+        },
+        "index": {
+          "type": "string",
+          "enum": ["auto", "none"],
+          "description": "The organization index the dashboard reads: auto reads <registry>/pacto-index when registry is set, none reads none."
         },
         "stats": {
           "type": "object",
@@ -793,6 +846,14 @@
                 "pattern": "^oci://[^@]+@sha256:[0-9a-f]{64}$"
               }
             },
+            "subjectPrefixes": {
+              "type": "array",
+              "description": "Registry prefixes, each oci://<registry>/<path>/ ending in /, whose immutable revisions evidence may be stored on.",
+              "items": {
+                "type": "string",
+                "pattern": "^oci://[^@/]+/([^@/]+/)*$"
+              }
+            },
             "credentialsSecret": {
               "type": "string"
             }
@@ -848,14 +909,28 @@
             ],
             "properties": {
               "registry": {
-                "required": [
-                  "subjects"
-                ],
-                "properties": {
-                  "subjects": {
-                    "minItems": 1
+                "anyOf": [
+                  {
+                    "required": [
+                      "subjects"
+                    ],
+                    "properties": {
+                      "subjects": {
+                        "minItems": 1
+                      }
+                    }
+                  },
+                  {
+                    "required": [
+                      "subjectPrefixes"
+                    ],
+                    "properties": {
+                      "subjectPrefixes": {
+                        "minItems": 1
+                      }
+                    }
                   }
-                }
+                ]
               }
             }
           }
@@ -1088,6 +1163,32 @@
         "serviceAccount": {
           "$ref": "#/$defs/serviceAccount"
         },
+        "environments": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean"
+            },
+            "ladder": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {
+                "type": "string",
+                "maxLength": 63,
+                "pattern": "^[a-z0-9]([-a-z0-9]*[a-z0-9])?$"
+              }
+            },
+            "createNamespaces": {
+              "type": "boolean"
+            },
+            "retireAfter": {
+              "type": "string",
+              "pattern": "^([0-9]+(\\.[0-9]+)?(ns|us|ms|s|m|h))+$"
+            }
+          }
+        },
         "promoter": {
           "type": "object",
           "additionalProperties": false,
@@ -1150,7 +1251,10 @@
           "additionalProperties": false,
           "properties": {
             "enabled": {
-              "type": "boolean"
+              "type": [
+                "boolean",
+                "null"
+              ]
             },
             "streamsRepository": {
               "type": "string"
@@ -1543,6 +1647,9 @@
               "enum": ["auto", true, false]
             }
           }
+        },
+        "manifestInspector": {
+          "oneOf": [{ "type": "boolean" }, { "const": "auto" }]
         },
         "admissionPolicies": {
           "type": "object",

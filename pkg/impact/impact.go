@@ -197,7 +197,11 @@ type AffectedConsumer struct {
 	// first, bounded to MaxConsumerEvidence.
 	Evidence []Evidence `json:"evidence,omitempty" doc:"The facts behind this consumer and their age: its targets, observed calls and unreachable findings, newest first"`
 	// Effect is what an event does to this consumer; empty on a contract change.
-	Effect string `json:"effect,omitempty" enum:"breaks,may-degrade,unknown" doc:"What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency) or unknown"`
+	Effect string `json:"effect,omitempty" enum:"breaks,may-degrade,attention,unknown" doc:"What the event does to this consumer: breaks (every hop of a path is a required dependency), may-degrade (every path holds an optional dependency), attention (an external system it uses changed) or unknown"`
+	// Sources and Client are an external answer's facts: where each use of
+	// the external system was seen, and the client library its record names.
+	Sources []string              `json:"sources,omitempty" enum:"declared,observed,inferred,pod-spec,repository" doc:"For an external answer: where each use of the external system was seen; inferred is a call seen from an inferred service"`
+	Client  *fleet.ExternalClient `json:"client,omitempty" doc:"For an external answer: the client library and major the consumer's inferred record names; absent when none names a major"`
 	// Resources are the provisioning statuses of what this consumer asked a
 	// removed service for, bounded to MaxConsumerResources.
 	Resources      []fleet.ProvisioningStatus `json:"resources,omitempty" doc:"What this consumer asked the removed service for, one provisioning status per environment, at most 20"`
@@ -290,6 +294,10 @@ type Result struct {
 	// Providers are the service keys of the visible providers of an offering
 	// event's offering; empty on any other answer.
 	Providers []string `json:"providers,omitempty" doc:"The service keys of the services that provide the offering of an offering event"`
+	// External and Pin are an external event's subject and the range-pin
+	// YAML for a consumer that declares no range.
+	External *ExternalSubject `json:"external,omitempty" doc:"The external system an external event is about"`
+	Pin      string           `json:"pin,omitempty" doc:"YAML that pins a range on the external system's inferred contract for a consumer that pins none, or declares the external system when no inferred contract exists"`
 	// Templates are the golden paths that reference the changed service's
 	// policy. A golden path runs nowhere, so it never holds the gate.
 	Templates []string `json:"templates,omitempty" doc:"The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each"`
@@ -330,6 +338,12 @@ type Result struct {
 	// inferredExternal is the external system whose inferred contract the
 	// answer is about (the ref rule); empty otherwise.
 	inferredExternal string
+	// inferredRecord is inferredExternal's record as the viewer sees it,
+	// read for its claim; nil when the fleet holds none.
+	inferredRecord *fleet.ExternalRecord
+	// inferredVersion is the version of the inferred contract an external
+	// answer read; empty otherwise.
+	inferredVersion string
 }
 
 // RegistryLookup is where Pacto looked for a target snapshot: the
@@ -761,13 +775,38 @@ func (r *Result) noteUnchecked(snap *fleet.FleetSnapshot) {
 	if checked {
 		return
 	}
-	n := 0
+	n, read := 0, "the index lists "
 	if r.ConsumerIndex != nil {
 		n = r.ConsumerIndex.Services
+	} else if src := indexSource(snap); src != nil {
+		// The services the source holds: its revision count also counts
+		// inferred contracts, which are externals, never services.
+		read = "Pacto read from the index "
+		for _, svc := range snap.Services {
+			if slices.Contains(svc.Sources, src.ID) {
+				n++
+			}
+		}
 	}
-	r.markIndexPartial(LimitationConsumerIndexUnchecked, "the index lists "+strconv.Itoa(n)+" "+plural(n, "service", "services")+
+	r.markIndexPartial(LimitationConsumerIndexUnchecked, read+strconv.Itoa(n)+" "+plural(n, "service", "services")+
 		"; without a target snapshot Pacto cannot tell whether a consumer is missing from it")
 }
+
+// indexSource is the first source of snap that read an organization index,
+// nil when none did. An advisory index source (what the whole-index read
+// left unread) lists no service of its own.
+func indexSource(snap *fleet.FleetSnapshot) *fleet.SourceState {
+	i := slices.IndexFunc(snap.Sources, func(s fleet.SourceState) bool {
+		return s.Kind == indexSourceKind && s.Status != fleet.SourceUnavailable && !s.Advisory
+	})
+	if i < 0 {
+		return nil
+	}
+	return &snap.Sources[i]
+}
+
+// indexSourceKind is the kind of a source that reads an organization index.
+const indexSourceKind = "index"
 
 // indexCheckKinds are the source kinds the index is checked against: those
 // that add running revisions with their declared dependencies.
@@ -863,6 +902,12 @@ func Analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		res.rangeCoverage(snap, opts.Acceptances)
 		res.applyPolicy(opts.Policy)
 	}
+	// A snapshot that already holds an organization index read (a whole-index
+	// fleet source) while impact read none is checked like one impact read:
+	// alone it never clears.
+	if res.ConsumerIndex == nil && indexSource(snap) != nil {
+		res.noteUnchecked(snap)
+	}
 	if opts.NameInferredFrom != "" && res.nameInferred() == "" {
 		res.Limitations = append(res.Limitations, fleet.Limitation{
 			Code: LimitationServiceNameInferred, Source: limitationSource,
@@ -919,6 +964,7 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 			// The ref rule: an inferred contract is never a fleet service, so
 			// its consumers are the ranges pinned on its external system.
 			res.inferredExternal = opts.InferredProvider
+			res.inferredRecord = snap.Externals[fleet.ExternalKey(opts.InferredProvider)]
 			res.Consumers = inferredProviderConsumers(snap, fleet.ExternalKey(opts.InferredProvider))
 			if q.ExternalsUnreported() {
 				// A target that cannot say which external systems it uses may
@@ -1386,7 +1432,7 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 	}
 	c.Provenance = provenance(hasDeclared, seen)
 	c.Confidence = confidence(node.depth, hasDeclared, contract.IsRange(rel.Compatibility), observedCounted)
-	inferredOnly(&c, node, hasDeclared || seen)
+	inferredOnly(snap, &c, node, hasDeclared || seen)
 	if stale {
 		c.Confidence = ConfidenceUnknown
 	}
@@ -1397,14 +1443,20 @@ func consumerImpact(snap *fleet.FleetSnapshot, changed fleet.ServiceKey, node co
 // and when nothing declared or observed backs the consumer, its provenance and
 // confidence are inferred and its verdict unknown. A record value never feeds
 // a verdict, so an inferred edge can never read compatible or clear a gate.
-func inferredOnly(c *AffectedConsumer, node consumerNode, backed bool) {
+// The record of a producer's contribution older than the freshness window
+// reads stale.
+func inferredOnly(snap *fleet.FleetSnapshot, c *AffectedConsumer, node consumerNode, backed bool) {
 	if !node.inferred {
 		return
 	}
 	c.Via = append(c.Via, fleet.ProvenanceInferred)
+	stale := ""
+	if s := snap.Services[node.key]; s != nil && s.Contribution != nil && s.Contribution.Stale {
+		stale = ", contributed by " + s.Contribution.Producer + " and stale"
+	}
 	for _, is := range node.inferredFrom {
 		c.Evidence = append(c.Evidence, Evidence{Kind: EvidenceInferredRecord, Source: is.Source, Provenance: fleet.ProvenanceInferred,
-			Message: "named by its inferred record, read from " + is.Where})
+			Message: "named by its inferred record, read from " + is.Where + stale})
 	}
 	if !backed {
 		c.Provenance, c.Confidence, c.CompatibilityVerdict = fleet.ProvenanceInferred, ConfidenceInferred, CompatibilityUnknown

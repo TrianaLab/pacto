@@ -48,7 +48,7 @@ const (
 
 // Bounds a hand-edited ConfigMap cannot exceed once decoded.
 const (
-	MaxEntries = 16
+	MaxEntries = 24
 	MaxDetails = 5
 	MaxRunes   = 256
 	// MaxNamed caps the namespaces and the objects of one entry.

@@ -8,7 +8,8 @@ import { appReady } from './ready';
 // each has its own page and the uncontracted caller on attention links to it.
 
 const T = 20_000;
-const INFERRED = 4;
+// Four workloads plus the service acme-idp contributes (source_contribution.go).
+const INFERRED = 5;
 
 test.describe('WASM demo: inferred services', () => {
   test('the Overview segment counts them and lands on the Services list filtered to them', async ({ page }) => {
@@ -76,6 +77,40 @@ test.describe('WASM demo: inferred services', () => {
     await expect(page.getByRole('note').filter({ hasText: 'containers[name=billing].image' })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(mark).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('the inferred service shows the owner and domain the Backstage catalog holds as muted text with one mark', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await appReady(page, '/#/fleet/services?declaration=inferred');
+    await page.locator('[data-testid="service-list"] a', { hasText: 'legacy-billing' }).first().click();
+
+    // examples/demo/backstage-catalog.json: group billing-ops and system billing.
+    const owner = page.getByTestId('owner-inferred');
+    await expect(owner).toHaveText('inferred: billing-ops', { timeout: T });
+    await expect(page.getByTestId('domain-inferred')).toHaveText('inferred: billing');
+    const fact = owner.locator('..');
+    const mark = fact.getByRole('button', { name: 'About the inferred owner' });
+    await expect(mark).toHaveCount(1);
+    await mark.click();
+    const tip = fact.getByRole('note');
+    await expect(tip).toContainText('Inferred from backstage-catalog (component:default/legacy-billing)');
+    await expect(tip).toContainText('Pacto never routes approvals or clears a gate on it.');
+  });
+
+  test('a contract service with no declared domain shows the domain the catalog holds as muted text with one mark', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await appReady(page, '/#/fleet/services/analytics-pipeline');
+
+    // examples/demo/backstage-catalog.json: system analytics; its contract declares an
+    // owner, so the catalog's owner adds nothing.
+    const domain = page.getByTestId('service-domain');
+    await expect(domain.getByTestId('domain-inferred')).toHaveText('inferred: analytics', { timeout: T });
+    await expect(domain).toContainText('No domain');
+    await expect(page.getByTestId('service-owner').getByTestId('owner-inferred')).toHaveCount(0);
+    const mark = domain.getByRole('button', { name: 'About the inferred domain' });
+    await expect(mark).toHaveCount(1);
+    await mark.click();
+    await expect(domain.getByRole('note')).toContainText('Inferred from backstage-catalog (component:default/analytics-pipeline)');
   });
 
   test('the filtered list states nothing positive about workloads with no contract', async ({ page }) => {

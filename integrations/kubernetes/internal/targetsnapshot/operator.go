@@ -29,6 +29,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer/capabilities"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -45,8 +46,9 @@ type Config struct {
 	// Namespace and ServiceAccount are the operator's own, written as the
 	// snapshot's publisher claim.
 	Namespace, ServiceAccount string
-	// EvidenceURL is the managed Evidence Server, empty when it is off.
-	EvidenceURL string
+	// EvidenceURL is the managed Evidence Server, read on every publish;
+	// nil or empty while it is off.
+	EvidenceURL func() string
 	// Watched are the namespaces a scoped operator reads; empty reads all.
 	Watched []string
 	// Key is the installation key (installkey.Ensure).
@@ -79,10 +81,9 @@ func ForOperator(cfg Config) (manager.Runnable, error) {
 	if len(cfg.Key) != ed25519.PrivateKeySize {
 		return nil, errors.New("the target snapshot needs the installation key")
 	}
-	repo, err := ocireferrer.Open(oci.InstallationRepository(cfg.Registry, oci.TargetsRepository), ocireferrer.Options{
-		Keychain: cfg.Keychain, Insecure: cfg.Insecure, Scope: oci.NewPushScope(cfg.Registry)})
+	repo, err := openTargets(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("the target snapshot repository: %w", err)
+		return nil, err
 	}
 	kp, _ := signing.FromPrivateKey(cfg.Key) // a full-size Ed25519 key always loads
 	log := ctrl.Log.WithName("targets")
@@ -91,7 +92,7 @@ func ForOperator(cfg Config) (manager.Runnable, error) {
 		ClusterID: cfg.ClusterID, ClusterName: name, ClusterNameSource: source,
 		// The publisher claim, inlined: the operator never links the delivery packages.
 		Publisher:  "system:serviceaccount:" + cfg.Namespace + ":" + cfg.ServiceAccount,
-		Namespaces: cfg.Watched, OnPush: cfg.OnPush, Mode: targetsMode(repo, cfg.ClusterID),
+		Namespaces: cfg.Watched, OnPush: cfg.OnPush, Mode: targetsMode(referrersProbe(repo, cfg.ClusterID)),
 		EvidenceURL: cfg.EvidenceURL, OwnerPolicy: cfg.OwnerPolicy, Linked: cfg.Linked, HTTP: &http.Client{Timeout: 10 * time.Second},
 		Now: time.Now, Interval: core.TargetSnapshotInterval, Log: log}, nil
 }
@@ -109,16 +110,44 @@ func joinName(cfg Config, log logr.Logger) (name, source string) {
 	return cfg.ClusterID[:min(8, len(cfg.ClusterID))], kubecluster.NameFromUID
 }
 
-// targetsMode is the registry mode of the repository holding the cluster's
-// snapshot, probed against its cluster-<uid> tag; empty before the first push
-// or when the probe cannot tell.
-func targetsMode(repo *remote.Repository, clusterID string) func(context.Context) string {
-	return func(ctx context.Context) string {
+// openTargets opens <registry>/pacto-targets through the push scope.
+func openTargets(cfg Config) (*remote.Repository, error) {
+	repo, err := ocireferrer.Open(oci.InstallationRepository(cfg.Registry, oci.TargetsRepository), ocireferrer.Options{
+		Keychain: cfg.Keychain, Insecure: cfg.Insecure, Scope: oci.NewPushScope(cfg.Registry)})
+	if err != nil {
+		return nil, fmt.Errorf("the target snapshot repository: %w", err)
+	}
+	return repo, nil
+}
+
+// ReferrersProbe probes the registry holding cfg's target snapshot against
+// its cluster-<uid> tag, through the process-wide ocireferrer.Probes, so it
+// shares the answer the snapshot's own mode probe caches. It errs before the
+// first push, when the tag does not resolve, and when the probe cannot tell.
+func ReferrersProbe(cfg Config) (func(context.Context) (capabilities.Capabilities, error), error) {
+	repo, err := openTargets(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return referrersProbe(repo, cfg.ClusterID), nil
+}
+
+func referrersProbe(repo *remote.Repository, clusterID string) func(context.Context) (capabilities.Capabilities, error) {
+	return func(ctx context.Context) (capabilities.Capabilities, error) {
 		desc, err := repo.Resolve(ctx, "cluster-"+clusterID)
 		if err != nil {
-			return ""
+			return capabilities.Capabilities{}, err
 		}
-		caps, err := ocireferrer.Probes.Probe(ctx, repo, desc.Digest.String(), false)
+		return ocireferrer.Probes.Probe(ctx, repo, desc.Digest.String(), false)
+	}
+}
+
+// targetsMode is the registry mode of the repository holding the cluster's
+// snapshot, from probe; empty before the first push or when the probe cannot
+// tell.
+func targetsMode(probe func(context.Context) (capabilities.Capabilities, error)) func(context.Context) string {
+	return func(ctx context.Context) string {
+		caps, err := probe(ctx)
 		if err != nil {
 			return ""
 		}

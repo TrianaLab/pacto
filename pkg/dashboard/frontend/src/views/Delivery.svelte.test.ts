@@ -638,6 +638,109 @@ function heldOperation(over: Record<string, unknown> = {}) {
   };
 }
 
+describe('installation ladder (511-S5)', () => {
+  const stage = (environment: string, over = {}) => ({ namespace: `payments-${environment}`, stage: `payments-${environment}`, service: 'payments', environment, pointer: D1, version: '1.0.0', verified: true, failed: false, frozen: false, autoHold: false, held: 0, actions: [], offers: [], ...over });
+  const placed = [
+    stage('staging', { source: 'inferred-confirmed', placement: { namespace: 'payments-staging', provenance: 'inferred', source: 'gitops-source', evidence: 'Argo CD source github.com/acme/payments', confirmedBy: 'bob' } }),
+    stage('production', { source: 'ladder', placement: { namespace: 'production', provenance: 'default', source: 'environment-name' } }),
+  ];
+
+  it('TestEnvironmentsRowProvenanceIsOneMark: each Stage carries one mark whose tip says where it runs and who confirmed it', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: placed });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const cells = [...target.querySelectorAll('[data-testid="env-cell"]')];
+    expect(cells).toHaveLength(2);
+    for (const c of cells) expect(c.querySelectorAll('.prov-mark')).toHaveLength(1);
+    const staging = target.querySelector('[data-stage="payments-staging/payments-staging"]')!;
+    const tip = staging.querySelector('.prov-tip')!.textContent!;
+    expect(tip).toContain('placement inferred (Argo CD source github.com/acme/payments), confirmed by bob');
+    expect(staging.querySelector('.prov-mark button')!.getAttribute('aria-label')).toBe('Where payments runs in staging');
+    // Provenance only in the tip: the row's own text never names it.
+    expect(text(staging as HTMLElement)).not.toContain('inferred');
+    // No installation ladder: no mark and no unplaced block.
+    expect(target.querySelector('[data-testid="environments-unplaced"]')).toBeNull();
+    destroy();
+    fns.environments.mockResolvedValue({ ...listing, environments: [stage('staging')] });
+    const plain = render(DeliveryEnvironmentsView);
+    await settle();
+    expect(plain.target.querySelector('.prov-mark')).toBeNull();
+    plain.destroy();
+  });
+
+  it('keeps unplaced environments in one collapsed, muted details and counts the hidden ones', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: placed, unplacedHidden: 2,
+      unplaced: [{ service: 'checkout', environment: 'production', source: 'ladder', placement: { namespace: 'orders', provenance: 'unknown' }, reason: 'refused: namespace orders belongs to orders (team-orders)' }, { service: 'ledger', reason: 'no applier: install Flux or Argo CD' }] });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const d = target.querySelectorAll('[data-testid="environments-unplaced"]');
+    expect(d).toHaveLength(1);
+    const det = d[0] as HTMLDetailsElement;
+    expect(det.open).toBe(false);
+    expect(det.classList.contains('ev-unplaced')).toBe(true);
+    expect(text(det.querySelector('summary') as HTMLElement).trim()).toBe('4 environments not placed');
+    const rows = [...det.querySelectorAll('[data-testid="unplaced-row"]')].map((r) => text(r as HTMLElement));
+    expect(rows).toEqual(['checkout in production (namespace orders): refused: namespace orders belongs to orders (team-orders)', 'ledger: no applier: install Flux or Argo CD']);
+    expect(det.querySelector('bdi[title="orders"]')).not.toBeNull();
+    expect(text(det)).toContain('2 environments hidden: you may not read them.');
+    destroy();
+  });
+
+  it('counts every unplaced environment for a reader who may read none, and shows them even with no Stage', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: [], unplacedHidden: 1 });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const det = target.querySelector('[data-testid="environments-unplaced"]') as HTMLElement;
+    expect(text(det.querySelector('summary') as HTMLElement).trim()).toBe('1 environment not placed');
+    expect(det.querySelector('ul')).toBeNull();
+    expect(text(det)).toContain('1 environment hidden: you may not read it.');
+    destroy();
+  });
+
+  it('the inbox shows the ladder proposal as one block above the figure', async () => {
+    const digest = `sha256:${'5be1'.repeat(16)}`;
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [],
+      byEnvironment: [{ environment: 'staging', held: 1, frozen: 0, errored: 0 }],
+      ladder: { declared: [{ name: 'staging', source: 'chart', provenance: 'declared' }], confirmed: [], proposal: [{ name: 'perf', source: 'namespaces *-perf, 3 found', provenance: 'inferred' }], proposalDigest: digest, canConfirm: false, command: `pacto delivery ladder confirm --proposal ${digest}` } });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    const blocks = target.querySelectorAll('[data-testid="inbox-ladder"]');
+    expect(blocks).toHaveLength(1);
+    expect([...blocks[0].querySelectorAll('button')].some((b) => b.textContent === 'Confirm')).toBe(false);
+    destroy();
+  });
+
+  it('an unplaced row with no reason ends with its name, never a bare colon', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: placed, unplaced: [{ service: 'fraud', environment: 'preview', placement: { namespace: 'fraud', provenance: 'unknown' }, reason: '' }] });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    expect(text(target.querySelector('[data-testid="unplaced-row"]') as HTMLElement)).toBe('fraud in preview (namespace fraud)');
+    destroy();
+  });
+
+  it('says an unreadable count is installation-wide, whatever the filter', async () => {
+    fns.environments.mockResolvedValue({ ...listing, environments: [], unplacedHidden: 3, unplacedUnreadable: true });
+    const { target, destroy } = render(DeliveryEnvironmentsView);
+    await settle();
+    const det = target.querySelector('[data-testid="environments-unplaced"]') as HTMLElement;
+    expect(text(det.querySelector('summary') as HTMLElement).trim()).toBe('3 environments not placed across the installation');
+    expect(text(det.querySelector('[data-testid="unplaced-hidden"]') as HTMLElement)).toBe('You may not read where they would run, so none is listed and no filter narrows the count.');
+    destroy();
+  });
+
+  it('counts the ladder proposal as the one decision when nothing else waits', async () => {
+    const digest = `sha256:${'5be1'.repeat(16)}`;
+    fns.inbox.mockResolvedValue({ ...listing, frozen: [], errored: [], held: [],
+      ladder: { declared: [{ name: 'staging', source: 'chart', provenance: 'declared' }], confirmed: [], proposal: [{ name: 'perf', source: 'namespaces *-perf, 3 found', provenance: 'inferred' }], proposalDigest: digest, canConfirm: true, command: `pacto delivery ladder confirm --proposal ${digest}` } });
+    const { target, destroy } = render(DeliveryInboxView);
+    await settle();
+    expect(text(target.querySelector('.page-hd-count') as HTMLElement)).toBe('1 waiting for a decision');
+    expect(text(target.querySelector('[data-testid="inbox-answer"]') as HTMLElement)).toContain('The installation ladder proposal waits for you to confirm it.');
+    expect(text(target.querySelector('[data-testid="inbox-empty"] h2') as HTMLElement)).toBe('Only the installation ladder waits on you');
+    destroy();
+  });
+});
+
 describe('board offers and links (B2)', () => {
   const base = { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', pointer: D1, version: '1.0.0', verified: true, failed: false,
     frozen: false, autoHold: false, held: 0, candidate: D2, candidateVersion: '2.0.0', ready: 'True', actions: [], state: 'verified' };
@@ -2024,10 +2127,10 @@ describe('published paging', () => {
     expect(text(target)).toContain('300 services');
     expect(text(target.querySelector('[data-testid="refused-count"]') as HTMLElement)).toBe('(the latest 1 of 134)');
     // The page answers first, and the refusals it counts are open on screen.
-    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('134 publishes refused lately.');
+    expect(text(target.querySelector('[data-testid="page-answer"]') as HTMLElement)).toContain('134 refused lately.');
     const fold = target.querySelector('[data-testid="refused-publishes"] details') as HTMLDetailsElement;
     expect(fold.open).toBe(true);
-    expect(text(fold.querySelector('summary') as HTMLElement)).toContain('Refused publishes 134');
+    expect(text(fold.querySelector('summary') as HTMLElement)).toContain('Refused publishes and promotes 134');
     expect(target.querySelector('[data-testid="published-pager-next"]')?.getAttribute('href')).toBe('#/delivery/publish?q=pay&offset=10');
     expect((target.querySelector('[data-testid="published-filter"] input') as HTMLInputElement).value).toBe('pay');
     destroy();
@@ -2324,7 +2427,7 @@ describe('refused publishes', () => {
     fns.published.mockResolvedValue(pub);
     const { target, destroy } = render(DeliveryPublishView);
     await settle();
-    expect(text(target.querySelector('[data-testid="refused-unrecorded"]') as HTMLElement)).toContain('This cluster keeps no record of refused publishes');
+    expect(text(target.querySelector('[data-testid="refused-unrecorded"]') as HTMLElement)).toContain('This cluster keeps no record of refused publishes or promotes');
     destroy();
   });
 
@@ -2349,17 +2452,52 @@ describe('refused publishes', () => {
     destroy();
   });
 
+  it('lists a refused promote with its stage and record', async () => {
+    fns.published.mockResolvedValue(pub);
+    const stage = 'payments-production-eu-west-1-blue-green-canary-with-a-long-name';
+    fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'complete',
+      refusals: [{ service: 'payments', version: '2.5.0', check: 'manifests', namespace: 'prod', stage, digest: 'sha256:dig', code: 'RawInfraInArtifact',
+        record: 'sha256:rec', reason: 'the version reaches outside prod', at: '2026-11-21T09:00:00Z', verified: true }] });
+    const { target, destroy } = render(DeliveryPublishView);
+    await settle();
+    const row = target.querySelector('[data-testid="refused-publishes"] li.pv-row') as HTMLElement;
+    expect(text(row).trim()).toContain(`payments 2.5.0 on prod/${stage} Refused promote Signed record`);
+    expect(text(row)).toContain('The version reaches outside prod.');
+    const bdi = row.querySelector('.pv-stage') as HTMLElement;
+    expect(bdi.tagName).toBe('BDI');
+    expect(bdi.getAttribute('title')).toBe(`prod/${stage}`);
+    // The code and digest are a tooltip on the badge, never a line of their own.
+    expect(Array.from(row.querySelectorAll('.badge')).find((b) => b.textContent === 'Refused promote')?.getAttribute('title')).toBe('RawInfraInArtifact, sha256:dig');
+    // The head is its own wrapping line, never the versions grid: the record mark sits in it.
+    const head = row.querySelector('[data-testid="refused-head"]') as HTMLElement;
+    expect(head.classList.contains('pv-head')).toBe(false);
+    expect(head.querySelector('.copyable')).toBeTruthy();
+    // The record is a discreet mark: its id in the tooltip, copyable, never a line of its own.
+    expect(row.querySelector('.copyable')?.getAttribute('title')).toBe('sha256:rec');
+    expect(row.querySelector('.copyable-value')).toBeNull();
+    destroy();
+  });
+
+  it('names both kinds in the refused heading', async () => {
+    fns.published.mockResolvedValue(pub);
+    fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'complete', refusals: [] });
+    const { target, destroy } = render(DeliveryPublishView);
+    await settle();
+    expect(text(target.querySelector('#pv-refused') as HTMLElement)).toBe('Refused publishes and promotes');
+    destroy();
+  });
+
   it('says when none was refused, and when the list could not be read', async () => {
     fns.published.mockResolvedValue(pub);
     fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'complete', refusals: [] });
     let r = render(DeliveryPublishView);
     await settle();
-    expect(text(r.target)).toContain('No publish was refused.');
+    expect(text(r.target)).toContain('Nothing was refused.');
     r.destroy();
     fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'partial' });
     r = render(DeliveryPublishView);
     await settle();
-    expect(text(r.target)).toContain('No publish was refused that Pacto could read.');
+    expect(text(r.target)).toContain('Nothing was refused that Pacto could read.');
     expect(text(r.target)).toContain('This list may be incomplete.');
     r.destroy();
     fns.refusals.mockRejectedValueOnce(new ApiError(500, 'boom'));
@@ -2367,10 +2505,10 @@ describe('refused publishes', () => {
     r = render(DeliveryPublishView);
     await settle();
     const sec = r.target.querySelector('[data-testid="refused-publishes"]') as HTMLElement;
-    expect(text(sec)).toContain('Could not read refused publishes: boom');
+    expect(text(sec)).toContain('Could not read refusals: boom');
     (sec.querySelector('button') as HTMLButtonElement).click();
     await settle();
-    expect(text(sec)).toContain('No publish was refused.');
+    expect(text(sec)).toContain('Nothing was refused.');
     r.destroy();
   });
 });

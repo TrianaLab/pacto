@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
 	"time"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/pkg/backstage"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -69,6 +71,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)")
 	shared.StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
 	shared.StringArray("mira-source", nil, "base URL of a Mira node whose service map supplies observed calls between services (repeatable)")
+	shared.String("backstage-url", "", "base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from "+backstageTokenEnv)
 	shared.StringArray("traces", nil, "OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)")
 	shared.StringArray("oci", nil, "registry reference to include as a published-baseline revision (repeatable)")
 	shared.Bool("cache", false, "include every bundle in the local OCI cache as an offline baseline revision")
@@ -82,19 +85,26 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("target-snapshot", nil, "signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests "+
 		"to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off")
 	shared.String("delivery-trust", "", "the trust config target snapshots are verified with: a YAML file with a key scoped to each cluster (default $"+app.TrustEnv+")")
-	shared.Var(new(indexFlag), "index", "organization index pacto impact and pacto ci read consumers from, as <registry>/pacto-index with no tag or digest (default <registry>/pacto-index from the provider reference; "+
-		"none reads none; skipped when --root names the consumers; pacto ci --publish also writes its entries there; other fleet commands ignore it)")
+	shared.StringArray("discover", nil, "registry whose golden paths and offerings join the snapshot, as <registry>[/<path>] with no tag or digest: "+
+		"listed from <registry>/pacto-index, then _catalog (repeatable; pacto impact and pacto ci ignore it)")
+	shared.Var(new(indexFlag), "index", "organization index, as <registry>/pacto-index with no tag or digest: pacto impact and pacto ci read the consumers of a change from it "+
+		"(default <registry>/pacto-index from the provider reference; skipped when --root names the consumers) and pacto ci --publish writes its entries there; "+
+		"every other fleet command reads every service it lists as a published revision; none reads none")
 	f.AddFlagSet(shared)
 }
+
+// backstageTokenEnv holds the Backstage catalog reader token: never a flag,
+// so it stays out of argv.
+const backstageTokenEnv = "PACTO_BACKSTAGE_TOKEN"
 
 // fleetFlagNames lists the shared fleet source flags declared by
 // newFleetCommand, in declaration order. It is the single list any other
 // command copies from when it wants the same source surface.
 func fleetFlagNames() []string {
 	return []string{
-		"local", "root", "target-state", "evidence-url", "mira-source", "traces", "oci",
+		"local", "root", "target-state", "evidence-url", "mira-source", "backstage-url", "traces", "oci",
 		"cache", "k8s", "context", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
-		"target-snapshot", "delivery-trust", "index",
+		"target-snapshot", "delivery-trust", "index", "discover",
 	}
 }
 
@@ -195,6 +205,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	targetState, _ := cmd.Flags().GetStringArray("target-state")
 	evidenceURLs, _ := cmd.Flags().GetStringArray("evidence-url")
 	miraURLs, _ := cmd.Flags().GetStringArray("mira-source")
+	backstageURL, _ := cmd.Flags().GetString("backstage-url")
 	traceFiles, _ := cmd.Flags().GetStringArray("traces")
 	ociRefs, _ := cmd.Flags().GetStringArray("oci")
 	includeCache, _ := cmd.Flags().GetBool("cache")
@@ -212,6 +223,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	fingerprints, _ := cmd.Flags().GetString("fingerprints")
 	snapshots, _ := cmd.Flags().GetStringArray("target-snapshot")
 	index, _ := cmd.Flags().GetString("index")
+	discover, _ := cmd.Flags().GetStringArray("discover")
 	prov := app.NewProvenanceChecker()
 	prov.Trust = publisherTrust(cmd, fleetDeps(), detected)
 	return app.FleetOptions{
@@ -220,6 +232,8 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		TargetStateFiles:   targetState,
 		EvidenceURLs:       evidenceURLs,
 		MiraURLs:           miraURLs,
+		BackstageURL:       backstageURL,
+		BackstageToken:     os.Getenv(backstageTokenEnv),
 		ObservationSources: app.TraceFileSources(traceFiles),
 		OCIRefs:            ociRefs,
 		IncludeCache:       includeCache && !noCache,
@@ -238,6 +252,8 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		Now:                     fleetNow,
 		Index:                   index,
 		ClusterJoins:            fleetJoins(cmd, fleetDeps(), includeK8s, detected),
+		ReadIndex:               readIndex(index),
+		Discover:                discover,
 	}
 }
 
@@ -256,6 +272,15 @@ func fleetJoins(cmd *cobra.Command, d deps, includeK8s bool, detected string) *a
 		_, opts, err := hubJoins(ctx, d, "", "", detected, ns)
 		return opts, err
 	}}
+}
+
+// readIndex is the repository whose every listed service a fleet reader
+// reads: index unless it is empty or none.
+func readIndex(index string) string {
+	if index == app.IndexNone {
+		return ""
+	}
+	return index
 }
 
 // targetSnapshotRefs drops auto and off from the --target-snapshot values:
@@ -331,7 +356,9 @@ func buildQuery(cmd *cobra.Command, svc *app.Service) (*fleet.Query, error) {
 //
 // A complete answer prints nothing, except a note when freshness was not
 // checked: that limitation never makes an answer partial, yet a stale count of
-// zero must not read as "nothing is stale".
+// zero must not read as "nothing is stale". So does a Backstage catalog that
+// was not fully read: it is advisory, yet a missing inferred owner must not
+// read as "Backstage has none".
 func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 	if m.Completeness == fleet.CompletenessComplete {
 		for _, l := range m.Limitations {
@@ -339,6 +366,7 @@ func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 				_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: [%s] %s\n", l.Code, l.Message)
 			}
 		}
+		noteCatalogSources(cmd, m)
 		return
 	}
 	w := cmd.ErrOrStderr()
@@ -352,6 +380,27 @@ func warnPartial(cmd *cobra.Command, m fleet.Meta) {
 			seen[line] = true
 			_, _ = fmt.Fprint(w, line)
 		}
+	}
+}
+
+// noteCatalogSources prints a note for each Backstage catalog source that is
+// not available, with its error or limitations, so an inferred value it
+// could not read is never absence.
+func noteCatalogSources(cmd *cobra.Command, m fleet.Meta) {
+	for _, st := range m.Sources {
+		if st.Kind != backstage.SourceKind || st.Status == fleet.SourceAvailable {
+			continue
+		}
+		why := ""
+		if st.Error != nil {
+			why = ": " + st.Error.Message
+		}
+		for _, l := range m.Limitations {
+			if l.Source == st.ID {
+				why += ": " + l.Message
+			}
+		}
+		_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: source %s is %s%s; an inferred owner, domain or dependency may be missing\n", st.ID, st.Status, why)
 	}
 }
 
@@ -552,7 +601,7 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper, rec *runRecorder) *
 		Long: "Reports what needs attention: non-compliant, unknown, invalid and stale targets, " +
 			"revisions without readiness, unresolved dependencies, dependencies whose provider " +
 			"version is outside the declared range, services that use a deprecated or past-sunset provider, " +
-			"services with no declared owner and undeclared " +
+			"services and external systems with no owner and undeclared " +
 			"runtime dependencies. With no category flag it reports every category.",
 		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -577,7 +626,7 @@ func newFleetStatusCommand(svc *app.Service, v *viper.Viper, rec *runRecorder) *
 	cmd.Flags().Bool("unresolved-deps", false, "report unresolved declared dependencies")
 	cmd.Flags().Bool("unsatisfied-ranges", false, "report dependencies whose provider version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED)")
 	cmd.Flags().Bool("lifecycle", false, "report services that use a deprecated or past-sunset provider (DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE)")
-	cmd.Flags().Bool("unowned", false, "report services with no declared owner")
+	cmd.Flags().Bool("unowned", false, "report services and external systems with no owner")
 	cmd.Flags().Bool("undeclared", false, "report runtime calls no contract declares and callers with no contract")
 	cmd.Flags().Bool("golden-path-deployed", false, "report running services that declare service.template (GOLDEN_PATH_DEPLOYED)")
 	cmd.Flags().Int("limit", 0, fmt.Sprintf("maximum results (0 = %d)", fleet.DefaultStatusLimit))

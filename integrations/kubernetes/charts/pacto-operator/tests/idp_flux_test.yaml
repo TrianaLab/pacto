@@ -1,0 +1,281 @@
+# idp.flux.install renders the upstream Flux vendored under files/flux/ with
+# this release: the source, kustomize and helm controllers only, locked down,
+# every object kept on uninstall. Every other combination refuses or renders no
+# Flux. The render itself is pinned by the golden tests/golden/idp-flux.yaml
+# (make helm-golden).
+suite: idp flux install
+templates:
+  - templates/idp/flux.yaml
+  - templates/deployment.yaml
+  - templates/NOTES.txt
+release:
+  name: pacto
+  namespace: pacto-system
+capabilities:
+  majorVersion: 1
+  minorVersion: 30
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: the value renders three Flux controllers
+    template: templates/idp/flux.yaml
+    set: &on {profile: idp, idp.flux.install: true}
+    asserts:
+      - containsDocument: {kind: Deployment, apiVersion: apps/v1, name: source-controller, namespace: flux-system, any: true}
+      - containsDocument: {kind: Deployment, apiVersion: apps/v1, name: kustomize-controller, namespace: flux-system, any: true}
+      - containsDocument: {kind: Deployment, apiVersion: apps/v1, name: helm-controller, namespace: flux-system, any: true}
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^ghcr\.io/fluxcd/source-controller:v\d+\.\d+\.\d+$
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: source-controller, skipEmptyTemplates: true}
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^ghcr\.io/fluxcd/kustomize-controller:v\d+\.\d+\.\d+$
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: kustomize-controller, skipEmptyTemplates: true}
+      - matchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: ^ghcr\.io/fluxcd/helm-controller:v\d+\.\d+\.\d+$
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: helm-controller, skipEmptyTemplates: true}
+
+  - it: no other Flux controller renders
+    template: templates/idp/flux.yaml
+    set: *on
+    asserts:
+      - notMatchRegex:
+          path: metadata.name
+          pattern: notification|image-reflector|image-automation|source-watcher|imagepolicies|imagerepositories|imageupdateautomations|alerts|providers|receivers|artifactgenerators
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].image
+          pattern: notification|image-reflector|image-automation|source-watcher
+
+  - it: kustomize and helm controllers run locked down
+    template: templates/idp/flux.yaml
+    set: *on
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --no-cross-namespace-refs=true}
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: kustomize-controller, skipEmptyTemplates: true}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --default-service-account=default}
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: kustomize-controller, skipEmptyTemplates: true}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --no-remote-bases=true}
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: kustomize-controller, skipEmptyTemplates: true}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --no-cross-namespace-refs=true}
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: helm-controller, skipEmptyTemplates: true}
+      - contains: {path: "spec.template.spec.containers[0].args", content: --default-service-account=default}
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: helm-controller, skipEmptyTemplates: true}
+      - notContains: {path: "spec.template.spec.containers[0].args", content: --no-remote-bases=true}
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: helm-controller, skipEmptyTemplates: true}
+      - notContains: {path: "spec.template.spec.containers[0].args", content: --no-cross-namespace-refs=true}
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: source-controller, skipEmptyTemplates: true}
+      - notContains: {path: "spec.template.spec.containers[0].args", content: --default-service-account=default}
+        documentSelector: {path: spec.template.spec.serviceAccountName, value: source-controller, skipEmptyTemplates: true}
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[0]
+          pattern: events-addr
+        documentSelector: {path: kind, value: Deployment, matchMany: true}
+
+  - it: every Flux object is kept on uninstall
+    template: templates/idp/flux.yaml
+    set: *on
+    asserts:
+      - equal:
+          path: metadata.annotations["helm.sh/resource-policy"]
+          value: keep
+
+  - it: every Flux object carries Pacto's labels and the Flux version
+    template: templates/idp/flux.yaml
+    set: *on
+    asserts:
+      - equal:
+          path: metadata.labels["app.kubernetes.io/managed-by"]
+          value: Helm
+      - matchRegex:
+          path: metadata.labels["helm.sh/chart"]
+          pattern: ^pacto-operator-
+      - equal:
+          path: metadata.labels["app.kubernetes.io/version"]
+          value: 2.10.1
+      # upstream labels win, so the exit path's selector keeps matching
+      - equal:
+          path: metadata.labels["app.kubernetes.io/part-of"]
+          value: flux
+
+  - it: a binding names only vendored ServiceAccounts
+    template: templates/idp/flux.yaml
+    set: *on
+    asserts:
+      - equal:
+          path: subjects
+          value:
+            - {kind: ServiceAccount, name: kustomize-controller, namespace: flux-system}
+            - {kind: ServiceAccount, name: helm-controller, namespace: flux-system}
+            - {kind: ServiceAccount, name: source-controller, namespace: flux-system}
+        documentSelector: {path: roleRef.name, value: crd-controller, skipEmptyTemplates: true}
+
+  - it: the value off renders no Flux
+    template: templates/idp/flux.yaml
+    set: {profile: idp}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: a release with no idp key renders no Flux
+    template: templates/idp/flux.yaml
+    set: {profile: idp, idp: null}
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: default refuses the value
+    template: templates/deployment.yaml
+    set: {idp.flux.install: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: idp.flux.install needs profile idp
+
+  - it: hardened refuses the value
+    template: templates/deployment.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments], idp.flux.install: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: "profile hardened renders no ClusterRole: leave idp.flux.install false"
+
+  - it: hardened and idp refuse the value
+    template: templates/deployment.yaml
+    set: {profile: [idp, hardened], controller.watchNamespaces: [payments], idp.flux.install: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: "profile hardened renders no ClusterRole: leave idp.flux.install false"
+
+  - it: a Flux owned by another release refuses
+    template: templates/deployment.yaml
+    set: *on
+    kubernetesProvider: &foreign
+      scheme:
+        "v1/Namespace":
+          gvr: {version: v1, resource: namespaces}
+          namespaced: false
+        "apps/v1/Deployment":
+          gvr: {group: apps, version: v1, resource: deployments}
+          namespaced: true
+      objects:
+        - kind: Namespace
+          apiVersion: v1
+          metadata: {name: kube-system}
+        - kind: Deployment
+          apiVersion: apps/v1
+          metadata:
+            name: kustomize-controller
+            namespace: flux-system
+            annotations:
+              meta.helm.sh/release-name: flux
+              meta.helm.sh/release-namespace: flux-system
+    asserts:
+      - failedTemplate:
+          errorMessage: "Flux is already installed: leave idp.flux.install false"
+
+  - it: a Flux no release owns refuses
+    template: templates/deployment.yaml
+    set: *on
+    kubernetesProvider:
+      scheme:
+        "v1/Namespace":
+          gvr: {version: v1, resource: namespaces}
+          namespaced: false
+        "apps/v1/Deployment":
+          gvr: {group: apps, version: v1, resource: deployments}
+          namespaced: true
+      objects:
+        - kind: Namespace
+          apiVersion: v1
+          metadata: {name: kube-system}
+        - kind: Deployment
+          apiVersion: apps/v1
+          metadata: {name: source-controller, namespace: flux-system, any: true}
+    asserts:
+      - failedTemplate:
+          errorMessage: "Flux is already installed: leave idp.flux.install false"
+
+  - it: the owned upgrade renders
+    set: *on
+    kubernetesProvider:
+      scheme:
+        "v1/Namespace":
+          gvr: {version: v1, resource: namespaces}
+          namespaced: false
+        "apps/v1/Deployment":
+          gvr: {group: apps, version: v1, resource: deployments}
+          namespaced: true
+      objects:
+        - kind: Namespace
+          apiVersion: v1
+          metadata: {name: kube-system}
+        - kind: Deployment
+          apiVersion: apps/v1
+          metadata:
+            name: kustomize-controller
+            namespace: flux-system
+            annotations:
+              meta.helm.sh/release-name: pacto
+              meta.helm.sh/release-namespace: pacto-system
+    asserts:
+      - notFailedTemplate: {}
+        template: templates/deployment.yaml
+      - containsDocument: {kind: Deployment, apiVersion: apps/v1, name: kustomize-controller, namespace: flux-system, any: true}
+        template: templates/idp/flux.yaml
+      - matchRegexRaw:
+          pattern: Upstream Flux 2\.10\.1 \(source, kustomize and helm controllers\) runs in flux-system with this release\.
+        template: templates/NOTES.txt
+      - notMatchRegexRaw:
+          pattern: Check that no other Flux runs
+        template: templates/NOTES.txt
+
+  - it: no lookup data renders
+    set: *on
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - kustomize.toolkit.fluxcd.io/v1
+        - source.toolkit.fluxcd.io/v1
+    asserts:
+      - notFailedTemplate: {}
+        template: templates/deployment.yaml
+      - matchRegexRaw:
+          pattern: Check that no other Flux runs before you set idp.flux.install\.
+        template: templates/NOTES.txt
+      - notMatchRegexRaw:
+          pattern: No GitOps engine found
+        template: templates/NOTES.txt
+
+  - it: NOTES names no Flux with the value off
+    template: templates/NOTES.txt
+    set: {profile: idp}
+    asserts:
+      - notMatchRegexRaw:
+          pattern: Upstream Flux 2|Check that no other Flux runs
+---
+# The whole render with the value on: Flux's own controllers, CRDs and RBAC
+# only, never an applier or source object, and no pacto-applier object.
+suite: idp flux install renders no applier
+templates:
+  - templates/*.yaml
+  - templates/*/*.yaml
+release:
+  name: pacto
+  namespace: pacto-system
+capabilities:
+  majorVersion: 1
+  minorVersion: 30
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+skipEmptyTemplates: true
+tests:
+  - it: no Flux applier or source object renders
+    set: {profile: idp, idp.flux.install: true}
+    asserts:
+      - notMatchRegex:
+          path: kind
+          pattern: ^(Kustomization|HelmRelease|OCIRepository|GitRepository|HelmRepository|HelmChart|Bucket)$
+  - it: no pacto-applier object with the value on
+    set: {profile: idp, idp.flux.install: true}
+    asserts:
+      - notMatchRegex:
+          path: metadata.name
+          pattern: pacto-applier

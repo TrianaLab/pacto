@@ -20,16 +20,17 @@ pacto evidence send envelope.json --url https://pacto.example.com/api/evidence/v
 # Platform: accept reports about one exact contract revision.
 pacto evidence serve --trust ./trust \
   --subject oci://registry.example.com/acme/payments-api@sha256:<digest>
+
+# Platform: or about every revision published under a registry prefix.
+pacto evidence serve --trust ./trust \
+  --subject-prefix oci://registry.example.com/acme/
 ```
 
 Hand the `edge-eu-west__edge-eu-west-2026.pub` file to the platform and put it in `./trust`.
 
 ## How it works
 
-Traffic goes one way: Pacto never connects to a remote environment, which starts every request. Accepted evidence is stored in your contract registry as an OCI 1.1 *referrer*: an artifact attached to the contract revision it is about. The registry is the only store, so the Evidence Server needs no bucket, volume or database. When the dashboard reads a contract revision from a registry, accepted evidence records appear in the referrers list on that revision's page; see [Bundle signatures and referrers](dashboard-service-page.md#bundle-signatures-and-referrers).
-
-!!! warning "GHCR cannot host Pacto evidence"
-    GitHub Container Registry does not serve the native OCI Referrers API, which the Evidence Server requires. Publish contracts you want to carry evidence to a conformant registry (zot, Docker Hub, Harbor, ECR, ACR, Artifactory).
+Traffic goes one way: Pacto never connects to a remote environment, which starts every request. Accepted evidence is stored in your contract registry. Where the registry serves the OCI 1.1 Referrers API, each record is a *referrer*: an artifact attached to the contract revision it is about. On a registry that serves none, such as GHCR, it is a write-once tag in `<prefix>pacto-evidence` under a [subject prefix](evidence-storage.md#subject-prefixes); see [Evidence storage](evidence-storage.md). The registry is the only store, so the Evidence Server needs no bucket, volume or database. Records stored as referrers appear in the referrers list on the revision's dashboard page; see [Bundle signatures and referrers](dashboard-service-page.md#bundle-signatures-and-referrers). Tag records appear through `/targets` and the fleet views.
 
 **The protocol signs evidence *envelopes*:** the wrapper around one report. Every envelope is Ed25519-signed and checked against a trust store (the list of public keys you accept) before it is stored.
 
@@ -102,7 +103,7 @@ same `--evidence-url`, `--evidence-key`, `--evidence-key-id` and
 Both sign with a 24-hour expiry and sequences that start at the wall clock in
 nanoseconds, so they keep increasing across restarts. Both need the contract
 pinned as `oci://...@sha256:<digest>`, which must also be one of the server's
-`--subject` values.
+`--subject` values or sit under one of its `--subject-prefix` values.
 
 ---
 
@@ -132,6 +133,75 @@ need a key granted them by name. See [Provider reports](provider-reports.md).
 
 ---
 
+## Extension capabilities
+
+1. Pacto has no built-in evaluator for an `extension` capability, so your own
+   tool checks it. Give that producer its own key that names each ref it
+   checks:
+
+   ```yaml
+   apiVersion: pacto.dev/evidence-trust/v1
+   keys:
+     - keyId: acme-backup-2026
+       producerId: acme-backup
+       publicKeyFile: acme-backup__acme-backup-2026.pub
+       allowedObservationKinds: [CapabilityObserved]
+       allowedExtensionRefs: [x.acme.io/backup]
+       allowedContractRepos: [registry.example.com/acme/payments]
+   ```
+
+2. The producer signs one EvidenceSet about the contract revision with
+   `pacto evidence sign` and sends it with `pacto evidence send`:
+
+   ```json
+   {
+     "subject": {"kind": "service", "name": "registry.example.com/acme/payments/prod/extension/backup"},
+     "contractRef": "oci://registry.example.com/acme/payments@sha256:<digest>",
+     "source": "acme-backup",
+     "observedAt": "2026-11-22T03:00:00Z",
+     "observations": [{
+       "kind": "CapabilityObserved",
+       "subject": {"kind": "capability", "name": "x.acme.io/backup"},
+       "outcome": "Observed",
+       "value": {"present": true, "details": {"lastBackup": "2026-11-22T03:00:00Z"}},
+       "provenance": {"collector": "acme-backup", "detectedAt": "2026-11-22T03:00:00Z"}
+     }]
+   }
+   ```
+
+3. The server accepts the report when:
+   - the contract revision is one of its `--subject` values and declares every
+     ref the set names, each named once;
+   - the subject is `<contract repository>/<segment>/extension/<name>`, such as
+     `<repository>/<environment>/extension/<name>`;
+   - `details`, when present, is a JSON object of at most 2 KiB. Pacto passes
+     it through unread;
+   - it is dated no more than five minutes after the server accepted it.
+   - Otherwise it answers 401 `unauthorized_producer` to a key without the ref
+     and to a granted key that sends any other observation, and 422
+     `invalid_evidence` to an undeclared or repeated ref, a subject outside the
+     repository and a report dated too far ahead.
+   - It keeps the latest report per producer and subject, so send every ref you
+     check on one revision in one set, or give each ref its own subject.
+
+4. The fleet shows each reported extension of a revision as one check that
+   names the producer and its `asOf`:
+   - **covered**: every fresh report says `present: true`.
+   - **failing**: a fresh report says `present: false`. The service is
+     NonCompliant with `CAPABILITY_ABSENT`.
+   - **unknown**: the producer is silent, its last report being older than the
+     24-hour freshness window or about another revision, or it reported
+     another outcome. The service reads Unknown.
+   - **no check**: no producer reports on the extension. It stays in
+     `coverage.unverified` and never counts against compliance.
+   - A check moves the service status only on a revision the service runs, or
+     on its current revision when none runs.
+
+- The Pacto resource status reports only what the operator observes in its cluster.
+- Extension verdicts from producers appear in the fleet: pacto fleet get, the dashboard and MCP.
+
+---
+
 ## CLI commands
 
 | Command | Side | Purpose |
@@ -142,7 +212,7 @@ need a key granted them by name. See [Provider reports](provider-reports.md).
 | `pacto evidence verify` | either | Verify a signed envelope against a trust store. Checks signature, freshness, producer authorization and trust. Exits non-zero on failure. |
 | `pacto evidence provisioned` | producer | Write an EvidenceSet with one `ResourceProvisioned` observation about a consumer revision (`--contract`), its `--configuration` or `--dependency`, `--environment`, `--provider`, `--phase` and `--external-ref`. See [Provisioning reports](provider-reports.md#provisioning-reports). |
 | `pacto evidence usage` | producer | Write an EvidenceSet with one `ResourceUsage` observation: the `--metric` figures and `--cost` of the resource a consumer revision asked for. See [Usage reports](provider-reports.md#usage-reports). |
-| `pacto evidence serve` | platform | Run the ingestion endpoint. Loads trust store from `--trust`, resolves every `--subject` (at least one required), verifies and evaluates envelopes and publishes results to the registry as OCI 1.1 referrers. Listens on `127.0.0.1:8686` or `--listen-address`. `--cluster-id`, with an optional `--cluster-name` and `--cluster-name-source`, names the cluster that accepts the records. |
+| `pacto evidence serve` | platform | Run the ingestion endpoint. Loads trust store from `--trust`, resolves every `--subject` and accepts any revision under a `--subject-prefix` (set at least one of the two), verifies and evaluates envelopes and publishes results to the registry: OCI 1.1 referrers where the registry serves them, write-once tags in `<prefix>pacto-evidence` otherwise. Listens on `127.0.0.1:8686` or `--listen-address`. `--cluster-id`, with an optional `--cluster-name` and `--cluster-name-source`, names the cluster that accepts the records. |
 
 ---
 
@@ -154,9 +224,9 @@ The ingestion host mounts five endpoints under `/api/evidence/v1`.
 |---------------|---------|---------|
 | `POST /api/evidence/v1/envelopes` | Accept, verify, de-duplicate, evaluate and store one envelope. | `202 Accepted` with `{ id, compliance, findings, acceptedAt }` |
 | `GET /api/evidence/v1/health` | Liveness. Independent of the registry. | `200 OK` with `{ "status": "ok" }` |
-| `GET /api/evidence/v1/ready` | Readiness. `503` until every configured subject resolves and answers native Referrers discovery. | `200 OK` with `{ "status": "ready" }` |
-| `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises. | `200 OK` with `{ "producers": [ … ] }` |
-| `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source, plus the latest provisioning reports. | `200 OK` with the versioned targets DTO: schema `pacto.dev/evidence-source/v5` when it carries a cluster, `pacto.dev/evidence-source/v4` when it carries `usage` records, `pacto.dev/evidence-source/v3` when it carries `provisioning` records, `pacto.dev/evidence-source/v2` otherwise |
+| `GET /api/evidence/v1/ready` | Readiness. `503` until every exact subject resolves (a live manifest check on every call), every subject prefix's ledger can be listed and each registry holding a subject has been probed once. A prefix whose ledger is empty is probed at its first commit. | `200 OK` with `{ "status": "ready" }` |
+| `GET /api/evidence/v1/producers` | List the trusted producer ids the host advertises, the reporting adapters and the producers granted a contribution repository, each with its public keys. | `200 OK` with `{ "producers": [ … ], "adapters": [ … ], "contributors": [ { "producer", "repository", "keys": [ { "keyId", "publicKey" } ] } ] }`; `adapters` and `contributors` are left out when empty |
+| `GET /api/evidence/v1/targets` | The latest accepted report per target for a read-only HTTP evidence source, plus the latest provisioning reports. | `200 OK` with the versioned targets DTO: schema `pacto.dev/evidence-source/v6` when it carries `extensions` (extension capability reports), `pacto.dev/evidence-source/v5` when it carries a cluster, `pacto.dev/evidence-source/v4` when it carries `usage` records, `pacto.dev/evidence-source/v3` when it carries `provisioning` records, `pacto.dev/evidence-source/v2` otherwise |
 
 The targets endpoint takes no authentication and lists contract references,
 producers and the external references of provisioned resources. Keep it behind
@@ -174,7 +244,7 @@ records share one bound, and a response cut by it sets `truncated`.
 | `422 Unprocessable Entity` | `contract_ref_rejected` | The contract ref is not an approved immutable digest reference. |
 | `422 Unprocessable Entity` | `invalid_evidence` | The `EvidenceSet` is invalid. |
 | `502 Bad Gateway` | `contract_resolution_failed` | The referenced contract could not be resolved. |
-| `503 Service Unavailable` | `store_not_ready` | The server has not yet resolved and enumerated its configured subjects. |
+| `503 Service Unavailable` | `store_not_ready` | The server has not yet resolved its subjects, listed its ledgers or probed its registries. |
 | `503 Service Unavailable` | `registry_unavailable`, `registry_incomplete` | The accepted history could not be read or could not be read completely, so the replay check could not run. |
 | `503 Service Unavailable` | `store_degraded` | The record could not be published to the registry. |
 | `500 Internal Server Error` | `internal_error` | An unexpected failure. |
@@ -183,27 +253,14 @@ records share one bound, and a response cut by it sets `truncated`.
 
 ## Registry conformance
 
-**Native Referrers API is mandatory.** Verify before configuring:
-
-```bash
-oras discover --distribution-spec v1.1-referrers-api <repo>@sha256:<digest>
-```
-
-A conformant registry answers `GET /v2/<name>/referrers/<digest>` with **HTTP 200** and an OCI image index. A non-conformant one answers `404 MANIFEST_UNKNOWN`.
-
-| Registry | Referrers API |
-|---|---|
-| zot, Docker Hub, Harbor, ECR, ACR, Artifactory | Yes |
-| **GHCR**, CNCF distribution (`registry:2`, `registry:3`) | **No** |
-
 | Operation | Requirement |
 |-----------|-------------|
-| **Permissions** | Pull (resolve contract, enumerate referrers, read payloads) and push (publish accepted record) on every configured subject's repository. Never deletes, never writes tags, never touches unconfigured repositories. |
+| **Permissions** | Pull (resolve contract, enumerate referrers, read payloads) and referrer push on every subject repository. Push on `<prefix>pacto-evidence` for write-once `evidence-` tags only. Never deletes, never moves a tag, never touches other repositories. Keep `<prefix>pacto-evidence` private or no more visible than the most restricted repository under the prefix: it holds the refs and evidence of every revision under it. |
 | **Authentication** | Pacto OCI credential policy: explicit credential, `pacto login`, `GITHUB_TOKEN` for GHCR or Docker config. In Kubernetes: `evidence.registry.credentialsSecret` names an existing `kubernetes.io/dockerconfigjson` Secret. |
-| **Subjects** | Explicit allow-list of exact immutable contract revisions: `--subject oci://registry.example.com/acme/checkout@sha256:<64 hex>`. Mutable tags, local paths, non-`oci://` refs and catalog-wide discovery rejected. At least one required. |
-| **Artifact format** | One untagged OCI manifest per accepted report. `subject`: contract digest from `ContractRef`. `artifactType`: `application/vnd.pacto.evidence.record.v1+json`. One layer carrying `pacto.dev/evidence-record/v1`. Deterministic build. |
-| **Writer concurrency** | Single active writer: one replica, `Recreate` rollout strategy. Registry offers no compare-and-set. Commit: verify, mutex, enumerate all referrers, rebuild replay state, check replay globally, publish, confirm discoverable, return `202`. State re-derived from registry. |
-| **Retention and GC** | Pacto never deletes evidence. Retention, backup and GC are registry responsibilities. Exclude referrers of contract manifests from GC policies that prune untagged manifests. Deleting a subject deletes its evidence. |
+| **Subjects** | Exact immutable contract revisions (`--subject oci://registry.example.com/acme/checkout@sha256:<64 hex>`) or subject prefixes (`--subject-prefix oci://registry.example.com/acme/`). A subject or a prefix is required. Mutable tags, local paths, non-`oci://` refs and catalog-wide discovery rejected. A prefix never covers `pacto-inferred`, `pacto-targets`, `pacto-index` or `pacto-evidence`. |
+| **Artifact format** | One OCI manifest per accepted report: a referrer in native mode, a record tagged in `<prefix>pacto-evidence` otherwise. `subject`: contract digest from `ContractRef`. `artifactType`: `application/vnd.pacto.evidence.record.v1+json`. One layer carrying `pacto.dev/evidence-record/v1`. Deterministic build. |
+| **Writer concurrency** | Single active writer: one replica, `Recreate` rollout strategy. Registry offers no compare-and-set. Commit: verify, mutex, read every subject's records, rebuild replay state, check replay globally, probe, record the subject in the ledger, publish, confirm, return `202`. State re-derived from registry. |
+| **Retention and GC** | Pacto never deletes evidence. Retention, backup and GC are registry responsibilities. Exclude referrers of contract manifests from GC policies that prune untagged manifests. A deleted revision never blocks writes. Its referrers go with it, while its tagged records outlive it. A ledger reads at most 100,000 tags; past that it is unreadable and every write is `503`. Retention may delete old `evidence-<hash>-<12 hex>` record tags as long as it keeps the newest per producer and per target; keep every anchor tag and every `-native` marker tag. |
 
 **Registry write access is evidence write access.** The signature is checked once at ingestion; the read path does not re-verify it.
 
@@ -211,12 +268,12 @@ A conformant registry answers `GET /v2/<name>/referrers/<digest>` with **HTTP 20
 
 | State | Meaning | `/ready` | `/targets` |
 |-------|---------|----------|------------|
-| **ready** | Every subject resolved, every referrer valid. | `200` | `200`, authoritative |
-| **partial** (bad artifact) | Every subject resolved, some referrer unreadable. | `200` | `200` with `health.status: partial` |
-| **partial** (bad subject) | Some subject failed, others read. | `503` | `200` with `health.status: partial` |
-| **unavailable** | No subject readable. | `503` | `503` `registry_unavailable` |
+| **ready** | Every subject resolved, every ledger listed, every record valid. | `200` | `200`, authoritative |
+| **partial** (bad artifact) | Every subject resolved, some record or ledger anchor unreadable. | `200` | `200` with `health.status: partial` |
+| **partial** (bad subject) | Some subject or ledger failed, others read. | `503` | `200` with `health.status: partial` |
+| **unavailable** | No subject or ledger readable. | `503` | `503` `registry_unavailable` |
 
-Beside `status`, the `health` block carries the counts that say which half of a `partial` you have: `subjects`, `failedSubjects` and `invalidArtifacts`.
+A server with only subject prefixes and an empty ledger is ready, with an empty and authoritative `/targets`. Beside `status`, the `health` block carries the counts that say which half of a `partial` you have: `subjects`, `failedSubjects` and `invalidArtifacts`. Each ledger read counts as one subject.
 
 ---
 
@@ -240,7 +297,12 @@ keys:
     allowedContractRepos: [registry.example.com/acme/contracts]  # prefixes; empty = any
     allowedObservationKinds: [ResourceProvisioned]  # empty = every runtime kind
     allowedProviderRepos: [ghcr.io/acme/platform/postgresql]  # prefixes of provider repositories; empty = any provider
+    # allowedExtensionRefs: [x.acme.io/backup]     # exact extension refs, on an extension-only key; empty = none
 ```
+
+- `allowedExtensionRefs` lists the exact extension refs a key may report on
+  ([Extension capabilities](#extension-capabilities)). A key that lists any is
+  extension-only and lists exactly `allowedObservationKinds: [CapabilityObserved]`.
 
 An empty `allowedObservationKinds` withholds `ResourceProvisioned` and
 `ResourceUsage`, so a team's runtime key cannot mark its own resources Ready.
@@ -265,6 +327,18 @@ send an empty EvidenceSet.
   again.
 - `pacto evidence verify` holds no consumer contract, so it checks the
   signature, producer, subject and kind only.
+
+- A contribution grant ([Write a source](write-a-source.md)): an `allowedContractRepos` entry of exactly `<registry>/pacto-inferred/<producerId>`
+  lets the producer contribute signed records to
+  `<registry>/pacto-inferred/<producerId>/services`. `GET
+  /api/evidence/v1/producers` advertises the grant with the producer's public
+  keys.
+- Loading refuses an entry under `pacto-inferred` that names another
+  producer, a deeper path or the bare root.
+- The server refuses an envelope whose contract ref is a contribution with
+  `contract_ref_rejected`: a record is never a compliance subject.
+- The endpoint shares the dashboard's network boundary, so CI reads it over
+  https only.
 
 Loading validates the schema version, identifier grammar, duplicate key ids, contradictory producer bindings, missing or traversing key files and malformed patterns.
 

@@ -76,6 +76,7 @@ const (
 	whyStatusRoute   = "GET /api/fleet/status answers the whole summary with no filters; the dashboard narrows it in the page"
 	whySearchRoute   = "GET /api/fleet/services takes text, owner, scope, source, status and template only; the dashboard's Services page narrows with /api/fleet/entities"
 	whyNoApprove     = "MCP has no approve tool: people answer an operation, an agent never does"
+	whyNoLadder      = "a person signs the installation ladder keyless from a terminal; MCP has no ladder tool and the dashboard hands off this command"
 	whyCreateOnly    = "the dashboard writes and checks no contract files, and an MCP server over HTTP serves only pacto_schema of the contract tools"
 	whyImpactRefs    = "over HTTP and on a shared dashboard, both resolve only refs of revisions in the caller's view, pinned to their digest"
 	whyKeyedImpact   = "the dashboard's impact page compares two revisions of its published snapshot by key; the CLI and MCP name refs (GET /api/fleet/impact)"
@@ -92,7 +93,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), acceptRows(), clusterRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), claimRows(), acceptRows(), clusterRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -179,6 +180,8 @@ func impactRows() []surfaceRow {
 			{"", "pacto_impact.service", "POST /api/fleet/impact body.serviceKey", "the CLI takes the service as the event flag's value"},
 			{"", "pacto_impact.revision", "POST /api/fleet/impact body.revision", "the CLI takes the revision after @ in --regressed"},
 			{"", "pacto_impact.offering", "POST /api/fleet/impact body.offeringKey", "the CLI takes the offering as offering:<name> in --unavailable or --removed"},
+			{"impact --changed", "", "", "pacto_impact.event and the dashboard's body.event take changed as a value"},
+			{"", "pacto_impact.external", "POST /api/fleet/impact body.externalKey", "the CLI takes the external system as external:<identity> in --changed or --unavailable"},
 			{"impact --policy", "pacto_impact.policy", "", "the dashboard answers with the default policy, warn"},
 		},
 		alike("impact", "", "", "a run record is a CI statistic the CLI writes; MCP and the dashboard record no runs",
@@ -263,6 +266,8 @@ func deliveryWriteRows() []surfaceRow {
 			"fulcio-url", "keyless", "timestamp-url"),
 		alike("delivery approve", "", "", "only the CLI approves from an intent record, signed keyless with the person's fresh login and no kubeconfig; MCP reads approval records and never writes one",
 			"intent", "signers"),
+		[]surfaceRow{{"delivery ladder confirm", "", "", whyNoLadder}},
+		alike("delivery ladder confirm", "", "", whyNoLadder, "proposal", "drop", "issuer", "create-namespaces"),
 	)
 }
 
@@ -292,7 +297,7 @@ func authoringRows() []surfaceRow {
 			"no-transparency-log", "owner", "registry", "registry-secret", "run-plugins", "set", "values"),
 		[]surfaceRow{
 			{"init [dir...]", "pacto_create.path", "", whyCreateOnly},
-			{"init --env", "pacto_create.environments", "", whyCreateOnly},
+			{"init --env", "", "", "deprecated, ignored: Pacto creates environments from the installation ladder"},
 			{"init --fleet", "pacto_create.fleet_roots", "", whyCreateOnly},
 			{"init --namespace", "pacto_create.namespaces", "", whyCreateOnly},
 			{"init --plan", "pacto_create.dry_run", "", whyCreateOnly},
@@ -403,6 +408,27 @@ func declareRows() []surfaceRow {
 			{"declare --git-host", "", "", prWhy + "; a stdio agent gets GitHostUnknown with the CLI line"},
 		},
 		alike("declare", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
+			"rekor-url", "trusted-root"),
+	)
+}
+
+// claimRows map pacto claim, pacto declare for an external system. MCP
+// pacto_declare and the dashboard Declare routes claim through the same
+// subject, external:<identity>.
+func claimRows() []surfaceRow {
+	const why = "pacto_declare and the dashboard Declare routes claim with service external:<identity> (pacto_declare.service, body.serviceKey)"
+	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
+	const plan, accept = "POST /api/fleet/declare", "POST /api/fleet/declare/accept"
+	return slices.Concat(
+		[]surfaceRow{
+			{"claim <identity>", "", "", why},
+			{"claim --owner", "pacto_declare.owner", plan + " body.owner", ""},
+			{"", "", accept + " body.owner", "the accept route carries out the plan with the owner it named"},
+			{"claim --name", "pacto_declare.name", plan + " body.name", ""},
+			{"", "", accept + " body.name", "the accept route carries out the plan with the name it named"},
+		},
+		alike("claim", "", "", why, "registry", "yes", "intent", "draft", "from-draft", "delivery-trust"),
+		alike("claim", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)
 }
@@ -956,56 +982,58 @@ func TestUsageErrorsEmitOneJSONDocument(t *testing.T) {
 // registry), which is the case under test. A mapped command without an entry
 // fails the test, so the table is deny-by-default too.
 var jsonRuns = map[string][]string{
-	"accept":                 {"--dry-run", "does-not-exist"},
-	"ci":                     {"."},
-	"cluster list":           {"--registry", "127.0.0.1:1/acme/pacto-targets"},
-	"declare":                {"invoices", "--dir", "/nonexistent"},
-	"delivery approve":       {"-n", "prod", "held"},
-	"delivery autonomy":      {},
-	"delivery blame":         {"--stage", "prod"},
-	"delivery caller":        {},
-	"delivery cancel":        {"-n", "prod", "op"},
-	"delivery candidates":    {"--stage", "prod"},
-	"delivery describe":      {"promote"},
-	"delivery environments":  {},
-	"delivery explain":       {"-n", "prod", "op"},
-	"delivery get":           {"-n", "prod", "op"},
-	"delivery history":       {"--stage", "prod"},
-	"delivery inbox":         {},
-	"delivery lifecycle":     {"--service", "payments"},
-	"delivery plan":          {"--stage", "prod", "--type", "promote", "--to", "1.0.0"},
-	"delivery propose":       {"--stage", "prod", "--type", "promote", "--to", "1.0.0"},
-	"delivery published":     {},
-	"delivery record get":    {"--stage", "prod", "rec"},
-	"delivery record verify": {"--stage", "prod"},
-	"delivery refusals":      {},
-	"delivery status":        {"--service", "payments"},
-	"delivery trust":         {},
-	"delivery types":         {},
-	"delivery undo":          {"-n", "prod", "op"},
-	"evidence usage":         {"--contract", "does-not-exist"},
-	"explain":                {"does-not-exist"},
-	"fleet attention":        {},
-	"fleet entities":         {},
-	"fleet entity":           {"service", "payments"},
-	"fleet explain":          {"payments"},
-	"fleet get":              {"payments"},
-	"fleet graph":            {"payments"},
-	"fleet map":              {},
-	"fleet neighborhood":     {"payments"},
-	"fleet overview":         {},
-	"fleet providers":        {},
-	"fleet reconcile":        {"--traces", "does-not-exist.json"},
-	"fleet search":           {},
-	"fleet snapshot":         {},
-	"fleet status":           {},
-	"fleet versions":         {"payments"},
-	"impact":                 {"does-not-exist", "does-not-exist-either"},
-	"init":                   {"--plan", "."},
-	"migrate":                {"--dry-run", "does-not-exist"},
-	"publish":                {"does-not-exist"},
-	"stats":                  {"--registry", "127.0.0.1:1/acme/pacto-stats"},
-	"validate":               {"does-not-exist"},
+	"accept":                  {"--dry-run", "does-not-exist"},
+	"ci":                      {"."},
+	"cluster list":            {"--registry", "127.0.0.1:1/acme/pacto-targets"},
+	"claim":                   {"stripe", "--owner", "team-platform"},
+	"declare":                 {"invoices", "--dir", "/nonexistent"},
+	"delivery approve":        {"-n", "prod", "held"},
+	"delivery autonomy":       {},
+	"delivery blame":          {"--stage", "prod"},
+	"delivery caller":         {},
+	"delivery cancel":         {"-n", "prod", "op"},
+	"delivery candidates":     {"--stage", "prod"},
+	"delivery describe":       {"promote"},
+	"delivery environments":   {},
+	"delivery explain":        {"-n", "prod", "op"},
+	"delivery get":            {"-n", "prod", "op"},
+	"delivery history":        {"--stage", "prod"},
+	"delivery inbox":          {},
+	"delivery ladder confirm": {"--proposal", "sha256:00"},
+	"delivery lifecycle":      {"--service", "payments"},
+	"delivery plan":           {"--stage", "prod", "--type", "promote", "--to", "1.0.0"},
+	"delivery propose":        {"--stage", "prod", "--type", "promote", "--to", "1.0.0"},
+	"delivery published":      {},
+	"delivery record get":     {"--stage", "prod", "rec"},
+	"delivery record verify":  {"--stage", "prod"},
+	"delivery refusals":       {},
+	"delivery status":         {"--service", "payments"},
+	"delivery trust":          {},
+	"delivery types":          {},
+	"delivery undo":           {"-n", "prod", "op"},
+	"evidence usage":          {"--contract", "does-not-exist"},
+	"explain":                 {"does-not-exist"},
+	"fleet attention":         {},
+	"fleet entities":          {},
+	"fleet entity":            {"service", "payments"},
+	"fleet explain":           {"payments"},
+	"fleet get":               {"payments"},
+	"fleet graph":             {"payments"},
+	"fleet map":               {},
+	"fleet neighborhood":      {"payments"},
+	"fleet overview":          {},
+	"fleet providers":         {},
+	"fleet reconcile":         {"--traces", "does-not-exist.json"},
+	"fleet search":            {},
+	"fleet snapshot":          {},
+	"fleet status":            {},
+	"fleet versions":          {"payments"},
+	"impact":                  {"does-not-exist", "does-not-exist-either"},
+	"init":                    {"--plan", "."},
+	"migrate":                 {"--dry-run", "does-not-exist"},
+	"publish":                 {"does-not-exist"},
+	"stats":                   {"--registry", "127.0.0.1:1/acme/pacto-stats"},
+	"validate":                {"does-not-exist"},
 }
 
 // TestEverySurfaceCommandEmitsOneJSONDocument: every mapped command answers

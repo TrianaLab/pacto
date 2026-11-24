@@ -64,6 +64,8 @@ const GROUPS = [
 const FONTS = FULL ? ['verdana', 'default'] as const : ['verdana'] as const;
 // Routes whose owner value carries the owner-provenance mark under the scale fixture.
 const OWNER_MARK_ROUTES = new Set(['service entity', 'service page, resources', 'offering entity']);
+// Routes whose 511-S5 block must render, by the block's testid.
+const BLOCK_ROUTES = new Map([['delivery inbox, ladder proposal', 'inbox-ladder'], ['delivery environments, unplaced open', 'environments-unplaced']]);
 // G1's fixed widths, at 900px high.
 const G1_WIDTHS = [390, 760, 1024, 1280, 1600, 1920, 2560];
 
@@ -106,6 +108,7 @@ for (const theme of ['dark', 'light'] as const) {
               await loaded(page);
               // The scale fixture gives these routes' owners a non-declared provenance (516-S1).
               if (OWNER_MARK_ROUTES.has(r.name)) await expect(page.getByTestId('owner-provenance').first()).toBeVisible();
+              if (BLOCK_ROUTES.has(r.name)) await expect(page.getByTestId(BLOCK_ROUTES.get(r.name)!)).toBeVisible();
               if (font === 'verdana') await gateMode(page);
               else await page.evaluate(() => { document.documentElement.dataset.narrate = 'final'; });
               expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches), 'the pointer is coarse exactly on touch devices').toBe(g.touch);

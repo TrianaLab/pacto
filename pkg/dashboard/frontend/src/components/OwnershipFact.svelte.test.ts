@@ -87,3 +87,49 @@ describe('OwnershipFact owner provenance', () => {
     plain.done();
   });
 });
+
+describe('OwnershipFact inferred owner', () => {
+  const fact = { value: 'team:ledger', source: 'backstage-catalog', where: 'component:default/ledger', asOf: '2026-11-14T12:00:00Z' };
+  function mountWith(ownership: unknown) {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const c = mount(OwnershipFact, { target, props: { ownership } });
+    flushSync();
+    return { target, done: () => { unmount(c); target.remove(); } };
+  }
+
+  it('shows an inferred owner as muted text with one mark', () => {
+    const { target, done } = mountWith({ declared: false, provenance: 'inferred', inferred: fact });
+    const note = target.querySelector('[data-testid="owner-inferred"]');
+    expect(note?.textContent).toBe('inferred: ledger');
+    expect(note?.getAttribute('title')).toBe('ledger');
+    expect(target.textContent).toContain('No declared owner');
+    expect(target.querySelectorAll('button[aria-label]')).toHaveLength(1);
+    expect(target.querySelector('button')?.getAttribute('aria-label')).toBe('About the inferred owner');
+    expect(target.querySelector('[data-testid="owner-provenance"]')).toBeNull();
+    done();
+  });
+
+  it('writes a DRI with its kind', () => {
+    const { target, done } = mountWith({ declared: false, provenance: 'inferred', inferred: { ...fact, value: 'dri:ana' } });
+    expect(target.querySelector('[data-testid="owner-inferred"]')?.textContent).toBe('inferred: DRI ana');
+    done();
+  });
+
+  it('shows no inferred line when an owner is declared', () => {
+    const { target, done } = mountWith({ declared: true, owner: 'pay', ref: owner, provenance: 'declared', inferred: fact });
+    expect(target.querySelector('[data-testid="owner-inferred"]')).toBeNull();
+    expect(target.querySelector('a')?.textContent).toContain('pay');
+    done();
+  });
+
+  it('the inferred tooltip names the source, entity and time', () => {
+    const { target, done } = mountWith({ declared: false, provenance: 'inferred', inferred: fact });
+    const tip = target.querySelector('[role="note"]')?.textContent ?? '';
+    expect(tip).toContain('backstage-catalog');
+    expect(tip).toContain('component:default/ledger');
+    expect(tip).toContain('Nov 14, 2026');
+    expect(tip).toContain('never routes approvals or clears a gate');
+    done();
+  });
+});

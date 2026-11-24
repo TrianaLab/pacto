@@ -115,9 +115,9 @@ var tier0 = []OperationType{
 		Description:       "Move the Stage pointer to a new digest. The only way to ship a version.",
 		Params:            []string{"from", "to"},
 		Raisers:           []ActorClass{ClassAgent, ClassHuman, ClassController},
-		PreGates:          []string{GatePublished, GateApplier, GateDiff, GateImpact, GateSuites, GateEnvironment},
+		PreGates:          []string{GatePublished, GateApplier, GateManifests, GateDiff, GateImpact, GateSuites, GateEnvironment},
 		VerifyGates:       []string{GateContract},
-		ApprovalFloor:     "pkg/impact: no person when no consumer is incompatible or unknown, the analysis is complete and the version to roll back to is verified; an incompatible consumer, or one whose required guarantee the version does not meet, asks its owners; a version whose contract declares environments but none for the Stage's spec.environment, or values there that fail their schemas, asks the service's team; anything Pacto cannot see, a suite a Stage check runs that the version does not ship or environment values Pacto cannot check, asks a person to accept the unknown; with spec.records.required, an agent or promoter promote asks a person while the Stage's records are not being written; a workload another manager owns, or whose manager Pacto cannot tell (pacto.applier), refuses the promote, and nobody can accept it",
+		ApprovalFloor:     "pkg/impact: no person when no consumer is incompatible or unknown, the analysis is complete and the version to roll back to is verified; an incompatible consumer, or one whose required guarantee the version does not meet, asks its owners; a version whose contract declares environments but none for the Stage's spec.environment, or values there that fail their schemas, asks the service's team; anything Pacto cannot see, a suite a Stage check runs that the version does not ship or environment values Pacto cannot check, asks a person to accept the unknown; with spec.records.required, an agent or promoter promote asks a person while the Stage's records are not being written; a workload another manager owns, or whose manager Pacto cannot tell (pacto.applier), refuses the promote, and nobody can accept it; a version the manifest inspector refuses (pacto.manifests) is rejected and nobody can accept it; one whose objects it cannot read asks a person to accept the unknown",
 		Inverse:           TypeRollback,
 		Cancellable:       "until the pointer moves",
 		ApprovalDeadline:  defaultApprovalDeadline,
@@ -304,6 +304,16 @@ type ClassPolicy struct {
 	// Signers are the issuers whose keyless certificates may sign an
 	// approval. Empty, keyless approvals never count.
 	Signers []PersonSigner `json:"signers,omitempty"`
+	// ManifestInspector runs pacto.manifests on every promote: the chart
+	// turns it on wherever delivery is enabled; every client reads it from
+	// the published policy.
+	ManifestInspector bool `json:"manifestInspector,omitempty"`
+	// RefuseRawInfra refuses a version whose deploy artifact carries raw
+	// infrastructure (Crossplane claims, composites, definitions,
+	// compositions and managed resources): the chart sets it under profile
+	// idp, where infrastructure reaches a cluster only as a dependency on an
+	// offering. Elsewhere such objects ask a person.
+	RefuseRawInfra bool `json:"refuseRawInfra,omitempty"`
 }
 
 // PersonSigner is one issuer whose keyless certificates may sign an

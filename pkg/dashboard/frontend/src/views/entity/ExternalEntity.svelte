@@ -3,18 +3,24 @@
   import { formatRelative } from '../../lib/dateFormat.ts';
   import { cap } from '../../lib/cap.svelte.ts';
   import ShowAll from '../../components/ShowAll.svelte';
-  import { externalClassNoun, externalJoinWords } from '../../lib/entityLabels.ts';
+  import { externalClassNoun, externalJoinWords, serviceKeyName } from '../../lib/entityLabels.ts';
   import { fleetEntityUrl } from '../../lib/router.ts';
   import EntityLink from '../../components/EntityLink.svelte';
   import ExternalProvenance from '../../components/ExternalProvenance.svelte';
   import IdentityBadge from '../../components/IdentityBadge.svelte';
+  import ProvenanceMark from '../../components/ProvenanceMark.svelte';
+  import OwnerLink from '../../components/OwnerLink.svelte';
+  import DeclarePanel from '../../components/DeclarePanel.svelte';
 
   // An external system's page: the services that declare, call or use it first, then how
   // Pacto knows it. The catalog that classified it (or how its consumers join it) is in
   // view, then where each source recognized it: every declaration, configuration source
   // (inferred) and trace source (observed). Pacto observes no health for it, so nothing
   // here is a verdict.
-  let { detail } = $props();
+  // canDeclare: the host plans claims for this caller (capabilities.declare);
+  // declareQuery: declare=1 opens the claim panel, signed is the intent a signing
+  // login came back with.
+  let { detail, canDeclare = false, declareQuery = {} } = $props();
   const x = $derived(detail.external ?? {});
   const rec = $derived(x.external ?? {});
   const consumers = $derived(x.consumers ?? []);
@@ -54,6 +60,31 @@
   const SURFACE = [['hosts', 'Hosts'], ['ports', 'Ports'], ['clients', 'Clients']];
   const caps = { hosts: cap(12), ports: cap(12), clients: cap(12) };
   const seenWords = (v) => `seen by ${(v.sources ?? []).join(', ')}${v.lastSeen ? `, last seen ${formatRelative(v.lastSeen)}` : ''}`;
+  // What changed between the two revisions shown first (517-S4). A change no source
+  // checked the signatures of says so: it never raises an attention item.
+  const change = $derived(provider?.change ?? null);
+  const MAX_CHANGE_VALUES = 10;
+  const capped = (verb, xs) => (xs?.length ? `${verb} ${xs.slice(0, MAX_CHANGE_VALUES).join(', ')}${xs.length > MAX_CHANGE_VALUES ? ` and ${formatCount(xs.length - MAX_CHANGE_VALUES)} more` : ''}.` : '');
+  const changeTip = $derived(change ? [
+    change.openapiFrom || change.openapiTo ? `OpenAPI ${change.openapiFrom || 'none'} → ${change.openapiTo || 'none'}.` : '',
+    capped('Surface added', change.added), capped('Surface removed', change.removed),
+    change.checked ? "This installation's operator signed both revisions." : "No source checked these revisions' signatures, so this change raises no attention item.",
+  ].filter(Boolean).join(' ') : '');
+  // Who owns it (517-S5): the claiming service's verified owner, a claim the viewer
+  // cannot see, or nobody yet. Routing to the default approvers grants no right, so
+  // the Claim button follows canDeclare and the plan's refusal, never the routing.
+  const claim = $derived(rec.claim ?? null);
+  // More than one claim: none counts, and only retracting settles it, so no Claim button.
+  const claimants = $derived(rec.claimants ?? 0);
+  const claimable = $derived(canDeclare && rec.class !== 'other-egress' && !claim?.hidden && claimants < 2);
+  let claimToggled = $state(null);
+  const claimOpen = $derived(claimToggled ?? !!declareQuery.open);
+  const ROUTING = "Routed to the installation's default approvers (routing only; it grants no right)";
+  // The claim was established by one person at one version; the newest revision may be a later publish.
+  const claimTip = $derived(claim ? `Claim established by ${claim.by || 'an unnamed person'}${claim.declaredVersion ? ` at ${claim.declaredVersion}` : ''}${claim.ref ? `; newest revision ${claim.ref}` : ''}` : '');
+  // The owner as its canonical key names it: a DRI-only owner is dri:<name>, never team:<name>.
+  const claimOwner = $derived(claim?.owner ? (claim.ownerKey?.startsWith('dri:') ? { dri: claim.owner } : { team: claim.owner }) : null);
+  const claimer = $derived(claim?.service ? serviceKeyName(claim.service) : '');
   const consumerUse = (c) => (c.provenance === 'observed' ? 'observed only' : c.provenance === 'inferred' ? 'inferred only' : c.required ? 'required' : 'optional');
 </script>
 
@@ -63,6 +94,31 @@
   {/if}
   {#if rec.class === 'other-egress'}
     <p class="xe-note t-body-2" data-testid="external-folded">This node folds {plural(rec.folded ?? 0, 'external system', 'external systems')}, the least consumed beyond the cap on how many one answer names. The answer is partial; each folded system keeps its own identity in the snapshot.</p>
+  {/if}
+
+  {#if rec.class !== 'other-egress'}
+    <section class="xe-section" id="sec-owner" data-toc="Owner" aria-labelledby="xe-owner-h" data-testid="external-owner">
+      <h2 id="xe-owner-h" class="t-section-title">Owner</h2>
+      <div class="xe-owner">
+        {#if claimants > 1}
+          <p class="t-body-2" data-testid="external-owner-claimants">Claimed by {claimants} services, so no claim counts until all but one are retracted</p>
+        {:else if claim?.hidden}
+          <p class="t-body-2" data-testid="external-owner-hidden">Claimed by a service you cannot see</p>
+        {:else if claim}
+          <p class="t-body-2 xe-wrap" data-testid="external-owner-claimed">{#if claimOwner}<OwnerLink owner={claimOwner} />{:else}No verified owner{/if}, claimed by <a href={fleetEntityUrl('service', claim.service)} title={claimer}><bdi>{claimer}</bdi></a> <bdi>{claim.version}</bdi> <ProvenanceMark label="About this claim" text={claimTip} /></p>
+        {:else}
+          <p class="t-body-2" data-testid="external-owner-unclaimed">Unclaimed <ProvenanceMark label="Who it is routed to" text={ROUTING} /></p>
+        {/if}
+        {#if claimable}
+          <button type="button" class="btn btn-sm xe-claim" aria-expanded={claimOpen} aria-controls="xe-claim-panel" onclick={() => (claimToggled = !claimOpen)} data-testid="external-claim">Claim</button>
+        {/if}
+      </div>
+      {#if claimable && claimOpen}
+        <!-- Keyed on the signing login's intent: a host that signs in itself (the WASM demo)
+             comes back to this page without reloading it, and the panel plans again. -->
+        <div id="xe-claim-panel">{#key declareQuery.signed}<DeclarePanel serviceKey={`external:${rec.key}`} open signed={declareQuery.signed ?? ''} claimedName={claim ? claimer : ''} />{/key}</div>
+      {/if}
+    </section>
   {/if}
 
   <section class="xe-section" id="sec-consumers" data-toc="Consumers" aria-labelledby="xe-consumers-h">
@@ -97,6 +153,9 @@
       </summary>
       <div class="xe-inferred-panel">
         <p class="t-body-2 xe-wrap"><bdi>{provider.repository}</bdi>{#if shown}, version <bdi>{shown.version}</bdi>{/if} <IdentityBadge label="inferred" title={markTitle} describe /></p>
+        {#if change}
+          <p class="t-meta xe-wrap" data-testid="external-provider-change"><span class="xe-change-words">Changed <bdi>{change.from}</bdi> → <bdi>{change.to}</bdi>{change.at ? ` (${formatRelative(change.at)})` : ''}{change.checked ? '' : ', unchecked'}</span> <ProvenanceMark label="About this change" text={changeTip} /></p>
+        {/if}
         {#if shown?.surface}
           <details class="disclosure">
             <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span>{byOperator ? "What this installation's operator saw" : 'What the record lists'}</summary>
@@ -140,6 +199,9 @@
   .xe-section { display: flex; flex-direction: column; gap: var(--sp-2); }
   .xe-section h2, .xe-caption, .xe-catalog, .xe-note { margin: 0; }
   .xe-catalog, .xe-wrap, .xe-surface li { overflow-wrap: anywhere; }
+  .xe-owner { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; min-inline-size: 0; }
+  .xe-owner p { margin: 0; min-inline-size: 0; }
+  @media (pointer: coarse) { .xe-claim { min-block-size: 44px; min-inline-size: 44px; } }
   .xe-inferred { border: 1px solid var(--c-border); border-radius: var(--radius-md); padding: var(--sp-4); background: var(--c-surface); }
   .xe-inferred > summary h2 { margin: 0; color: var(--c-text); }
   .xe-inferred-panel { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }

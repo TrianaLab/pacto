@@ -25,13 +25,16 @@ const (
 	// OutcomeUnknown, by effect.
 	OutcomeBreaks     = EffectBreaks
 	OutcomeMayDegrade = EffectMayDegrade
+	// OutcomeAttention is the outcome of every consumer of an external change.
+	OutcomeAttention = EffectAttention
 )
 
 // outcomeOrder is the canonical display order: err, unknown, ok, then the shortfall.
 var outcomeOrder = []string{OutcomeIncompatible, OutcomeUnknown, OutcomeCompatible, OutcomeUnclassified}
 
 // eventOrder is the display order of an event answer's outcomes: its lanes.
-var eventOrder = []string{OutcomeBreaks, OutcomeMayDegrade, OutcomeUnknown}
+// The attention lane is drawn only when a consumer is in it.
+var eventOrder = []string{OutcomeBreaks, OutcomeMayDegrade, OutcomeAttention, OutcomeUnknown}
 
 // orderFor is the outcome order of an answer, event or contract.
 func orderFor(event bool) []string {
@@ -123,6 +126,11 @@ func tallyFacts(facts []consumerFact, event bool) ConsumerTallies {
 		}
 	}
 	for _, k := range orderFor(event) {
+		// Only an external change has the attention lane, so every other
+		// event answer reads as it did before it existed.
+		if k == OutcomeAttention && byOutcome[k] == 0 {
+			continue
+		}
 		t.ByOutcome = append(t.ByOutcome, TallyBucket{Key: k, Count: byOutcome[k]})
 	}
 	ranked := make([]OwnerTally, 0, len(byOwner))

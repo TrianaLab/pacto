@@ -149,7 +149,7 @@ func (in inferredInput) key(multi bool) workloadKey {
 // keeping the newest ObservedAt. A declared service with that name is never
 // changed: the input is dropped with a limitation naming its source.
 func mergeInferred(snap *FleetSnapshot, existing, rec *ServiceRecord, source string) {
-	if !existing.Inferred() {
+	if !existing.inferredWorkload() {
 		snap.Limitations = append(snap.Limitations, Limitation{
 			Code: LimitationSourceRecordInvalid, Source: source,
 			Message: "source " + source + " reported a workload named like a declared service; it was left out",
@@ -470,7 +470,12 @@ func (q *Query) inferredServiceDetail(s *ServiceRecord) *EntityDetail {
 		Limitations: attributedLimitationsPreview(lims), Workload: jsonClone(s.Workload),
 		Calls: refPreview(calls), CallsObserved: observed,
 		HiddenDependencies: s.HiddenDependencies, HiddenDependents: s.HiddenDependents,
-		NextAction: declareAction(s.Workload.Name, s.Workload.Namespace),
+		NextAction:             declareAction(s.Workload.Name, s.Workload.Namespace),
+		InferredBusinessDomain: inferredBusinessDomain(s),
+	}
+	// An inferred service shows an owner only when a source reports one.
+	if s.OwnerProvenance == OwnerProvenanceInferred {
+		data.Ownership = serviceOwnership(q.snap, s)
 	}
 	return &EntityDetail{Meta: q.productMeta(), Entity: self, Service: data, Actions: []string{}}
 }

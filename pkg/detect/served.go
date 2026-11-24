@@ -34,6 +34,78 @@ func Metrics(served bool, err error) Entry {
 	return e
 }
 
+// What the detector read of the Crossplane core Deployment.
+const (
+	CrossplaneControllerFound    = "found"
+	CrossplaneControllerNotReady = "not-ready"
+	CrossplaneControllerNone     = "none"
+	CrossplaneControllerUnread   = "unread"
+)
+
+// CrossplaneFacts is what the detector read of Crossplane: API is the
+// apiextensions.crossplane.io major discovery serves (v2, v1 or empty),
+// APIErr a discovery failure, Version the image tag of the core Deployment
+// and Controller one of the CrossplaneController values.
+type CrossplaneFacts struct {
+	API     string
+	APIErr  error
+	Version string
+	// Controller is CrossplaneControllerFound (a core Deployment with an
+	// available replica), CrossplaneControllerNotReady (one with none),
+	// CrossplaneControllerNone or CrossplaneControllerUnread.
+	Controller string
+}
+
+// Crossplane says whether Crossplane runs. CRDs outlive Crossplane, so only
+// a served API with a found controller reads complete and running; served
+// APIs without a controller, or with one that could not be read, are
+// partial. A core Deployment with no available replica (scaled to zero or
+// crash-looping) is neither running nor none found, partial. A found
+// controller whose APIs discovery does not serve yet is a
+// Crossplane still starting, partial. No API served otherwise is
+// fleet.CrossplaneNoneFound, complete, with the bootstrap hint under profile
+// idp. The Deployment's namespace never enters the entry.
+func Crossplane(c CrossplaneFacts, idp bool) Entry {
+	const kind = fleet.ProviderCrossplane
+	if c.APIErr != nil {
+		return discoveryFailed(kind, c.APIErr)
+	}
+	e := Entry{Kind: kind, Source: "Crossplane Deployment and API discovery", Completeness: Complete}
+	served := "serves apiextensions.crossplane.io/" + c.API
+	switch {
+	case c.Controller == CrossplaneControllerNotReady:
+		e.Value, e.Evidence, e.Completeness = "Crossplane not available", "the core Deployment has no available replica", Partial
+		e.Reason, e.Scope = "the Crossplane Deployment has no available replica", fleet.ScopeCluster
+	case c.API == "" && c.Controller == CrossplaneControllerFound:
+		e.Value, e.Evidence, e.Completeness = "Crossplane starting", "runs and does not serve apiextensions.crossplane.io yet", Partial
+		e.Reason, e.Scope = "a Crossplane Deployment runs but discovery does not serve its APIs yet", fleet.ScopeCluster
+	case c.API == "":
+		e.Value, e.Evidence, e.Source = fleet.CrossplaneNoneFound, "apiextensions.crossplane.io is not served", "API discovery"
+		if idp {
+			e.Hint = "helm upgrade <release> <chart> --reuse-values --set idp.crossplane.install=true"
+		}
+	case c.Controller == CrossplaneControllerFound:
+		e.Value, e.Evidence, e.Scope = "Crossplane "+c.API, "runs and "+served, fleet.ScopeCluster
+		if isVersion(c.Version) {
+			e.Value = "Crossplane " + c.Version
+		}
+	case c.Controller == CrossplaneControllerNone:
+		e.Value, e.Evidence, e.Completeness = "Crossplane APIs served, controller not found", served, Partial
+		e.Reason = "the Crossplane APIs are served but no Crossplane Deployment runs"
+	default:
+		e.Value, e.Evidence, e.Completeness = "Crossplane "+c.API+" APIs served", served, Partial
+		e.Reason = "the Crossplane Deployment could not be read"
+	}
+	return e
+}
+
+// isVersion reports whether tag reads as a version: an optional v, then a
+// digit.
+func isVersion(tag string) bool {
+	tag = strings.TrimPrefix(tag, "v")
+	return tag != "" && tag[0] >= '0' && tag[0] <= '9'
+}
+
 // IstioEgress says whether the Istio ServiceEntry API is served: the
 // operator reads the ServiceEntries that name the systems a workload calls
 // outside the cluster. The entry comes from a cluster-wide read.

@@ -73,10 +73,11 @@ func ownerDisplay(o *contract.Owner) any {
 	return o.DisplayString()
 }
 
-// environmentValues is the values file at path in fsys, or nil when it cannot
-// be read.
+// environmentValues is the values file at path in fsys, or nil when there is
+// no file (an environment with none has no values of its own) or it cannot be
+// read.
 func environmentValues(fsys fs.FS, path string) map[string]any {
-	if fsys == nil {
+	if fsys == nil || path == "" {
 		return nil
 	}
 	data, err := fs.ReadFile(fsys, path)

@@ -118,6 +118,8 @@ Removing the `configuration` selector can leave the `ref` ambiguous.
 |-------|--------|----------------|
 | `environments[]` | Added | NON_BREAKING |
 | `environments[]` | Removed | POTENTIAL_BREAKING |
+| `environments[].file` | Modified | NON_BREAKING |
+| `environments[].file` | Added / Removed (an environment without a values file, 2.6) | POTENTIAL_BREAKING |
 | `environments[].*`, a value in the environment's file, for example `environments[production].chart.ingress.host` | Added / Modified / Removed | NON_BREAKING |
 
 ## Policy

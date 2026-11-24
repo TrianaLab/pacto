@@ -394,9 +394,9 @@ const (
 // identity signed, then the owner a target's observing source read from the
 // contract it runs. Owner never holds an inferred value, because approvals and
 // every ownership answer read it: inferred means no declared or attested owner
-// exists while an inferred one is held in a separate field, so Owner stays
-// empty. The inferred tier is set only together with the field that holds that
-// value.
+// exists while an inferred one is held in the separate field
+// [ServiceRecord.InferredOwner], so Owner stays empty. The inferred tier is
+// set only together with the field that holds that value.
 const (
 	OwnerProvenanceDeclared          = "declared"
 	OwnerProvenanceDeclaredViaTarget = "declared-via-target"
@@ -699,6 +699,30 @@ const (
 	// names no external, or another external than its repository path, so it
 	// is attached to no external system and is no service either.
 	LimitationInferredIdentityMismatch = "INFERRED_IDENTITY_MISMATCH"
+	// LimitationInferredContractUnread: an inferred contract a source's
+	// records name was not read, so its external system keeps no contract.
+	// Completeness is unchanged; a restricted view counts them per source.
+	LimitationInferredContractUnread = "INFERRED_CONTRACT_UNREAD"
+	// LimitationIndexEntryInvalid: organization index entries that were
+	// malformed, unbound, unconfirmed or whose bundle could not be read were
+	// never used. A restricted view counts them per source.
+	LimitationIndexEntryInvalid = "CONSUMER_INDEX_ENTRY_INVALID"
+	// LimitationIndexNotFoundReadEmpty: a long-running reader found no
+	// organization index and read it as empty, since it never listed entries
+	// there. Completeness is unchanged.
+	LimitationIndexNotFoundReadEmpty = "INDEX_NOT_FOUND_READ_EMPTY"
+	// LimitationServiceFactAmbiguous: a source outside every contract named
+	// services Pacto could not match to exactly one fleet service, or reported
+	// disagreeing values for one, so those values were left out. Completeness
+	// is unchanged; a restricted view rebuilds it from the services it shows.
+	LimitationServiceFactAmbiguous = "SERVICE_FACT_AMBIGUOUS"
+	// LimitationContributionRefused: bundles a producer contributed declare
+	// more than a name and version, carry a declaration or sit outside its
+	// contribution repository, so none of them is read.
+	LimitationContributionRefused = "CONTRIBUTION_REFUSED"
+	// LimitationContributionSuperseded: services a producer contributed have
+	// a contract in its installation registry; the contract wins.
+	LimitationContributionSuperseded = "CONTRIBUTION_SUPERSEDED"
 )
 
 // RangeReasonInferredProvider is the [Relationship.RangeReason] of a range
@@ -923,6 +947,11 @@ type ServiceRecord struct {
 	OwnerProvenance string `json:"ownerProvenance,omitempty" enum:"declared,declared-via-target,attested,inferred"`
 	// OwnerSource is where an attested owner was read (see [AttestedOwner]).
 	OwnerSource string `json:"ownerSource,omitempty" doc:"Where an attested owner was read: file and line, commit and the CI identity that signed it. Empty for any other provenance"`
+	// InferredOwner and InferredBusinessDomain are what a source outside every
+	// contract reports (see [Collection.ServiceFacts]), kept beside Owner and
+	// BusinessDomain and never in them.
+	InferredOwner          *InferredFact `json:"inferredOwner,omitempty" doc:"An owner a source outside every contract reports, as an owner key (team:<name> or dri:<name>). Never an owner claim; ownerProvenance is inferred only when no declared, attested or declared-via-target owner exists"`
+	InferredBusinessDomain *InferredFact `json:"inferredBusinessDomain,omitempty" doc:"A business domain a source outside every contract reports. Never fills businessDomain"`
 	// OfferingProvenance says where Offering comes from: declared by a contract
 	// revision, or observed, reported only by the sources observing its targets.
 	OfferingProvenance string `json:"offeringProvenance,omitempty" enum:"declared,observed"`
@@ -950,14 +979,45 @@ type ServiceRecord struct {
 	// restricted answer.
 	HiddenCreated int `json:"hiddenCreated,omitempty"`
 	// Declaration says whether a contract describes the service.
-	Declaration string `json:"declaration" enum:"declared,inferred" doc:"declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract Pacto read describes; workload.declarationUnverified says Pacto could not read the Pacto targets there"`
+	Declaration string `json:"declaration" enum:"declared,inferred" doc:"declared when a contract revision or a Pacto target describes the service; inferred when Pacto only sees a workload no contract Pacto read describes, or only a producer's contribution; workload.declarationUnverified says Pacto could not read the Pacto targets there"`
 	// Workload is what Pacto read from the workload of an inferred service.
 	Workload *InferredWorkload `json:"workload,omitempty"`
+	// Contribution is the newest record a producer contributed for a service
+	// only contributions describe; nil for any other service.
+	Contribution *ServiceContribution `json:"contribution,omitempty" doc:"The newest record a producer contributed for this inferred service, read from its contribution repository; set only when contributions alone describe the service"`
+}
+
+// ServiceContribution is the newest record a producer contributed for a
+// service, as its contribution repository holds it.
+type ServiceContribution struct {
+	Producer   string     `json:"producer" doc:"The producer id the evidence trust config grants the contribution repository"`
+	Repository string     `json:"repository" doc:"The producer's contribution repository, <registry>/pacto-inferred/<producer>/services"`
+	Ref        string     `json:"ref" doc:"The repository@digest of the record read"`
+	KeyID      string     `json:"keyId,omitempty" doc:"The key of the producer that verified the record's signature"`
+	ReadAt     *time.Time `json:"readAt,omitempty" doc:"When Pacto read the record"`
+	AsOf       *time.Time `json:"asOf,omitempty" doc:"When the producer made the record, from its signed manifest; absent when unknown"`
+	Stale      bool       `json:"stale,omitempty" doc:"The record is older than the freshness window, its age is unknown or a newer version was refused"`
+	// NewerRefused is the newest version the reader refused (unsigned,
+	// signed by another key or mis-tagged) before reading this older one.
+	NewerRefused string `json:"newerRefused,omitempty" doc:"A newer version of the record that was refused, so this older one is shown stale"`
 }
 
 // Inferred reports whether Pacto only sees a workload of the service and no
 // contract describes it. A record with no Declaration reads as declared.
 func (s *ServiceRecord) Inferred() bool { return s.Declaration == DeclarationInferred }
+
+// inferredWorkload reports whether s is an inferred service Pacto read from a
+// workload; a service only a producer's contribution describes has none.
+func (s *ServiceRecord) inferredWorkload() bool { return s.Inferred() && s.Workload != nil }
+
+// inferredSource is the source an inferred service was read from: its
+// workload's, else the first that read its contribution.
+func (s *ServiceRecord) inferredSource() string {
+	if s.Workload != nil {
+		return s.Workload.Source
+	}
+	return s.Sources[0]
+}
 
 // InferredWorkload is the workload an inferred service is: where it runs and
 // the image, ports and probes Pacto read, each with the object path it read.
@@ -1116,6 +1176,10 @@ type ContractRevision struct {
 	// Provenance is the signature and referrers a registry source found attached
 	// to the bundle digest. Nil means no source that read it checks signatures.
 	Provenance *BundleProvenance `json:"provenance,omitempty"`
+	// Extensions is the check of each declared extension capability a trusted
+	// producer has a report on (see [ExtensionCheck]). An extension with no
+	// check is unverified.
+	Extensions []ExtensionCheck `json:"extensions,omitempty"`
 
 	// bundle carries the parsed bundle used during Build (to derive tools, skills,
 	// docs and validation) and afterwards as the read-only backing store for lazy
@@ -1129,6 +1193,9 @@ type ContractRevision struct {
 	// that changes after Build. The authority is the per-document digest recorded
 	// in Docs, which every read verifies.
 	bundle *contract.Bundle
+	// contributor is RawRevision.Contributor once Build accepted the
+	// revision as a producer's contribution; nil otherwise.
+	contributor *Contributor
 	// guaranteesUnseen is RawRevision.GuaranteesUnseen; see GuaranteesUnseen.
 	guaranteesUnseen string
 	// docConflict, when non-empty, is why this revision's documents cannot be
@@ -1253,6 +1320,9 @@ type TargetRecord struct {
 	ResolvedRef   string `json:"resolvedRef,omitempty"`
 	Digest        string `json:"digest,omitempty"`
 	Compliance    string `json:"compliance"`
+	// ReportedBy is the producer that reported the target through an
+	// Evidence Server (its Scope); empty for a target any other source read.
+	ReportedBy string `json:"reportedBy,omitempty" doc:"The producer that reported this target through an Evidence Server"`
 	// Owner is the owner the observing source read from the contract it
 	// evaluates (the operator reports it in status.contract.owner). It lets a
 	// fleet with no contract revisions still say who owns the service.
@@ -1480,7 +1550,7 @@ type InferredSource struct {
 	// Target is the target the evidence was read on, when the source names
 	// one this snapshot holds; a restricted view drops evidence of a hidden one.
 	Target     TargetKey  `json:"target,omitempty" doc:"The target the evidence was read on"`
-	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane"`
+	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane"`
 	Where      string     `json:"where,omitempty" doc:"The object and key it was found in, never a value"`
 	Host       string     `json:"host,omitempty" doc:"The normalized host and port; empty when only a key name matched"`
 	Confidence string     `json:"confidence" enum:"likely,possible"`
@@ -1490,6 +1560,16 @@ type InferredSource struct {
 	// Revision is set on a repository source: the consumer revision whose
 	// inferred record names the external system.
 	Revision RevisionKey `json:"revision,omitempty" doc:"The consumer revision whose inferred record names it, for a repository source"`
+}
+
+// InferredFact is one value a source outside every contract reports for a
+// service, with where and when it was read. It is presentation only: no gate,
+// owner claim, tally or approval reads it.
+type InferredFact struct {
+	Value  string     `json:"value"`
+	Source string     `json:"source" doc:"The id of the source that reported it"`
+	Where  string     `json:"where,omitempty" doc:"The source's own reference for the record it read, such as component:default/ledger"`
+	AsOf   *time.Time `json:"asOf,omitempty"`
 }
 
 // ExternalKey is the canonical identity of an external system, an
@@ -1545,6 +1625,11 @@ type ExternalRecord struct {
 	// Provider is its inferred contract, when a source read one under
 	// pacto-inferred/<identity>. It is never a service.
 	Provider *ExternalProvider `json:"provider,omitempty" doc:"The inferred contract published for it under pacto-inferred; never a service, and a range is never checked against it"`
+	// Claim is the declared contract that claims it (see linkExternalClaims).
+	Claim *ExternalClaim `json:"claim,omitempty" doc:"The declared contract that claims this external system; absent while it is unclaimed"`
+	// Claimants counts the services that each establish a claim on it when
+	// more than one does: then no claim counts and Claim is absent.
+	Claimants int `json:"claimants,omitempty" doc:"How many services claim it when more than one does: no claim counts until all but one are retracted; absent otherwise"`
 	// declarations counts, per consumer, the revisions that declare it plus
 	// each observed or inferred source.
 	declarations map[ServiceKey]int
@@ -1554,6 +1639,25 @@ type ExternalRecord struct {
 	catalogLabel string
 	// hidden is the consumers a restriction hid, so a fold counts each once.
 	hidden map[ServiceKey]bool
+}
+
+// ExternalClaim is the declared contract that claims an external system: the
+// newest revision of the one service an accepted person declaration of
+// inferredFrom external:<identity> established (see linkExternalClaims).
+type ExternalClaim struct {
+	Service ServiceKey `json:"service,omitempty" doc:"The service whose declared contract claims it"`
+	Ref     string     `json:"ref,omitempty" doc:"The claimed revision, repository@digest"`
+	Version string     `json:"version,omitempty" doc:"The version of the claimed revision"`
+	By      string     `json:"by,omitempty" doc:"The person whose accepted declaration established the claim"`
+	// DeclaredVersion is the version By declared; Version is the newest
+	// revision, which a later publish may carry without the owner rule.
+	DeclaredVersion string `json:"declaredVersion,omitempty" doc:"The version whose accepted declaration established the claim; the newest revision (version) may be a later publish that carried it"`
+	Owner           string `json:"owner,omitempty" doc:"The owner Pacto uses for the service that claims it, as shown; absent when it has none or its owners conflict"`
+	OwnerKey        string `json:"ownerKey,omitempty" doc:"The canonical key of owner (team:<name> or dri:<name>); absent with owner"`
+	Hidden          bool   `json:"hidden,omitempty" doc:"You may not read the service that claims it"`
+	// ownerless says the claiming service has no verified owner, computed on
+	// the full snapshot so a restricted view keeps it for a hidden claimer.
+	ownerless bool
 }
 
 // ExternalProvider is the inferred contract of an external system: the
@@ -1569,6 +1673,8 @@ type ExternalProvider struct {
 	RangeReason    string `json:"rangeReason" enum:"INFERRED_PROVIDER" doc:"Always INFERRED_PROVIDER"`
 	// SurfaceHidden is set when a restricted view dropped a surface.
 	SurfaceHidden bool `json:"surfaceHidden,omitempty" doc:"True when the caller's view is restricted, so the surface is not shown; absent when the record holds none"`
+	// Change is what changed between the two revisions shown first.
+	Change *ExternalProviderChange `json:"change,omitempty" doc:"What changed between the two revisions shown first; checked says whether this installation's operator signed both; values are absent when the view is restricted"`
 }
 
 // ExternalProviderRevision is one revision of an inferred contract.
@@ -1607,6 +1713,9 @@ type ExternalCatalogMatch struct {
 	Origin string `json:"origin" enum:"default,organization"`
 	Digest string `json:"digest" doc:"The digest of the catalog artifact"`
 	Entry  string `json:"entry" doc:"The identity of the catalog entry"`
+	// OpenAPI is the vendor OpenAPI document the entry links, pinned by
+	// digest (see [externalcatalog.Entry.OpenAPI]).
+	OpenAPI string `json:"openapi,omitempty" doc:"The vendor OpenAPI document the catalog entry links, pinned by digest; Pacto never fetches it"`
 }
 
 // ExternalCatalogRef records one catalog a snapshot classified external
@@ -1650,9 +1759,12 @@ type FleetSnapshot struct {
 	Targets       map[TargetKey]*TargetRecord       `json:"targets"`
 	Relationships []Relationship                    `json:"relationships"`
 	// InferredRelationships are runtime calls with at least one end no
-	// contract describes (an inferred service). They are kept out of
-	// Relationships and every index a gate, impact or reconciliation reads:
-	// an inferred edge never satisfies a dependency. Sorted like Relationships.
+	// contract describes (an inferred service), and the dependencies a source
+	// outside every contract reports between services (see
+	// [Collection.ServiceFacts]; their evidence kind is serviceFact). They are
+	// kept out of Relationships and every index a gate, impact or
+	// reconciliation reads: an inferred edge never satisfies a dependency.
+	// Sorted like Relationships.
 	InferredRelationships []Relationship `json:"inferredRelationships,omitempty"`
 	// Replacements are the inferred services a declared service took over,
 	// sorted by From.
@@ -1670,6 +1782,10 @@ type FleetSnapshot struct {
 	// identity in their repository path, until Build attaches them to their
 	// external systems (see attachInferredProviders).
 	inferredProviders map[ExternalKey][]*ContractRevision
+	// supersededBy is, per producer, the declared services whose contract won
+	// over a service the producer contributed, so a restricted view counts
+	// only the ones it may see.
+	supersededBy map[string][]ServiceKey
 	// declarationSigners is BuildOptions.DeclarationSigners.
 	declarationSigners *DeclarationSignerPolicy
 	// inferredLinkNotes are the limitations replaceByInferredFrom raised
@@ -1725,6 +1841,17 @@ type FleetSnapshot struct {
 	// provisioningDropped counts, per consumer service, the reports dropped past
 	// MaxProvisioningRecords, so a restricted view reports only its own losses.
 	provisioningDropped map[ServiceKey]int
+	// serviceFactAmbiguous holds, per source, each set of services a service
+	// fact could not pick from (one key when its values disagreed), so a
+	// restricted view rebuilds SERVICE_FACT_AMBIGUOUS from what it shows.
+	serviceFactAmbiguous map[string][][]ServiceKey
+	// extensionRecords are the verified extension reports Build matched to a
+	// revision, kept off the wire so a restricted view re-derives each
+	// revision's checks without the records of clusters its caller cannot read.
+	// ponytail: unbounded here; each evidence source already bounds its body
+	// (MaxTargetsBodyBytes), so the ceiling is the sum over configured
+	// sources. Add MaxProvisioningRecords-style truncation if that grows.
+	extensionRecords []extensionRecord
 	// usageDropped counts, per consumer service, the usage reports dropped
 	// past MaxUsageRecords.
 	usageDropped map[ServiceKey]int
@@ -1734,6 +1861,10 @@ type FleetSnapshot struct {
 	// platform offering (see [Query.Restrict]) and those with a target in a
 	// hidden namespace. What their targets run is not fully known.
 	targetsHidden map[ServiceKey]bool
+	// reportsPlaced is set in a restricted snapshot: each provisioning report
+	// carries the cluster the unrestricted snapshot attributes it to, since
+	// the view's own targets and clusters may have lost the ones that place it.
+	reportsPlaced bool
 	// revisionsHidden holds, in a restricted snapshot, the visible services
 	// that lost a revision to the view (a golden path visible only as one).
 	revisionsHidden map[ServiceKey]bool
@@ -1788,7 +1919,8 @@ type FleetSnapshot struct {
 	// saw: a graph never labels them declared+observed (see reconcileDeclared).
 	cautionPairs map[[2]ServiceKey]bool
 	// inferredReverse/inferredForward are the adjacency of InferredRelationships
-	// between services, apart from the declared and observed indexes.
+	// and of inferred-record edges between services, apart from the declared
+	// and observed indexes; only a neighbourhood walks them.
 	inferredReverse map[ServiceKey][]ServiceKey
 	inferredForward map[ServiceKey][]ServiceKey
 	// replacedNames are the observed names of the workloads a Pacto target
@@ -1800,7 +1932,7 @@ type FleetSnapshot struct {
 	// them is available.
 	observingSources map[string]bool
 	// workloadOnlyPartial: Build found the snapshot partial only because of a
-	// workload source. Restrict and the external fold clear it.
+	// workload source or a registry listing (nonConsumerSourceKinds). Restrict and the external fold clear it.
 	workloadOnlyPartial bool
 }
 
@@ -1826,6 +1958,9 @@ type ProvisioningRecord struct {
 	Verified      bool       `json:"verified"`
 	Source        string     `json:"source"`
 	SourceKind    string     `json:"sourceKind,omitempty"`
+	// cluster is, in a restricted snapshot, the cluster Restrict attributed
+	// the report to from the unrestricted snapshot (see reportCluster).
+	cluster string
 }
 
 // UsageRecord is one validated usage report (see [RawUsage]) about the

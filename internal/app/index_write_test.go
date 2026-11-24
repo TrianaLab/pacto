@@ -21,6 +21,7 @@ import (
 	"oras.land/oras-go/v2/content"
 	"oras.land/oras-go/v2/registry/remote"
 
+	"github.com/trianalab/pacto/v4/internal/testutil"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -50,10 +51,13 @@ func newIndexReg(t *testing.T) *indexReg {
 		ir.reqs = append(ir.reqs, r.Method+" "+r.URL.Path)
 		hook := ir.hook
 		ir.mu.Unlock()
-		if hook != nil && hook(w, r) {
-			return
+		switch {
+		case hook != nil && hook(w, r):
+		case r.Method == http.MethodGet && r.URL.Path == "/v2/_catalog":
+			testutil.ServeCatalog(w, r, testutil.CatalogOf(inner))
+		default:
+			inner.ServeHTTP(w, r)
 		}
-		inner.ServeHTTP(w, r)
 	}))
 	t.Cleanup(srv.Close)
 	ir.host = strings.TrimPrefix(srv.URL, "http://")

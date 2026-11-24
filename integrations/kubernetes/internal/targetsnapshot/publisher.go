@@ -79,10 +79,10 @@ type TargetPublisher struct {
 	OnPush func(detect.PushResult)
 	// Mode is the registry mode the record store detected, empty if unknown.
 	Mode func(context.Context) string
-	// EvidenceURL is the installation's Evidence Server; when set, each
-	// snapshot carries the targets it accepted from any producer, read with
-	// HTTP.
-	EvidenceURL string
+	// EvidenceURL, read on every publish, is the installation's Evidence
+	// Server; while it returns a URL, each snapshot carries the targets it
+	// accepted from any producer, read with HTTP. Nil or empty reads none.
+	EvidenceURL func() string
 	HTTP        *http.Client
 	// OwnerPolicy, when set, is published as the snapshot's ownerPolicy: who
 	// may set a service owner, signed with the installation key.
@@ -190,8 +190,8 @@ func (p *TargetPublisher) publish(ctx context.Context) error {
 		s.Limitations = append(s.Limitations, scoped)
 	}
 	s.Sources = []core.SnapshotSource{pactos, workloads}
-	if p.EvidenceURL != "" {
-		s.Sources = append(s.Sources, p.collectEvidence(ctx, &s, asOf))
+	if url := p.evidenceURL(); url != "" {
+		s.Sources = append(s.Sources, p.collectEvidence(ctx, &s, asOf, url))
 	}
 	for _, sec := range s.Sources {
 		if sec.Completeness != fleet.CompletenessComplete {
@@ -267,9 +267,9 @@ func (p *TargetPublisher) collectWorkloads(ctx context.Context, s *core.TargetSn
 // collectEvidence puts the Evidence Server's targets body in s, verbatim, and
 // returns its section. A body a reader could not map is never carried: the
 // section is partial instead.
-func (p *TargetPublisher) collectEvidence(ctx context.Context, s *core.TargetSnapshot, asOf string) core.SnapshotSource {
+func (p *TargetPublisher) collectEvidence(ctx context.Context, s *core.TargetSnapshot, asOf, url string) core.SnapshotSource {
 	sec := core.SnapshotSource{Kind: fleet.SourceKindEvidenceHTTP, AsOf: asOf, Completeness: fleet.CompletenessComplete}
-	body, err := p.readEvidence(ctx)
+	body, err := p.readEvidence(ctx, url)
 	if err == nil {
 		_, err = evidenceingest.TargetsCollection("evidence", body)
 	}
@@ -281,10 +281,18 @@ func (p *TargetPublisher) collectEvidence(ctx context.Context, s *core.TargetSna
 	return sec
 }
 
-// readEvidence reads the targets body of EvidenceURL, bounded as an
-// --evidence-url source reads it.
-func (p *TargetPublisher) readEvidence(ctx context.Context) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, p.EvidenceURL+evidenceingest.TargetsPath, nil)
+// evidenceURL is what EvidenceURL returns now, empty when it is nil.
+func (p *TargetPublisher) evidenceURL() string {
+	if p.EvidenceURL == nil {
+		return ""
+	}
+	return p.EvidenceURL()
+}
+
+// readEvidence reads the targets body of the Evidence Server at url, bounded
+// as an --evidence-url source reads it.
+func (p *TargetPublisher) readEvidence(ctx context.Context, url string) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+evidenceingest.TargetsPath, nil)
 	if err != nil {
 		return nil, err
 	}

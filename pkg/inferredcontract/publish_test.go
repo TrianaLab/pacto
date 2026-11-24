@@ -12,6 +12,8 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/google/go-containerregistry/pkg/crane"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -119,7 +121,7 @@ func TestPublishNeverSignsForeignTag(t *testing.T) {
 	d, root := deps(t, reg), host+"/demo/pacto-inferred"
 	repo := root + "/stripe"
 	snap := stripeFleet(t, []string{"api.stripe.com"})
-	foreign, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"evil.example"}), "stripe", now), "0.0.9", inputs(d, snap))
+	foreign, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"evil.example"}), "stripe", now), "0.0.9", inputs(d, snap), "")
 	digest := pushUnsigned(t, reg, repo, "0.0.9", foreign)
 	rep := publishOK(t, d, root, snap)
 	if len(rep.Errors) != 1 || rep.Errors[0].Version != "0.0.9" || !strings.Contains(rep.Errors[0].Error, "never used") {
@@ -141,7 +143,7 @@ func TestPublishMergeIgnoresUnverifiedPrev(t *testing.T) {
 	d, root := deps(t, reg), host+"/demo/pacto-inferred"
 	repo := root + "/stripe"
 	publishOK(t, d, root, stripeFleet(t, []string{"a.stripe.com"}))
-	injected, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"a.stripe.com", "evil.example"}), "stripe", now), "0.0.2", contract.InferredInputs{Pacto: "x", Discovery: "1"})
+	injected, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"a.stripe.com", "evil.example"}), "stripe", now), "0.0.2", contract.InferredInputs{Pacto: "x", Discovery: "1"}, "")
 	pushUnsigned(t, reg, repo, "0.0.2", injected)
 	partial := stripeFleet(t, []string{"b.stripe.com"})
 	partial.Completeness = fleet.CompletenessPartial
@@ -324,7 +326,7 @@ func TestPublishReadsOnlyTheNewestTags(t *testing.T) {
 	d, root := deps(t, reg), host+"/demo/pacto-inferred"
 	repo := root + "/stripe"
 	snap := stripeFleet(t, []string{"a.stripe.com"})
-	foreign, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"evil.example"}), "stripe", now), "0.0.1", inputs(d, snap))
+	foreign, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"evil.example"}), "stripe", now), "0.0.1", inputs(d, snap), "")
 	for i := 1; i <= maxTagsVerified+1; i++ {
 		pushUnsigned(t, reg, repo, fmt.Sprintf("0.0.%d", i), foreign)
 	}
@@ -372,5 +374,78 @@ func TestPublishOnlyUnderInferredPrefix(t *testing.T) {
 	rep = publishOK(t, d, host+"/demo/pacto-inferred", stripeFleet(t, []string{"api.stripe.com", "files.stripe.com"}))
 	if len(rep.Published) != 0 || len(rep.Errors) != 1 || !strings.Contains(rep.Errors[0].Error, oci.ErrOutsidePushScope.Error()) {
 		t.Errorf("outside the scope = %+v", rep)
+	}
+}
+
+// TestInferredRepairAcceptsLegacyDigest: an unsigned tag an older Pacto
+// pushed holds the legacy (untyped) digest of the same content. The repair
+// signs it where it is and pushes nothing.
+func TestInferredRepairAcceptsLegacyDigest(t *testing.T) {
+	host, reg := testRegistry(t)
+	d, root := deps(t, reg), host+"/demo/pacto-inferred"
+	repo := root + "/stripe"
+	snap := stripeFleet(t, []string{"api.stripe.com"})
+	b, err := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", inputs(d, snap), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	legacy, _ := oci.LegacyBundleImage(b)
+	want := digestsOf(b).Legacy
+	h, _ := v1.NewHash(want)
+	if _, err := reg.Write(context.Background(), repo, withDigest{annotate(legacy), h}); err != nil {
+		t.Fatal(err)
+	}
+	if err := reg.Tag(context.Background(), repo, want, "0.0.1"); err != nil {
+		t.Fatal(err)
+	}
+	if want == digestOf(b) {
+		t.Fatal("the legacy and typed digests are equal")
+	}
+	d.Now = func() time.Time { return now.Add(time.Hour) }
+	rep := publishOK(t, d, root, snap)
+	if len(rep.Repaired) != 1 || rep.Repaired[0].Digest != want || len(rep.Published) != 0 || len(rep.Errors) != 0 {
+		t.Fatalf("repair = %+v", rep)
+	}
+	if tags, _ := reg.Tags(context.Background(), repo); !slices.Equal(tags, []string{"0.0.1"}) {
+		t.Errorf("tags = %v", tags)
+	}
+}
+
+// TestInferredBundleIsTyped: the provenance annotation keeps the bundle
+// artifactType and kind annotation of a typed push.
+func TestInferredBundleIsTyped(t *testing.T) {
+	host, reg := testRegistry(t)
+	d, root := deps(t, reg), host+"/demo/pacto-inferred"
+	rep := publishOK(t, d, root, stripeFleet(t, []string{"api.stripe.com"}))
+	if len(rep.Published) != 1 {
+		t.Fatalf("report = %+v", rep)
+	}
+	raw, err := crane.Manifest(root+"/stripe@"+rep.Published[0].Digest, crane.Insecure)
+	if err != nil {
+		t.Fatal(err)
+	}
+	kind, decided, err := oci.ClassifyManifest(raw)
+	if err != nil || !decided || kind == "" {
+		t.Fatalf("classify = %q %v %v", kind, decided, err)
+	}
+	if !strings.Contains(string(raw), `"artifactType":"`+oci.BundleArtifactType+`"`) || !strings.Contains(string(raw), contract.AnnotationProvenance) {
+		t.Errorf("manifest = %s", raw)
+	}
+}
+
+func TestPublishKeepsClaimedExternal(t *testing.T) {
+	host, _ := testRegistry(t)
+	rec := &seen{base: http.DefaultTransport}
+	d := deps(t, publish.NewScopedClient(anonymous, oci.NewPushScope(host+"/demo"), rec))
+	snap := stripeFleet(t, []string{"api.stripe.com"})
+	snap.Externals["stripe"].Claim = &fleet.ExternalClaim{Service: "stripe", Ref: host + "/demo/stripe@sha256:claimed", Version: "0.1.0", By: "ana@acme.com"}
+	rep := publishOK(t, d, host+"/demo/pacto-inferred", snap)
+	if len(rep.Published) != 1 || rep.Published[0].Repository != host+"/demo/pacto-inferred/stripe" || len(rep.Errors) != 0 {
+		t.Fatalf("a claim keeps the inferred revision publishing: %+v", rep)
+	}
+	for _, r := range rec.reqs {
+		if strings.Contains(r, "/v2/demo/stripe/") {
+			t.Errorf("the publisher touched the claimed repository: %s", r)
+		}
 	}
 }

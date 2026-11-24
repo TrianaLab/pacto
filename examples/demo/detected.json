@@ -50,6 +50,14 @@
       "completeness": "complete"
     },
     {
+      "kind": "crossplane",
+      "value": "Crossplane v2.1.0",
+      "evidence": "runs and serves apiextensions.crossplane.io/v2",
+      "source": "Crossplane Deployment and API discovery",
+      "completeness": "complete",
+      "scope": "cluster"
+    },
+    {
       "kind": "nodes",
       "value": "kernel 6.1 on 6 of 6",
       "evidence": "with BTF likely",
@@ -133,6 +141,15 @@
       "hint": "helm upgrade <release> <chart> --reuse-values --set controller.egressGatewayLogs=on",
       "objects": [{"kind": "Pod", "namespace": "istio-system", "name": "istio-egressgateway-7d4b9c6f8-x2k9p"}],
       "scope": "cluster"
+    },
+    {
+      "kind": "backstage",
+      "value": "Backstage",
+      "evidence": "running in 1 workload",
+      "source": "running pods and Services",
+      "completeness": "complete",
+      "objects": [{"kind": "Service", "namespace": "backstage", "name": "backstage"}],
+      "endpoint": "http://backstage.backstage.svc:7007"
     }
   ],
   "installation": {

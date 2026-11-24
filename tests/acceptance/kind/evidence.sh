@@ -123,19 +123,20 @@ replicas="$(kubectl -n "$NS" get deploy pacto-evidence -o jsonpath='{.spec.repli
 strategy="$(kubectl -n "$NS" get deploy pacto-evidence -o jsonpath='{.spec.strategy.type}')"
 [ "$strategy" = "Recreate" ] && pass "single writer enforced across rollouts (Recreate)" || fail "expected the Recreate strategy, got $strategy"
 
-# Helper: sign an EvidenceSet for `checkout` at the given sequence + envelope id.
+# Helper: sign an EvidenceSet at the given sequence + envelope id, for
+# `checkout` on CONTRACT_REF unless a contract ref and a subject name are given.
 sign_envelope() {
-  local seq="$1" id="$2" out="$3"
+  local seq="$1" id="$2" out="$3" ref="${4:-$CONTRACT_REF}" name="${5:-checkout}"
   cat > "${out}.evidence.json" <<JSON
 {
-  "Subject": { "kind": "service", "name": "checkout" },
-  "ContractRef": "${CONTRACT_REF}",
+  "Subject": { "kind": "service", "name": "${name}" },
+  "ContractRef": "${ref}",
   "Source": "e2e",
   "ObservedAt": "2026-07-29T12:00:00Z",
   "Observations": [
     {
       "kind": "WorkloadObserved",
-      "subject": { "kind": "service", "name": "checkout" },
+      "subject": { "kind": "service", "name": "${name}" },
       "outcome": "Observed",
       "value": { "type": "service" },
       "provenance": { "collector": "e2e", "detectedAt": "2026-07-29T12:00:00Z" }
@@ -378,6 +379,64 @@ registry_value() {
   pass "the operator pushed nowhere outside the installation push scope"
 }
 registry_value
+
+# prefix (515-S1): one subject prefix accepts evidence for a revision published
+# after the server started, with no Helm edit and no restart. The exact subject
+# stays configured, so its history still refuses the earliest envelope.
+prefix_leg() {
+  echo "== prefix: a subject prefix accepts a revision published after the upgrade, with no restart =="
+  local prefix_sets=("${common_sets[@]}" --set "evidence.registry.subjectPrefixes[0]=oci://${REG_HOST}/")
+  helm upgrade pacto-operator "$CHART" -n "$NS" "${prefix_sets[@]}" --wait --timeout 180s
+  # The upgrade restarts the operator, which re-applies the Evidence Deployment
+  # only once it wins the leader lease: until then the old Deployment is still
+  # "rolled out", so poll for the new args before waiting on readiness.
+  evidence_has_prefix() {
+    kubectl -n "$NS" get deploy pacto-evidence -o json \
+      | jq -e --arg p "oci://${REG_HOST}/" '.spec.template.spec.containers[0].args as $a
+          | [range(0; ($a | length) - 1) | select($a[.] == "--subject-prefix" and $a[. + 1] == $p)] | length == 1' >/dev/null
+  }
+  eventually 40 evidence_has_prefix \
+    || fail "the evidence Deployment does not carry --subject-prefix oci://${REG_HOST}/"
+  kubectl -n "$NS" rollout status deployment/pacto-evidence --timeout=120s
+  wait_managed_ready pacto-evidence || fail "evidence Deployment did not become Ready with a subject prefix"
+  pass "the Evidence Server runs with the subject prefix oci://${REG_HOST}/"
+  evidence_pod() {
+    kubectl -n "$NS" get pod -l app.kubernetes.io/component=evidence -o json \
+      | jq -r '[.items[] | select(.metadata.deletionTimestamp == null)] | if length == 1 then .[0].metadata.uid else empty end'
+  }
+  local uid; uid="$(evidence_pod)"
+  [ -n "$uid" ] || fail "expected exactly one live evidence pod"
+
+  local inv; inv="$(mktemp -d)"
+  cp -R "$BDIR/." "$inv/"
+  sed -i.bak -e 's/name: checkout/name: invoices/' -e 's/version: "1.0.0"/version: "0.2.0"/' "$inv/pacto.yaml" && rm -f "$inv/pacto.yaml.bak"
+  local digest; digest="$(push_bundle "$PACTO_BIN" "$LOCAL_REG_PORT" "$inv" invoices:0.2.0)"
+  [ -n "$digest" ] || fail "could not push the invoices revision"
+  local ref="oci://${REG_HOST}/demo/invoices@${digest}"
+  pass "published $ref after the Evidence Server started"
+
+  EV_PF_PID="$(pf "$LOCAL_EV_PORT" svc/pacto-evidence 8686)"
+  sign_envelope 200 e2e-prefix-1 "$WORK/env-prefix.json" "$ref" invoices
+  send_ok "$WORK/env-prefix.json" "evidence on a revision under the prefix accepted (202) with no restart"
+  curl -fsS "http://127.0.0.1:${LOCAL_EV_PORT}/api/evidence/v1/targets" | grep -q '"subject":"invoices"' \
+    && pass "/targets lists the invoices target" || fail "/targets is missing the invoices target"
+  local out
+  if out="$(send "$WORK/env1.json")"; then
+    fail "the earliest checkout envelope was accepted again under the prefix: $out"
+  fi
+  grep -q 'status 409' <<<"$out" || fail "the earliest checkout envelope was refused with something other than 409: $out"
+  pass "the earliest checkout envelope is still refused (409): the exact subject's history is kept"
+  [ "$(evidence_pod)" = "$uid" ] && pass "the evidence pod was not restarted" || fail "the evidence pod restarted"
+
+  local sum
+  if command -v sha256sum >/dev/null 2>&1; then sum="$(printf '%s' "$ref" | sha256sum)"; else sum="$(printf '%s' "$ref" | shasum -a 256)"; fi
+  local anchor="evidence-${sum%% *}"
+  oras repo tags --plain-http "127.0.0.1:${LOCAL_REG_PORT}/pacto-evidence" | grep -qx "$anchor" \
+    || fail "the ledger ${REG_HOST}/pacto-evidence holds no anchor $anchor"
+  pass "the ledger ${REG_HOST}/pacto-evidence holds the anchor of the invoices revision"
+  kill "$EV_PF_PID" 2>/dev/null || true
+}
+prefix_leg
 kill "$REG_PF_PID" 2>/dev/null || true
 
 echo "== full in-cluster Evidence Server lifecycle acceptance PASSED =="

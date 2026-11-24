@@ -52,13 +52,14 @@ type Config struct {
 	// enabling ArgoCD to display them in the resource tree.
 	OwnerRef *metav1ac.OwnerReferenceApplyConfiguration
 
-	// EvidenceSourceURL, when set, is the internal URL of the operator-managed
-	// Evidence Server. The operator sets it when the evidence component is also
-	// enabled, so the dashboard consumes the evidence Operational Graph
-	// contribution read-only over HTTP (never mounting its bucket). Empty means
-	// no evidence source is configured (the dashboard reports it as unconfigured,
-	// not unavailable).
-	EvidenceSourceURL string
+	// EvidenceSourceURL, read on every apply, returns the internal URL of the
+	// operator-managed Evidence Server while it runs: always with the evidence
+	// component enabled, and while the evidence gate is on under profile idp.
+	// The dashboard consumes the evidence Operational Graph contribution
+	// read-only over HTTP (never mounting its bucket). Nil or empty means no
+	// evidence source is configured (the dashboard reports it as unconfigured,
+	// not unavailable), so a gate that is off never wires an unreachable source.
+	EvidenceSourceURL func() string
 
 	// InsecureRegistries is the comma-separated list of registry hosts the
 	// dashboard may reach over plain HTTP, inherited verbatim from the operator's
@@ -70,6 +71,8 @@ type Config struct {
 	// Repositories are oci:// references the dashboard reads beside the
 	// contracts it discovers from Pacto resources, such as golden paths, which
 	// are never deployed and so have no Pacto resource to discover them from.
+	// Deprecated: with Registry set the dashboard lists every golden path and
+	// offering published under it; Repositories are still read.
 	Repositories []string
 
 	// ExternalCatalog is the organization external catalog the dashboard
@@ -99,6 +102,18 @@ type Config struct {
 	// StatsRegistry, when set, is the stats repository the Metrics page reads
 	// run records from (PACTO_STATS_REGISTRY).
 	StatsRegistry string
+	// Index is the organization index the dashboard reads every published
+	// service from (PACTO_DASHBOARD_INDEX), <registry>/pacto-index; empty
+	// reads none.
+	Index string
+	// BackstageURL is the Backstage catalog whose owners, systems and
+	// dependencies the dashboard reads as inferred values
+	// (PACTO_DASHBOARD_BACKSTAGE_URL); empty reads none.
+	BackstageURL string
+	// BackstageToken names the Secret, in the operator namespace, holding the
+	// catalog reader token (default key token). The kubelet resolves it into
+	// PACTO_BACKSTAGE_TOKEN; the operator never reads it.
+	BackstageToken KeyRef
 
 	// DeliveryTrust names the ConfigMap, in the operator namespace, holding the
 	// trust config the dashboard verifies delivery records with, so History
@@ -134,8 +149,9 @@ type Config struct {
 	FulcioURL    string
 	RekorURL     string
 	TimestampURL string
-	// Registry is where declarations made in the dashboard are published
-	// (<host>/<path>); empty: the dashboard offers no Declare.
+	// Registry is the installation registry (<host>/<path>): the dashboard
+	// lists the golden paths and offerings published under it and publishes
+	// declarations there; empty: the dashboard offers no Declare.
 	Registry string
 	// DeclareRegistrySecret names an existing kubernetes.io/dockerconfigjson
 	// Secret, in the operator namespace, with push access to Registry. Only the

@@ -87,11 +87,12 @@ helm install pacto-operator \
   the whole cluster).
 - `metrics.serviceMonitor.enabled` creates a Prometheus `ServiceMonitor`.
 - `dashboard.enabled` turns the operator-managed dashboard on or off.
-- `dashboard.repositories` lists `oci://` references the dashboard reads
-  beside the contracts it finds through Pacto resources. A
-  [golden path](../../golden-paths.md) is never deployed, so list it here to
-  show it on the Golden paths tab. A private registry needs
-  `dashboard.ociSecrets`.
+- `registry` names the installation registry. The managed dashboard lists
+  every [golden path](../../golden-paths.md#find-one) and platform offering
+  published under it, so they show on the Golden paths and Offerings pages
+  with no list to keep. A private registry needs `dashboard.ociSecrets`.
+- `dashboard.repositories` is deprecated and still read: `oci://` references
+  the dashboard reads beside the contracts it finds through Pacto resources.
 - `hub.url` makes an approved member dial its hub and answer the hub's
   per-person reviews with this cluster's RBAC, with no inbound port;
   `hub.caConfigMap` trusts a private CA
@@ -222,6 +223,9 @@ Delivery stays off until `delivery.enabled=true`.
   recorder writes `pacto-streams`. Every other tag, delete and manifest push
   is refused. Outside these repositories only referrers are written, by
   digest onto an existing manifest, by the Evidence Server and the recorder.
+  With `evidence.registry.subjectPrefixes`, the Evidence Server also tags
+  `<prefix>pacto-evidence` with its own credential; see
+  [the Evidence Server](evidence-server.md).
 - **Read ACL:** pull on `pacto-targets` reads every namespace's Pacto status
   and workload shape, so give that repository its own read ACL.
 - **Installation key:** the operator creates the Secret

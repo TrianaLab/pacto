@@ -17,7 +17,9 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/diff"
 	"github.com/trianalab/pacto/v4/pkg/doc"
 	"github.com/trianalab/pacto/v4/pkg/finding"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
+	"github.com/trianalab/pacto/v4/pkg/inferredcontract"
 	"github.com/trianalab/pacto/v4/pkg/sbom"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
@@ -618,6 +620,15 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 	}
 }
 
+// declarationFrom is what a declaration was inferred from as explain
+// words it: the workload, external <identity> or a folder.
+func declarationFrom(inferredFrom string) string {
+	if id, ok := contract.InferredFromExternal(inferredFrom); ok {
+		return "external " + id
+	}
+	return cmp.Or(inferredFrom, "a folder")
+}
+
 // printExplainDeclaration prints who the record says declared the service,
 // or for a draft who proposed it and what it requests, and how completely
 // the cluster was read. Explain checks no signature, so it says the signer
@@ -626,13 +637,20 @@ func printExplainDeclaration(w io.Writer, result *app.ExplainResult) {
 	switch d := result.Declaration; {
 	case d == nil:
 	case d.State == contract.DeclarationDraft:
-		_, _ = fmt.Fprintf(w, "\nDraft by %s for %s (asserted) from %s, awaiting a person: accept it with pacto declare %s --from-draft <tag>; %s\n",
-			cmp.Or(d.Asker.Subject, "nobody (unsigned)"), cmp.Or(d.OnBehalfOf, "nobody named"), cmp.Or(d.InferredFrom, "a folder"), result.Name, app.DeclarationSignerNote)
+		from, accept := declarationFrom(d.InferredFrom), "pacto declare "+result.Name
+		if id, ok := contract.InferredFromExternal(d.InferredFrom); ok {
+			accept = "pacto claim " + id
+			if result.Name != inferredcontract.ServiceName(fleet.ExternalKey(id)) {
+				accept += " --name " + result.Name
+			}
+		}
+		_, _ = fmt.Fprintf(w, "\nDraft by %s for %s (asserted) from %s, awaiting a person: accept it with %s --from-draft <tag>; %s\n",
+			cmp.Or(d.Asker.Subject, "nobody (unsigned)"), cmp.Or(d.OnBehalfOf, "nobody named"), from, accept, app.DeclarationSignerNote)
 		for _, r := range d.Requested {
 			_, _ = fmt.Fprintf(w, "  requests %s %s\n", r.Field, r.Range)
 		}
 	default:
-		_, _ = fmt.Fprintf(w, "\nDeclared by %s (%s) from %s; %s\n", d.Asker.Subject, d.Asker.Issuer, cmp.Or(d.InferredFrom, "a folder"), app.DeclarationSignerNote)
+		_, _ = fmt.Fprintf(w, "\nDeclared by %s (%s) from %s; %s\n", d.Asker.Subject, d.Asker.Issuer, declarationFrom(d.InferredFrom), app.DeclarationSignerNote)
 	}
 	if d := result.Declaration; d != nil && d.Repository != nil {
 		_, _ = fmt.Fprintf(w, "Repository (the record claims): %s\n", app.RepositoryText(d.Repository))

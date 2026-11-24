@@ -3,7 +3,9 @@ package backstage
 import (
 	"slices"
 	"strconv"
+	"strings"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -45,6 +47,7 @@ func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
 	c.Spec.Lifecycle = lifecycle(q, s)
 	c.Spec.Owner = owner(q, s, ann)
 	c.Spec.System = system(s, ann, e.systems)
+	e.inferredSource(s, ann)
 	if s.NameInferred != nil {
 		ann[AnnotationNameProvenance] = provenanceInferred
 		ann[AnnotationNameSource] = s.NameInferred.Source
@@ -67,6 +70,27 @@ func (e *exporter) component(s *fleet.ServiceRecord) []Entity {
 	return append([]Entity{c}, apis...)
 }
 
+// inferredSource records on ann the workload Pacto learned inferred service
+// s from, when it read one, also when a target makes s observed. Only an
+// inferred service carries a workload. Its cluster reads as the snapshot's
+// display name, unique within a snapshot, else as the cluster id.
+func (e *exporter) inferredSource(s *fleet.ServiceRecord, ann map[string]string) {
+	w := s.Workload
+	if w == nil {
+		return
+	}
+	where := w.Namespace + "/" + w.Name
+	if w.Cluster != "" {
+		cluster := w.Cluster
+		if i := slices.IndexFunc(e.snap.Clusters, func(c fleet.ClusterRecord) bool { return c.ID == w.Cluster && c.Name != "" }); i >= 0 {
+			cluster = e.snap.Clusters[i].Name
+		}
+		where = cluster + "/" + where
+	}
+	ann[AnnotationSource] = "workload"
+	ann[AnnotationWorkload] = w.Kind + " " + where
+}
+
 // lifecycle is `deprecated` when the service's current revision declares
 // service.lifecycle.deprecated, else `unknown`: a running target never makes a
 // service `production`.
@@ -87,6 +111,7 @@ func owner(q *fleet.Query, s *fleet.ServiceRecord, ann map[string]string) string
 		ann[AnnotationOwnerProvenance] = s.OwnerProvenance
 	}
 	if !slices.Contains(factualOwner, s.OwnerProvenance) {
+		inferredOwner(s, ann)
 		return unknown
 	}
 	switch n := q.OwnerClaimCount(s.Key); {
@@ -112,9 +137,37 @@ func owner(q *fleet.Query, s *fleet.ServiceRecord, ann map[string]string) string
 func system(s *fleet.ServiceRecord, ann map[string]string, systemNames map[string]string) string {
 	if s.BusinessDomainUnknown {
 		ann[AnnotationBusinessDomain] = unknown
+	}
+	if s.BusinessDomain == "" && s.InferredBusinessDomain != nil {
+		ann[AnnotationInferredBusinessDomain] = s.InferredBusinessDomain.Value
+		ann[AnnotationInferredBusinessDomainSource] = factSource(s.InferredBusinessDomain)
+	}
+	if s.BusinessDomainUnknown {
 		return ""
 	}
 	return systemNames[s.BusinessDomain]
+}
+
+// inferredOwner records on ann the owner a source reports for s when its
+// owner is only inferred and the owner is a valid Backstage name.
+func inferredOwner(s *fleet.ServiceRecord, ann map[string]string) {
+	if s.OwnerProvenance != fleet.OwnerProvenanceInferred || s.InferredOwner == nil {
+		return
+	}
+	k, err := contract.ParseOwnerKey(s.InferredOwner.Value)
+	if err != nil {
+		return
+	}
+	if ref, ok := ownerKeyRef(k); ok {
+		ann[AnnotationInferredOwner] = ref
+		ann[AnnotationInferredOwnerSource] = factSource(s.InferredOwner)
+	}
+}
+
+// factSource is "<source id> <where>" of f, the source id alone when it
+// gave no reference.
+func factSource(f *fleet.InferredFact) string {
+	return strings.TrimSpace(f.Source + " " + f.Where)
 }
 
 // systems names one System per business domain a service declares and

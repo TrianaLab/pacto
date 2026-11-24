@@ -28,7 +28,9 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/diff"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/inferredcontract"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/semver"
 	"github.com/trianalab/pacto/v4/pkg/signing"
@@ -88,6 +90,10 @@ type DeclareRequest struct {
 	// workload is still read for the repository, and commands name the
 	// draft, not the folder.
 	draft string
+	// Owner and Name are set only on a claim (Service external:<identity>):
+	// the team the claim names as owner and the service name it publishes
+	// under (the identity's last segment when empty).
+	Owner, Name string
 }
 
 // DeclareObserved is a workload as the caller's restricted fleet view shows
@@ -97,6 +103,21 @@ type DeclareObserved struct {
 	Cluster, Namespace, Kind, Name string
 	Repositories                   []fleet.InferredRepository
 	RepositoryUnknown              string
+}
+
+// claimed is the external system req claims, and whether req is a claim.
+func (req DeclareRequest) claimed() (fleet.ExternalKey, bool) {
+	k, ok := strings.CutPrefix(req.Service, fleet.ExternalSubjectPrefix)
+	if !ok {
+		return "", false
+	}
+	return fleet.ExternalKey(k), true
+}
+
+// claimName is the service name a claim publishes under.
+func (req DeclareRequest) claimName() string {
+	k, _ := req.claimed()
+	return cmp.Or(req.Name, inferredcontract.ServiceName(k))
 }
 
 // store is the registry req reads and writes through.
@@ -267,6 +288,11 @@ const (
 	// The --pr codes.
 	codeRepositoryUnknown     = "RepositoryUnknown"
 	codeRepositoryUnconfirmed = "RepositoryUnconfirmed"
+	// The claim codes.
+	codeOwnerRequired           = "OwnerRequired"
+	codeExternalMismatch        = "ExternalMismatch"
+	codeExternalUnknown         = "ExternalUnknown"
+	codeClaimRepositoryInferred = "ClaimRepositoryInferred"
 	// The pacto accept codes.
 	codeAcceptNothingProposed    = "AcceptNothingProposed"
 	codeFieldNotAcceptable       = "FieldNotAcceptable"
@@ -337,6 +363,7 @@ func (s *Service) PlanDeclare(ctx context.Context, req DeclareRequest) (*Declare
 	}
 	defer func() { _ = os.RemoveAll(scratch) }()
 	pl := &declarePlanner{s: s, req: req, scratch: scratch, reg: s.store(req), plan: &DeclarePlan{Deploy: "none"}}
+	pl.claim, pl.claiming = req.claimed()
 	d, err := pl.run(ctx)
 	return pl.plan, d, err
 }
@@ -373,6 +400,10 @@ type declarePlanner struct {
 	// none (policyFrom is nil until it is read).
 	ownerPol   *delivery.OwnerPolicy
 	policyFrom *string
+	// claim is the external system a claim names, and claiming whether
+	// the plan is a claim.
+	claim    fleet.ExternalKey
+	claiming bool
 }
 
 func (pl *declarePlanner) run(ctx context.Context) (*declaration, error) {
@@ -405,6 +436,8 @@ func (pl *declarePlanner) prepare(ctx context.Context) ([]byte, error) {
 func (pl *declarePlanner) source(ctx context.Context) error {
 	var err error
 	switch {
+	case pl.claiming:
+		err = pl.externalSource()
 	case pl.req.Dir != "":
 		err = pl.fromDir(ctx)
 	case pl.req.Dynamic == nil:
@@ -427,6 +460,64 @@ func (pl *declarePlanner) source(ctx context.Context) error {
 	pl.plan.Service = cmp.Or(b.Contract.Service.Name, filepath.Base(pl.dir))
 	pl.plan.BundleRepo = pl.repo()
 	return nil
+}
+
+// externalSource writes a claim's folder (Decision 4): a pacto.yaml at the
+// current pactoVersion naming the service, the external system it describes
+// and its owner, and a record that infers nothing. With req.Dir (the draft folder an accepted
+// draft was written to) the name and owner are the draft's, and a different
+// --owner is refused. Nothing is read from a cluster.
+func (pl *declarePlanner) externalSource() error {
+	if _, err := externalid.Parse(string(pl.claim)); err != nil {
+		return &DeclareError{Code: codeExternalUnknown, Message: "no external system can be claimed as " + string(pl.claim) + ": " + err.Error()}
+	}
+	name, owner, err := pl.claimNameOwner()
+	if err != nil {
+		return err
+	}
+	if repo, _, _ := publish.Layout(pl.req.Registry, name, ""); inferredRepo(repo) {
+		return &DeclareError{Code: codeClaimRepositoryInferred, Message: repo + " is where Pacto publishes inferred contracts: claim into a registry path outside " +
+			contract.InferredRepository, CLI: pl.req.command("")}
+	}
+	pl.dir = filepath.Join(pl.scratch, name)
+	raw := fmt.Sprintf("pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n  external: %s\n  owner:\n    team: %s\n",
+		contract.Current(), discover.Quote(name), firstDeclaration, discover.Quote(string(pl.claim)), discover.Quote(owner))
+	pl.rec = &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: pl.s.buildVersion()}, Fields: []contract.Inferred{}}
+	return pl.writeFile(DefaultContractPath, []byte(raw))
+}
+
+// inferredRepo reports whether repo is under a pacto-inferred segment.
+func inferredRepo(repo string) bool {
+	_, ok := contract.InferredRef("oci://" + repo)
+	return ok
+}
+
+// claimNameOwner is the name and owner team a claim publishes: the
+// request's, or with req.Dir the draft folder's, which a different --owner
+// may not change. A claim with no owner is refused: a claim exists to name
+// one.
+func (pl *declarePlanner) claimNameOwner() (string, string, error) {
+	name, owner := pl.req.claimName(), pl.req.Owner
+	if pl.req.Dir != "" {
+		b, err := readLocalBundle(pl.req.Dir)
+		if err != nil {
+			return "", "", err
+		}
+		team := b.Contract.Service.Owner.Team
+		if owner != "" && owner != team {
+			return "", "", &DeclareError{Code: codeOwnerRequired, Message: "the draft names owner " + cmp.Or(team, "none") + ", not " + owner +
+				": accept it without --owner, or claim again with the owner you want"}
+		}
+		name, owner = b.Contract.Service.Name, team
+	}
+	if owner == "" {
+		return "", "", &DeclareError{Code: codeOwnerRequired, Message: "claiming " + string(pl.claim) + " names its owner: pass --owner <team>", CLI: pl.req.command("")}
+	}
+	if !contract.ValidServiceName(name) {
+		return "", "", &DeclareError{Code: codeFieldNotAcceptable, CLI: pl.req.command(""),
+			Message: fmt.Sprintf("%q is not a service name: use lower-case letters, digits and dashes, at most 63, with --name", name)}
+	}
+	return name, owner, nil
 }
 
 // draft runs the cluster read for workload into the scratch folder.
@@ -567,7 +658,7 @@ func (pl *declarePlanner) signer(ctx context.Context) error {
 		p.State = contract.DeclarationDeclared
 	}
 	if c.Source == signerAmbient {
-		p.Notes = append(p.Notes, "an ambient OIDC token is set: this run writes a draft; a person accepts it with pacto declare <service> --from-draft <tag>")
+		p.Notes = append(p.Notes, "an ambient OIDC token is set: this run writes a draft; a person accepts it with "+pl.req.AcceptCLI(p.Service, "<tag>"))
 	}
 	if n := rekorNotice(c.Identity, o.RekorURL); n != "" {
 		p.Notes = append(p.Notes, n)
@@ -687,17 +778,31 @@ func (pl *declarePlanner) judge(ctx context.Context, tm root.TrustedMaterial, di
 }
 
 // checkBaseline refuses a baseline that names another bundle repository or
-// is below pactoVersion 2.5, which a declaration's record needs.
+// is below pactoVersion 2.5, the first a declaration's record has.
 func (pl *declarePlanner) checkBaseline(base *contract.Bundle) error {
+	if err := pl.checkExternalBaseline(base); err != nil {
+		return err
+	}
 	if pub := base.Contract.Publish; pub != nil && publish.Repo(pub.Bundle) != pl.repo() {
 		return &DeclareError{Code: codeBundleRepoMismatch, Message: fmt.Sprintf("the baseline declares publish.bundle %s, not %s: declare with the registry it publishes to",
 			publish.Repo(pub.Bundle), pl.repo())}
 	}
-	if v := base.Contract.PactoVersion; v != "2.5" {
-		return &DeclareError{Code: codeBaselineNeedsMigration, Message: "the baseline is at pactoVersion " + v + ", and a declaration needs 2.5: migrate it and publish it first",
+	if v := base.Contract.PactoVersion; contract.Older(v, "2.5") {
+		return &DeclareError{Code: codeBaselineNeedsMigration, Message: "the baseline is at pactoVersion " + v + ", and a declaration needs 2.5 or newer: migrate it and publish it first",
 			CLI: "pacto migrate <dir>"}
 	}
 	return nil
+}
+
+// checkExternalBaseline refuses a claim whose repository holds a service
+// that describes another external system, or none (Decision 5).
+func (pl *declarePlanner) checkExternalBaseline(base *contract.Bundle) error {
+	if !pl.claiming || base.Contract.Service.External == string(pl.claim) {
+		return nil
+	}
+	svc := base.Contract.Service
+	return &DeclareError{Code: codeExternalMismatch, Message: fmt.Sprintf("%s already holds %s %s, which describes %s: claim with --name <other-name>",
+		pl.repo(), svc.Name, svc.Version, cmp.Or(svc.External, "no external"))}
 }
 
 // baselineDeploy is the baseline's deploy artifact at version, repo@digest,
@@ -728,6 +833,9 @@ func baselineDeploy(ctx context.Context, reg publish.Registry, base *contract.Bu
 // pacto.yaml and completes its record. With req.Dir the person's file is the
 // declaration and is kept as it is.
 func (pl *declarePlanner) redraft(ctx context.Context, base *contract.Bundle) error {
+	if pl.claiming {
+		return pl.reclaim(base)
+	}
 	if pl.req.Dir != "" {
 		return nil
 	}
@@ -741,6 +849,19 @@ func (pl *declarePlanner) redraft(ctx context.Context, base *contract.Bundle) er
 	// The cluster read keeps the baseline's pacto.yaml as it is.
 	pl.raw, pl.folder = base.RawYAML, base.Contract
 	return pl.draft(ctx, pl.object, []string{ns})
+}
+
+// reclaim keeps the baseline of a re-claim with the claim's owner: its
+// pacto.yaml and files, the owner set to the one the claim names.
+func (pl *declarePlanner) reclaim(base *contract.Bundle) error {
+	_ = os.RemoveAll(pl.dir)
+	owner := pl.folder.Service.Owner
+	// ponytail: the baseline parsed as a contract, so its service is a mapping.
+	pl.raw, _ = contract.SetServiceOwner(base.RawYAML, owner)
+	c := *base.Contract
+	c.Service.Owner = owner
+	pl.folder = &c
+	return pl.copyFolder(contract.WithoutInferredRecord(base.FS))
 }
 
 // edit applies the owner rule and the accepted ranges to the folder's
@@ -791,13 +912,14 @@ func (pl *declarePlanner) owner(ctx context.Context) ([]byte, error) {
 	if !ownerChange(current, proposed, !planned.IsEmpty(), true) {
 		return pl.raw, nil
 	}
-	if pl.req.Dir == "" && pl.baseline != nil {
+	folder := pl.req.Dir != "" || pl.claiming
+	if !folder && pl.baseline != nil {
 		return pl.keepCurrentOwner(current, planned)
 	}
 	policy, from := pl.ownerPolicy(ctx)
 	right := delivery.DecideOwnerRight(pl.plan.Service, pl.choice.Identity, current, proposed, policy, from, pl.s.env().now())
 	pl.plan.MayAccept = right.MayAccept
-	if pl.req.Dir != "" || planned.IsEmpty() {
+	if folder || planned.IsEmpty() {
 		pl.owned = &ownerCheck{current: current, proposed: proposed, policy: policy, from: from}
 		who := cmp.Or(strings.Join(right.MayAccept, ", "), "the default approvers")
 		if policy == nil {
@@ -874,6 +996,10 @@ func applyAccept(raw []byte, rec *contract.InferredRecord, names []string) ([]by
 // identify names the inferred service the declaration comes from and reads
 // the cluster's kube-system namespace uid, empty when it cannot.
 func (pl *declarePlanner) identify(ctx context.Context) {
+	if pl.claiming {
+		pl.plan.InferredFrom = contract.ExternalInferredFrom(string(pl.claim))
+		return
+	}
 	ns, kind, name := splitObject(pl.object)
 	pl.plan.InferredFrom = fleet.K8sCaller("", ns, kind, name)
 	why := "no Kubernetes client was configured"
@@ -905,7 +1031,7 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 		p.ClusterAsOf = c.AsOf
 	}
 	if p.State == contract.DeclarationDraft {
-		p.AcceptCLI = AcceptDraftCLI(p.Service, pl.req.Registry, "<tag>")
+		p.AcceptCLI = pl.req.AcceptCLI(p.Service, "<tag>")
 	}
 	version, err := pl.version(ctx, raw, rec)
 	if err != nil || p.Unchanged != "" {
@@ -1010,7 +1136,7 @@ func (pl *declarePlanner) pack(raw []byte, rec *contract.InferredRecord) (*decla
 
 // declarationBundle packs the folder dir as a declaration: every file the
 // .pactoignore keeps but manifests.yaml, with rec as its inferred record, in
-// memory. pacto.yaml must be at pactoVersion 2.5, and the bundle must
+// memory. pacto.yaml must be at pactoVersion 2.5 or newer, and the bundle must
 // validate (the declaration stage included), so an invalid declaration is
 // never signed.
 func declarationBundle(dir string, rec *contract.InferredRecord) (*contract.Bundle, error) {
@@ -1018,8 +1144,8 @@ func declarationBundle(dir string, rec *contract.InferredRecord) (*contract.Bund
 	if err != nil {
 		return nil, err
 	}
-	if v := b.Contract.PactoVersion; v != "2.5" {
-		return nil, fmt.Errorf("a declaration is at pactoVersion 2.5, not %q", v)
+	if v := b.Contract.PactoVersion; contract.Older(v, "2.5") {
+		return nil, fmt.Errorf("a declaration is at pactoVersion 2.5 or newer, not %q", v)
 	}
 	files, err := copyFSWithReplace(contract.WithoutFile(contract.WithoutInferredRecord(b.FS), manifestsFile), "", nil)
 	if err != nil {
@@ -1262,7 +1388,7 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	}
 	res.Plan.Publish = r.Plan
 	res.Executed, res.Draft, res.Signed, res.Tag, res.Published = true, true, signed, tag, d.repo+"@"+r.Digests[publish.BundleItem]
-	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, AcceptDraftCLI(res.Plan.Service, req.Registry, tag)
+	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, req.AcceptCLI(res.Plan.Service, tag)
 	res.Files = bundleFiles(d.files)
 	return nil
 }
@@ -1275,6 +1401,17 @@ func (req DeclareRequest) command(intent string) string {
 		if v != "" {
 			parts = append(parts, flag, v)
 		}
+	}
+	if k, ok := req.claimed(); ok {
+		parts = []string{"pacto claim", string(k)}
+		if req.FromDraft == "" {
+			add("--owner", cmp.Or(req.Owner, "<team>"))
+		}
+		add("--name", req.Name)
+		add("--registry", cmp.Or(req.Registry, "<registry>"))
+		add("--from-draft", req.FromDraft)
+		add("--intent", intent)
+		return strings.Join(parts, " ") // pacto claim defines no workload flag
 	}
 	add("--namespace", req.Namespace)
 	add("--dir", req.Dir)
@@ -1298,6 +1435,19 @@ func (req DeclareRequest) command(intent string) string {
 	}
 	add("--intent", intent)
 	return strings.Join(parts, " ")
+}
+
+// AcceptCLI is the command a person accepts the draft tag of service with:
+// pacto claim for a claim.
+func (req DeclareRequest) AcceptCLI(service, tag string) string {
+	if k, ok := req.claimed(); ok {
+		cli := "pacto claim " + string(k)
+		if req.Name != "" {
+			cli += " --name " + req.Name
+		}
+		return cli + " --registry " + req.Registry + " --from-draft " + tag
+	}
+	return AcceptDraftCLI(service, req.Registry, tag)
 }
 
 // AcceptDraftCLI is the command a person accepts the draft tag of service with.
@@ -1363,7 +1513,11 @@ func (d *declaration) redeclare(dec *contract.InferredDeclaration) error {
 // today's baseline, and every declared change neither the baseline, this
 // cluster read nor an accepted range backs listed as unbacked.
 func (s *Service) fromDraft(ctx context.Context, req DeclareRequest) (*DeclarePlan, *declaration, error) {
-	repo, _, _ := publish.Layout(req.Registry, req.Service, "")
+	name := req.Service
+	if _, ok := req.claimed(); ok {
+		name = req.claimName()
+	}
+	repo, _, _ := publish.Layout(req.Registry, name, "")
 	dr, err := readDraft(ctx, s.store(req), repo, req)
 	if err != nil {
 		return nil, nil, err
@@ -1385,7 +1539,11 @@ func (s *Service) fromDraft(ctx context.Context, req DeclareRequest) (*DeclarePl
 	case plan.State != contract.DeclarationDeclared:
 		return plan, nil, &DeclareError{Code: codeSignerNotAllowed, Message: "accepting a draft takes a person's Sigstore login: " + plan.Signer.Why}
 	}
-	plan.Unbacked, plan.UnbackedUnchecked = s.unbacked(ctx, req, dr.object, d.bundle)
+	if _, claim := req.claimed(); !claim {
+		// A claim's folder is written from its name and owner alone: nothing
+		// in it is left to back.
+		plan.Unbacked, plan.UnbackedUnchecked = s.unbacked(ctx, req, dr.object, d.bundle)
+	}
 	plan.Notes = append(plan.Notes, dr.notes(req.Accept)...)
 	// The record is packed again with the person as asker before it is signed.
 	dec := d.record.Declaration
@@ -1419,18 +1577,26 @@ func readDraft(ctx context.Context, reg publish.Registry, repo string, req Decla
 	if err != nil {
 		return nil, &DeclareError{Code: codeRegistryUnreadable, Message: "reading " + ref + ": " + err.Error()}
 	}
-	return nil, &DeclareError{Code: codeDraftNotFound, Message: "there is no draft " + ref, CLI: "pacto declare " + req.Service + " --registry " + req.Registry}
+	cli := "pacto declare " + req.Service + " --registry " + req.Registry
+	if _, ok := req.claimed(); ok {
+		sub := req
+		sub.FromDraft = ""
+		cli = sub.command("")
+	}
+	return nil, &DeclareError{Code: codeDraftNotFound, Message: "there is no draft " + ref, CLI: cli}
 }
 
 // checkDraft checks dr holds a draft declaration of req.Service and what its
 // signature shows.
 func checkDraft(ctx context.Context, reg publish.Registry, repo string, req DeclareRequest, dr *draftRead) (*draftRead, error) {
 	rec, err := contract.ReadInferredRecord(dr.bundle.FS)
-	if err != nil || rec == nil || rec.Declaration == nil || rec.Declaration.State != contract.DeclarationDraft || rec.Inputs.Cluster == nil ||
-		dr.bundle.Contract.Service.Name != req.Service {
+	if err != nil || rec == nil || rec.Declaration == nil || rec.Declaration.State != contract.DeclarationDraft {
 		return nil, &DeclareError{Code: codeDraftNotFound, Message: repo + ":" + req.FromDraft + " holds no draft declaration of " + req.Service}
 	}
-	dr.dec, dr.object = rec.Declaration, rec.Inputs.Cluster.Object
+	if err := draftSubject(repo, req, dr, rec); err != nil {
+		return nil, err
+	}
+	dr.dec = rec.Declaration
 	a := dr.dec.Asker
 	if a.Subject == "" || a.Issuer == signerKey {
 		dr.signature = "the draft's signer names no identity Pacto can check: its proposer is asserted"
@@ -1449,6 +1615,25 @@ func checkDraft(ctx context.Context, reg publish.Registry, repo string, req Decl
 	}
 	dr.signature = "the draft is signed by " + a.Subject + " (" + a.Issuer + ")"
 	return dr, nil
+}
+
+// draftSubject checks the draft rec declares req's subject: a claim draft
+// claims req's external system under its service name (it carries no
+// cluster input); a workload draft names req.Service and the workload it was
+// read from, which it sets on dr.
+func draftSubject(repo string, req DeclareRequest, dr *draftRead, rec *contract.InferredRecord) error {
+	name := dr.bundle.Contract.Service.Name
+	if k, ok := req.claimed(); ok {
+		if rec.Declaration.InferredFrom != contract.ExternalInferredFrom(string(k)) || name != req.claimName() {
+			return &DeclareError{Code: codeDraftNotFound, Message: repo + ":" + req.FromDraft + " claims another system, not " + string(k)}
+		}
+		return nil
+	}
+	if rec.Inputs.Cluster == nil || name != req.Service {
+		return &DeclareError{Code: codeDraftNotFound, Message: repo + ":" + req.FromDraft + " holds no draft declaration of " + req.Service}
+	}
+	dr.object = rec.Inputs.Cluster.Object
+	return nil
 }
 
 // writeTo writes the draft's files into dir, with every range the agent

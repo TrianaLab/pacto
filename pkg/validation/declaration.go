@@ -1,6 +1,7 @@
 package validation
 
 import (
+	"cmp"
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
@@ -13,12 +14,17 @@ import (
 // nobody accepted stays compatibility: unknown. A record with no declaration
 // is not checked. Every field a record says was carried from a registry
 // declaration is declared in pacto.yaml, so a hand-edited bundle cannot
-// claim a carry its contract does not hold.
+// claim a carry its contract does not hold. A declaration that claims an
+// external system sits in a contract whose service.external names it.
 func declarationStage(result *ValidationResult, c *contract.Contract, rec *contract.InferredRecord) {
 	carriedStage(result, c, rec.Inputs.Declaration)
 	d := rec.Declaration
 	if d == nil {
 		return
+	}
+	if id, ok := contract.InferredFromExternal(d.InferredFrom); ok && c.Service.External != id {
+		result.AddError(contract.InferredRecordFile, string(finding.CodeDeclarationExternalMismatch),
+			"the declaration claims external "+id+", but pacto.yaml declares service.external "+cmp.Or(c.Service.External, "none"))
 	}
 	declared := make(map[string]string, len(c.Dependencies))
 	for _, dep := range c.Dependencies {

@@ -1219,9 +1219,50 @@ svc_json=$(inferred_fleet get card-payments) || fail "pacto fleet get card-payme
 jq -e '[.dependencies[] | select(.to == "stripe-pinned")] | length == 1 and .[0].rangeStatus == "unknown" and .[0].rangeReason == "INFERRED_PROVIDER"' <<<"$svc_json" >/dev/null ||
 	fail "card-payments' stripe-pinned range is not unknown with INFERRED_PROVIDER: $svc_json"
 att_json=$(inferred_fleet attention) || fail "pacto fleet attention failed: $att_json"
-jq -e '[.items[] | select(.code == "INFERRED_PROVIDER")] | length == 1 and .[0].nextAction.verb == "edit-contract"' <<<"$att_json" >/dev/null ||
-	fail "attention does not list exactly one INFERRED_PROVIDER item with the edit-contract next action (stripe is external, which pacto declare cannot read): $att_json"
+jq -e '[.items[] | select(.code == "INFERRED_PROVIDER")] | length == 1 and .[0].nextAction.verb == "claim"' <<<"$att_json" >/dev/null ||
+	fail "attention does not list exactly one INFERRED_PROVIDER item naming the claim of the unclaimed stripe: $att_json"
 pass "the inferred service published stripe's inferred contract and a range on it reads unknown with INFERRED_PROVIDER"
+
+# A change of stripe, which nobody here controls, asks for attention from
+# every consumer and never reads clear: the gate stays unverified (exit 2) and
+# the answer says the provider is an inferred contract. card-payments already
+# pins a range on stripe-pinned, so no pin snippet is offered.
+ext_impact() { # a pacto impact --changed external:stripe over the Compose-only consumer
+	docker compose -p "$PROJ1" exec -T inferred pacto impact --changed external:stripe --local /demo/inferred/card-payments \
+		--oci oci://registry:5000/demo/pacto-inferred/stripe --output-format json
+}
+ext_impact_rc=0
+ext_impact_json=$(ext_impact) || ext_impact_rc=$?
+[ "$ext_impact_rc" -eq 2 ] ||
+	fail "pacto impact --changed external:stripe exited $ext_impact_rc, want 2: $ext_impact_json"
+jq -e '.gate == "unverified" and ([.consumers[] | select(.service == "card-payments")] | length == 1 and .[0].effect == "attention") and (.limitations | map(.code) | index("INFERRED_PROVIDER") != null) and (has("pin") | not)' <<<"$ext_impact_json" >/dev/null ||
+	fail "pacto impact --changed external:stripe did not name card-payments for attention, unverified, with INFERRED_PROVIDER and no pin: $ext_impact_json"
+pass "pacto impact --changed external:stripe names card-payments for attention and stays unverified"
+
+# A producer outside Pacto, compose-idp, used the open seams from the seed:
+# pacto push --sign-key put its signed record of ledger-sync under
+# registry:5000/demo/pacto-inferred/compose-idp/services, and pacto evidence
+# sign and send reported its target of inventory. The fleet reads both
+# through the Evidence Server, which grants compose-idp its own path: one
+# provider row, a contributed service that is inferred and never declared,
+# and a target that names its producer and the age of its evidence.
+contribution_fleet() { # ARGS...: a pacto fleet command over the Evidence Server and inventory
+	docker compose -p "$PROJ1" exec -T dashboard pacto fleet "$@" --local "" \
+		--evidence-url http://evidence:8686 --oci oci://registry:5000/demo/inventory 2>&1
+}
+prov_json=$(contribution_fleet providers --output-format json) || fail "pacto fleet providers failed: $prov_json"
+jq -e '[.providers[] | select(.id == "producer/compose-idp")] | length == 1 and .[0].status == "available" and .[0].asOf != null and (.[0].usedFor | index("contributed-records")) and (.[0].usedFor | index("reported-targets"))' <<<"$prov_json" >/dev/null ||
+	fail "the providers list no available compose-idp row that contributes records and reports targets: $prov_json"
+ctb_json=$(contribution_fleet get ledger-sync --output-format json) || fail "pacto fleet get ledger-sync failed: $ctb_json"
+jq -e '.service.declaration == "inferred" and .service.contribution.producer == "compose-idp" and .service.contribution.repository == "registry:5000/demo/pacto-inferred/compose-idp/services" and (.service.contribution.stale | not)' <<<"$ctb_json" >/dev/null ||
+	fail "ledger-sync is no current inferred service contributed by compose-idp: $ctb_json"
+inv_json=$(contribution_fleet get inventory --output-format json) || fail "pacto fleet get inventory failed: $inv_json"
+ctb_target=$(jq -r '[.targets[] | select(.reportedBy == "compose-idp" and .evidenceAt != null and (.stale | not))] | if length == 1 then .[0].key else empty end' <<<"$inv_json")
+[ -n "$ctb_target" ] || fail "inventory has no current target compose-idp reported: $inv_json"
+tgt_out=$(contribution_fleet get --target "$ctb_target") || fail "pacto fleet get --target $ctb_target failed: $tgt_out"
+grep -q '^Reported by: compose-idp (evidence [0-9][0-9a-z]* ago)$' <<<"$tgt_out" ||
+	fail "the target $ctb_target does not name compose-idp and the age of its evidence: $tgt_out"
+pass "compose-idp's contributed ledger-sync reads inferred, its inventory target names it with its evidence age and it has one available provider row"
 
 # The Metrics page reads the CI run records the seed published to the demo's
 # own registry. Compose runs no delivery, so no record is an operation. The
@@ -1276,6 +1317,28 @@ pull_out=$(docker compose -p "$PROJ1" exec -T -e PACTO_INSECURE_REGISTRIES=regis
 	pacto pull oci://registry:5000/demo/invoices:draft-1 --verify-key /tmp/declare.pub --output /tmp/declare-pulled 2>&1) ||
 	fail "pacto pull --verify-key refused the draft pacto declare signed: $pull_out"
 pass "pacto declare wrote a key-signed draft-1 with its cluster facts dropped, and pacto pull verified its signature"
+
+# pacto claim names stripe's owner through the same declaration. A key names
+# no person, so the claim is draft-1 in registry:5000/demo/stripe and claims
+# nothing: the fleet, reading that repository too, still raises one
+# UNOWNED_EXTERNAL for stripe with the claim action, routed to the default
+# approvers for routing only.
+claim_out=$(docker compose -p "$PROJ1" exec -T -e PACTO_INSECURE_REGISTRIES=registry:5000 dashboard \
+	pacto claim stripe --owner team-platform --registry registry:5000/demo --sign-key /tmp/declare.key --yes --output-format json 2>&1) ||
+	fail "pacto claim --sign-key failed in the demo: $claim_out"
+jq -e '.tag == "draft-1" and .plan.inferredFrom == "external:stripe"' <<<"$claim_out" >/dev/null ||
+	fail "pacto claim did not write draft-1 naming inferredFrom external:stripe: $claim_out"
+claim_pull=$(docker compose -p "$PROJ1" exec -T -e PACTO_INSECURE_REGISTRIES=registry:5000 dashboard \
+	pacto pull oci://registry:5000/demo/stripe:draft-1 --verify-key /tmp/declare.pub --output /tmp/claim-pulled 2>&1) ||
+	fail "pacto pull --verify-key refused the claim draft pacto claim signed: $claim_pull"
+claim_fleet() { # ARGS...: inferred_fleet's fleet, plus the repository pacto claim wrote
+	docker compose -p "$PROJ1" exec -T inferred pacto fleet "$@" --local /demo/inferred/card-payments \
+		--oci oci://registry:5000/demo/pacto-inferred/stripe --oci oci://registry:5000/demo/stripe --output-format json
+}
+claim_att=$(claim_fleet attention) || fail "pacto fleet attention over the claim draft failed: $claim_att"
+jq -e '[.items[] | select(.code == "UNOWNED_EXTERNAL" and .entity.key == "stripe")] | length == 1 and .[0].nextAction.verb == "claim" and (.[0].nextStep | contains("default approvers (routing only; it grants no right)"))' <<<"$claim_att" >/dev/null ||
+	fail "a claim draft claimed stripe, or its UNOWNED_EXTERNAL item names no claim action and routing: $claim_att"
+pass "pacto claim wrote a key-signed draft-1 for stripe, and the draft claims nothing: stripe stays routed to the default approvers"
 
 # The same live journeys the Kind vertical runs, against the published demo
 # instead of a cluster. The suite reads the fixture the gate just discovered, so it

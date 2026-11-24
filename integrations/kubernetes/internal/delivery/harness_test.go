@@ -19,6 +19,7 @@ import (
 
 	appsv1 "k8s.io/api/apps/v1"
 	authorizationv1 "k8s.io/api/authorization/v1"
+	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -54,6 +55,9 @@ var (
 	gvkOCI   = schema.GroupVersionKind{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "OCIRepository"}
 	gvkKs    = schema.GroupVersionKind{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "Kustomization"}
 	gvkPacto = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1alpha1", Kind: "Pacto"}
+	// gvkGitRepository is a Flux GitRepository, which a Kustomization's
+	// sourceRef names.
+	gvkGitRepository = schema.GroupVersionKind{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "GitRepository"}
 )
 
 // fakeRegistry serves artifact annotations by digest and bundles by contract ref.
@@ -62,6 +66,16 @@ type fakeRegistry struct {
 	bundles   map[string]*contract.Bundle
 	hosts     []string
 	annErr    error
+	// layers are the deploy layers (Flux content) by artifact digest.
+	layers map[string][]byte
+}
+
+func (f *fakeRegistry) Layer(_ context.Context, ref string, _ int64) (string, []byte, error) {
+	_, d, _ := strings.Cut(ref, "@")
+	if l, ok := f.layers[d]; ok {
+		return delivery.FluxContentMediaType, l, nil
+	}
+	return "", nil, errors.New("no layer")
 }
 
 func (f *fakeRegistry) Annotations(_ context.Context, ref string) (map[string]string, error) {
@@ -146,11 +160,21 @@ func newScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
 	_ = clientgoscheme.AddToScheme(s)
 	_ = dv1.AddToScheme(s)
-	for _, gvk := range []schema.GroupVersionKind{gvkOCI, gvkKs, gvkPacto, gvkApplication, gvkHelmRelease} {
+	for _, gvk := range []schema.GroupVersionKind{gvkOCI, gvkKs, gvkPacto, gvkApplication, gvkHelmRelease, gvkGitRepository} {
 		s.AddKnownTypeWithName(gvk, &unstructured.Unstructured{})
 		s.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
 	}
 	return s
+}
+
+// servedMapper serves every kind of s, all namespaced, as an apiserver
+// would: the fake client's own mapper serves none.
+func servedMapper(s *runtime.Scheme) meta.RESTMapper {
+	m := meta.NewDefaultRESTMapper(s.PrioritizedVersionsAllGroups())
+	for gvk := range s.AllKnownTypes() {
+		m.Add(gvk, meta.RESTScopeNamespace)
+	}
+	return m
 }
 
 func kindOf(obj runtime.Object) string {
@@ -173,7 +197,8 @@ func newEnv(t *testing.T, objs ...client.Object) *env {
 		}
 		return nil
 	}
-	e.c = fake.NewClientBuilder().WithScheme(newScheme()).
+	scheme := newScheme()
+	e.c = fake.NewClientBuilder().WithScheme(scheme).WithRESTMapper(servedMapper(scheme)).
 		WithStatusSubresource(&dv1.Stage{}, &dv1.Operation{}, &dv1.Approval{}).
 		WithIndex(&dv1.Approval{}, approvalOperationUID, approvalUID).
 		// Every reconciler runs guarded, as the chart installs it.

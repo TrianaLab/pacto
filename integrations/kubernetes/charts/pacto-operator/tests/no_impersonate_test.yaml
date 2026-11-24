@@ -125,7 +125,7 @@ tests:
           pattern: ^(impersonate|escalate|bind|\*)$
         documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}
 
-  - it: profile idp grants no impersonate, escalate, bind or wildcard verb
+  - it: profile idp grants no impersonate, escalate or wildcard verb, and bind on the deployer role alone
     set:
       profile: "idp"
     asserts:
@@ -135,5 +135,20 @@ tests:
         documentSelector: {path: kind, value: Role, matchMany: true, skipEmptyTemplates: true}
       - notMatchRegex:
           path: rules[*].verbs[*]
-          pattern: ^(impersonate|escalate|bind|\*)$
+          pattern: ^(impersonate|escalate|\*)$
         documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}
+      # The promoter binds each service's deployer account to the
+      # <fullname>-deployer ClusterRole, and to no other.
+      - notMatchRegex:
+          path: rules[?(@.resources[0] != "clusterroles")].verbs[*]
+          pattern: ^bind$
+        documentSelector: {path: kind, value: ClusterRole, matchMany: true, skipEmptyTemplates: true}
+      - contains:
+          path: rules
+          content:
+            apiGroups: [rbac.authorization.k8s.io]
+            resources: [clusterroles]
+            resourceNames: [pacto-operator-delivery-deployer]
+            verbs: [bind]
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1

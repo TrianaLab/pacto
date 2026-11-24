@@ -516,7 +516,14 @@
         <!-- A workload no contract describes sits in the same list, muted, with the one
              mark saying so. It has no owner or target, so its image takes those cells. -->
         <li class="sv-item pl-row" class:pl-row--marked={ref.declaration === 'inferred'} class:sv-inferred={ref.declaration === 'inferred'} animate:flip={{ duration: dur(MOTION.row) }}>
-          {#if ref.declaration === 'inferred'}
+          {#if ref.contributedBy}
+            <!-- A service only a producer's contribution describes: no workload, so no image. -->
+            <EntityLink {ref} showStatus={false} showKind={false}>
+              <span class="pl-owner sv-image" title={`Contributed by ${ref.contributedBy}`}><bdi>Contributed by {ref.contributedBy}</bdi></span>
+              <span class="pl-num">inferred</span>
+            </EntityLink>
+            <ProvenanceMark label={`Inferred: contributed by ${ref.contributedBy}`} text={`Inferred: contributed by ${ref.contributedBy}; a producer's record, never a contract, and it never clears a gate.`} />
+          {:else if ref.declaration === 'inferred'}
             <EntityLink {ref} showStatus={false} showKind={false}>
               <span class="pl-owner sv-image" title={ref.image || 'No image read'}><bdi>{ref.image || 'No image read'}</bdi>{#if ref.group}<span class="sv-group t-meta" title={ref.group.label}><bdi>{ref.group.label}</bdi></span>{/if}</span>
               <span class="pl-num">inferred</span>

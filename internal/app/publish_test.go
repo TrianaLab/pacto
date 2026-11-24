@@ -441,11 +441,11 @@ func TestPublishRefusals(t *testing.T) {
 	if res.Plan.Ready || !slices.ContainsFunc(res.Plan.Checks, func(c publish.Check) bool { return c.Name == "signing key" && !c.Passed }) {
 		t.Fatalf("a signing key inside the bundle is a failed check: %+v", res.Plan.Checks)
 	}
-	if err := keyOutsideBundle(&contract.Publish{Sign: &contract.PublishSign{Key: "/abs/cosign.key"}}, withKey, nil); err != nil {
+	if err := keyOutsideBundle("/abs/cosign.key", withKey, nil); err != nil {
 		t.Fatal(err)
 	}
 	absKey, _ := filepath.Abs(filepath.Join(withKey, "cosign.key"))
-	if err := keyOutsideBundle(&contract.Publish{Sign: &contract.PublishSign{Key: absKey}}, withKey, os.DirFS(withKey)); err == nil {
+	if err := keyOutsideBundle(absKey, withKey, os.DirFS(withKey)); err == nil {
 		t.Fatal("an absolute key path inside the contract directory is packed into the bundle and must be refused")
 	}
 	res, _ = publishService(f, reg).Publish(ctx, PublishOptions{Path: writePublishBundle(t, host, ""), Plan: true})

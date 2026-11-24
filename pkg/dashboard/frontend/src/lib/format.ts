@@ -228,6 +228,7 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   kubernetes: 'Kubernetes — live cluster runtime data',
   'kubernetes-workloads': 'Kubernetes workloads — the workloads a cluster runs, read as inferred services',
   oci: 'OCI Registry — versioned contract bundles',
+  index: 'Organization index — the services listed in <registry>/pacto-index',
   local: 'Local — contracts from local filesystem',
   cache: 'Cache — offline baseline from a previously pulled bundle',
   'target-state': 'Target state — a file describing where each revision runs',
@@ -241,6 +242,7 @@ const SOURCE_DESCRIPTIONS: Record<string, string> = {
   traces: 'Trace backend — calls Jaeger or a Prometheus service graph saw, read by the dashboard',
   'otlp-receiver': 'OTLP receiver — calls in traces a Collector exports to the dashboard; no span is kept and they never corroborate a declared dependency',
   'kubernetes-linked': 'Linked workloads — workloads the operator linked to a published contract with no Pacto',
+  'backstage-catalog': 'Backstage catalog — owners, systems and dependencies it holds, read as inferred values',
 };
 
 export function sourceTooltip(src: string): string {

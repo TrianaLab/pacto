@@ -153,6 +153,7 @@ func newStage(service, env string) *delivery.StageObject {
 	s.Spec = delivery.StageSpec{Service: delivery.ServiceRef{Name: service}, Environment: env, ApplyRef: delivery.ApplyRef{Name: service}}
 	if service == "payments" { // payments ships through Argo CD; every other service through Flux
 		s.Spec.ApplyRef.Kind = delivery.ApplierArgoCD
+		managedStage(s)
 	}
 	s.Spec.Gates.Impact.DeclaredConsumersOnly = true // every service in the story has a contract
 	s.Spec.Gates.Verify.Checks = story.Checks(service, env)
@@ -717,7 +718,23 @@ func (d *demoDelivery) plan(req delivery.Request, actor story.Persona) (delivery
 	if up := st.Spec.Candidates.UpstreamStage; up != nil {
 		in.Upstream = &d.stage(up.Namespace, up.Name).Status
 	}
+	if stageKey(req.Namespace, req.Stage) == inspectedStage {
+		in.InspectManifests, in.Manifests = true, func(context.Context) delivery.ManifestInspection { return inspectedWorkload(req.Namespace, req.Stage) }
+	}
 	return delivery.PlanFor(context.Background(), in), spec, nil
+}
+
+// inspectedStage is the one Stage whose promotes the manifest inspector
+// judges in this demo.
+var inspectedStage = stageKey(story.Prod, "checkout")
+
+// inspectedWorkload stands in for the inspection of a version's deploy
+// artifact: the demo has no registry, so the objects are the service's
+// workload, its Deployment and Service. PlanFor judges it as it judges a real
+// inspection.
+func inspectedWorkload(ns, svc string) delivery.ManifestInspection {
+	return delivery.ManifestInspection{Artifact: "manifests (simulated: the demo has no registry, the objects come from the contract's workload)",
+		Namespace: ns, Total: 2, Objects: []delivery.ManifestObject{{Kind: "Deployment", Namespace: ns, Name: svc}, {Kind: "Service", Namespace: ns, Name: svc}}}
 }
 
 // surroundings fills b with what else runs in the Stage's environment and,
@@ -1296,20 +1313,27 @@ func (d *demoDelivery) Describe(_ context.Context, st *delivery.StageObject, dig
 	return r
 }
 
-// PublishRefusals is the one refused publish of the story (B4): payments
-// 2.4.3 removes a field, so the version rule asks for a major. The
-// classification is pkg/diff over the two story contracts; the refusal
-// itself is fixed data, and nothing here signed or checked it.
+// PublishRefusals is the one refused publish of the story (B4) and one
+// refused promote. payments 2.4.3 removes a field, so the version rule asks
+// for a major; the classification is pkg/diff over the two story contracts,
+// and nothing here signed or checked that refusal. The refused promote shows
+// the row a cluster lists for a version the manifest inspector refused: it is
+// simulated, so it names no record (the tab keeps none for it) and says it is
+// not verified. Both are fixed data.
 func (d *demoDelivery) PublishRefusals(context.Context, string) (*dashboard.PublishRefusals, error) {
 	base, _ := story.Bundle("payments", "2.4.2")
 	tried, _ := story.Bundle("payments", "2.4.3")
 	c := diff.Compare(context.Background(), base.Contract, tried.Contract, base.FS, tried.FS).Classification
 	bump := diff.RequiredBump(c, "2.4.2")
 	return &dashboard.PublishRefusals{Completeness: "complete",
-		Note: "Simulated: one fixed refusal from the payments story. The bump is computed by Pacto's diff; nothing here signed or checked the refusal.",
+		Note: "Simulated: one fixed refused publish and one fixed refused promote from the payments story; a cluster reads refused publishes and promotes from each service's contract bundle repository and delivery record stream. " +
+			"The bump is computed by Pacto's diff; nothing here signed or checked the refused publish, and the refused promote is simulated with no record kept here.",
 		Refusals: []dashboard.PublishRefusal{{Service: "payments", Version: "2.4.3", Check: "version", Baseline: "2.4.2",
 			RequiredBump: string(bump), Actor: story.PayAgent.User, At: stamp(d.now().Add(-3 * time.Hour)), Verified: false,
-			Reason: fmt.Sprintf("the change is %s, so it needs a %s bump from 2.4.2", c, bump)}}}, nil
+			Reason: fmt.Sprintf("the change is %s, so it needs a %s bump from 2.4.2", c, bump)},
+			{Service: "pay-agent", Version: "1.1.0", Check: "manifests", Namespace: story.Prod, Stage: "pay-agent",
+				Digest: story.ArtifactDigest("pay-agent", "1.1.0"), At: stamp(d.now().Add(-2 * time.Hour)),
+				Reason: "the manifest inspector refuses what the version applies: ClusterRoleBinding pay-agent-admin is cluster-scoped"}}}, nil
 }
 
 // wire serves d from opts: the delivery views and the simulated signed-in
@@ -1373,6 +1397,59 @@ func (d *demoDelivery) Trust(_ context.Context, stages []delivery.StageObject, o
 // StageNamespaces: everyone reads every Stage cluster-wide here, so the
 // dashboard never asks.
 func (d *demoDelivery) StageNamespaces(context.Context) ([]string, error) { return nil, nil }
+
+// managedStage marks s as a Stage Pacto created from the installation
+// ladder, as the promoter writes it: on test the Argo CD Application already
+// running payments makes the placement observed; prod took the namespace
+// named after it, which alice's first approval confirmed.
+func managedStage(s *delivery.StageObject) {
+	ns := s.Metadata.Namespace
+	p := delivery.Placement{Namespace: ns, Provenance: delivery.PlacementObserved, Source: delivery.PlacementFromGitOps,
+		Evidence: "Argo CD Application " + ns + "/" + s.Spec.ApplyRef.Name + " already runs it"}
+	if ns == story.Prod {
+		p.Provenance, p.Source, p.Evidence = delivery.PlacementDefault, delivery.PlacementFromRungName, "the namespace named after the environment"
+	}
+	s.Metadata.Labels = delivery.ManagedLabels(s.Spec.Service, s.Spec.Environment)
+	s.Metadata.Annotations = delivery.PlacementAnnotations(delivery.DesiredFromLadder, p)
+	if ns == story.Prod {
+		s.Metadata.Annotations[delivery.PlacementConfirmedByAnnotation] = story.Alice.User
+	}
+}
+
+// demoLeaf is the installation ladder rung a person confirmed before the
+// story starts, a leaf fed from the registry.
+const demoLeaf = "preview"
+
+// Environments is what the promoter publishes about the installation
+// ladder: the chain the chart declares, one confirmed leaf, one open
+// proposal inferred from namespaces and, privately, where each environment
+// of a delivered service runs. checkout's preview environment is refused,
+// and fraud's runs where Helm owns it, so Pacto adds no applier there.
+// Everyone here may read every row.
+func (d *demoDelivery) Environments(context.Context) (*delivery.EnvironmentsView, []delivery.PlacementRow, bool, error) {
+	now := d.now()
+	declared := []delivery.LadderRung{
+		{Name: story.Test, Source: "the chart value delivery.environments.ladder", Provenance: delivery.RungDeclared},
+		{Name: story.Prod, Upstream: story.Test, Source: "the chart value delivery.environments.ladder", Provenance: delivery.RungDeclared},
+	}
+	proposal := delivery.ProposeLadder([]string{story.Test, story.Prod, demoLeaf}, delivery.LadderInput{
+		Namespaces: []string{"checkout-perf", "orders-perf", "payments-perf"}, Services: []string{"checkout", "orders", "payments"}})
+	view := &delivery.EnvironmentsView{Declared: declared, Proposal: proposal, ProposalDigest: delivery.ProposalDigest(proposal),
+		Confirmed: []delivery.LadderRung{{Name: demoLeaf, Source: "namespaces *-preview, 2 found", Provenance: delivery.RungConfirmed}},
+		Record:    recordID("ladder"), ConfirmedBy: story.Alice.User, ConfirmedAt: stamp(now.Add(-24 * time.Hour)),
+		Repository: "registry.example/story/approvals", Stream: clusterID + "/pacto-delivery/ladder",
+		UnplacedCount: 2, AsOf: stamp(now), Completeness: "complete"}
+	rows := []delivery.PlacementRow{
+		{Service: "payments", Environment: story.Test, Source: delivery.DesiredFromLadder, Stage: stageKey(story.Test, "payments")},
+		{Service: "payments", Environment: story.Prod, Source: delivery.DesiredFromLadder, Stage: stageKey(story.Prod, "payments")},
+		{Service: "checkout", Environment: demoLeaf, Source: delivery.DesiredFromConfirmed, Placement: &delivery.Placement{Namespace: "orders",
+			Provenance: delivery.PlacementInferred, Source: delivery.PlacementFromInferred, Evidence: "the workload checkout was inferred from",
+			Refused: "namespace orders belongs to orders (team-orders)"}},
+		{Service: "fraud", Environment: demoLeaf, Source: delivery.DesiredFromConfirmed, Placement: &delivery.Placement{Namespace: "fraud",
+			Provenance: delivery.PlacementUnknown, Evidence: "owned by Helm (release fraud, release annotations): Pacto does not add another applier"}},
+	}
+	return view, rows, true, nil
+}
 
 // recordID is a stable stand-in record id for s.
 func recordID(s string) string {

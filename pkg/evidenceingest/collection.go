@@ -18,7 +18,7 @@ const MaxTargetsBodyBytes = 4 << 20 // 4 MiB
 
 // TargetsCollection maps a targets body (GET TargetsPath) to the fleet
 // collection of source: each accepted target as an external fleet target, the
-// provisioning and usage records as verified records, and a degraded or
+// provisioning, usage and extension records as verified records, and a degraded or
 // truncated body as a limitation. Every reader of the body calls it, the HTTP
 // evidence source and the target snapshot reader alike, so the two readings
 // never drift.
@@ -32,13 +32,16 @@ func TargetsCollection(source string, data []byte) (*fleet.Collection, error) {
 	if err := strictjson.Decode(bytes.NewReader(data), &body); err != nil {
 		return nil, err
 	}
-	// v3 is v2 plus provisioning records, v4 is v3 plus usage records and v5
-	// is v4 plus clusters, which an older body never carries.
+	// v3 is v2 plus provisioning records, v4 is v3 plus usage records, v5 is
+	// v4 plus clusters and v6 is v5 plus extension reports, which an older body
+	// never carries.
 	switch body.SchemaVersion {
-	case TargetsSchemaVersion, TargetsSchemaVersionProvisioning, TargetsSchemaVersionUsage, TargetsSchemaVersionCluster:
+	case TargetsSchemaVersion, TargetsSchemaVersionProvisioning, TargetsSchemaVersionUsage, TargetsSchemaVersionCluster,
+		TargetsSchemaVersionExtensions:
 	default:
-		return nil, fmt.Errorf("speaks schema %q, want %q, %q, %q or %q", body.SchemaVersion,
-			TargetsSchemaVersion, TargetsSchemaVersionProvisioning, TargetsSchemaVersionUsage, TargetsSchemaVersionCluster)
+		return nil, fmt.Errorf("speaks schema %q, want %q, %q, %q, %q or %q", body.SchemaVersion,
+			TargetsSchemaVersion, TargetsSchemaVersionProvisioning, TargetsSchemaVersionUsage, TargetsSchemaVersionCluster,
+			TargetsSchemaVersionExtensions)
 	}
 
 	col := &fleet.Collection{}
@@ -81,6 +84,15 @@ func TargetsCollection(source string, data []byte) (*fleet.Collection, error) {
 			Service: p.Service, Domain: p.Domain, Digest: digestOr(p.Digest, p.ContractRef), Kind: p.Kind, Name: p.Name, Environment: p.Environment,
 			Provider: p.Provider, ExternalRef: p.ExternalRef, Phase: p.Phase, Outcome: p.Outcome,
 			Producer: p.Producer, ProducerKeyID: p.ProducerKeyID, ObservedAt: p.EvidenceAt, AcceptedAt: &acceptedAt, Verified: true,
+		})
+	}
+
+	for _, x := range body.Extensions {
+		acceptedAt := x.AcceptedAt
+		col.Extensions = append(col.Extensions, fleet.RawExtension{
+			Subject: x.Subject, Service: x.Service, Domain: x.Domain, Digest: digestOr(x.Digest, x.ContractRef), Ref: x.Ref,
+			Present: x.Present, Details: x.Details, Outcome: x.Outcome, Producer: x.Producer, ProducerKeyID: x.ProducerKeyID,
+			ObservedAt: x.EvidenceAt, AcceptedAt: &acceptedAt, Cluster: acceptingCluster(x.Cluster, body.Cluster), Verified: true,
 		})
 	}
 

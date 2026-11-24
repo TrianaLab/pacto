@@ -70,28 +70,13 @@ func Surface(snap *fleet.FleetSnapshot, key fleet.ExternalKey, now time.Time) co
 			if _, port, ok := strings.Cut(src.Host, ":"); ok {
 				ports.add(port, src)
 			}
-			if c := client(snap, src.Revision, key); c != "" {
-				clients.add(c, src)
+			if c := fleet.ExternalClientOf(snap, src.Revision, key); c != nil {
+				clients.add(fmt.Sprintf("%s/%d", c.SDK, c.Major), src)
 			}
 		}
 	}
 	s.Hosts, s.Ports, s.Clients = hosts.list(), ports.list(), clients.list()
 	return s
-}
-
-// client is the "<sdk>/<major>" the inferred record of revision rk lists for
-// key, or "" when it names no client major.
-func client(snap *fleet.FleetSnapshot, rk fleet.RevisionKey, key fleet.ExternalKey) string {
-	rev := snap.Revisions[rk]
-	if rk == "" || rev == nil || rev.Record == nil {
-		return ""
-	}
-	for _, f := range rev.Record.Fields {
-		if x := f.External; x != nil && x.Identity == string(key) && x.Client != nil && x.Client.Major != nil {
-			return fmt.Sprintf("%s/%d", x.Client.SDK, *x.Client.Major)
-		}
-	}
-	return ""
 }
 
 // values collects one surface list by value.

@@ -25,8 +25,8 @@ function inferredAttention() {
       label: "1 service checks a range against stripe's inferred contract", severity: 'info', code: 'INFERRED_PROVIDER', category: 'knowledge',
       summary: 'Range checked against an inferred contract',
       reason: "card-payments pins a compatibility range on stripe's inferred contract, which lives under pacto-inferred; Pacto never checks a range against it",
-      nextStep: 'Write a contract with service.external: stripe, publish it outside pacto-inferred, then point the ranges at it',
-      nextAction: { verb: 'edit-contract', cli: 'pacto ci' },
+      nextStep: 'Claim stripe with pacto claim stripe --owner <team>, then point the ranges at the claimed contract',
+      nextAction: { verb: 'claim', tool: 'pacto_declare', cli: 'pacto claim stripe --owner <team>' },
     }, ...(doc.items ?? [])];
     doc.total = (doc.total ?? 0) + 1;
     doc.count = (doc.count ?? 0) + 1;
@@ -47,7 +47,7 @@ test.describe('WASM demo — inferred external contracts', () => {
     await expect(block.locator('summary').first()).toContainText('Range checks: unverified');
     await block.locator('summary').first().click();
     await expect(block).toContainText('registry.pacto.demo/demo/pacto-inferred/stripe');
-    await expect(block).toContainText('version 0.0.1');
+    await expect(block).toContainText('version 0.0.2');
     // The mark's words are on the page, not only in a tooltip: no source checked the
     // demo revision's signature, so it says so.
     await expect(block).toContainText('Signature not checked, publisher unknown; a range is never checked against it');
@@ -58,12 +58,12 @@ test.describe('WASM demo — inferred external contracts', () => {
     await expect(block.locator('.xe-surface li').first()).toContainText('seen by k8s-production');
   });
 
-  test('the knowledge attention item says to edit the contract and run pacto ci', async ({ page }) => {
+  test('the knowledge attention item names the claim of the unclaimed external system', async ({ page }) => {
     await page.addInitScript(inferredAttention);
     await appReady(page, '/#/fleet/attention?category=knowledge');
     // The list beside the Overview's map, opened and filtered by the attention link.
     const item = page.getByTestId('fleet-map-rail-item').filter({ hasText: 'Range checked against an inferred contract' });
     await expect(item).toHaveCount(1, { timeout: T });
-    await expect(item).toContainText('Fix: edit the contract, then run pacto ci');
+    await expect(item).toContainText('Fix: claim this external system with pacto claim stripe --owner <team>');
   });
 });

@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -75,7 +76,7 @@ func newCIPub(t *testing.T) *ciPubEnv {
 // with extra top-level YAML, publishing its bundle to host/acme/<name>,
 // signed with the key, plus pub inside the publish section.
 func (e *ciPubEnv) contract(name, version, extra, pub string) string {
-	y := "pactoVersion: \"2.5\"\nservice:\n  name: " + name + "\n"
+	y := "pactoVersion: " + strconv.Quote(contract.Current()) + "\nservice:\n  name: " + name + "\n"
 	if version != "" {
 		y += "  version: " + version + "\n"
 	}
@@ -392,7 +393,7 @@ func TestCIPublishBehindIsAPlanLine(t *testing.T) {
 	e := newCIPub(t)
 	// A declared build is deprecated from 2.5 and still honoured: the raise
 	// keeps its meaning, so the contract publishes as the current version.
-	e.write(t, map[string]string{"legacy/pacto.yaml": strings.Replace(e.contract("legacy", "1.0.0", "", e.deployPub("legacy")), `"2.5"`, `"2.3"`, 1), "legacy/render.sh": "#!/bin/sh\n"})
+	e.write(t, map[string]string{"legacy/pacto.yaml": strings.Replace(e.contract("legacy", "1.0.0", "", e.deployPub("legacy")), strconv.Quote(contract.Current()), `"2.3"`, 1), "legacy/render.sh": "#!/bin/sh\n"})
 	p := e.ciPublish(t, nil)
 	r := pubRow(t, p, "legacy")
 	if r.State != ci.StatePublished || !slices.Equal(r.Notes, []string{"pacto.yaml is 2.3, published as " + contract.Current() + " (migrated in memory)"}) || p.Exit != 0 {
@@ -859,7 +860,7 @@ func TestCIPublishIndexNoneWritesNothing(t *testing.T) {
 		t.Fatalf("%v %+v", err, p)
 	}
 	r, _ := anonRepo(e.host + "/acme/pacto-index")
-	if tags, err := ocireferrer.Tags(t.Context(), r, ""); len(tags) != 0 || (err != nil && !registryNotFound(err)) {
+	if tags, err := ocireferrer.Tags(t.Context(), r, ""); len(tags) != 0 || (err != nil && !ocireferrer.RepositoryNotFound(err)) {
 		t.Fatalf("--index none wrote %v (%v)", tags, err)
 	}
 }

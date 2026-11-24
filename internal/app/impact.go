@@ -11,6 +11,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
+	"github.com/trianalab/pacto/v4/pkg/externalid"
 
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/graph"
@@ -88,6 +89,7 @@ type ImpactOptions struct {
 // change's blast radius over it (see [Service.ImpactOnSnapshot], with the new
 // revision added when no source holds the changed service).
 func (s *Service) Impact(ctx context.Context, opts ImpactOptions) (*impact.Result, error) {
+	opts.Fleet = opts.Fleet.withoutListings()
 	// Resolve the revisions first, so a bad ref fails before a fleet build.
 	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
 	if err != nil {
@@ -150,6 +152,7 @@ func (s *Service) ImpactWithSnapshot(ctx context.Context, opts ImpactOptions, sn
 // answering from a restricted view must pass false, so no unrestricted rebuild
 // leaks.
 func (s *Service) ImpactOnSnapshot(ctx context.Context, opts ImpactOptions, snap *fleet.FleetSnapshot, addMissing bool) (*impact.Result, error) {
+	opts.Fleet = opts.Fleet.withoutListings()
 	oldBundle, newBundle, err := s.resolveImpactPair(ctx, opts)
 	if err != nil {
 		return nil, err
@@ -215,7 +218,10 @@ func (s *Service) prepareImpact(ctx context.Context, opts ImpactOptions, snap *f
 	}
 	// An inferred contract is never a fleet service, so it is never added as one.
 	_, inferred := contract.InferredRef(opts.NewPath)
-	added := addMissing && !inferred && snap.Services[fleet.NewServiceKeyDomain(domain, name)] == nil
+	// The rebuild reads no whole index (withoutListings), so a service only
+	// it held is missing there too.
+	held := snap.Services[fleet.NewServiceKeyDomain(domain, name)]
+	added := addMissing && !inferred && (held == nil || (created || dropped) && onlyWholeIndex(held))
 	if added || created || dropped {
 		var err error
 		if snap, err = s.Fleet(ctx, withNewRevision(opts, newBundle, added)); err != nil {
@@ -223,6 +229,11 @@ func (s *Service) prepareImpact(ctx context.Context, opts ImpactOptions, snap *f
 		}
 	}
 	return preparedImpact{opts: opts, snap: snap, skipped: skipped, added: added}, nil
+}
+
+// onlyWholeIndex reports whether the whole-index source alone holds svc.
+func onlyWholeIndex(svc *fleet.ServiceRecord) bool {
+	return len(svc.Sources) > 0 && !slices.ContainsFunc(svc.Sources, func(id string) bool { return id != wholeIndexSourceID })
 }
 
 // analyzePrepared analyses the change over p.
@@ -436,9 +447,14 @@ type ImpactEventOptions struct {
 	ReadRegression func(ctx context.Context, ev impact.Event) *impact.Regression
 }
 
+// ErrTracesWithExternal refuses a trace file with an external subject: the
+// external answer never reads it.
+var ErrTracesWithExternal = errors.New("traces are read for service events; an external answer reads the observed egress of the fleet's own sources")
+
 // ImpactEvent builds a fleet snapshot from the configured sources and
 // answers the event over it (see [Service.ImpactEventOnSnapshot]).
 func (s *Service) ImpactEvent(ctx context.Context, opts ImpactEventOptions) (*impact.Result, error) {
+	opts.Fleet = opts.Fleet.withoutListings()
 	snap, err := s.Fleet(ctx, opts.Fleet)
 	if err != nil {
 		return nil, fmt.Errorf("build fleet snapshot: %w", err)
@@ -453,6 +469,9 @@ func (s *Service) ImpactEvent(ctx context.Context, opts ImpactEventOptions) (*im
 // does not hold answers SERVICE_NOT_IN_FLEET, and the key of a replaced
 // inferred service answers for its successor with SUBJECT_REPLACED.
 func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOptions, snap *fleet.FleetSnapshot) (*impact.Result, error) {
+	if opts.Event.External != "" && len(opts.Traces) > 0 {
+		return nil, ErrTracesWithExternal
+	}
 	observed, err := observedEdgesFromTraces(opts.Traces)
 	if err != nil {
 		return nil, fmt.Errorf("parse traces: %w", err)
@@ -483,10 +502,16 @@ func (s *Service) ImpactEventOnSnapshot(ctx context.Context, opts ImpactEventOpt
 // ParseEventFlag reads the value of an event flag of `pacto impact`: a fleet
 // service key, and for regressed the revision after the last "@". For
 // unavailable and removed, offering:<name> names every provider of an offering.
+// For changed and unavailable, external:<identity> names an external system.
 func ParseEventFlag(kind, value string) (impact.Event, error) {
+	if id, ok := strings.CutPrefix(value, fleet.ExternalSubjectPrefix); ok {
+		return parseExternalEvent(kind, id)
+	}
 	ev := impact.Event{Kind: kind, Service: value}
 	name, offering := strings.CutPrefix(value, offeringPrefix)
 	switch kind {
+	case impact.EventChanged:
+		return impact.Event{}, errors.New("--changed takes external:<identity>; a change to a service of your own is pacto impact <old> <new>")
 	case impact.EventRegressed:
 		if offering {
 			return impact.Event{}, errors.New("--regressed names one service: a regression belongs to one revision")
@@ -507,9 +532,26 @@ func ParseEventFlag(kind, value string) (impact.Event, error) {
 			return impact.Event{}, fmt.Errorf("--%s takes a service key, got %q", kind, value)
 		}
 	default:
-		return impact.Event{}, fmt.Errorf("unknown event %q: use unavailable, removed or regressed", kind)
+		return impact.Event{}, fmt.Errorf("unknown event %q: use unavailable, removed, regressed or changed", kind)
 	}
 	return ev, nil
+}
+
+// parseExternalEvent reads the identity of an external:<identity> event flag
+// value as written: identities are canonical lower-case, so one Pacto would
+// have to rewrite is refused.
+func parseExternalEvent(kind, id string) (impact.Event, error) {
+	switch kind {
+	case impact.EventChanged, impact.EventUnavailable:
+	case impact.EventRemoved, impact.EventRegressed:
+		return impact.Event{}, errors.New("an external system is not yours to remove or regress; ask --unavailable or --changed")
+	default:
+		return impact.Event{}, fmt.Errorf("unknown event %q: use unavailable or changed for an external system", kind)
+	}
+	if _, err := externalid.Parse(id); err != nil {
+		return impact.Event{}, fmt.Errorf("%w; find its identity with pacto fleet search", err)
+	}
+	return impact.Event{Kind: kind, External: id}, nil
 }
 
 // offeringPrefix marks an event flag value that names an offering.

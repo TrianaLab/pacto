@@ -323,7 +323,9 @@ func fleetGetTool() *mcpsdk.Tool {
 			"comes from: declared (a revision), declared-via-target (the contract a target runs), attested (read from the " +
 			"repository at the commit a verified CI identity signed; 'ownerSource' names the file and line, commit and signer; " +
 			"routes reviews, never clears a gate) or inferred; " +
-			"an inferred owner never fills 'owner'. Each revision's 'provenance' says whether its " +
+			"an inferred owner never fills 'owner'. 'inferredOwner' and 'inferredBusinessDomain' are hints a source outside " +
+			"every contract reports (such as an IDP catalog), each with 'source', 'where' and 'asOf'; they are never an owner or a domain. " +
+			"Each revision's 'provenance' says whether its " +
 			"bundle signature was checked against a publisher rule, pin or policy (verified, unverified, " +
 			"unsigned, unknown) and lists its OCI referrers, when a registry source checked them; absent means " +
 			"no source checked. Give service as external:<identity> for an external system: its sources (each with " +
@@ -331,7 +333,10 @@ func fleetGetTool() *mcpsdk.Tool {
 			"and 'provider', the inferred contract Pacto published for it, which is never a service. " +
 			"'replaces' lists the inferred services this service replaced when a Pacto target took over their workload or a " +
 			"person's accepted declaration named them ('link'); " +
-			"asked for by such an old key, the answer is the declared service with 'replacedFrom'. " + fleetProvenanceNote + " Read-only.",
+			"asked for by such an old key, the answer is the declared service with 'replacedFrom'. " +
+			"A contributed service is inferred: a producer's record, never a contract; its 'contribution' names the producer, " +
+			"the record read, its 'asOf' and whether it is 'stale', and it never clears a gate. A target's 'reportedBy' names the " +
+			"producer that reported it through an Evidence Server. " + fleetProvenanceNote + " Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"service": {Type: "string", Description: "Logical service name, or external:<identity> for an external system"},
 			"target":  {Type: "string", Description: "Operational target key or name (use instead of service)"},
@@ -438,15 +443,18 @@ func fleetStatusTool() *mcpsdk.Tool {
 		Description: "Report services and targets needing attention: non-compliant, unknown, invalid, " +
 			"stale evidence, missing readiness, unresolved dependencies and dependencies whose provider " +
 			"version is outside the declared range (DEPENDENCY_RANGE_UNSATISFIED), services that use a deprecated or past-sunset provider " +
-			"(DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE), services with no declared owner, " +
+			"(DEPENDENCY_SERVICE_DEPRECATED, DEPENDENCY_SERVICE_SUNSET, SUCCESSOR_OUT_OF_RANGE), services and external systems with no owner (UNOWNED_EXTERNAL; pacto_fleet_attention ranks it by how many services use it), " +
 			"undeclared runtime dependencies, running services that declare service.template (GOLDEN_PATH_DEPLOYED) and " +
 			"resources that failed to provision or report stale (category provisioning: PROVISIONING_FAILED, PROVISIONING_STALE; " +
 			"needs_attention includes them). 'total' and 'truncated' say whether the limit cut the list. With no category " +
 			"selected, including empty input, it reports every category. The answer's 'providers' lists what Pacto detected in each " +
 			"source (evidence, usedFor, status, limitations). providers includes what the operator detected (registry, cloud, " +
-			"sign-in, exposure, metrics, nodes and a Pull Secret proposal) with provenance inferred and asOf, and an Installation " +
+			"sign-in, exposure, metrics, nodes, a Pull Secret proposal, a Crossplane row naming the running version or none found and, " +
+			"under profile idp, Evidence and Recorder rows saying whether the Evidence Server and the delivery recorder are on and why; " +
+			"providers is the one MCP surface for these rows) with provenance inferred and asOf, and an Installation " +
 			"row with provenance declared naming the profile, the registry, the target snapshot, index and inferred repositories and the push " +
-			"prefixes; nothing detected is turned on, a Pull Secret is never used until a person sets registryPullSecret, and no " +
+			"prefixes; a detected proposal is never turned on, except that under profile idp the operator itself starts the Evidence Server " +
+			"while its Evidence row reads on, a Pull Secret is never used until a person sets registryPullSecret, and no " +
 			"provider row clears a gate. The OCI source adds one observed 'registry:<host>' row per registry it read " +
 			"contracts from, with no provenance: Pacto probed it itself, usedFor and details give the mode it uses there and asOf " +
 			"when it probed; it is separate from the operator's inferred registry row. 'contractCompleteness' is how completely " +
@@ -462,7 +470,7 @@ func fleetStatusTool() *mcpsdk.Tool {
 			"unresolved_deps":      {Type: "boolean", Description: "Unresolved declared dependencies"},
 			"unsatisfied_ranges":   {Type: "boolean", Description: "Dependencies whose provider version is outside the declared range"},
 			"lifecycle":            {Type: "boolean", Description: "Services that use a deprecated or past-sunset provider, or whose range refuses its successor"},
-			"unowned":              {Type: "boolean", Description: "Services with no declared owner"},
+			"unowned":              {Type: "boolean", Description: "Services and external systems with no owner"},
 			"undeclared":           {Type: "boolean", Description: "Runtime calls no contract declares and callers with no contract"},
 			"golden_path_deployed": {Type: "boolean", Description: "Running services that declare service.template (GOLDEN_PATH_DEPLOYED)"},
 			"limit":                {Type: "integer", Description: "Maximum results (bounded)"},
@@ -569,7 +577,7 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"environment":       {Type: "string", Description: "With kind=target, the targets in this environment; otherwise it needs consumes and phase: only the consumers whose provisioning status in that phase is in this environment. A name no visible revision declares and no visible target reports is said so in the limitations"},
 			"cluster":           {Type: "string", Description: "Cluster UID as meta.clusters lists it: targets in that cluster, services with a target or an inferred workload there and revisions a target there runs. Other kinds ignore it, so with no kind it lists those three. An id no cluster has answers an empty list with a CLUSTER_FILTER_UNKNOWN limitation"},
 			"ownership":         {Type: "string", Description: "How ownership is declared on a service; conflicting means owners disagree: targets run different owners, or one version declares two (an older version's owner is a handover, not a conflict); unknown is a service with no owner claim whose contract Pacto cannot read, unidentified every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnknown, fleet.OwnershipUnidentified}},
-			"gap":               {Type: "string", Description: "Services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: an extension capability no evaluator verifies), or unknown for those whose knowledge Pacto cannot judge", Enum: fleet.GapFilterValues()},
+			"gap":               {Type: "string", Description: "Services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: an extension capability no evaluator or trusted producer checks), or unknown for those whose knowledge Pacto cannot judge", Enum: fleet.GapFilterValues()},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
 			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
 			"declaration":       {Type: "string", Description: "inferred: keep only the services Pacto infers from workloads no contract describes and, with no kind, list services only; declared: leave them out. Empty lists every service, inferred ones marked", Enum: []string{fleet.DeclarationDeclared, fleet.DeclarationInferred}},

@@ -19,6 +19,9 @@ capabilities:
 set:
   # 6.x values carry no fingerprints key: --reuse-values keeps it absent.
   fingerprints: null
+  # Nor a delivery.environments key: absent, the installation ladder is off and
+  # renders no flag, rule or Role.
+  delivery.environments: null
 tests:
   - it: should render the 6.x promoter rules and arguments for 6.x values without the HelmRelease API
     set:
@@ -192,4 +195,139 @@ tests:
       - notMatchRegex:
           path: spec.template.spec.containers[0].args[*]
           pattern: ^--(publishers-|records-repository|pin-signer|record-trust)
+        template: templates/delivery/deployment.yaml
+
+  # A release from a chart without delivery.manifestInspector: with delivery
+  # off nothing new renders; with delivery on the policy gains only
+  # "manifestInspector":true, and the promoter rules and arguments stay the
+  # 6.x lists pinned above.
+  - it: should render nothing for values without delivery.manifestInspector and delivery off
+    set:
+      delivery.manifestInspector: null
+    asserts:
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/identities.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/deployment.yaml
+      - hasDocuments:
+          count: 0
+        template: templates/delivery/rbac.yaml
+
+  - it: should add only manifestInspector to the policy for values without delivery.manifestInspector and delivery on
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.manifestInspector: null
+    asserts:
+      - equal:
+          path: data["policy.json"]
+          value: '{"agentGroups":["pacto:agents"],"breakGlassGroups":["pacto:break-glass"],"humanGroups":[],"manifestInspector":true,"requireOwnerTeam":false}'
+        template: templates/delivery/identities.yaml
+        documentIndex: 0
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value:
+            - promoter
+            - --leader-elect=true
+            - --poll=3s
+            - --resync=1m
+            - --workers=4
+            - --auth-freshness=0
+            - --controller-user=system:serviceaccount:pacto-delivery:t-pacto-operator-delivery
+            - --identities=/etc/pacto/identities/policy.json
+            - --admission-policies=t-pacto-operator-delivery-operation,t-pacto-operator-delivery-cancel,t-pacto-operator-delivery-approval,t-pacto-operator-delivery-pointer,t-pacto-operator-delivery-applier,t-pacto-operator-delivery-promoter-writes,t-pacto-operator-delivery-status
+        template: templates/delivery/deployment.yaml
+
+  - it: delivery.environments null keeps the 6.x args and rules
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.environments: null
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+      - notContains:
+          path: rules
+          content: {apiGroups: [delivery.pacto.trianalab.io], resources: [stages], verbs: [create, patch, delete]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[8]
+          pattern: ^--environment
+        template: templates/delivery/deployment.yaml
+
+  - it: delivery.environments null under idp creates no Flux object, deployer or namespace
+    set:
+      profile: idp
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.environments: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-create-appliers
+        template: templates/delivery/deployment.yaml
+      - notContains:
+          path: rules
+          content: {apiGroups: [rbac.authorization.k8s.io], resources: [clusterroles], resourceNames: [t-pacto-operator-delivery-deployer], verbs: [bind]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+      - notContains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [create]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+
+  - it: delivery.environments null reads no ladder repository
+    set:
+      registry: ghcr.io/acme
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.environments: null
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --ladder-repository=ghcr.io/acme/pacto-streams-approvals
+        template: templates/delivery/deployment.yaml
+
+  - it: delivery.environments present adds --environment-ladder
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.environments: {enabled: true, ladder: [staging, production]}
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --environment-ladder=staging,production
+        template: templates/delivery/deployment.yaml
+      - contains:
+          path: rules
+          content: {apiGroups: [""], resources: [namespaces], verbs: [get, list, watch]}
+        template: templates/delivery/rbac.yaml
+        documentIndex: 1
+
+  - it: delivery.environments null renders no retire flag and no promoter sink
+    set:
+      delivery.enabled: true
+      delivery.identities.allowEmptyHumanGroups: true
+      delivery.argocd.enabled: false
+      delivery.flux: null
+      delivery.environments: null
+      delivery.recorder.cdeventsSink: https://events.acme.io/cdevents
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(environment-retire-after|cdevents-sink)
         template: templates/delivery/deployment.yaml

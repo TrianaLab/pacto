@@ -396,7 +396,7 @@ func TestClusterRefusals(t *testing.T) {
 		{Options{}, ClusterOptions{}, "--out"},
 		{Options{Name: "x"}, c, "takes no name or folder"},
 		{Options{Dir: "x"}, c, "takes no name or folder"},
-		{Options{Plan: true, Environments: []string{"Bad"}}, c, "shop/checkout: environment"},
+		{Options{Plan: true, InsecureRegistry: true}, c, "shop/checkout: an insecure registry"},
 	} {
 		if _, err := Cluster(ctx, fakeCluster(shopCluster(now)...), tc.opts, tc.c, nil); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%+v: %v", tc.opts, err)

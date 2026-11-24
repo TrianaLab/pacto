@@ -40,6 +40,10 @@ func (cliRegistry) Annotations(context.Context, string) (map[string]string, erro
 	return map[string]string{delivery.ContractAnnotation: "oci://reg/pactos/payments@" + cliC}, nil
 }
 
+func (cliRegistry) Layer(context.Context, string, int64) (string, []byte, error) {
+	return "", nil, errors.New("no layer")
+}
+
 func (cliRegistry) Pull(context.Context, string) (*contract.Bundle, error) {
 	return &contract.Bundle{Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: "payments", Version: "1.0.0"}}}, nil
 }
@@ -185,8 +189,11 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"text", []string{"describe", "rollback"}, false, []string{"inverse:        delivery.pacto.trianalab.io/promote"}},
 		{"text", []string{"describe", "delivery.pacto.trianalab.io/unfreeze"}, false, []string{"inverse:        none"}},
 		{"text", []string{"describe", "scale"}, true, []string{"unknown operation type"}},
-		{"text", append(plan, "--to", cliB), false, []string{"predicted: Waits", "pacto.impact", "StageFrozen",
-			"next:      Nobody needs to approve it, but once proposed it waits until the conflict clears."}},
+		// This cluster publishes no policy the caller can read, so whether the
+		// promoter inspects the version is unknown, and a person is asked.
+		{"text", append(plan, "--to", cliB), false, []string{"predicted: Held", "pacto.impact", "StageFrozen",
+			"whether the manifest inspector runs is unknown",
+			"next:      The Stage is frozen: even once approved, the promote waits until a person unfreezes it."}},
 		{"json", append(plan, "--to", cliB), false, []string{`"intentDigest": "sha256:`}},
 		{"text", append(plan, "--to", "v2"), false, []string{"-> " + cliB}},
 		{"text", append(plan, "--to", "1.0.0"), false, []string{"-> " + cliB}},
@@ -206,7 +213,7 @@ func TestDeliveryCommandReadVerbs(t *testing.T) {
 		{"text", []string{"get", "-n", "prod", "missing"}, true, nil},
 		{"text", append(plan, "--to", cliB, "--cause-verdict", "{"), true, []string{"--cause-verdict is not a verdict"}},
 		{"text", []string{"propose", "-n", "prod", "--stage", "payments-prod", "--to", cliB, "--cause-verdict", "{"}, true, []string{"--cause-verdict is not a verdict"}},
-		{"text", append(plan, "--to", cliB, "--cause-verdict", `{"gate":"health","result":"Fail"}`), false, []string{"predicted: Waits"}},
+		{"text", append(plan, "--to", cliB, "--cause-verdict", `{"gate":"health","result":"Fail"}`), false, []string{"predicted: Held"}},
 		{"text", []string{"explain", "-n", "prod", "held"}, false, []string{"prod/held", "waits for a person: Approve?",
 			"pacto.diff", "query: {}", "re-run: pacto delivery plan", "stage payments-prod runs " + cliA, "frozen: a rollback failed",
 			"on auto-hold", "last re-check 2026-10-20T10:00:00Z of " + cliA, "health            Unknown  too few spans",
@@ -748,5 +755,45 @@ func TestPrintPlanApplierLine(t *testing.T) {
 	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypeRollback}})
 	if strings.Contains(b.String(), "applier") {
 		t.Fatalf("a rollback has no applier gate:\n%s", b.String())
+	}
+}
+
+// TestPrintPlanListsManifests: a promote the inspector judged lists the
+// objects it will apply, then each refused and unread item on its own line.
+func TestPrintPlanListsManifests(t *testing.T) {
+	var b strings.Builder
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GateManifests,
+		Result: delivery.Fail, Citation: map[string]string{"artifact": "manifests", "objects": "Deployment orders, ClusterRoleBinding orders-admin",
+			"refused": "ClusterRoleBinding orders-admin is cluster-scoped; Namespace x is cluster-scoped", "unread": "Widget w is an unknown kind",
+			"code": delivery.CodeRawInfraInArtifact}}}}})
+	for _, want := range []string{
+		"objects:   manifests: Deployment orders, ClusterRoleBinding orders-admin\n",
+		"code:      RawInfraInArtifact\n",
+		"refused:   ClusterRoleBinding orders-admin is cluster-scoped\n",
+		"refused:   Namespace x is cluster-scoped\n",
+		"unread:    Widget w is an unknown kind\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("want %q in\n%s", want, b.String())
+		}
+	}
+	// An artifact Pacto could not read lists no objects, only why.
+	b.Reset()
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GateManifests,
+		Result: delivery.Unknown, Citation: map[string]string{"artifact": "manifests", "unread": "the registry did not answer"}}}}})
+	if strings.Contains(b.String(), "objects:") || !strings.Contains(b.String(), "unread:    the registry did not answer\n") {
+		t.Fatalf("unexpected:\n%s", b.String())
+	}
+}
+
+// TestPrintPlanManifestsAbsentWithoutGate: a plan the inspector never ran
+// on prints no objects, refused or unread line.
+func TestPrintPlanManifestsAbsentWithoutGate(t *testing.T) {
+	var b strings.Builder
+	printPlan(&b, delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}}}})
+	for _, no := range []string{"objects:", "refused:", "unread:"} {
+		if strings.Contains(b.String(), no) {
+			t.Fatalf("no %q expected in\n%s", no, b.String())
+		}
 	}
 }

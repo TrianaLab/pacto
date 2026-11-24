@@ -378,14 +378,11 @@ func explainConfigurations(c *contract.Contract, bundleFS fs.FS) ([]ExplainConfi
 	}
 	envValues := make([]map[string]any, len(c.Environments))
 	for i, env := range c.Environments {
-		if bundleFS == nil {
+		if bundleFS == nil && env.File != "" {
 			return nil, fmt.Errorf("environment %s: no bundle files to read %s from", env.Name, env.File)
 		}
-		raw, err := fs.ReadFile(bundleFS, env.File)
-		if err == nil {
-			envValues[i], err = contract.ParseEnvironmentValues(raw)
-		}
-		if err != nil {
+		var err error
+		if _, envValues[i], err = contract.ReadEnvironmentValues(bundleFS, env); err != nil {
 			return nil, fmt.Errorf("environment %s: cannot read %s: %w", env.Name, env.File, err)
 		}
 	}

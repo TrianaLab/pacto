@@ -82,6 +82,11 @@ Pacto Operator has been installed.
    Declare in the dashboard saves drafts; set dashboard.auth.oidc.signClientID to sign there.
 {{- end }}
 {{- end }}
+{{- if .Values.dashboard.repositories }}
+
+   dashboard.repositories is deprecated: set registry and the dashboard lists
+   every golden path and offering published under it.
+{{- end }}
 {{- end }}
 {{- if include "pacto-operator.dashboardMCP" . }}
 {{- $mcpURL := regexReplaceAll $unsafe (include "pacto-operator.dashboardMCPURL" . | default "http://127.0.0.1:3000/mcp") "" }}
@@ -159,6 +164,42 @@ and Pacto delivery's cluster roles.
 {{- else }}
 It adds the cluster-wide read of ServiceMonitors and PodMonitors and Pacto
 delivery's cluster roles.
+{{- end }}
+{{- /* The text after the first line is detect.FluxInstallHint, verbatim. */}}
+{{- if not (or (dig "idp" "flux" "install" false .Values.AsMap) (.Capabilities.APIVersions.Has "kustomize.toolkit.fluxcd.io/v1") (.Capabilities.APIVersions.Has "helm.toolkit.fluxcd.io/v2") (.Capabilities.APIVersions.Has "argoproj.io/v1alpha1")) }}
+
+No GitOps engine found. To deliver through upstream Flux packaged with Pacto:
+Set idp.flux.install=true on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator --version <version> -n <namespace> --reset-then-reuse-values --set idp.flux.install=true
+{{- end }}
+{{- /* lookup is empty under helm template and a dry-run, so the refusal of a
+foreign Flux was skipped: say so. */}}
+{{- if include "pacto-operator.idpFlux" . }}
+{{- if include "pacto-operator.liveRender" . }}
+
+Upstream Flux {{ include "pacto-operator.fluxVersion" . }} (source, kustomize and helm controllers) runs in flux-system with this release.
+{{- else }}
+
+Check that no other Flux runs before you set idp.flux.install.
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if and (dig "crossplane" "install" false (.Values.idp | default dict)) (not (include "pacto-operator.liveRender" .)) }}
+
+Check that no other Crossplane runs before you set idp.crossplane.install: this
+render could not look the cluster up, so it did not refuse a second Crossplane.
+{{- end }}
+{{- if $idp }}
+{{- $recorderState := include "pacto-operator.recorderState" . }}
+{{- $recorderWhy := dict "off" "delivery.recorder.enabled is false (an upgrade with --reuse-values carries the false an earlier chart defaulted to); set it to null to let profile idp decide" "delivery-off" "profile hardened renders no Pacto delivery" }}
+{{- print "\n" }}
+{{- if include "pacto-operator.evidenceAuto" . }}
+Evidence Server: on when the registry serves OCI Referrers and Secret
+{{ include "pacto-operator.evidenceTrustSecret" . }} holds a public key; see pacto fleet providers.
+{{- end }}
+Recorder: {{ if eq $recorderState "on" }}on{{ else }}off: {{ get $recorderWhy $recorderState | default ((splitn ": " 2 (include "pacto-operator.recorderCheck" .))._1) }}{{ end }}.
+{{- if include "pacto-operator.recorderDefaulted" . }}
+Upgrade CLIs and promoters before the recorder signs records; set
+delivery.recorder.enabled=false to keep it off.
 {{- end }}
 {{- end }}
 {{- /* What the operator detected, read back on upgrade only. NOTES is the one
@@ -254,7 +295,7 @@ so the approve line is ready to hand to the hub's admin. */}}
 {{- $joinKey := toString (get $install "snapshotKeyID") }}
 {{- if not (regexMatch `^[0-9a-f]{64}$` $joinKey) }}{{ $joinKey = "<snapshotKeyID>" }}{{ end }}
 {{- with .Values.registry }}
-{{- $recorder := and (include "pacto-operator.deliveryEnabled" $) $.Values.delivery.recorder.enabled (include "pacto-operator.delivery.streamsRepository" $) }}
+{{- $recorder := and (include "pacto-operator.deliveryEnabled" $) (include "pacto-operator.recorderEnabled" $) (include "pacto-operator.delivery.streamsRepository" $) }}
 {{- $stats := and (include "pacto-operator.deliveryEnabled" $) $.Values.delivery.stats.repository }}
 
 Registry: {{ . }}
@@ -287,7 +328,9 @@ Registry: {{ . }}
     {{ . }}
 {{- end }}
   Outside them only referrers are written, by digest onto an existing
-  manifest: the Evidence Server's records and the recorder's.
+  manifest: the Evidence Server's records and the recorder's
+{{- if include "pacto-operator.evidenceLedgers" $ | fromYamlArray }}, plus the
+  Evidence Server's subject ledger tags named below{{ end }}.
   Pull on {{ . }}/pacto-targets reads every namespace's Pacto status and
   workload shape regardless of Kubernetes RBAC and, with evidence.enabled, every
   target, provisioning and usage record (cost included) the Evidence Server
@@ -340,6 +383,21 @@ Proposed pull Secret (inferred from pod specs; it needs push on
 {{- end }}
 {{- end }}
 {{- end }}
+{{- with include "pacto-operator.evidenceLedgers" . | fromYamlArray }}
+
+The Evidence Server also tags, with evidence.registry.credentialsSecret, only
+its subject ledgers:
+{{- range . }}
+    {{ . }}
+{{- end }}
+  Each ledger holds the refs and evidence of every revision under its prefix:
+  keep it private, or no more visible than the most restricted repository
+  under the prefix.
+{{- if not $.Values.evidence.trust.configKey }}
+  Every trusted key may report on every revision under the subject prefixes:
+  set allowedContractRepos per key in a trust config.
+{{- end }}
+{{- end }}
 {{- if and .Release.IsUpgrade (include "pacto-operator.watchNamespaces" . | fromYamlArray) (not (and (include "pacto-operator.dashboardEnabled" .) (include "pacto-operator.dashboardDeliveryNamespace" .))) }}
 {{- if or (lookup "rbac.authorization.k8s.io/v1" "ClusterRole" "" "pacto-dashboard") (lookup "rbac.authorization.k8s.io/v1" "ClusterRoleBinding" "" "pacto-dashboard") }}
 
@@ -390,7 +448,7 @@ approve its changes. Then:
 No publisher rule: the first signer of each service is confirmed in the delivery inbox.
 Set delivery.publishers.registry to derive one.
 {{- end }}
-{{- if .Values.delivery.recorder.enabled }}
+{{- if include "pacto-operator.recorderEnabled" . }}
 
 The recorder writes a signed record of every concluded operation to
 {{ include "pacto-operator.delivery.streamsRepository" . }} and to the versions it touched. Check that

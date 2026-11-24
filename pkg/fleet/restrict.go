@@ -133,7 +133,7 @@ type WorkloadScope struct {
 func (q *Query) InferredWorkloadScopes() []WorkloadScope {
 	seen := map[WorkloadScope]bool{}
 	for _, s := range q.snap.Services {
-		if !s.Inferred() {
+		if !s.inferredWorkload() {
 			continue
 		}
 		seen[WorkloadScope{s.Workload.Namespace, s.Workload.Kind, s.Workload.Cluster}] = true
@@ -256,9 +256,10 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	hideUnreadable(s, visible, clusters, hiddenNS)
 	restricted := !visible("", "")
 	hiddenTargets := unreadableClusterTargets(s, readable, visible)
+	extensionRecords := readableExtensionRecords(s, readable, visible)
 	linkedNames := linkedKindHidden(s, workloadHidden(hiddenNS, workloadVisible), clusters, hiddenTargets)
 	hiddenSvc, offeringOnly := hiddenServices(s, hiddenNS, hiddenTargets, restricted, workloadVisible)
-	if len(hiddenNS)+len(hiddenSvc)+len(offeringOnly)+len(hiddenTargets)+len(linkedNames) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
+	if len(hiddenNS)+len(hiddenSvc)+len(offeringOnly)+len(hiddenTargets)+len(linkedNames)+len(s.extensionRecords)-len(extensionRecords) == 0 && keepsEveryName(s, restricted, workloadHidden(hiddenNS, workloadVisible)) {
 		if !providersNarrowed(s, visible, workloadVisible, clusters) {
 			return q
 		}
@@ -292,6 +293,10 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 		}
 	}
 	restrictRevalidation(&out, append(slices.Clone(s.Relationships), s.templateEdges...), hiddenSvc, dropped)
+	// A check is derived evidence: read again without the records of clusters
+	// the caller may not read, so they neither show nor move a status.
+	out.extensionRecords = extensionRecords
+	deriveExtensionChecks(&out, false)
 	hiddenDeps, hiddenDependents, hiddenConsumers, hiddenReferrers := restrictRelationships(&out, s.Relationships, hiddenSvc, dropped)
 	dropHiddenDeclarationEdges(&out)
 	restrictInferredEvidence(&out)
@@ -310,6 +315,7 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	out.hiddenProviders = hiddenProviders(&out, s.Services, hiddenSvc)
 	out.hiddenProviderMatch = hiddenProviderMatch(s, out.hiddenProviders, hiddenSvc)
 	restrictReports(&out, s)
+	placeReports(&out, s)
 
 	keep := func(k ServiceKey) bool { return !hiddenSvc[k] }
 	out.reverseDeps = restrictIndex(s.reverseDeps, keep, keep)
@@ -350,16 +356,27 @@ func (q *Query) hiddenPairs(visible func(cluster, namespace string) bool) (hidde
 }
 
 // unreadableClusterTargets is the targets of s other than Kubernetes targets
-// that carry a cluster the caller may read nothing in: no pair of the cluster
-// is in readable and visible(cluster, "") says no.
+// that carry a cluster the caller may read nothing in (see clusterUnreadable).
 func unreadableClusterTargets(s *FleetSnapshot, readable map[string]bool, visible func(cluster, namespace string) bool) map[TargetKey]bool {
 	out := map[TargetKey]bool{}
 	for k, t := range s.Targets {
-		if c := t.Cluster; c != "" && !kubeTarget(t) && !readable[c] && !visible(c, "") {
+		if !kubeTarget(t) && clusterUnreadable(t.Cluster, readable, visible) {
 			out[k] = true
 		}
 	}
 	return out
+}
+
+// readableExtensionRecords is s's extension records but those accepted in a
+// cluster the caller may read nothing in.
+func readableExtensionRecords(s *FleetSnapshot, readable map[string]bool, visible func(cluster, namespace string) bool) []extensionRecord {
+	return slices.DeleteFunc(slices.Clone(s.extensionRecords), func(rec extensionRecord) bool { return clusterUnreadable(rec.cluster, readable, visible) })
+}
+
+// clusterUnreadable reports whether c names a cluster the caller may read
+// nothing in: no pair of it is in readable and visible(c, "") says no.
+func clusterUnreadable(c string, readable map[string]bool, visible func(cluster, namespace string) bool) bool {
+	return c != "" && !readable[c] && !visible(c, "")
 }
 
 // linkedKindHidden adds to hiddenTargets the linked targets whose workload
@@ -406,11 +423,22 @@ func appendNamespaces(names []string, pairs map[ClusterNamespace]bool) []string 
 // its kind is missing, so the namespace sentence alone would be wrong.
 func kindHiddenNote(s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, hiddenNS map[ClusterNamespace]bool) string {
 	for k := range hiddenSvc {
-		if svc := s.Services[k]; svc.Inferred() && !hiddenNS[ClusterNamespace{svc.Workload.Cluster, svc.Workload.Namespace}] {
+		if svc := s.Services[k]; svc.inferredWorkload() && !hiddenNS[ClusterNamespace{svc.Workload.Cluster, svc.Workload.Namespace}] {
 			return "; some inferred services are hidden because you may not list their workload kind"
 		}
 	}
 	return ""
+}
+
+// placeReports stamps each report of out with the cluster s, the
+// unrestricted snapshot, attributes it to: a view that lost the target or
+// cluster that places a report must never place it elsewhere.
+func placeReports(out, s *FleetSnapshot) {
+	clusters, envs := clusterOfSource(s), envClusterIndex(s)
+	for i := range out.Provisioning {
+		out.Provisioning[i].cluster = reportCluster(&out.Provisioning[i], clusters, envs)
+	}
+	out.reportsPlaced = true
 }
 
 // restrictReports keeps the provider reports a restricted view may hold.
@@ -670,7 +698,8 @@ func hiddenCallerKey(c UncontractedCaller) ServiceKey {
 // in the visible caller's dependencies, both by the hidden end's key, so a
 // workload also counted as an uncontracted caller counts once. An external
 // end is never hidden; an edge from a hidden caller to one goes uncounted,
-// as its record drops the caller.
+// as its record drops the caller. An edge only service facts back goes
+// uncounted too: an inferred value never moves a hidden count.
 func restrictInferredEdges(rels []Relationship, hiddenSvc map[ServiceKey]bool, deps, dependents map[ServiceKey]map[ServiceKey]bool) []Relationship {
 	count := func(m map[ServiceKey]map[ServiceKey]bool, at, other ServiceKey) {
 		if m[at] == nil {
@@ -681,7 +710,7 @@ func restrictInferredEdges(rels []Relationship, hiddenSvc map[ServiceKey]bool, d
 	return slices.DeleteFunc(slices.Clone(rels), func(rel Relationship) bool {
 		from, to := hiddenSvc[rel.FromService], hiddenSvc[rel.ToService]
 		switch {
-		case from && to:
+		case from && to, serviceFactOnly(rel):
 		case from && rel.ToService != "":
 			count(dependents, rel.ToService, rel.FromService)
 		case to:
@@ -700,24 +729,50 @@ func bareCaller(c UncontractedCaller) bool {
 }
 
 // hasBareNames reports whether s holds a name with no namespace: a bare
-// caller or an unresolved observed name. A cluster-scoped provider object is
-// left to providersNarrowed: it hides from a row, never from an answer.
+// caller or a limitation a restricted view counts. A cluster-scoped provider
+// object is left to providersNarrowed: it hides from a row, never from an
+// answer.
 func hasBareNames(s *FleetSnapshot) bool {
 	return slices.ContainsFunc(s.UncontractedCallers, bareCaller) ||
-		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationObservedIdentityUnresolved })
+		slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return countedLimitations[l.Code] != nil })
 }
 
-// unresolvedCounts drops the unresolved observed names from limitations and
-// returns them with how many each source had.
-func unresolvedCounts(limitations []Limitation) ([]Limitation, map[string]int) {
-	counts := map[string]int{}
-	return slices.DeleteFunc(limitations, func(l Limitation) bool {
-		if l.Code == LimitationObservedIdentityUnresolved {
-			counts[l.Source]++
+// countedLimitations are the limitations a restricted view replaces with one
+// per source, by the message each builds from the source and its count. Each
+// names something no permission check can read: an observed name with no
+// namespace, or an index entry or inferred contract a hidden service may be
+// the one to name.
+var countedLimitations = map[string]func(src string, n int) string{
+	LimitationObservedIdentityUnresolved: func(src string, n int) string {
+		return strconv.Itoa(n) + " names observed by " + src + " are not shown: they carry no namespace to check permissions against"
+	},
+	LimitationInferredContractUnread: func(src string, _ int) string {
+		return "source " + src + " left inferred contracts unread; a restricted view does not name them, since a service you may not see can be the one to name them"
+	},
+	LimitationIndexEntryInvalid: func(src string, _ int) string {
+		return "source " + src + " did not use some index entries; a restricted view does not name them, since they can be services you may not see"
+	},
+	LimitationRegistryListingEntryUnreadable: func(src string, _ int) string {
+		return "source " + src + " left some listed bundles unread; a restricted view does not count them, since they can be services you may not see"
+	},
+}
+
+// limitationCounts drops the countedLimitations from limitations and returns
+// them rebuilt, one per code and source.
+func limitationCounts(limitations []Limitation) ([]Limitation, []Limitation) {
+	counts := map[[2]string]int{}
+	limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
+		if countedLimitations[l.Code] != nil {
+			counts[[2]string{l.Code, l.Source}]++
 			return true
 		}
 		return false
-	}), counts
+	})
+	var out []Limitation
+	for _, k := range slices.SortedFunc(maps.Keys(counts), func(a, b [2]string) int { return cmp.Or(cmp.Compare(a[0], b[0]), cmp.Compare(a[1], b[1])) }) {
+		out = append(out, Limitation{Code: k[0], Source: k[1], Message: countedLimitations[k[0]](k[1], counts[k])})
+	}
+	return limitations, out
 }
 
 // rebuiltLimitation reports whether restrictLimitations rebuilds l from what
@@ -734,7 +789,11 @@ func rebuiltLimitation(l Limitation) bool {
 		LimitationClusterHidden,
 		// A mismatch names an external identity and a pacto-inferred ref the
 		// view may hide; it becomes a count per source.
-		LimitationInferredIdentityMismatch:
+		LimitationInferredIdentityMismatch,
+		// Sets of services a service fact matched, some maybe hidden.
+		LimitationServiceFactAmbiguous,
+		// A count of contracts that won over contributions, some maybe hidden.
+		LimitationContributionSuperseded:
 		return true
 	case LimitationSourceRecordInvalid:
 		// Per-source counts of records that may be hidden.
@@ -763,14 +822,27 @@ func sourceLevelCluster(l Limitation, unavailable map[string]bool) bool {
 	return (l.Code == LimitationClusterUnknown || l.Code == LimitationClusterConflict) && unavailable[l.Source]
 }
 
+// registryListingGap reports whether l is a registry listing limitation whose
+// whole message Pacto writes from server configuration (the host, the prefix
+// and its index repository): a hidden name it contains is the prefix's
+// coincidence, so the hidden-name scrub never applies to it. An unavailable
+// listing quotes the registry's error, so it stays scrubbed.
+func registryListingGap(l Limitation) bool {
+	switch l.Code {
+	case LimitationRegistryListingIndexOnly, LimitationRegistryListingNone, LimitationRegistryListingTruncated, LimitationRegistryListingEntryUnreadable:
+		return true
+	}
+	return false
+}
+
 // restrictLimitations keeps the limitations that name nothing hidden and
 // rebuilds the domain, offering and owner conflicts from what out still holds.
-// With hideBare, each source's unresolved observed names become one count.
+// With hideBare, each source's countedLimitations of one code become one.
 func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNames []string, hideBare bool) {
 	limitations = slices.Clone(limitations)
-	var unresolved map[string]int
+	var counted []Limitation
 	if hideBare {
-		limitations, unresolved = unresolvedCounts(limitations)
+		limitations, counted = limitationCounts(limitations)
 	}
 	// ponytail: a limitation's subject is only in its prose, so any that mentions
 	// a hidden name goes, even where the match is a coincidence. It costs
@@ -780,7 +852,7 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	unavailable := unavailableSources(out)
 	mismatches := inferredMismatchCounts(limitations)
 	out.Limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
-		if sourceLevelCluster(l, unavailable) {
+		if sourceLevelCluster(l, unavailable) || registryListingGap(l) {
 			return false
 		}
 		return rebuiltLimitation(l) || slices.Contains(out.hiddenLinkNotes, l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })
@@ -796,13 +868,10 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	out.Limitations = append(out.Limitations, clusterUnknownOf(out)...)
 	out.Limitations = append(out.Limitations, clusterRecordProblemsOf(out)...)
 	out.Limitations = append(out.Limitations, inferredSnapshotLimitations(out)...)
+	out.Limitations = append(out.Limitations, serviceFactAmbiguity(out)...)
 	out.Limitations = append(out.Limitations, mismatches...)
-	for _, src := range slices.Sorted(maps.Keys(unresolved)) {
-		out.Limitations = append(out.Limitations, Limitation{
-			Code: LimitationObservedIdentityUnresolved, Source: src,
-			Message: strconv.Itoa(unresolved[src]) + " names observed by " + src + " are not shown: they carry no namespace to check permissions against",
-		})
-	}
+	out.Limitations = append(out.Limitations, counted...)
+	out.Limitations = append(out.Limitations, supersededLimitations(out.supersededBy, func(k ServiceKey) bool { return out.Services[k] != nil })...)
 }
 
 // clusterHiddenReasons is the CLUSTER_HIDDEN message of each access mark.
@@ -1019,7 +1088,7 @@ func hiddenServices(s *FleetSnapshot, hiddenNS map[ClusterNamespace]bool, hidden
 	hiddenSvc, offeringOnly = map[ServiceKey]bool{}, map[ServiceKey]bool{}
 	placed := kubePlacementKnown(s)
 	for k, svc := range s.Services {
-		if svc.Inferred() {
+		if svc.inferredWorkload() {
 			if workloadHidden(hiddenNS, workloadVisible)(svc.Workload.Cluster, svc.Workload.Namespace, svc.Workload.Kind) {
 				hiddenSvc[k] = true
 			}
@@ -1296,7 +1365,7 @@ func restrictServices(out *FleetSnapshot, services map[ServiceKey]*ServiceRecord
 			hiddenNames = append(hiddenNames, svc.Name, string(k))
 			continue
 		}
-		if svc.Inferred() {
+		if svc.inferredWorkload() {
 			out.Services[k] = restrictInferred(svc, hidden, workloadVisible)
 			continue
 		}

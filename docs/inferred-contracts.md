@@ -2,8 +2,7 @@
 
 This page describes the inferred contracts Pacto publishes for the
 [external systems](external-catalog-reference.md) your services call, such as
-Stripe or a legacy host. An inferred contract records what Pacto sees of a
-system nobody in your organization declares. A consumer can point a dependency
+Stripe or a legacy host, that nobody in your organization declares. A consumer can point a dependency
 at it, and Pacto never checks a version range against it.
 
 ## What the operator publishes
@@ -21,11 +20,11 @@ acme/pacto-inferred/stripe
 acme/pacto-inferred/host/corp-legacy.example
 ```
 
-The operator runs the publisher every 5 minutes and needs no other value: no
-flag, no extra chart key and no Git access. Without `registry` nothing is
-published. `registry` needs a path below the host: with a bare host such as
-`zot:5000` the operator publishes nothing and logs why, because readers take
-`zot:5000/pacto-inferred/stripe` for an organization named `pacto-inferred`. The operator log reports each run, and the metrics
+The operator publishes every 5 minutes and needs no flag, other chart key or
+Git access. Without `registry`, or with a bare host such as `zot:5000`, it
+publishes nothing and logs why: readers would take
+`zot:5000/pacto-inferred/stripe` for an organization named `pacto-inferred`.
+The log reports each run, and the metrics
 `pacto_inferred_contracts_published_total` and
 `pacto_inferred_contracts_publish_errors_total` count pushes and errors.
 
@@ -72,50 +71,64 @@ surface:
     - {value: stripe-go/76, sources: [org-repositories]}
 ```
 
+When the system's entry in an organization catalog links the vendor's
+[OpenAPI document](external-catalog-reference.md#catalog-format),
+`pacto.yaml` records it under `metadata`, which every contract version reads:
+
+```yaml
+metadata:
+  run.pacto.external.openapi: "https://docs.stripe.com/openapi.json@sha256:7c21..."
+```
+
+Only [`pacto fleet publish-inferred --external-catalog`](#publish-without-an-operator)
+writes the link. The operator classifies with the default catalog, which
+links nothing, and keeps a link it finds in the last revision it signed.
+
 The bundle never names a consumer. Who calls the system stays in the fleet,
 where [restricted views](operational-graph-reference.md#query-semantics) apply.
 The version is a count of surface changes and never a vendor version.
 
 ## When a revision is published
 
-A new `0.0.<n>` tag is pushed only when the surface changes: a host, port or
-client added or removed. A new caller adds a source and publishes nothing, and
-so do changed sources, times, `asOf` and `completeness`. Tags are never
-overwritten.
+A new `0.0.<n>` tag is pushed only when a host, port or client is added or
+removed, or when the digest of the linked OpenAPI document moves. A document
+re-hosted under the same digest publishes nothing, and neither does a new
+caller (a new source) or a change of sources, times, `asOf` or
+`completeness`. Tags are never overwritten.
 
 `asOf` says when the surface was computed and `completeness` whether the fleet
-snapshot was complete. A partial snapshot never removes a value: the operator
-keeps every value the last revision it signed holds and only adds new ones.
-Removing a value needs a complete snapshot. An operator that watches only some
-namespaces always publishes a partial snapshot, with `TARGET_SNAPSHOT_SCOPED`.
+snapshot was complete. A partial snapshot only adds values to those of the
+last revision the operator signed; removing a value, or an OpenAPI link,
+needs a complete run, whose organization catalog entry links none for the
+link. An operator that watches only some namespaces always publishes a
+partial snapshot, with `TARGET_SNAPSHOT_SCOPED`.
 
 At most 20 contracts are pushed per run; the rest wait for the next run.
 
 ## The signer
 
-The operator signs every revision with the installation key, the key it
-creates once in the Secret `pacto-operator-installation-key`, and annotates
+The operator signs every revision with the installation key it creates once
+in the Secret `pacto-operator-installation-key`, and annotates
 the manifest with `run.pacto.contract.provenance: inferred` for registry UIs,
 `oras` and other readers. Pacto itself reads the location and the signature,
 never the annotation.
 
 An operator signature never makes a publisher. Readers name the operator's
 signer from the `snapshotKey` the `pacto-operator-detected` ConfigMap
-advertises (`--detected` on the CLI, a file or the ConfigMap), even when
-delivery is off or there is no cluster. A revision only the operator signed shows
-its signature as `unverified` with source `operator`, even when its
-`publish.sign` names the operator. A declared revision that an accepted
+advertises (`--detected` on the CLI, a file or the ConfigMap), even with
+delivery off or no cluster. A revision only the operator signed shows its
+signature as `unverified` with source `operator`, even when its `publish.sign`
+names the operator. A declared revision that an accepted
 publisher also signed keeps that publisher's verdict. A revision under
 `pacto-inferred` reads as inferred from its location alone, signed or not.
 
-Pull access to `pacto-inferred` is a separate audience that the registry's
-ACL governs: restricted views cover Pacto's own answers, never direct registry
-pulls. A restricted view never shows the surface (`surfaceHidden: true`).
+The registry's ACL governs pull access to `pacto-inferred`; restricted views
+cover only Pacto's own answers. A restricted view never shows the surface (`surfaceHidden: true`).
 
 ## A range against an inferred contract
 
 A dependency whose ref names `<registry>/pacto-inferred/<identity>` joins that
-external system. When it declares a `compatibility` range, the range reads
+external system. Its `compatibility` range reads
 `rangeStatus: unknown` with `rangeReason: INFERRED_PROVIDER`, even when the
 version would satisfy it:
 
@@ -132,23 +145,67 @@ pacto fleet get external:stripe --output-format json \
 Every gate reads it as unverified. [Impact](impact.md) gives each consumer the
 verdict `unknown` and the gate `unverified`, and delivery's move-first checks
 and the Stage environment gate never pass it. A range against a revision only
-the operator signed, wherever it is published, reads the same way. An inferred
-contract never clears a gate.
+the operator signed, wherever it is published, reads the same way.
 
-## Declare instead
+## Claim an external system
 
-Each external system with such a range raises one attention item,
-`INFERRED_PROVIDER`, in the knowledge category: "2 services check a range
-against stripe's inferred contract". For a service its next action is
-`declare`. `pacto declare` reads only workloads, so for an external system the
-next action is `edit-contract`: write a contract with
-`service.external: <identity>`, publish it outside `pacto-inferred` and point
-the ranges at its repository: the reason then disappears.
+Each external system with such a range raises `INFERRED_PROVIDER` in the
+knowledge category: "2 services check a range against stripe's inferred
+contract". Each one with consumers and no owner raises
+[`UNOWNED_EXTERNAL`](operational-graph-tallies.md#attention-categories),
+routed to the installation's default approvers for routing only. Both name
+the fix:
 
-The External page on the dashboard shows the inferred contract in a collapsed
+```text
+$ pacto claim stripe --owner team-platform --registry ghcr.io/acme --yes
+claimed external:stripe -> oci://ghcr.io/acme/stripe:0.1.0
+  signed by alice@acme.com (person), inferredFrom: stripe, no Git write
+```
+
+`pacto claim` is [`pacto declare`](publishing.md#declare-a-running-service)
+for a system with no workload; without `--yes` it prints the plan. It
+publishes `service.external` and `service.owner.team`, signed by your Sigstore
+login, with a [record](contract-reference/inferred-record.md#declaration) that
+names `inferredFrom: external:stripe`, to `<registry>/<name>` (`--name` or the
+identity's last segment), never under `pacto-inferred`. Naming the first
+owner takes a default approver of the [owner policy](owner-setting.md). An
+agent's `pacto_declare` with `service: external:stripe` writes a `draft-<n>` a
+person accepts with `--from-draft`; over HTTP it only plans. The External
+page offers **Claim** in its Owner line.
+
+## After a claim
+
+The claimed contract wins: the fleet and impact name its owner and explain
+says `EXTERNAL_CLAIMED`. The operator keeps publishing under
+`pacto-inferred/stripe`. A range there stays `unknown` until you point it at
+the claimed repository, as `INFERRED_PROVIDER` then says. A ref-less
+`external: true` dependency never resolves to the claimed contract, whose
+versions say nothing about the vendor's API.
+
+Only a declared claim counts. A service setting `service.external` with no
+claim in its history, a claim whose owner the owner rule refused, two
+claiming services (retract all but one) or an unreadable newest revision
+links nothing and adds `INFERRED_LINK_IGNORED`. A claiming service with no
+verified owner keeps `UNOWNED_EXTERNAL`.
+
+The dashboard's External page shows the inferred contract in a collapsed
 block after Consumers: what its signature check established, when the surface
-was computed, whether that run was partial and, for each value, when it was
-last seen. Each list shows its first 12 values.
+was computed, whether that run was partial and when each value was last seen,
+up to 12 values per list.
+
+## A change between revisions
+
+When the provider has two revisions, its `change` says what moved between the
+two shown first: `from` and `to` (their versions), `at`, the
+surface values `added` and `removed`, and `openapiFrom` and `openapiTo` when the
+link's digest moved. `checked` is `true` only when this installation's operator
+signed both revisions. An unchecked change is shown as such and raises no
+attention, because anyone with push access to the registry could
+have written either revision. A checked change of the OpenAPI digest or the
+clients raises [`EXTERNAL_CHANGED`](impact-what-if.md#an-external-system-changes-or-goes-down);
+host and port moves raise nothing, since they are your own calls. A restricted
+view drops `added` and `removed` and keeps the link. The External page shows
+the change as one **Changed** line.
 
 ## Publish without an operator
 
@@ -161,11 +218,23 @@ pacto fleet publish-inferred --registry ghcr.io/acme --key installation.key \
   --oci oci://ghcr.io/acme/checkout
 ```
 
-`--key` takes a PEM private key or a `pacto evidence keygen` seed. Readers
-recognise its signature as the operator's only when their `--detected`
-advertisement names its public key. Never run it
-against a registry an operator already writes. No MCP tool publishes inferred
+`--key` takes a PEM private key or a `pacto evidence keygen` seed, whose
+signature readers take for the operator's only when their `--detected`
+advertisement names its public key. Never run it against a registry an
+operator already writes. No MCP tool publishes inferred
 contracts: agents never sign as the installation.
+
+## Records a producer contributes
+
+Besides the operator's `<identity>` repositories, a tool the Evidence
+Server's trust config grants writes one of its own,
+`<registry>/pacto-inferred/<producer>/services`: one signed record per service it knows about, such as
+`ghcr.io/acme/pacto-inferred/my-idp/services:checkout_0.1.0`. Readers show each
+as a [contributed service](operational-graph-inferred.md#contributed-services).
+A dependency pinned at a record never names a service and its range reads
+`unknown`. The organization index refuses
+an entry for any bundle under `pacto-inferred`. See
+[Write a source](write-a-source.md).
 
 ## Evidence
 

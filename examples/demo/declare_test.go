@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"reflect"
 	"slices"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/inferredcontract"
 )
 
 // declareDemo is the demo's dashboard with its in-memory declarer, signed in
@@ -227,5 +229,221 @@ func TestDemoDeclarerPlansNoAcceptance(t *testing.T) {
 	}
 	if a, err := d.AcceptRanges(nil, dashboard.AcceptTarget{}, dashboard.AcceptExecuteInput{}); err != nil || a.Refusal == nil {
 		t.Fatalf("%+v %v", a, err)
+	}
+}
+
+// claimDemo is the demo's dashboard signed in as who, whose declarer hands
+// each claim it signs to the fleet the way the tab refolds it: the claimed
+// revisions it last got are in *claims.
+func claimDemo(t *testing.T, who *string, claims *[]fleet.RawRevision) (http.Handler, *demoDeclarer) {
+	t.Helper()
+	q := fleet.NewQuery(demoFleet(t))
+	state := func(*http.Request) dashboard.AuthState {
+		return dashboard.AuthState{SignedIn: true, CSRF: "browser-demo", Method: "oidc", User: *who}
+	}
+	d := newDemoDeclarer(func(r *http.Request) string { return state(r).User })
+	d.claimed = func(revs []fleet.RawRevision) error { *claims = revs; return nil }
+	return demoHandler(dashboard.Options{
+		Fleet:   func(context.Context) (*fleet.Query, error) { return q, nil },
+		Auth:    &dashboard.Auth{Login: true, State: state},
+		Declare: d,
+	}), d
+}
+
+// unownedExternals are the UNOWNED_EXTERNAL items of snap, by entity key.
+func unownedExternals(t *testing.T, snap *fleet.FleetSnapshot) []string {
+	t.Helper()
+	var out []string
+	l, err := fleet.NewQuery(snap).Attention(fleet.AttentionFilter{Category: "unowned", Limit: fleet.MaxAttentionLimit})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, it := range l.Items {
+		if it.Code == "UNOWNED_EXTERNAL" {
+			out = append(out, it.Entity.Key)
+		}
+	}
+	return out
+}
+
+// TestDemoDeclarerClaimsExternal: a person claims stripe in the tab. The
+// plan names the owner, the claimed repository and inferredFrom
+// external:stripe, signs through the simulated fresh login and saves no
+// draft; an agent signs nothing. Publishing hands the claimed revision to
+// the fleet, which then links stripe to its owner and stops routing it.
+func TestDemoDeclarerClaimsExternal(t *testing.T) {
+	f := &claimFlow{t: t, who: "alice@example.com"}
+	f.h, _ = claimDemo(t, &f.who, &f.claims)
+	f.ownerRequired()
+	p := f.planInferredFrom()
+	f.signFlowRefusals(p)
+	f.agentSignsNothing(p)
+	before := unownedExternals(t, demoFleet(t))
+	if !slices.Contains(before, "stripe") {
+		t.Fatalf("stripe is not routed before the claim: %v", before)
+	}
+	f.personSignsAndPublishes(p)
+	f.fleetReadsClaimed(before)
+	f.claimAgain()
+}
+
+// claimFlow drives the claim of external:stripe through the demo tab as who.
+type claimFlow struct {
+	t      *testing.T
+	h      http.Handler
+	who    string
+	claims []fleet.RawRevision
+}
+
+var claimTeam = dashboard.ClaimInput{Owner: "team-platform"}
+
+func (f *claimFlow) ask(in dashboard.DeclareInput) dashboard.DeclareAnswer {
+	f.t.Helper()
+	in.ServiceKey = "external:stripe"
+	var a dashboard.DeclareAnswer
+	post(f.t, f.h, "/api/fleet/declare", in, &a)
+	return a
+}
+
+func (f *claimFlow) do(in dashboard.DeclareAcceptInput) dashboard.DeclareAcceptAnswer {
+	f.t.Helper()
+	in.ServiceKey = "external:stripe"
+	var a dashboard.DeclareAcceptAnswer
+	post(f.t, f.h, "/api/fleet/declare/accept", in, &a)
+	return a
+}
+
+func (f *claimFlow) ownerRequired() {
+	if r := f.ask(dashboard.DeclareInput{}); code(r.Refusal) != "OwnerRequired" || r.Plan != nil {
+		f.t.Fatalf("no owner: %+v", r)
+	}
+}
+
+// planInferredFrom: the plan names the owner, the claimed repository and
+// inferredFrom external:stripe, and signs through the simulated fresh login.
+func (f *claimFlow) planInferredFrom() *dashboard.DeclarePlan {
+	t := f.t
+	a := f.ask(dashboard.DeclareInput{ClaimInput: claimTeam})
+	p := a.Plan
+	got := []string{p.Service, p.Version, p.BundleRepo, p.State, p.InferredFrom, p.Owner, a.Signing.Mode, a.Signing.Identity, a.Command}
+	want := []string{"stripe", "0.1.0", "demo.pacto.local/stripe", contract.DeclarationDeclared, "external:stripe", "team-platform", "fresh-login", f.who,
+		"pacto claim stripe --owner team-platform --registry demo.pacto.local --intent " + p.IntentDigest}
+	if !slices.Equal(got, want) || a.SignTicket == "" || a.SignedIn || a.NoDraft == "" || !a.Write.Available {
+		t.Fatalf("got %v %+v, want %v", got, a, want)
+	}
+	c, _, err := contract.ParseDocument([]byte(p.Contract.Text))
+	if err != nil || c.Service.External != "stripe" || c.Service.Owner.DisplayString() != "team-platform" {
+		t.Fatalf("pacto.yaml %v\n%s", err, p.Contract.Text)
+	}
+	if rec, err := contract.ParseInferredRecord([]byte(p.Record.Text)); err != nil || rec.Declaration.InferredFrom != "external:stripe" || rec.Declaration.Asker.Subject != f.who {
+		t.Fatalf("record %v\n%s", err, p.Record.Text)
+	}
+	return p
+}
+
+// signFlowRefusals: back from the sign-in the tab is signed in; a claim
+// saves no draft and a stale intent is refused with the fresh plan.
+func (f *claimFlow) signFlowRefusals(p *dashboard.DeclarePlan) {
+	if back := f.ask(dashboard.DeclareInput{ClaimInput: claimTeam, IntentDigest: p.IntentDigest}); !back.SignedIn {
+		f.t.Fatalf("back from the simulated sign-in: %+v", back)
+	}
+	if r := f.do(dashboard.DeclareAcceptInput{ClaimInput: claimTeam, IntentDigest: p.IntentDigest, Mode: "draft"}); code(r.Refusal) != "DraftNotOffered" {
+		f.t.Fatalf("draft: %+v", r)
+	}
+	if r := f.do(dashboard.DeclareAcceptInput{ClaimInput: claimTeam, IntentDigest: "sha256:" + strings.Repeat("1", 64), Mode: "sign"}); code(r.Refusal) != "PlanStale" || r.Plan == nil {
+		f.t.Fatalf("stale: %+v", r)
+	}
+}
+
+// agentSignsNothing: an agent gets a plan with no signing and is refused.
+func (f *claimFlow) agentSignsNothing(p *dashboard.DeclarePlan) {
+	person := f.who
+	f.who = "system:serviceaccount:agents:pay-agent"
+	defer func() { f.who = person }()
+	if r := f.ask(dashboard.DeclareInput{ClaimInput: claimTeam}); r.Signing.Mode != "none" || r.SignTicket != "" || !strings.Contains(r.Signing.Reason, "agent") {
+		f.t.Fatalf("agent plan: %+v", r)
+	}
+	if r := f.do(dashboard.DeclareAcceptInput{ClaimInput: claimTeam, IntentDigest: p.IntentDigest, Mode: "sign"}); code(r.Refusal) != "NotAllowed" || f.claims != nil {
+		f.t.Fatalf("agent sign: %+v", r)
+	}
+}
+
+// personSignsAndPublishes hands the one claimed revision to the fleet.
+func (f *claimFlow) personSignsAndPublishes(p *dashboard.DeclarePlan) {
+	done := f.do(dashboard.DeclareAcceptInput{ClaimInput: claimTeam, IntentDigest: p.IntentDigest, Mode: "sign"})
+	if done.Refusal != nil || done.Tag != "0.1.0" || !done.Signed || !strings.HasPrefix(done.Published, "demo.pacto.local/stripe@sha256:") || len(f.claims) != 1 {
+		f.t.Fatalf("sign: %+v (%d claims)", done, len(f.claims))
+	}
+}
+
+// fleetReadsClaimed: the refolded fleet links stripe to its owner and stops
+// routing it.
+func (f *claimFlow) fleetReadsClaimed(before []string) {
+	t := f.t
+	partners, err := NewEmbedSource(os.DirFS("partners"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	snap, _, err := buildDemoFleet(bundlesFS(t), partners, f.claims...)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cl := snap.Externals["stripe"].Claim
+	if cl == nil || cl.Owner != "team-platform" || cl.By != f.who || cl.Version != "0.1.0" {
+		t.Fatalf("claim %+v, limitations %+v", cl, snap.Limitations)
+	}
+	if after := unownedExternals(t, snap); slices.Contains(after, "stripe") || len(after) != len(before)-1 {
+		t.Fatalf("still routed after the claim: %v (before %v)", after, before)
+	}
+}
+
+// claimAgain: the same claim is unchanged; a new owner is the next version.
+func (f *claimFlow) claimAgain() {
+	if again := f.ask(dashboard.DeclareInput{ClaimInput: claimTeam}); again.Plan.Unchanged != "0.1.0" {
+		f.t.Fatalf("the same claim again: %+v", again.Plan)
+	}
+	other := f.ask(dashboard.DeclareInput{ClaimInput: dashboard.ClaimInput{Owner: "team-payments"}})
+	if other.Plan.Version != "0.2.0" || other.Plan.Unchanged != "" {
+		f.t.Fatalf("a new owner: %+v", other.Plan)
+	}
+}
+
+// TestDemoClaimNameMatchesInferredContract: the demo names a claim's service
+// as the inferred contract of the same external system is named.
+func TestDemoClaimNameMatchesInferredContract(t *testing.T) {
+	for _, id := range []fleet.ExternalKey{"stripe", "aws/rds/eu-west-1/orders.db", "a/" + fleet.ExternalKey(strings.Repeat("x-", 40)), "-x_y-"} {
+		if got, want := claimName(id), inferredcontract.ServiceName(id); got != want {
+			t.Errorf("%s: %q, want %q", id, got, want)
+		}
+	}
+}
+
+// TestDemoClaimEdges: a claim names its service with --name, accepting a
+// plan with no owner or with nothing changed writes nothing, a fleet that
+// cannot refold refuses the claim, and a tab with no fleet to refold still
+// records it.
+func TestDemoClaimEdges(t *testing.T) {
+	const who = "alice@example.com"
+	in := dashboard.ClaimInput{Owner: "team-platform", Name: "payments-stripe"}
+	d := newDemoDeclarer(nil)
+	a, _ := d.planClaim(who, "stripe", in, "")
+	if a.Plan.Service != "payments-stripe" || a.Plan.BundleRepo != "demo.pacto.local/payments-stripe" ||
+		a.Command != "pacto claim stripe --owner team-platform --name payments-stripe --registry demo.pacto.local --intent "+a.Plan.IntentDigest {
+		t.Fatalf("%+v %s", a.Plan, a.Command)
+	}
+	if r, err := d.acceptClaim(who, "stripe", dashboard.DeclareAcceptInput{Mode: "sign"}); err != nil || code(r.Refusal) != "OwnerRequired" {
+		t.Fatalf("no owner: %+v %v", r, err)
+	}
+	ok := dashboard.DeclareAcceptInput{Mode: "sign", IntentDigest: a.Plan.IntentDigest, ClaimInput: in}
+	if r, err := d.acceptClaim(who, "stripe", ok); err != nil || r.Tag != "0.1.0" {
+		t.Fatalf("no fleet to refold: %+v %v", r, err)
+	}
+	if r, err := d.acceptClaim(who, "stripe", ok); err != nil || code(r.Refusal) != "AlreadyDeclared" {
+		t.Fatalf("nothing changed: %+v %v", r, err)
+	}
+	broken := newDemoDeclarer(nil)
+	broken.claimed = func([]fleet.RawRevision) error { return os.ErrInvalid }
+	if _, err := broken.acceptClaim(who, "stripe", ok); err != os.ErrInvalid {
+		t.Fatalf("a fleet that cannot refold: %v", err)
 	}
 }

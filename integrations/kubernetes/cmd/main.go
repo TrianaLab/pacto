@@ -16,6 +16,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -114,7 +115,10 @@ type options struct {
 	dashboardAuth            dashboard.AuthConfig
 	dashboardExtraScopes     string
 	dashboardMiraURL         string
+	dashboardBackstageURL    string
+	dashboardBackstageToken  dashboard.KeyRef
 	dashboardStatsRegistry   string
+	dashboardIndex           string
 	dashboardDeliveryNS      string
 	dashboardDeliveryTrust   dashboard.KeyRef
 	dashboardRepositories    []string
@@ -124,10 +128,13 @@ type options struct {
 	dashboardDeclare         dashboard.Config // the Sigstore, TrustedRootConfigMap, Registry, DeclareRegistrySecret
 
 	enableEvidence            bool
+	evidenceAuto              bool
+	idpRecorder               string
 	evidenceTrustSecret       string
 	evidenceTrustConfigKey    string
 	evidenceCredentialsSecret string
 	evidenceSubjects          []string
+	evidenceSubjectPrefixes   []string
 	evidenceResources         component.Resources
 
 	stabilizationWindow               time.Duration
@@ -186,7 +193,8 @@ func bindDashboardDeclareFlags(fs *flag.FlagSet, o *options) {
 		"Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations "+
 			"it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore.")
 	fs.StringVar(&o.dashboardDeclare.Registry, "dashboard-registry", "",
-		"The registry (<host>/<path>) declarations made in the dashboard are published to; empty: no Declare.")
+		"The installation registry (<host>/<path>): the dashboard lists the golden paths and offerings published "+
+			"under it, and publishes declarations there; empty: the dashboard offers no Declare.")
 	fs.StringVar(&o.dashboardDeclare.DeclareRegistrySecret, "dashboard-declare-registry-secret", "",
 		"An existing kubernetes.io/dockerconfigjson Secret in the operator namespace with push access to "+
 			"--dashboard-registry, mounted for the dashboard's Declare writer only. Empty: the dashboard plans only.")
@@ -252,7 +260,9 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.StringVar(&o.dashboardDeliveryTrust.Key, "dashboard-delivery-trust-key", "trust.yaml",
 		"Key of the trust config in that ConfigMap.")
 	fs.Func("dashboard-repositories",
-		"Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto "+
+		"Deprecated: set --dashboard-registry (the chart's registry value); "+
+			"the dashboard lists every golden path and offering published under it. "+
+			"Comma-separated oci:// references the dashboard reads beside the contracts it discovers from Pacto "+
 			"resources, such as golden paths, which are never deployed.",
 		func(v string) error {
 			o.dashboardRepositories = append(o.dashboardRepositories, strings.Split(v, ",")...)
@@ -304,17 +314,51 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			"empty means pacto-delivery.")
 	fs.StringVar(&o.dashboardMiraURL, "dashboard-mira-url", "",
 		"Mira's address, to link the dashboard's health-check citations.")
+	fs.StringVar(&o.dashboardBackstageURL, "dashboard-backstage-url", "",
+		"Base URL of a Backstage catalog whose owners, systems and dependencies the dashboard shows as inferred values.")
+	fs.StringVar(&o.dashboardBackstageToken.Name, "dashboard-backstage-token-secret", "",
+		"Secret in the operator namespace holding the catalog reader token, "+
+			"which the dashboard sends only to --dashboard-backstage-url; the operator never reads it.")
+	fs.StringVar(&o.dashboardBackstageToken.Key, "dashboard-backstage-token-key", "token",
+		"Key of the reader token in that Secret.")
 	fs.StringVar(&o.dashboardStatsRegistry, "dashboard-stats-registry", "",
 		"Stats repository the dashboard's Metrics page reads run records from, with the dashboard's OCI credentials; "+
 			"empty: the page explains how to turn recording on.")
+	o.dashboardIndex = dashboardIndexAuto
+	fs.Func("dashboard-index",
+		"Organization index the dashboard reads every published service from, written `=mode`: auto reads "+
+			"<registry>/pacto-index when --registry is set, none reads none. auto by default.",
+		func(v string) error {
+			if v != dashboardIndexAuto && v != dashboardIndexNone {
+				return fmt.Errorf("want auto or none, got %q", v)
+			}
+			o.dashboardIndex = v
+			return nil
+		})
 	fs.BoolVar(&o.enableEvidence, "enable-evidence-server", false,
 		"Enable the managed Pacto Evidence Server deployment. Disabled by default.")
+	fs.BoolVar(&o.evidenceAuto, "evidence-server-auto", false,
+		"Profile idp: run the managed Evidence Server only while the registry serves native OCI Referrers, "+
+			"a subject or subject prefix is set and the trust Secret holds a public key. "+
+			"Ignored with --enable-evidence-server.")
+	fs.StringVar(&o.idpRecorder, "idp-recorder", "",
+		"Profile idp: what the chart decided about the delivery recorder (on, off, no-signer, no-streams, "+
+			"signer-incomplete or delivery-off); advertised in the detected ConfigMap, never acted on.")
 	fs.Func("evidence-subject",
 		"Repeatable: an exact contract revision evidence is stored on, as oci://<repo>@sha256:<digest>. "+
 			"The registry holding it is the durable evidence store: accepted records are published as OCI 1.1 "+
-			"referrers of that manifest. At least one is required when the Evidence Server is enabled.",
+			"referrers of that manifest where the registry serves them, as write-once tags in <prefix>pacto-evidence "+
+			"under a covering subject prefix otherwise. A subject or a prefix is required when the Evidence Server is enabled.",
 		func(subject string) error {
 			o.evidenceSubjects = append(o.evidenceSubjects, subject)
+			return nil
+		})
+	fs.Func("evidence-subject-prefix",
+		"Repeatable: a registry prefix, oci://<registry>/<path>/, whose immutable revisions evidence may be stored on. "+
+			"The Evidence Server records each subject in <prefix>pacto-evidence and accepts new revisions with no restart. "+
+			"A subject or a prefix is required when the Evidence Server is enabled.",
+		func(prefix string) error {
+			o.evidenceSubjectPrefixes = append(o.evidenceSubjectPrefixes, prefix)
 			return nil
 		})
 	fs.StringVar(&o.evidenceCredentialsSecret, "evidence-credentials-secret", "",
@@ -709,12 +753,9 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 
 	ownerRef := operatorOwnerRef(mgr, namespace)
 
-	// When the Evidence Server is enabled, wire the dashboard to its internal
-	// Service so the dashboard consumes the evidence Operational Graph
-	// contribution read-only over HTTP (it never touches the evidence bucket).
-	evidenceSourceURL := ""
-	if o.enableEvidence {
-		evidenceSourceURL = fmt.Sprintf("http://%s.%s.svc:%d", evidence.Name, namespace, evidence.EvidencePort)
+	recorder, err := detection.ParseRecorderState(o.idpRecorder)
+	if err != nil {
+		return err
 	}
 
 	// The controller and the workloads it manages resolve contract refs against
@@ -725,6 +766,13 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	// The cluster id names the cluster in Evidence Server reports and in what
 	// detection writes; read once.
 	ident := readClusterIdentity(mgr)
+	// While the Evidence Server runs, the dashboard and the target snapshot read
+	// its internal Service, so the dashboard consumes the evidence Operational
+	// Graph contribution read-only over HTTP (it never touches the evidence bucket).
+	gate, evidenceSourceURL, err := evidenceGate(mgr, o, namespace, ident, kc)
+	if err != nil {
+		return err
+	}
 	inst, err := addPublishers(mgr, o, namespace, ident, evidenceSourceURL, kc, loaderKC, rec)
 	if err != nil {
 		return err
@@ -744,7 +792,10 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		Auth:                  o.dashboardAuth,
 		DeliveryNamespace:     o.dashboardDeliveryNS,
 		MiraURL:               o.dashboardMiraURL,
+		BackstageURL:          o.dashboardBackstageURL,
+		BackstageToken:        o.dashboardBackstageToken,
 		StatsRegistry:         o.dashboardStatsRegistry,
+		Index:                 dashboardIndex(o.dashboardIndex, inst),
 		DeliveryTrust:         o.dashboardDeliveryTrust,
 		Repositories:          o.dashboardRepositories,
 		ExternalCatalog:       o.dashboardExternalCatalog,
@@ -765,6 +816,7 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		inst, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
 			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr)}); d != nil {
 		d.Wake = pushed
+		d.Pieces = idpPieces(inst, gate, o.enableEvidence, recorder)
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
 		}
@@ -795,9 +847,11 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	evidenceCfg := evidence.Config{
 		Cluster:            ident,
 		Enabled:            o.enableEvidence,
+		Auto:               gate != nil,
 		Image:              dashboardImage, // the runtime image runs `pacto evidence serve`
 		Namespace:          namespace,
 		Subjects:           o.evidenceSubjects,
+		SubjectPrefixes:    o.evidenceSubjectPrefixes,
 		TrustSecret:        o.evidenceTrustSecret,
 		TrustConfigKey:     o.evidenceTrustConfigKey,
 		CredentialsSecret:  o.evidenceCredentialsSecret,
@@ -813,11 +867,49 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		APIReader: mgr.GetAPIReader(),
 		Scheme:    mgr.GetScheme(),
 		Config:    evidenceCfg,
+		Gate:      gate,
 	}); err != nil {
 		return fmt.Errorf("failed to add evidence reconciler: %w", err)
 	}
 
 	return addNodeAgent(mgr, o, namespace)
+}
+
+// idpPieces are the profile idp rows detection writes (the Evidence Server and the recorder), nil outside idp.
+func idpPieces(inst *detect.Installation, gate *evidence.Gate, enabled bool, recorder string) func() []detect.Entry {
+	if !slices.Contains(inst.Profile, "idp") {
+		return nil
+	}
+	return func() []detect.Entry {
+		return []detect.Entry{evidence.Piece(gate, enabled), detect.RecorderPiece(recorder)}
+	}
+}
+
+// evidenceGate is the Evidence Server's gate under --evidence-server-auto (nil otherwise) and the URL the
+// dashboard and the target snapshot read on every use: constant with --enable-evidence-server, the gate's
+// while it is on, empty otherwise. The gate probes the target snapshot's repository, as the snapshot does.
+func evidenceGate(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
+	kc authn.Keychain) (*evidence.Gate, func() string, error) {
+	url := fmt.Sprintf("http://%s.%s.svc:%d", evidence.Name, namespace, evidence.EvidencePort)
+	switch {
+	case o.enableEvidence:
+		return nil, func() string { return url }, nil
+	case !o.evidenceAuto:
+		return nil, func() string { return "" }, nil
+	}
+	g := &evidence.Gate{Reader: mgr.GetAPIReader(), Namespace: namespace, TrustSecret: o.evidenceTrustSecret,
+		TrustConfigKey: o.evidenceTrustConfigKey, Registry: o.registry,
+		Subjects: append(slices.Clone(o.evidenceSubjects), o.evidenceSubjectPrefixes...), LastPush: lastPush.Load, URL: url,
+		FirstPush: firstPush}
+	if o.registry != "" {
+		probe, err := targetsnapshot.ReferrersProbe(targetsnapshot.Config{Registry: o.registry, ClusterID: ident.ID,
+			Keychain: kc, Insecure: oci.EnvInsecureRegistries()})
+		if err != nil {
+			return nil, nil, err
+		}
+		g.Probe = probe
+	}
+	return g, g.EvidenceURL, nil
 }
 
 // addNodeAgent validates the node agent configuration and registers its reconciler.
@@ -855,11 +947,28 @@ func addNodeAgent(mgr ctrl.Manager, o *options, namespace string) error {
 	return nil
 }
 
+// The --dashboard-index modes.
+const (
+	dashboardIndexAuto = "auto"
+	dashboardIndexNone = "none"
+)
+
+// dashboardIndex is the organization index the managed dashboard reads: the installation's own, written
+// from --registry, when mode is auto. It never comes from the detection ConfigMap, which a third party
+// could forge to choose the host that receives the dashboard's registry credentials.
+func dashboardIndex(mode string, inst *detect.Installation) string {
+	if mode != dashboardIndexAuto || inst == nil {
+		return ""
+	}
+	return inst.Index
+}
+
 // addPublishers runs the linker, the target snapshot publisher and, with --hub-url, the member link (both
 // signing with the one installation key). It returns the installation block detection advertises on every
 // install; only its registry fields need --registry.
-func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string,
-	kc, loaderKC authn.Keychain, rec *controller.PactoReconciler) (*detect.Installation, error) {
+func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
+	evidenceURL func() string, kc, loaderKC authn.Keychain,
+	rec *controller.PactoReconciler) (*detect.Installation, error) {
 	linked, err := addLinker(mgr, o, namespace, ident.ID, kc, loaderKC, rec)
 	if err != nil {
 		return nil, err
@@ -934,14 +1043,22 @@ func recordPush(r detect.PushResult) {
 	}
 }
 
+// firstPush is closed by the target snapshot publisher's first attempt, so the evidence gate checks then.
+var firstPush, closeFirstPush = func() (<-chan struct{}, func()) {
+	c := make(chan struct{})
+	var once sync.Once
+	return c, func() { once.Do(func() { close(c) }) }
+}()
+
 // addTargetSnapshot runs the target snapshot publisher when --registry is set: it ensures the installation
 // key, then publishes <registry>/pacto-targets:cluster-<uid> and the inferred contracts under
 // <registry>/pacto-inferred on the elected leader. It fills the registry fields of inst, the installation
 // detection advertises, and leaves them empty without --registry. It returns the installation key, nil
 // without --registry. A member (--hub-url) publishes no inferred contracts: its hub does, from the merged
 // snapshot. Any missing piece stops the operator at start with its reason.
-func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity, evidenceURL string,
-	kc authn.Keychain, inst *detect.Installation, linked func() core.LinkedTargets) (ed25519.PrivateKey, error) {
+func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
+	evidenceURL func() string, kc authn.Keychain, inst *detect.Installation,
+	linked func() core.LinkedTargets) (ed25519.PrivateKey, error) {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
 		return nil, nil
@@ -960,8 +1077,9 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kub
 		ClusterName: ident.Name, ClusterNameSource: ident.NameSource,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
-		OnPush: recordPush, OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
-		Linked: linked})
+		OnPush:      func(r detect.PushResult) { recordPush(r); closeFirstPush() },
+		OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
+		Linked:      linked})
 	if err != nil {
 		return nil, err
 	}

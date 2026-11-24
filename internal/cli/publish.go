@@ -216,11 +216,21 @@ func (f *indexFlag) String() string { return string(*f) }
 func (f *indexFlag) Type() string { return "string" }
 
 func (f *indexFlag) Set(v string) error {
+	if err := checkIndexRef(v); err != nil {
+		return err
+	}
+	*f = indexFlag(v)
+	return nil
+}
+
+// checkIndexRef refuses an --index value that is neither none nor a
+// <registry>/pacto-index repository with no tag or digest. The dashboard
+// also calls it on PACTO_DASHBOARD_INDEX, which viper reads without Set.
+func checkIndexRef(v string) error {
 	repo, tag, dig := contract.SplitOCIRef(contract.TrimOCIScheme(v))
 	if v != app.IndexNone && (tag != "" || dig != "" || !strings.HasSuffix(repo, "/"+orgindex.RepositoryName)) {
 		return errors.New("--index must name <registry>/" + orgindex.RepositoryName + " with no tag or digest, or none")
 	}
-	*f = indexFlag(v)
 	return nil
 }
 

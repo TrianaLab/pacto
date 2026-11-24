@@ -79,7 +79,7 @@ export function phaseLabel(st: ProvisioningStatus, now: number = Date.now()): st
   return `${st.phase} (reported by ${st.producer || 'an unnamed producer'} through ${st.source}, ${when})`;
 }
 
-/** The full detail a badge title carries; the row shows only the phase. */
+/** The full detail a badge title carries, the step a person may take last; the row shows only the phase. */
 export function provisioningTitle(st: ProvisioningStatus, now: number = Date.now()): string {
   return [
     phaseLabel(st, now),
@@ -88,6 +88,7 @@ export function provisioningTitle(st: ProvisioningStatus, now: number = Date.now
     st.sourceKind ? `Source: ${st.sourceKind}` : '',
     st.asOf ? `As of: ${formatDateTime(st.asOf)}` : '',
     st.revision ? `Consumer revision: ${st.revision.label}` : '',
+    st.suggestion ?? '',
   ].filter(Boolean).join('\n');
 }
 

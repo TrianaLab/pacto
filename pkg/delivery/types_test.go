@@ -242,6 +242,10 @@ func (f *fakeRegistry) Annotations(context.Context, string) (map[string]string, 
 	return f.ann, f.annErr
 }
 
+func (f *fakeRegistry) Layer(context.Context, string, int64) (string, []byte, error) {
+	return "", nil, errors.New("no layers")
+}
+
 func (f *fakeRegistry) Pull(_ context.Context, ref string) (*contract.Bundle, error) {
 	f.pulled = ref
 	if f.pullErr != nil {
@@ -293,6 +297,11 @@ func (h hangingRegistry) Annotations(ctx context.Context, _ string) (map[string]
 	}
 	<-ctx.Done()
 	return nil, ctx.Err()
+}
+
+func (hangingRegistry) Layer(ctx context.Context, _ string, _ int64) (string, []byte, error) {
+	<-ctx.Done()
+	return "", nil, ctx.Err()
 }
 
 func (hangingRegistry) Pull(ctx context.Context, _ string) (*contract.Bundle, error) {

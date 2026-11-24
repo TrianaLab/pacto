@@ -1,31 +1,9 @@
 {{- if include "pacto-operator.deliveryEnabled" . }}
-{{- if .Values.delivery.recorder.enabled }}
+{{- if include "pacto-operator.recorderEnabled" . }}
 {{- $r := .Values.delivery.recorder }}
 {{- $streams := include "pacto-operator.delivery.streamsRepository" . }}
-{{- if not $streams }}
-{{- fail "the recorder needs a streams repository: set registry or delivery.recorder.streamsRepository" }}
-{{- end }}
-{{- $signers := 0 }}
-{{- if $r.signing.ed25519.secretName }}{{ $signers = add1 $signers }}{{ end }}
-{{- if $r.signing.kms }}{{ $signers = add1 $signers }}{{ end }}
-{{- if $r.signing.keyless.enabled }}{{ $signers = add1 $signers }}{{ end }}
-{{- if ne (int $signers) 1 }}
-{{- fail "configure exactly one of delivery.recorder.signing.ed25519.secretName, delivery.recorder.signing.kms or delivery.recorder.signing.keyless" }}
-{{- end }}
-{{- $k := $r.signing.keyless }}
-{{- if and $k.enabled (or (not $k.identity) (not $k.issuer) (not $k.fulcioURL) (not $k.timestampURL) (not $k.trustedRoot)) }}
-{{- fail "delivery.recorder.signing.keyless needs identity, issuer, fulcioURL, timestampURL and trustedRoot" }}
-{{- end }}
-{{- if and $r.signing.ed25519.secretName (not $r.signing.allowOperatorReadableKey) }}
-{{- with include "pacto-operator.delivery.operatorReadsKey" . }}
-{{- fail (printf "delivery.recorder.signing.ed25519.secretName puts the signing key in a Secret the operator may read (%s), so the recorder would not be the key's only holder. Use kms or keyless signing, or set delivery.recorder.signing.allowOperatorReadableKey=true to accept that (for kind and tests)" .) }}
-{{- end }}
-{{- end }}
-{{- if eq (include "pacto-operator.delivery.recorderServiceAccountName" .) (include "pacto-operator.delivery.serviceAccountName" .) }}
-{{- fail "the recorder and the promoter resolve to the same ServiceAccount, so the promoter could sign and write records itself: give delivery.recorder.serviceAccount and delivery.serviceAccount different names" }}
-{{- end }}
-{{- if and (eq .Values.delivery.namespace .Release.Namespace) (eq (include "pacto-operator.delivery.recorderServiceAccountName" .) (include "pacto-operator.serviceAccountName" .)) }}
-{{- fail "the recorder resolves to the operator's own ServiceAccount, so the operator could sign and write records: give delivery.recorder.serviceAccount another name" }}
+{{- with include "pacto-operator.recorderCheck" . }}
+{{- fail (splitn ": " 2 . )._1 }}
 {{- end }}
 {{- $name := include "pacto-operator.delivery.recorderName" . }}
 {{- $labels := include "pacto-operator.delivery.labels" (dict "ctx" . "component" "delivery-recorder") }}

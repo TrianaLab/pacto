@@ -796,9 +796,9 @@ func TestPactoVersion24(t *testing.T) {
 	if r := ValidateStructural(doc(local)); r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" {
 		t.Fatalf("2.4 selector beside a schema: %v", r.Errors)
 	}
-	r := ValidateStructural(map[string]any{"pactoVersion": "2.6", "service": map[string]any{"name": "svc", "version": "1.0.0"}})
-	if len(r.Errors) != 1 || r.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" || !strings.Contains(r.Errors[0].Message, "2.0, 2.1, 2.2, 2.3, 2.4, 2.5") {
-		t.Fatalf("2.6: %v", r.Errors)
+	r := ValidateStructural(map[string]any{"pactoVersion": "2.7", "service": map[string]any{"name": "svc", "version": "1.0.0"}})
+	if len(r.Errors) != 1 || r.Errors[0].Code != "UNSUPPORTED_PACTO_VERSION" || !strings.Contains(r.Errors[0].Message, "2.0, 2.1, 2.2, 2.3, 2.4, 2.5, 2.6") {
+		t.Fatalf("2.7: %v", r.Errors)
 	}
 }
 
@@ -814,6 +814,66 @@ func TestValidateStructural_V25AcceptsV24Body(t *testing.T) {
 		if r := ValidateStructural(d); !r.IsValid() {
 			t.Fatalf("2.5 with a 2.4 body: %v", r.Errors)
 		}
+	}
+}
+
+// filelessEnvironment is a contract of version whose one environment names
+// no values file.
+func filelessEnvironment(version string) map[string]any {
+	return map[string]any{"pactoVersion": version, "service": map[string]any{"name": "svc", "version": "1.0.0"},
+		"environments": []any{map[string]any{"name": "pr-412", "lifetime": "temporary", "expires": "2026-12-01T00:00:00Z"}}}
+}
+
+// TestValidateStructural_V26AllowsFilelessEnvironment: from 2.6 an
+// environment may leave out its values file.
+func TestValidateStructural_V26AllowsFilelessEnvironment(t *testing.T) {
+	if r := ValidateStructural(filelessEnvironment("2.6")); !r.IsValid() {
+		t.Fatalf("2.6 fileless environment: %v", r.Errors)
+	}
+}
+
+// TestValidateStructural_V25StillRequiresEnvironmentFile: 2.5 and older keep
+// requiring the file, through their frozen schemas.
+func TestValidateStructural_V25StillRequiresEnvironmentFile(t *testing.T) {
+	for _, v := range []string{"2.4", "2.5"} {
+		r := ValidateStructural(filelessEnvironment(v))
+		if r.IsValid() || r.Errors[0].Code != "SCHEMA_VIOLATION" || r.Errors[0].Path != "environments.0" ||
+			!strings.HasSuffix(r.Errors[0].Message, `missing property 'file'; pactoVersion "2.6" lets an environment leave out file`) {
+			t.Fatalf("%s fileless environment: %v", v, r.Errors)
+		}
+	}
+}
+
+// TestEnvironmentFileHintOnlyForMissingFile: the 2.6 hint is added to an
+// environment missing its file, never to another environment error.
+func TestEnvironmentFileHintOnlyForMissingFile(t *testing.T) {
+	d := map[string]any{"pactoVersion": "2.5", "service": map[string]any{"name": "svc", "version": "1.0.0"},
+		"environments": []any{map[string]any{"file": "e.yaml"}, map[string]any{"name": "x", "file": 3}}}
+	r := ValidateStructural(d)
+	if r.IsValid() {
+		t.Fatal("want errors")
+	}
+	for _, e := range r.Errors {
+		if strings.Contains(e.Message, "2.6") {
+			t.Fatalf("hint on %v", e)
+		}
+	}
+}
+
+// TestValidateStructural_V26AcceptsV25Body: a 2.5 body is valid as 2.6.
+func TestValidateStructural_V26AcceptsV25Body(t *testing.T) {
+	d := map[string]any{"pactoVersion": "2.6", "service": map[string]any{"name": "svc", "version": "1.0.0", "domain": "payments", "template": map[string]any{}},
+		"environments":   []any{map[string]any{"name": "staging", "file": "environments/staging.yaml"}},
+		"configurations": []any{map[string]any{"name": "db", "ref": "oci://r/pg:1.0.0", "configuration": "provisioning", "values": map[string]any{"size": "small"}, "required": true}}}
+	if r := ValidateStructural(d); !r.IsValid() {
+		t.Fatalf("2.6 with a 2.5 body: %v", r.Errors)
+	}
+}
+
+// TestSchemaBytesIs26: SchemaBytes is the 2.6 schema.
+func TestSchemaBytesIs26(t *testing.T) {
+	if !strings.Contains(string(SchemaBytes()), `"title": "Pacto Service Contract v2.6"`) {
+		t.Fatal("SchemaBytes is not the 2.6 schema")
 	}
 }
 

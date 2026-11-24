@@ -3,6 +3,7 @@ package fleet
 import (
 	"slices"
 	"sort"
+	"time"
 )
 
 // This file holds the hard bounds every product answer applies to snapshot-owned
@@ -47,6 +48,14 @@ const MaxExternalNodes = 200
 // MaxExternalSources caps the consumers, and their sources, one answer lists
 // for one external system; ConsumersTotal and SourcesTotal keep the counts.
 const MaxExternalSources = 50
+
+// MaxExternalChangeAge is how long a checked change of an external system's
+// inferred contract raises EXTERNAL_CHANGED, measured from the newer
+// revision's surface time to the snapshot's.
+//
+// ponytail: a fixed window; an acknowledgement record (a write with the
+// actor's identity) if teams ask to dismiss the item.
+const MaxExternalChangeAge = 7 * 24 * time.Hour
 
 // MaxInferredServices caps the inferred services one source contributes.
 // Past it the rest are not read and the source is partial

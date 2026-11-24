@@ -37,6 +37,7 @@ What the chart installs:
 - CRDs: `Pacto`, `PactoRevision` and `NodeRuntimeObservation`, which `helm upgrade` updates and `helm uninstall` keeps (`crds.install=false` leaves them to you)
 - Optional: Prometheus `ServiceMonitor`
 - Optional: the node agent `DaemonSet` (`nodeAgent.enabled`, off by default), in its own namespace (`nodeAgent.namespace`, default `pacto-node-agent`) that the chart creates privileged for Pod Security, with a `ValidatingAdmissionPolicy` binding each agent's writes to its own node
+- Optional: upstream Flux 2.10.1 (`idp.flux.install`, profile idp only), its source, kustomize and helm controllers vendored under `files/flux/` and upgraded with this release. Privilege: the Flux ClusterRoles, the cluster-admin ClusterRoleBinding upstream gives kustomize-controller and helm-controller (each applier object runs as its namespace's ServiceAccount under the lockdown) and the CRDs. Uninstalling Pacto or turning the value off leaves Flux running; see [IDP mode](https://pacto.run/latest/integrations/kubernetes/delivery-setup/#idp-mode) for the exit path
 
 The operator controller never modifies your workloads. It only reads them and reports whether they match their contracts. The same chart ships an opt-in delivery component (alpha, `delivery.enabled`), its own `Deployment`, which decides which version runs where and moves Flux or Argo CD source pointers. Its own admission policies guard each promotion. See [Delivery](https://pacto.run/latest/integrations/kubernetes/delivery/).
 
@@ -203,6 +204,23 @@ The chart follows security best practices by default:
 - All capabilities dropped
 - Seccomp profile set to `RuntimeDefault`
 - Metrics endpoint served over HTTPS with authentication (chart default `metrics.secure=true`); see [Scraping the metrics](https://pacto.run/latest/integrations/kubernetes/installation/#scraping-the-metrics)
+
+### Profile idp
+
+`profile: idp` turns each piece on only where its prerequisite holds; `pacto fleet providers` says why each one is on or off. See [What idp turns on](https://pacto.run/latest/integrations/kubernetes/profiles/#what-idp-turns-on-when-the-cluster-supports-it).
+
+| Piece | Prerequisite | Turn it off |
+|---|---|---|
+| Evidence Server | The registry serves OCI Referrers, a subject or subject prefix is set on that registry (default `oci://<registry>/` when `registry` has a path) and the trust Secret (`<fullname>-evidence-trust` or `evidence.trust.existingSecret`) holds a non-empty `.pub` key, or the `evidence.trust.configKey` key when that is set | Remove the keys from the trust Secret, or leave profile idp |
+| Recorder | A streams repository and exactly one complete signing method, with `delivery.recorder.enabled` unset | `delivery.recorder.enabled=false` |
+| Upstream Crossplane | `idp.crossplane.install=true`; refused outside idp, under hardened and where another Crossplane runs | `idp.crossplane.install=false`, which keeps Crossplane's CRDs and resources |
+
+The privilege idp adds:
+
+- Pacto delivery's ClusterRoles, and the recorder's ClusterRole when the recorder runs
+- The read of ServiceMonitors and PodMonitors
+- `create`, `delete`, `get`, `patch` and `update` on Deployments and Services in the release namespace, for the Evidence Server
+- With `idp.crossplane.install=true` only, the upstream Crossplane chart's RBAC: the `crossplane` ServiceAccount writes CRDs, Secrets, ServiceAccounts, Services, Deployments and webhook configurations cluster-wide, the `rbac-manager` ServiceAccount may escalate and bind ClusterRoles, and the `crossplane:masters` group is bound to `crossplane-admin`
 
 ## Artifact Verification
 

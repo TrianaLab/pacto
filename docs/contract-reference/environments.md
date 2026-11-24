@@ -37,7 +37,7 @@ environments:
 | Field | Type | Required | Constraints |
 |-------|------|----------|-------------|
 | `name` | string | Yes | Lowercase alphanumeric and hyphens, at most 63 characters. Unique in the contract (`DUPLICATE_ENVIRONMENT_NAME` otherwise) |
-| `file` | string | Yes | Path to a YAML or JSON file, from the bundle root, with no leading `/` or `./` and no `..` (`FILE_NOT_FOUND` otherwise, or when the file is missing) |
+| `file` | string | No (2.6). Yes before 2.6 | Path to a YAML or JSON file, from the bundle root, with no leading `/` or `./` and no `..` (`FILE_NOT_FOUND` otherwise, or when the file is missing) |
 | `lifetime` | string | No | `temporary` or `persistent`. Needs `pactoVersion: "2.4"`. Absent reads "not declared", never persistent |
 | `expires` | string | No | An RFC 3339 time, such as `2026-11-20T00:00:00Z`, and only with `lifetime: temporary` (`INVALID_ENVIRONMENT_EXPIRES`, `ENVIRONMENT_EXPIRES_NOT_TEMPORARY` otherwise). Needs `pactoVersion: "2.4"` |
 | `owner` | object | No | Who owns this environment when it is not the service owner, in the shape of [`service.owner`](sections.md#service) (`team`, `dri`, `contacts`). Needs `pactoVersion: "2.4"` |
@@ -65,6 +65,43 @@ The file is part of the bundle, so `pacto pack` and `pacto push` ship it with
 the contract. A [`.pactoignore`](../pactoignore.md) entry that hides it makes
 validation report `FILE_NOT_FOUND`.
 
+### An environment without a values file
+
+From `pactoVersion: "2.6"` an environment may leave out `file`. It adds no
+values of its own, so each configuration runs on its defaults, and validation
+checks it like that. A required configuration whose defaults leave out a key
+its schema needs reports `ENVIRONMENT_VALUES_MISSING` at `environments[i]`,
+for example `environment pr-412 declares no values file: chart needs
+ingress.host`. Diff, impact, the fleet and the delivery plan read it as an
+environment with no values, never as a file they could not read. A contract
+older than 2.6 still requires `file`.
+
+```yaml
+pactoVersion: "2.6"
+environments:
+  - name: production
+    file: environments/production.yaml
+  - name: pr-412
+    lifetime: temporary
+    expires: "2026-11-20T00:00:00Z"
+```
+
+`pacto_edit` declares one with `add_environments` and `noFile`, such as
+`[{"name":"pr-412","noFile":true}]`, and raises the contract to 2.6.
+
+### Environments and the installation ladder
+
+With delivery on, Pacto creates a service's Stages from the
+[installation ladder](../integrations/kubernetes/delivery-environments.md),
+the chain of environments the installation declares, such as `staging` then
+`production`. A contract with no `environments` gets every rung. Declaring
+`environments` makes the list the exact set: a rung the list leaves out is
+opted out, and an entry outside the ladder, such as `pr-412`, is an addition
+that takes its versions from the registry. Once a temporary entry passes its
+`expires`, or an entry leaves the list, Pacto retires the Stage it created for
+it after `delivery.environments.retireAfter`. Pacto deletes no workload and
+retires only the Stages it created.
+
 ### Temporary environments
 
 A preview or pull-request environment lives hours or days. Declare it
@@ -91,8 +128,10 @@ Once `expires` is at or before the clock of the run, `pacto validate` and
 WARN  [ENVIRONMENT_EXPIRED] environments[1].expires: environment pr-482 expired at 2026-11-20T00:00:00Z; nothing was deleted: remove it with pacto_edit remove_environments or move expires
 ```
 
-The verdict stays the same. Pacto deletes nothing for an expired environment:
-no contract entry, file, Stage or resource. The fleet and the dashboard's
+The verdict stays the same. Validation deletes nothing for an expired
+environment: no contract entry, file, Stage or resource. Only a Stage Pacto
+created from the installation ladder retires, as
+[above](#environments-and-the-installation-ladder). The fleet and the dashboard's
 service page show it as expired (inferred), as of the time of their answer. An
 environment with no `owner` shows the service owner, labelled inferred.
 
@@ -100,15 +139,14 @@ environment with no `owner` shows the service owner, labelled inferred.
 
 | Task | Command |
 |---|---|
-| Create a service with environments | `pacto init --delivery --env test,pr-482` declares each environment with an empty values file and writes a Stage for each |
 | Add environments to a contract | `pacto_edit` with `add_environments`, such as `[{"name":"pr-482","lifetime":"temporary","expires":"2026-11-20T00:00:00Z"}]` |
-| Retire an environment | `pacto_edit` with `remove_environments`, such as `["pr-482"]`. A file no other environment names is deleted. Nothing in a cluster changes |
+| Retire an environment | `pacto_edit` with `remove_environments`, such as `["pr-482"]`. A file no other environment names is deleted. Once that version is published, a Stage Pacto created for it retires; nothing else in a cluster changes |
 | List a service's environments | `pacto fleet entity service <name>`, `pacto_fleet_entity` or the [service page](../dashboard-service-page.md#environments) |
 | Compare two environments | `pacto explain <bundle> --environments production,pr-482` or `pacto_check` with `environments` |
 | See the Stages that deliver it | `pacto delivery status --service <name>` |
 
 Adding an environment declares it: nothing in a cluster changes until a Stage
-exists for it. `pacto_edit` returns the steps that get there in `chain`:
+exists for it, one you write or one Pacto creates from the installation ladder. `pacto_edit` returns the steps that get there in `chain`:
 publish the contract, then plan a promote on the environment's Stage. Its
 `executor` names who acts on the published revision, an adapter or a GitOps
 tool, and `impact` says who the edit affects when the session has a fleet
@@ -129,7 +167,12 @@ Event (`EnvironmentCreated`, `EnvironmentDeleted`) and the recorder posts a
 CDEvent (`environment.created`, `environment.deleted`); see
 [delivery setup](../integrations/kubernetes/delivery-setup.md) and
 [delivery records](../integrations/kubernetes/delivery-records.md). Each names
-one Stage; other Stages for the same environment are unaffected.
+one Stage, such as "Stage test/payments-pr-482 for payments in pr-482 was
+deleted"; other Stages for the same environment are unaffected. The Event
+`EnvironmentCreated` carries the Stage's creation time. A promoter restart
+emits neither Event again, a Stage whose status was reset emits
+`EnvironmentCreated` again with its original creation time, and a Stage deleted
+while the promoter is down emits no Event.
 
 ### How values are checked
 
@@ -234,7 +277,7 @@ web-1.5.0 is invalid
 PASS load
 SKIP lock               no pacto.lock
 PASS structural
-  INFO  [CONTRACT_BEHIND] pactoVersion: pactoVersion "2.3" is behind "2.5"; fix the errors this run reports before Pacto can tell whether raising pactoVersion keeps its meaning
+  INFO  [CONTRACT_BEHIND] pactoVersion: pactoVersion "2.3" is behind "2.6"; fix the errors this run reports before Pacto can tell whether raising pactoVersion keeps its meaning
 PASS cross-field
 PASS policy
 SKIP configuration-refs no configuration references
@@ -290,7 +333,6 @@ version's contract declares. The `pacto.environment` check runs the same
 | Declares that environment, and its values pass | Goes on |
 
 Name each environment after the `spec.environment` of the Stages that deliver
-the service there, such as `staging` and `production`. `pacto init --delivery --env` and
-`pacto_create` with `delivery` declare each environment in the contract, with
-an empty values file, beside the Stage they write for it, so the names match
-from the start.
+the service there, such as `staging` and `production`. Pacto names the Stages
+it creates after the environments of the installation ladder, so declare an
+environment under the same name.

@@ -80,7 +80,7 @@ func TestImpactInferredProviderNeverClear(t *testing.T) {
 	c := res.Consumers[0]
 	if res.Completeness != fleet.CompletenessComplete || hasCode(res.Limitations, "SERVICE_NOT_IN_FLEET") ||
 		c.Compatibility != "^2023.10" || !c.Direct || c.Provenance != fleet.ProvenanceDeclared || c.OwnerKey == "" || len(c.Targets) != 1 ||
-		len(res.ActiveTargets) != 1 || !strings.Contains(res.GateReason, "1 of 1 consumer pins a range on it. Write a contract with service.external: stripe") ||
+		len(res.ActiveTargets) != 1 || !strings.Contains(res.GateReason, "1 of 1 consumer pins a range on it. Claim stripe with pacto claim stripe --owner <team>") ||
 		strings.Contains(res.GateReason, "pacto declare") {
 		t.Errorf("answer = %+v", res)
 	}
@@ -186,5 +186,45 @@ func TestForceUnknownClearsUnmet(t *testing.T) {
 		if o.Key == OutcomeIncompatible && o.Count != 0 {
 			t.Errorf("tallies = %+v", r.ConsumerTallies)
 		}
+	}
+}
+
+// claimedStripeFleet is inferredFleet plus ana's accepted claim of stripe,
+// published at ghcr.io/acme/stripe.
+func claimedStripeFleet(t *testing.T, revs ...fleet.RawRevision) *fleet.FleetSnapshot {
+	t.Helper()
+	ana := contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.example", Class: contract.SignerClassHuman}
+	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: "4.6.0", Discovery: "1"}, Fields: []contract.Inferred{},
+		Declaration: &contract.InferredDeclaration{State: contract.DeclarationDeclared, Asker: ana, InferredFrom: "external:stripe"}}
+	claimed := stripeContract("0.1.0")
+	claimed.Service.Owner = contract.Owner{Team: "team-platform"}
+	claim := fleet.RawRevision{Bundle: &contract.Bundle{Contract: claimed, FS: fstest.MapFS{contract.InferredRecordFile: {Data: rec.Marshal()}}},
+		ResolvedRef: "ghcr.io/acme/stripe:0.1.0", Digest: "sha256:claimed",
+		Provenance: &fleet.BundleProvenance{Source: "oci", Signers: []fleet.VerifiedSigner{{Subject: ana.Subject, Issuer: ana.Issuer, Class: contract.SignerClassHuman}}}}
+	col := &fleet.Collection{
+		Revisions: append(revs, claim, fleet.RawRevision{Bundle: mkBundle(svcContract("checkout", "1.0.0", contract.Owner{Team: "shop"}, pinned("^2023.10")))}),
+		Targets:   []fleet.RawTarget{{Scope: "prod", Kind: "deployment", Name: "checkout", Service: "checkout", Compliance: fleet.StatusCompliant, EvidenceAt: fresh()}},
+	}
+	policy := &fleet.DeclarationSignerPolicy{Signers: []fleet.PolicySigner{{Issuer: ana.Issuer, Subjects: `[^@]+@acme\.com`}}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{DeclarationSigners: policy}, fleet.NewMemorySource("test", "memory", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snap.Externals["stripe"].Claim == nil {
+		t.Fatalf("stripe is unclaimed: %+v", snap.Limitations)
+	}
+	return snap
+}
+
+func TestImpactInferredProviderNamesClaimedRef(t *testing.T) {
+	snap := claimedStripeFleet(t, inferredStripe("2023.10.15"), inferredStripe("2023.10.16"))
+	res := Analyze(context.Background(), stripeContract("2023.10.15"), stripeContract("2023.10.16"), fstest.MapFS{}, fstest.MapFS{}, snap,
+		Options{Domain: "ghcr.io/acme/pacto-inferred", InferredProvider: "stripe"})
+	if !strings.Contains(res.GateReason, "Point the ranges at ghcr.io/acme/stripe, the claimed contract of stripe") || res.Gate != GateUnverified {
+		t.Errorf("gate %s %q", res.Gate, res.GateReason)
+	}
+	ev := externalEvent(snap, EventChanged, "stripe")
+	if !strings.Contains(ev.GateReason, "Point the ranges at ghcr.io/acme/stripe, the claimed contract of stripe") {
+		t.Errorf("event gate %q", ev.GateReason)
 	}
 }

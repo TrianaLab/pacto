@@ -2589,6 +2589,7 @@ spec:
             - --dashboard-token-login
             - --dashboard-mcp
             - --dashboard-fingerprints-configmap=pacto-operator-fingerprints
+            - --dashboard-index=auto
           ports:
             - name: metrics
               containerPort: 8443

@@ -1424,3 +1424,23 @@ func TestImpactVersionAmbiguousConsumerIsUnverified(t *testing.T) {
 		t.Error("an absent consumer read as guessed")
 	}
 }
+
+// TestImpactFilelessEnvironmentIsReadable: an environment with no values
+// file has nothing to read, with or without the consumer's files, so its
+// values are checked on the defaults and never read as unknown.
+func TestImpactFilelessEnvironmentIsReadable(t *testing.T) {
+	c := svcContract("orders", "1.0.0", contract.Owner{})
+	c.Environments = []contract.Environment{{Name: "pr-412"}}
+	if why := unreadableEnvironments(c, nil); why != "" {
+		t.Errorf("no files: %q", why)
+	}
+	if why := unreadableEnvironments(c, fstest.MapFS{}); why != "" {
+		t.Errorf("empty files: %q", why)
+	}
+	provider := &contract.Bundle{Contract: pgContract("16.2.0", "provisioning", false), FS: pgSchema("small", "large")}
+	c.PactoVersion = "2.6"
+	c.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://x/postgresql", Values: map[string]any{"size": "small"}}}
+	if v, note := revisionConfigRefVerdict(&fleet.ContractRevision{Contract: c}, []string{"db"}, provider); v != CompatibilityCompatible {
+		t.Errorf("file-less consumer: %s %q", v, note)
+	}
+}

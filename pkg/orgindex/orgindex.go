@@ -138,11 +138,14 @@ func (e Entry) Validate(indexRepo, tag string) error {
 	host, _, _ := strings.Cut(repo, "/")
 	indexHost, _, _ := strings.Cut(indexRepo, "/")
 	root, inIndex := strings.CutSuffix(indexRepo, "/"+RepositoryName)
+	_, inferred := contract.InferredRef(repo)
 	switch {
 	case host != indexHost:
 		return refused("the bundle is on another host", fmt.Sprintf("the index entry's bundle %s is on %s, not the index host %s", repo, host, indexHost))
 	case !inIndex || !strings.HasPrefix(repo, root+"/"):
 		return refused("the bundle is outside the index root", fmt.Sprintf("the index entry's bundle %s is outside %s", repo, root))
+	case inferred:
+		return refused("the bundle is an inferred contract", fmt.Sprintf("the index entry's bundle %s lies under %s, which never holds a declared contract", repo, contract.InferredRepository))
 	case string(fleet.NewServiceKeyDomain(contract.OCIDomain(repo), e.Name)) != e.Service:
 		return refused("the service does not match its bundle and name", fmt.Sprintf("the index entry names service %s, but its bundle %s is %s", e.Service, repo, e.Name))
 	}

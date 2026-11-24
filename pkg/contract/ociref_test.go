@@ -222,3 +222,60 @@ func TestInferredRef(t *testing.T) {
 		}
 	}
 }
+
+func TestContributionRepositoryJoins(t *testing.T) {
+	if got := contract.ContributionRepository("ghcr.io/acme", "my-idp"); got != "ghcr.io/acme/pacto-inferred/my-idp/services" {
+		t.Fatalf("ContributionRepository = %q", got)
+	}
+}
+
+func TestContributionRefShapes(t *testing.T) {
+	for _, tc := range []struct {
+		ref, producer string
+		ok            bool
+	}{
+		{"oci://ghcr.io/acme/pacto-inferred/my-idp/services:checkout_1.0.0", "my-idp", true},
+		{"ghcr.io/acme/pacto-inferred/my-idp/services@sha256:" + hex64, "my-idp", true},
+		{"ghcr.io/acme/team/pacto-inferred/my-idp/services", "my-idp", true},
+		{"ghcr.io/acme/pacto-inferred/stripe", "", false},
+		{"ghcr.io/acme/pacto-inferred/my-idp/services/x", "", false},
+		{"ghcr.io/acme/pacto-inferred/my-idp/other", "", false},
+		{"ghcr.io/acme/pacto-inferred/host/services", "", false},
+		{"ghcr.io/pacto-inferred/my-idp/services", "", false},
+		{"ghcr.io/acme/pacto-inferred/My_IdP/services", "", false},
+		{"ghcr.io/acme/checkout:1.0.0", "", false},
+	} {
+		p, ok := contract.ContributionRef(tc.ref)
+		if p != tc.producer || ok != tc.ok {
+			t.Errorf("ContributionRef(%q) = %q %v, want %q %v", tc.ref, p, ok, tc.producer, tc.ok)
+		}
+	}
+}
+
+func TestInferredRefStillCoversContributions(t *testing.T) {
+	if id, ok := contract.InferredRef("oci://ghcr.io/acme/pacto-inferred/my-idp/services:checkout_1.0.0"); !ok || id != "my-idp/services" {
+		t.Fatalf("InferredRef = %q %v", id, ok)
+	}
+}
+
+func TestContributionGrant(t *testing.T) {
+	for _, tc := range []struct {
+		prefix, producer, repo string
+		grant, err             bool
+	}{
+		{"ghcr.io/acme/pacto-inferred/my-idp", "my-idp", "ghcr.io/acme/pacto-inferred/my-idp/services", true, false},
+		{"ghcr.io/acme", "my-idp", "", false, false},
+		{"ghcr.io/pacto-inferred/my-idp", "my-idp", "", false, false},
+		{"ghcr.io/acme/pacto-inferred/other-idp", "my-idp", "", false, true},
+		{"ghcr.io/acme/pacto-inferred", "my-idp", "", false, true},
+		{"ghcr.io/acme/pacto-inferred/my-idp/services", "my-idp", "", false, true},
+		{"ghcr.io/acme/pacto-inferred/my-idp/", "my-idp", "", false, true},
+		{"ghcr.io/acme/pacto-inferred/host", "host", "", false, true},
+		{"ghcr.io/acme/pacto-inferred/My-IdP", "My-IdP", "", false, true},
+	} {
+		repo, grant, err := contract.ContributionGrant(tc.prefix, tc.producer)
+		if repo != tc.repo || grant != tc.grant || (err != nil) != tc.err {
+			t.Errorf("ContributionGrant(%q, %q) = %q %v %v", tc.prefix, tc.producer, repo, grant, err)
+		}
+	}
+}

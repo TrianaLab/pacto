@@ -3,8 +3,8 @@
 This page describes how [the operational graph](operational-graph.md) names
 the systems outside your Pacto system that contracts depend on: vendor APIs,
 managed cloud services and legacy hosts. Each one is a single graph node of
-kind `external`, so "who depends on Stripe?" has an answer without anyone
-writing a contract for Stripe. The
+kind `external`, so "who depends on Stripe?" has an answer before anyone
+[claims](inferred-contracts.md#claim-an-external-system) Stripe. The
 [operational graph reference](operational-graph-reference.md#external-systems)
 covers how queries return them.
 
@@ -75,6 +75,7 @@ entries:
     hosts: [api.stripe.com, "*.stripe.com"]
     sdkModules: [github.com/stripe/stripe-go, npm:stripe, pypi:stripe, "maven:com.stripe:stripe-java"]
     keyPatterns: ["STRIPE_*"]
+    openapi: "https://docs.stripe.com/openapi.json@sha256:7c21..."
   - identity: aws/rds
     class: managed-cloud
     hosts: ["*.rds.amazonaws.com"]
@@ -95,6 +96,7 @@ entries:
 | `entries[].crossplane` | No | `managed-cloud` only. `<api group>/<Kind>` of a managed resource, or of a claim or composite resource of your own XRD |
 | `entries[].keyPatterns` | No | Environment and secret key names: `A-Z`, `0-9` and `_`, with at most one trailing `*` |
 | `entries[].otel` | No | `dbSystem`, `messagingSystem` and `rpcSystem` lists of OpenTelemetry system values |
+| `entries[].openapi` | No | The vendor's published OpenAPI document, pinned by digest: `<oci:// or https:// reference>@sha256:<64 lower-case hex>`, at most 512 bytes. An `https://` reference needs a host and carries no credentials, query or fragment; an `oci://` one is `repository@digest`. See [the OpenAPI link](#the-openapi-link) |
 
 An alias, host, key pattern, SDK module, Terraform resource type or
 Crossplane kind claimed by two entries of one file is an error, and the error
@@ -103,6 +105,22 @@ A file holds at most 2000 entries and 1 MiB. Pacto joins declared dependencies
 by `aliases`. `hosts`, `keyPatterns`, `sdkModules`, `terraform`, `crossplane`
 and `otel` classify what `pacto init`, the operator and trace sources
 recognize, as [Matching](#matching) describes.
+
+### The OpenAPI link
+
+Pacto never fetches the document; the digest is the change signal:
+
+- When the digest moves, the system's
+  [inferred contract](inferred-contracts.md#the-bundle) publishes a new
+  revision and the fleet raises `EXTERNAL_CHANGED`; see
+  [an external system changes or goes down](impact-what-if.md#an-external-system-changes-or-goes-down).
+- Only `pacto fleet publish-inferred --external-catalog` reads the key. The
+  operator loads no organization catalog yet, and the default catalog links
+  no document.
+- An organization entry without `openapi` removes a link an earlier revision
+  recorded, on the next complete run.
+- Catalogs decode strictly, so a catalog that sets `openapi` needs this
+  release or later.
 
 ## Matching
 

@@ -88,7 +88,8 @@ func (e *exporter) apiNames(services []*fleet.ServiceRecord) map[apiID]string {
 }
 
 // ownerAnnotations are the Component annotations an API copies with its owner.
-var ownerAnnotations = []string{AnnotationOwnerProvenance, AnnotationOwnerConflict, AnnotationOwner, AnnotationOwnerUnmapped}
+var ownerAnnotations = []string{AnnotationOwnerProvenance, AnnotationOwnerConflict, AnnotationOwner, AnnotationOwnerUnmapped,
+	AnnotationInferredOwner, AnnotationInferredOwnerSource}
 
 // apiEntities is one API per interface of s's current revision, none when it
 // is unreadable. Owner, its annotations and system are the Component's; an interface's own
