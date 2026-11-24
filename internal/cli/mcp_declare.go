@@ -487,20 +487,8 @@ func hiddenOwnerRefusal(err error) error {
 // offering acceptance: no review of the caller on its source object backs
 // it either, so it names the pacto declare a person runs.
 func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.RawMessage, *pactomcp.Refused, error) {
-	if _, claim := a.Claim(); claim {
-		a, refused := r.claimArgs(ctx, a)
-		if refused != nil {
-			return nil, refused, nil
-		}
-		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans a claim: a draft would go with its own push " +
-			"credential for any caller; run the command on your machine, where adding --yes publishes the claim signed by you", CLI: a.Command(a.IntentDigest)}, nil
-	}
-	if _, offer := a.Offering(); offer {
-		if refused := r.offeringArgs(ctx, a); refused != nil {
-			return nil, refused, nil
-		}
-		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans an offering acceptance: a draft would go " +
-			"with its own push credential for any caller; run the command on your machine, where adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}, nil
+	if refused := r.plansOnly(ctx, a); refused != nil {
+		return nil, refused, nil
 	}
 	if !r.writes() {
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no declaration: run the command on your machine; " +
@@ -547,6 +535,27 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 	}
 	req.Store = pushWriter(r.push, p.BundleRepo)
 	return mcpWritten(writeServerDraft(ctx, r.svc, req, p, decl, who.person.User, "mcp"))
+}
+
+// plansOnly is the refusal for a claim or an offering acceptance, which
+// this server only plans (see Execute); nil for any other declaration.
+func (r remoteDeclarer) plansOnly(ctx context.Context, a pactomcp.DeclareArgs) *pactomcp.Refused {
+	if _, claim := a.Claim(); claim {
+		a, refused := r.claimArgs(ctx, a)
+		if refused != nil {
+			return refused
+		}
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans a claim: a draft would go with its own push " +
+			"credential for any caller; run the command on your machine, where adding --yes publishes the claim signed by you", CLI: a.Command(a.IntentDigest)}
+	}
+	if _, offer := a.Offering(); offer {
+		if refused := r.offeringArgs(ctx, a); refused != nil {
+			return refused
+		}
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans an offering acceptance: a draft would go " +
+			"with its own push credential for any caller; run the command on your machine, where adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}
+	}
+	return nil
 }
 
 // template is, for a template:<namespace>/<name> request, the golden path

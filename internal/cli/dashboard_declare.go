@@ -260,13 +260,8 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 		return ans, err
 	}
 	fresh := ans.Signing.Mode == signModeFreshLogin
-	if fresh && d.signedIn(r, in.IntentDigest) {
-		// Back from a live signing login: the plan is the one the login was
-		// started for, whatever the page asks.
-		ans.SignedIn = true
-		if acc := d.accepted(r, in.IntentDigest); acc != nil {
-			in.Accept = acc
-		}
+	if fresh {
+		d.resumeLogin(r, ans, &in)
 	}
 	req, err := d.request(r, w, in.Accept, in.FromDraft, in.ClaimInput, in.Offering)
 	if err != nil {
@@ -305,6 +300,19 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 		ans.SignTicket = d.ticket(r, p.IntentDigest, in.Accept)
 	}
 	return ans, nil
+}
+
+// resumeLogin marks ans signed in when the person is back from a live
+// signing login: the plan is the one the login was started for, whatever
+// the page asks.
+func (d *dashboardDeclarer) resumeLogin(r *http.Request, ans *dashboard.DeclareAnswer, in *dashboard.DeclareInput) {
+	if !d.signedIn(r, in.IntentDigest) {
+		return
+	}
+	ans.SignedIn = true
+	if acc := d.accepted(r, in.IntentDigest); acc != nil {
+		in.Accept = acc
+	}
 }
 
 // prCommand is the pacto declare that opens w's repository pull request:
