@@ -259,8 +259,9 @@ function parseFleet(path: string, query: string): Route {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
-    // Only the offerings list narrows by lifecycle and by a failed request.
-    for (const k of rest === 'offerings' ? ['lifecycle', 'failed'] : []) {
+    // Only the offerings list narrows by lifecycle and by a failed request, and
+    // switches to the inferred offerings.
+    for (const k of rest === 'offerings' ? ['lifecycle', 'failed', 'inferred'] : []) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -547,11 +548,12 @@ export function fleetDomainsUrl(opts: { text?: string; hasNonCompliant?: boolean
   return str ? `#/fleet/domains?${str}` : '#/fleet/domains';
 }
 
-export function fleetOfferingsUrl(opts: { text?: string; lifecycle?: string; failed?: boolean } & ListPaging = {}): string {
+export function fleetOfferingsUrl(opts: { text?: string; lifecycle?: string; failed?: boolean; inferred?: boolean } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.lifecycle) qs.set('lifecycle', opts.lifecycle);
   if (opts.failed) qs.set('failed', '1');
+  if (opts.inferred) qs.set('inferred', '1');
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/offerings?${str}` : '#/fleet/offerings';

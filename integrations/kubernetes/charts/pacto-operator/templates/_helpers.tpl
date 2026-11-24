@@ -199,6 +199,9 @@ Controller arguments derived from values
 {{- end }}
 {{- end }}
 - --chart-version={{ .Chart.Version }}
+{{- if not (dig "offerings" "enabled" true (.Values.crossplane | default dict)) }}
+- --crossplane-offerings=false
+{{- end }}
 {{- if include "pacto-operator.member" . }}
 - --hub-url={{ .Values.hub.url }}
 {{- if .Values.hub.caConfigMap }}

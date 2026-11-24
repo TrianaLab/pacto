@@ -140,6 +140,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 	handover, handoverBundle, handedOver := demoHandover(demoNow(), prodCluster.ID)
 	col.Revisions = append(col.Revisions, handover)
 	byRef[handover.ResolvedRef] = handoverBundle
+	// objectstore 1.0.0, accepted from an inferred offering that has since drifted.
+	objectstore, objectstoreBundle := demoDeclaredObjectstore()
+	col.Revisions = append(col.Revisions, objectstore)
+	byRef[objectstore.ResolvedRef] = objectstoreBundle
 	for _, c := range claims {
 		col.Revisions = append(col.Revisions, c)
 		byRef[c.ResolvedRef] = c.Bundle
@@ -261,8 +265,11 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 		return nil, nil, err
 	}
 	rest, traceSources := demoTraceSources(detected, demoNow())
+	// It also reads the inferred offerings the operator maps from the
+	// cluster's XRDs (source_offering.go).
 	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
-		Advisory: true, Providers: detect.ProviderRows(rest, "cluster-detection", demoNow()),
+		Advisory: true, Providers: append(detect.ProviderRows(rest, "cluster-detection", demoNow()), demoOfferingRow()),
+		Revisions: demoInferredOfferings(), Offerings: []fleet.OfferingObservation{demoOfferingObservation()},
 	})
 	linked := fleet.NewMemorySource("k8s-production-linked", fleet.SourceKindLinked, &fleet.Collection{
 		Cluster: prodCluster, Targets: linkedTargets,

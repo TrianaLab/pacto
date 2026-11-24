@@ -44,7 +44,8 @@ const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
  * data sources, one per source kind. The demo's four egress readers come back as rows
  * of their own with `egress` set, so they never add a pill. The hub's two members
  * share one target-snapshot pill, the Evidence Server adds an evidence-http pill and
- * the Backstage catalog a backstage-catalog pill.
+ * the Backstage catalog a backstage-catalog pill. The inferred offerings the cluster's
+ * operator contributes (515-S4) come through the existing detection pill.
  */
 const NAV_PILLS = 13;
 const EGRESS_ROWS = { 'kernel-egress': 'partial', 'istio-egress': 'complete', 'cilium-fqdn': 'unavailable', 'egress-gateway': 'partial' };
@@ -205,12 +206,13 @@ test.describe('the inventory says what Pacto detected', () => {
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Sixteen reported rows (the Pacto CRD, the kernel-egress row,
+    // Seventeen reported rows (the Pacto CRD, the kernel-egress row,
     // Kubernetes workloads, the Argo CD, Flux and Helm rows that group the
     // inferred services, the Kargo promotion row, the Istio row of the mesh
     // source, the demo and partner registries and five reporting adapter
-    // rows, one producer's signed and unsigned reports apart, and acme-idp's
-    // producer row from the Evidence Server), the operator's
+    // rows, one producer's signed and unsigned reports apart, acme-idp's
+    // producer row from the Evidence Server and the producer row of the
+    // inferred offerings the cluster's operator contributes), the operator's
     // declared Installation row, the thirteen the cluster's operator detected
     // (Datadog, three egress readers, Crossplane and the Backstage catalog among them) and the three trace
     // backends their edge sources report: five show, the
@@ -224,9 +226,9 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(istio).toContainText('observed edges');
     await istio.getByText('Why partial').click();
     await expect(istio.locator('.dp-why li')).toHaveText(['1 namespace without sidecars']);
+    await block.getByRole('button', { name: 'Show all 34 providers' }).click();
+    await expect(rows).toHaveCount(34);
     await expect(block).toContainText('Pacto CRD');
-    await block.getByRole('button', { name: 'Show all 33 providers' }).click();
-    await expect(rows).toHaveCount(33);
     await expect(block).toContainText('reports provisioning');
     await expect(block).toContainText('Kubernetes workloads');
     await expect(block).toContainText('service grouping, repository provenance');
@@ -235,8 +237,8 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(block).toContainText('Registry demo.pacto.local');
     await expect(block).toContainText('Registry partners.demo.pacto.local');
     await expect(block).toContainText('no Referrers, no _catalog');
-    await expect(rows.nth(16)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(17)).toHaveClass(/dp-inferred/);
+    await expect(rows.nth(17)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(18)).toHaveClass(/dp-inferred/);
     // The running Crossplane is one more inferred row in the same block: its
     // version, what it serves and one provenance mark, never a block of its own.
     const crossplane = rows.filter({ has: page.locator('.dp-name bdi[title="Crossplane"]') });

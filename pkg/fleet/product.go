@@ -189,6 +189,9 @@ type EntityRef struct {
 	// ContributedBy is the producer whose contribution alone describes an
 	// inferred service, empty for any other.
 	ContributedBy string `json:"contributedBy,omitempty" doc:"On an inferred service only a producer's contribution describes: that producer"`
+	// InferredOffering is set on the rows of an inferred offering list
+	// (kind offering, declaration inferred).
+	InferredOffering *InferredOfferingFacts `json:"inferredOffering,omitempty" doc:"On a row of the inferred offering list: the producer, source object, generation, classes and asOf"`
 	// NameInferred is where a SERVICE reference's name comes from when no
 	// revision declares it (see ServiceRecord.NameInferred).
 	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`

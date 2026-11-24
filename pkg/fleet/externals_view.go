@@ -149,6 +149,10 @@ func restrictClaim(out *FleetSnapshot, c *ExternalClaim) *ExternalClaim {
 // expected: `pacto fleet get external:stripe`.
 const ExternalSubjectPrefix = "external:"
 
+// OfferingSubjectPrefix is the declare subject of an inferred offering a
+// person accepts: offering:<name>.
+const OfferingSubjectPrefix = "offering:"
+
 // ParseExternalSubject reports whether s names an external system, and which.
 func ParseExternalSubject(s string) (ExternalKey, bool) {
 	k, ok := strings.CutPrefix(s, ExternalSubjectPrefix)

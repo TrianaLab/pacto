@@ -93,7 +93,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), claimRows(), acceptRows(), clusterRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), claimRows(), offeringRows(), acceptRows(), clusterRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -431,6 +431,27 @@ func claimRows() []surfaceRow {
 		alike("claim", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)
+}
+
+// offeringRows map pacto fleet offerings and the acceptance of an inferred
+// offering: pacto declare offering:<name> is pacto_declare with service
+// offering:<name> (pacto_declare.service, the declare <service> row).
+func offeringRows() []surfaceRow {
+	const why = "pacto_fleet_entities and GET /api/fleet/entities list the inferred offerings with kind offering and declaration inferred (the fleet entities --declaration row)"
+	const whyPage = "pacto_fleet_entities and GET /api/fleet/entities page the same list (the fleet entities --limit and --offset rows)"
+	const whyDash = "the dashboard accepts an inferred offering with the Accept action of its contributed service page, which sends the declare routes its version and ref"
+	return []surfaceRow{
+		{"fleet offerings --inferred", "", "", why},
+		{"fleet offerings --limit", "", "", whyPage},
+		{"fleet offerings --offset", "", "", whyPage},
+		{"declare --version", "pacto_declare.version", "", whyDash},
+		{"declare --from", "pacto_declare.from", "", whyDash},
+		{"declare --owner", "", "", "pacto_declare.owner and the declare routes' body.owner, the claim --owner row, also name an offering's owner"},
+		{"declare --detected", "", "", "stdio pacto_declare verifies with the server's own --detected; over HTTP the server's --detected is read with the caller's own cluster credentials"},
+		{"declare --contribution-trust", "", "", "a third-party producer's grant is a file on the person's machine; pacto_declare and the dashboard verify with their detection and name this flag in the CLI a refusal prints"},
+		{"", "", "POST /api/fleet/declare body.offering", "the dashboard's offering input holds the version, owner and registry declare --version, --owner and --registry name; the server takes --from from the viewer's fleet and --detected from its own"},
+		{"", "", "POST /api/fleet/declare/accept body.offering", "the accept route carries out the plan with the offering input it named"},
+	}
 }
 
 // acceptRows map pacto accept and pacto_accept, the agent write contract's
@@ -1031,6 +1052,7 @@ var jsonRuns = map[string][]string{
 	"fleet graph":             {"payments"},
 	"fleet map":               {},
 	"fleet neighborhood":      {"payments"},
+	"fleet offerings":         {"--inferred"},
 	"fleet overview":          {},
 	"fleet providers":         {},
 	"fleet reconcile":         {"--traces", "does-not-exist.json"},

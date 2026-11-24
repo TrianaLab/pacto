@@ -75,6 +75,9 @@ func (d *demoDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in das
 		ans, _ := d.planClaim(d.who(r), id, in.ClaimInput, in.IntentDigest)
 		return ans, nil
 	}
+	if w.Offering != "" {
+		return planOffering(w, in.Offering), nil
+	}
 	ans := &dashboard.DeclareAnswer{Signing: demoSigning(), Write: dashboard.DeclareWrite{Available: true}}
 	// A draft's requested ranges stay unknown unless the person accepts them.
 	accept, from := in.Accept, (*demoDraft)(nil)
@@ -107,6 +110,14 @@ func (d *demoDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in das
 func (d *demoDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload, in dashboard.DeclareAcceptInput) (*dashboard.DeclareAcceptAnswer, error) {
 	if id, ok := fleet.ParseExternalSubject(w.Key); ok {
 		return d.acceptClaim(d.who(r), id, in)
+	}
+	if w.Offering != "" {
+		// Nobody signs in the demo and it saves no offering draft.
+		a := planOffering(w, in.Offering)
+		if a.Refusal != nil {
+			return &dashboard.DeclareAcceptAnswer{Refusal: a.Refusal}, nil
+		}
+		return &dashboard.DeclareAcceptAnswer{Refusal: &dashboard.DeclareRefusal{Code: "NotAllowed", Message: demoOfferingNoDraft, Command: a.Command}}, nil
 	}
 	if in.Mode != "draft" || in.FromDraft != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: &dashboard.DeclareRefusal{Code: "NotAllowed",

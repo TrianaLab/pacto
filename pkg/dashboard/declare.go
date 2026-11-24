@@ -46,9 +46,19 @@ type DeclareWorkload struct {
 	// alone, and from no list RepositoryUnknown says is incomplete.
 	Repositories      []fleet.InferredRepository
 	RepositoryUnknown string
-	// View is the viewer's restricted fleet, set for an external system: a
-	// claim plan names nothing it hides.
+	// View is the viewer's restricted fleet, set for an external system and
+	// an inferred offering: a claim or acceptance plan names nothing it hides.
 	View *fleet.Query
+	// Offering, From and Source are set for an inferred offering a producer
+	// contributed (Key its contributed service): the offering it offers, the
+	// verified record it is accepted from (<repository>@sha256:<hex>) and the
+	// cluster object its bundle cites, nil when it cites none or SourceUnread
+	// says why it was not read. Cluster is the cluster whose installation
+	// advertised it, empty for a producer the trust config grants.
+	Offering     string
+	From         string
+	Source       *fleet.SourceObject
+	SourceUnread string
 }
 
 // DraftRef names one draft by its tag and the digest the person was shown.
@@ -65,6 +75,16 @@ type DeclareInput struct {
 	// IntentDigest names the plan a signing login was started for.
 	IntentDigest string `json:"intentDigest,omitempty" doc:"The intent a signing login was started for: back from that login, the accepted ranges are the ones it was started with, whatever accept says"`
 	ClaimInput
+	Offering *OfferingInput `json:"offering,omitempty" doc:"Set to accept the inferred offering serviceKey names as a declared offering; the server takes the record it is accepted from from your view of the fleet"`
+}
+
+// OfferingInput is how a person accepts an inferred offering: the version
+// they publish, the owner of a first acceptance and the registry path.
+type OfferingInput struct {
+	Name     string `json:"name,omitempty" maxLength:"63" pattern:"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$" doc:"The offering accepted; defaults to the one the inferred offering offers"`
+	Version  string `json:"version,omitempty" maxLength:"64" doc:"The release version (MAJOR.MINOR.PATCH) the declared offering is published at"`
+	Owner    string `json:"owner,omitempty" maxLength:"253" pattern:"^[a-zA-Z0-9._/-]+$" doc:"The team that owns the offering; needed on its first acceptance"`
+	Registry string `json:"registry,omitempty" maxLength:"512" doc:"The registry path the offering is published under: the dashboard's registry (the default) or a path below it"`
 }
 
 // ClaimInput names the owner and service name of a claim: set only when
@@ -82,6 +102,7 @@ type DeclareAcceptInput struct {
 	Mode         string    `json:"mode" enum:"sign,draft" doc:"sign: publish the declared version signed by the person's fresh login; draft: save a draft-<n> a person accepts later"`
 	FromDraft    *DraftRef `json:"fromDraft,omitempty" doc:"Accept this draft: its tag must still name the digest the plan showed"`
 	ClaimInput
+	Offering *OfferingInput `json:"offering,omitempty" doc:"The offering acceptance the plan was made for"`
 }
 
 // DeclareText is one file of a declaration, at most MaxDeclareText bytes.
@@ -199,7 +220,7 @@ type DeclareWrite struct {
 // DeclareRefusal is a declaration that was refused, with the command a person
 // runs about it.
 type DeclareRefusal struct {
-	Code    string `json:"code" enum:"PlanStale,IntentRequired,WorkloadNotFound,WorkloadAmbiguous,AlreadyDeclared,RangeNotProposed,NoRegistry,RegistryUnreadable,VersionConflict,SignerNotAllowed,SignerUnverified,DraftNotFound,ExecuteNeedsStdio,BaselineNeedsMigration,BundleRepoMismatch,AcceptNothingProposed,FieldNotAcceptable,BreakNotAnnounced,NotPublished,PersonSigningUnavailable,OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED,IdentityRequired,SignInLinkReadsFleet,ReviewFailed,ClusterNotReviewable,NotAllowed,OwnerRequired,ExternalMismatch,ExternalUnknown,ClaimRepositoryInferred,DraftNotOffered" doc:"The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)"`
+	Code    string `json:"code" enum:"PlanStale,IntentRequired,WorkloadNotFound,WorkloadAmbiguous,AlreadyDeclared,RangeNotProposed,NoRegistry,RegistryUnreadable,VersionConflict,SignerNotAllowed,SignerUnverified,DraftNotFound,ExecuteNeedsStdio,BaselineNeedsMigration,BundleRepoMismatch,AcceptNothingProposed,FieldNotAcceptable,BreakNotAnnounced,NotPublished,PersonSigningUnavailable,OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED,IdentityRequired,SignInLinkReadsFleet,ReviewFailed,ClusterNotReviewable,NotAllowed,OwnerRequired,ExternalMismatch,ExternalUnknown,ClaimRepositoryInferred,OfferingSchemaOpen,OfferingSourceInvalid,OfferingSourceUnverified,OfferingMismatch,VersionRequired,DraftNotOffered" doc:"The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)"`
 	Message string `json:"message"`
 	Command string `json:"command,omitempty" doc:"The command a person runs about it"`
 }
@@ -328,11 +349,27 @@ func (s *Server) declareWorkload(ctx context.Context, key string) (DeclareWorklo
 		}
 		return DeclareWorkload{Key: key, Name: string(id), View: q}, nil
 	}
-	rec := q.SnapshotForSerialization().Services[fleet.ServiceKey(key)]
+	snap := q.SnapshotForSerialization()
+	rec := snap.Services[fleet.ServiceKey(key)]
+	if c := offeringContribution(rec); c != nil {
+		w := DeclareWorkload{Key: key, Name: rec.Name, Cluster: c.Cluster, Offering: rec.Offering, From: c.Ref, View: q}
+		w.Source, w.SourceUnread = fleet.ContributionSource(snap, rec)
+		return w, nil
+	}
 	if rec == nil || !rec.Inferred() || rec.Workload == nil {
 		return DeclareWorkload{}, huma.Error404NotFound("no inferred service with this serviceKey")
 	}
 	wl := rec.Workload
 	return DeclareWorkload{Key: key, Name: wl.Name, Cluster: wl.Cluster, Namespace: wl.Namespace, Kind: wl.Kind,
 		Repositories: wl.Repositories, RepositoryUnknown: wl.RepositoriesIncomplete()}, nil
+}
+
+// offeringContribution is the verified contribution of rec when rec is an
+// inferred offering a producer contributed, else nil: content no key
+// verified is never accepted from.
+func offeringContribution(rec *fleet.ServiceRecord) *fleet.ServiceContribution {
+	if rec == nil || rec.Offering == "" || rec.Contribution == nil || rec.Contribution.KeyID == "" {
+		return nil
+	}
+	return rec.Contribution
 }

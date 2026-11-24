@@ -136,6 +136,14 @@ describe('declarationParts', () => {
       href: '#/fleet/externals/aws%2Frds%2Feu-west-1%2Forders-db', after: '' });
     expect(declarationLine(claim)).toBe('Declared by ana@acme.com from external aws/rds/eu-west-1/orders-db');
   });
+  it('links the inferred offering an accepted offering came from to the inferred offerings', () => {
+    const accepted = { declaration: { ...checked.declaration, inferredFrom: 'offering:crossplane-6f1c/xbucket@sha256:4c1e' } };
+    expect(declarationParts(accepted)).toEqual({ before: 'Declared by ana@acme.com from ', link: 'inferred offering xbucket of crossplane-6f1c',
+      href: '#/fleet/offerings?text=xbucket&inferred=1', after: '' });
+    const note = declarationNote(accepted);
+    expect(note).toContain('Signed by ana@acme.com');
+    expect(note).not.toContain('Cluster facts');
+  });
   it('links nothing for a workload, an unverified signer or none', () => {
     expect(declarationParts(checked).href).toBe('');
     expect(declarationParts({ declaration: { ...unverified.declaration, inferredFrom: 'external:stripe' } }).href).toBe('');

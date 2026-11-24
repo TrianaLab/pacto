@@ -1,6 +1,6 @@
 <script>
   import { api } from '../lib/api.ts';
-  import { rangeRows, draftLine, draftMark, signUrl, signReturn, moved, completenessLine, claimId, claimFieldError } from '../lib/declare.ts';
+  import { rangeRows, draftLine, draftMark, signUrl, signReturn, moved, completenessLine, claimId, claimFieldError, offeringFieldError, openPaths } from '../lib/declare.ts';
   import { formatCount } from '../lib/format.ts';
   import { hostSignsIn, signIn } from '../lib/session.svelte.ts';
   import CopyableIdentifier from './CopyableIdentifier.svelte';
@@ -21,14 +21,20 @@
   // the owning team (and optionally the service name, claimedName on a claim
   // again) first, and the plan is asked for with them. A host that saves no claim
   // draft (noDraft) offers only signing.
-  let { serviceKey = '', open = false, signed = '', claimedName = '' } = $props();
+  // `offering` set accepts the inferred offering serviceKey contributes (515-S4): the
+  // person sets the version, and optionally the owner and registry path, first.
+  let { serviceKey = '', open = false, signed = '', claimedName = '', offering = '' } = $props();
   const claim = $derived(claimId(serviceKey));
-  // The owner and name of a claim ride across the signing login like a draft.
-  const claimKey = (intent) => `pacto-claim:${intent}`;
+  // The fields a claim or an offering acceptance asks for first ('' for neither).
+  const asks = $derived(claim ? 'claim' : offering ? 'offering' : '');
+  // Those fields ride across the signing login like a draft.
+  const fieldsKey = (intent) => `pacto-${asks}:${intent}`;
   let owner = $state('');
   let name = $state('');
+  let version = $state('');
+  let registry = $state('');
   let claimTouched = $state(false);
-  const claimError = $derived(claimFieldError(owner.trim(), name.trim()));
+  const claimError = $derived(asks === 'offering' ? offeringFieldError(version.trim(), owner.trim()) : claimFieldError(owner.trim(), name.trim()));
 
   // A draft being accepted rides across the signing login here, keyed by the intent
   // digest that covers its digest, so a changed draft never matches.
@@ -37,6 +43,10 @@
   let answer = $state(null);
   let error = $state(null);
   let loading = $state(false);
+  // A first acceptance with no owner is refused by the server: the owner field is the next step.
+  let ownerInput = $state(null);
+  const ownerRequired = $derived(asks === 'offering' && answer?.refusal?.code === 'OwnerRequired');
+  $effect(() => { if (ownerRequired) ownerInput?.focus(); });
   let accept = $state([]);
   let draft = $state(null);
   let busy = $state(false);
@@ -67,8 +77,11 @@
     accept = (a?.plan?.ranges ?? []).filter((r) => r.accepted).map((r) => r.dependency);
   }
 
-  // claimBody is what a claim adds to every request: its owner and name.
-  const claimBody = () => (claim ? { owner: owner.trim(), name: name.trim() || undefined } : {});
+  // claimBody is what a claim (its owner and name) or an offering acceptance (its
+  // version, owner and registry) adds to every request.
+  const claimBody = () => (claim ? { owner: owner.trim(), name: name.trim() || undefined }
+    : offering ? { offering: { version: version.trim(), owner: owner.trim() || undefined, registry: registry.trim() || undefined } } : {});
+  const keptFields = () => (claim ? { owner: owner.trim(), name: name.trim() } : { version: version.trim(), owner: owner.trim(), registry: registry.trim() });
 
   async function load(body = {}) {
     loading = true;
@@ -89,14 +102,16 @@
       try { from = JSON.parse(sessionStorage.getItem(draftKey(signed)) || 'null'); } catch { from = null; }
     }
     draft = from;
-    if (claim) {
+    if (asks) {
       let kept = null;
       if (signed) {
-        try { kept = JSON.parse(sessionStorage.getItem(claimKey(signed)) || 'null'); } catch { kept = null; }
+        try { kept = JSON.parse(sessionStorage.getItem(fieldsKey(signed)) || 'null'); } catch { kept = null; }
       }
       owner = kept?.owner ?? '';
       name = kept?.name ?? claimedName;
-      // A claim is planned once the person names its owner.
+      version = kept?.version ?? '';
+      registry = kept?.registry ?? '';
+      // A claim is planned once the person names its owner, an offering once they set its version.
       if (!kept) return;
     }
     await load({ intentDigest: signed || undefined, fromDraft: from || undefined });
@@ -148,7 +163,7 @@
   function startSign(e) {
     try {
       if (draft) sessionStorage.setItem(draftKey(p.intentDigest), JSON.stringify(draft));
-      if (claim) sessionStorage.setItem(claimKey(p.intentDigest), JSON.stringify({ owner: owner.trim(), name: name.trim() }));
+      if (asks) sessionStorage.setItem(fieldsKey(p.intentDigest), JSON.stringify(keptFields()));
     } catch { /* the plan is asked for again by hand */ }
     // A host that signs in itself (the WASM demo) keeps the tab: it signs the person
     // in again and comes back to the same return page.
@@ -180,7 +195,7 @@
         refusal = out.refusal;
       } else {
         result = out;
-        try { if (signed) { sessionStorage.removeItem(draftKey(signed)); sessionStorage.removeItem(claimKey(signed)); } } catch { /* nothing kept */ }
+        try { if (signed) { sessionStorage.removeItem(draftKey(signed)); sessionStorage.removeItem(fieldsKey(signed)); } } catch { /* nothing kept */ }
         if (out.draft) {
           draft = null;
           await load({ accept });
@@ -203,13 +218,29 @@
       <p class="t-meta dp-p" id="dp-claim-error" role={claimTouched && claimError.message ? 'alert' : undefined}>{claimTouched ? claimError.message : ''}</p>
     </form>
   {/if}
+  {#if offering}
+    <form class="dp-claim" onsubmit={planClaim} novalidate data-testid="offering-fields">
+      <label class="dp-field"><span>Version</span><input class="input" bind:value={version} required maxlength="64" autocomplete="off" placeholder="1.0.0" aria-invalid={claimTouched && claimError.field === 'version' ? 'true' : undefined} aria-describedby="dp-offering-error" data-testid="offering-version" /></label>
+      <label class="dp-field"><span>Owner team <span class="t-meta">(first acceptance)</span></span><input class="input" bind:this={ownerInput} bind:value={owner} maxlength="253" autocomplete="off" aria-invalid={ownerRequired || (claimTouched && claimError.field === 'owner') ? 'true' : undefined} aria-describedby="dp-offering-error" data-testid="offering-owner" /></label>
+      <label class="dp-field"><span>Registry path <span class="t-meta">(optional)</span></span><input class="input" bind:value={registry} maxlength="512" autocomplete="off" data-testid="offering-registry" /></label>
+      <button type="submit" class="btn btn-sm" aria-disabled={loading ? 'true' : undefined} data-testid="offering-plan">Show the plan</button>
+      <p class="t-meta dp-p" id="dp-offering-error" role={claimTouched && claimError.message ? 'alert' : undefined}>{claimTouched ? claimError.message : ''}</p>
+    </form>
+  {/if}
   {#if loading && !answer}
-    <p class="t-meta dp-p">{claim ? 'Planning the claim…' : 'Reading the cluster as you…'}</p>
+    <p class="t-meta dp-p">{claim ? 'Planning the claim…' : offering ? 'Planning the acceptance…' : 'Reading the cluster as you…'}</p>
   {:else if error}
     <RefusalNotice {error} />
   {:else if answer}
     {#if answer.refusal}
       <RefusalNotice error={answer.refusal} />
+      {@const paths = openPaths(answer.refusal)}
+      {#if paths.length}
+        <ul class="dp-list" data-testid="offering-open-paths" aria-label="Open paths">{#each paths as path, i (i)}<li><bdi>{path}</bdi></li>{/each}</ul>
+      {/if}
+      {#if answer.refusal.command && answer.refusal.command !== answer.command}
+        <div class="dp-command" data-testid="declare-refusal-command"><span class="t-meta">Next</span> <CopyableIdentifier value={answer.refusal.command} label="command" /></div>
+      {/if}
     {/if}
     {#if p}
       {#if draft}
@@ -263,7 +294,7 @@
       {/if}
       {#if result}
         <p class="dp-p" role="status" data-testid="declare-result">
-          {#if result.draft}Saved <bdi>{result.tag}</bdi>. {claim ? 'A default approver accepts it' : 'A person who may update the workload accepts it'} from the drafts below or with the command.{:else}Published <bdi>{result.tag}</bdi>{#if result.signed}, signed by you as <bdi>{signing.identity}</bdi>{/if}.{/if}
+          {#if result.draft}Saved <bdi>{result.tag}</bdi>. {claim ? 'A default approver accepts it' : offering ? 'A person who may update its source object accepts it' : 'A person who may update the workload accepts it'} from the drafts below or with the command.{:else}Published <bdi>{result.tag}</bdi>{#if result.signed}, signed by you as <bdi>{signing.identity}</bdi>{/if}.{/if}
         </p>
         {#if result.draft && result.command}<div class="dp-command" data-testid="declare-accept-command"><span class="t-meta">Accept it with</span> <CopyableIdentifier value={result.command} label="command" /></div>{/if}
       {/if}

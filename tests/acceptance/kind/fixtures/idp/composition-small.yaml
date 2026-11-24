@@ -1,0 +1,13 @@
+# A Composition selecting XDatabase: its name is one value of the class enum.
+# Crossplane resolves the Function only when it composes, so the Function is
+# never installed here.
+apiVersion: apiextensions.crossplane.io/v1
+kind: Composition
+metadata:
+  name: xdatabase-small
+spec:
+  compositeTypeRef: {apiVersion: e2e.pacto.run/v1alpha1, kind: XDatabase}
+  mode: Pipeline
+  pipeline:
+  - step: compose
+    functionRef: {name: function-patch-and-transform}

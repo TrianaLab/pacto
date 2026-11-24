@@ -19,6 +19,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/inferredpublish"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/member"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/offeringpublish"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 )
@@ -50,21 +51,26 @@ func isLink(r manager.Runnable) bool { _, ok := r.(*member.Link); return ok }
 
 func isInferred(r manager.Runnable) bool { _, ok := r.(*inferredpublish.InferredPublisher); return ok }
 
+func isOfferings(r manager.Runnable) bool { _, ok := r.(*offeringpublish.Publisher); return ok }
+
 var testIdent = kubecluster.Identity{ID: "uid-1", Name: "eu-prod"}
 
 func TestAddTargetSnapshotReturnsKey(t *testing.T) {
 	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
 	m := newFakeManager()
 	inst := &detect.Installation{}
-	key, err := addTargetSnapshot(m, &options{registry: "registry.example/acme"}, "pacto", testIdent, nil, nil, inst, nil)
+	o := &options{registry: "registry.example/acme"}
+	key, _, err := addTargetSnapshot(m, o, "pacto", testIdent, nil, nil, inst, nil)
 	if err != nil || len(key) != ed25519.PrivateKeySize {
 		t.Fatalf("addTargetSnapshot = %d-byte key, %v; want the installation key", len(key), err)
 	}
 	if !m.has(isInferred) || inst.SnapshotKeyID == "" {
 		t.Fatal("a registry install publishes inferred contracts and advertises the snapshot key")
 	}
-	key, err = addTargetSnapshot(newFakeManager(), &options{}, "pacto", testIdent, nil, nil, &detect.Installation{}, nil)
-	if key != nil || err != nil {
+	o = &options{crossplaneOfferings: true}
+	inst = &detect.Installation{}
+	key, offerings, err := addTargetSnapshot(newFakeManager(), o, "pacto", testIdent, nil, nil, inst, nil)
+	if key != nil || offerings != nil || err != nil {
 		t.Fatalf("addTargetSnapshot without --registry = %v, %v; want no key", key, err)
 	}
 }
@@ -73,7 +79,7 @@ func TestMemberDoesNotPublishInferred(t *testing.T) {
 	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
 	m := newFakeManager()
 	o := &options{registry: "registry.example/acme", hubURL: "https://pacto.acme.dev", profile: "default"}
-	if _, err := addPublishers(m, o, "pacto", testIdent, nil, nil, nil, &controller.PactoReconciler{}); err != nil {
+	if _, _, err := addPublishers(m, o, "pacto", testIdent, nil, nil, nil, &controller.PactoReconciler{}); err != nil {
 		t.Fatal(err)
 	}
 	if m.has(isInferred) || !m.has(isLink) {
@@ -107,7 +113,7 @@ func TestHubURLNeedsRegistry(t *testing.T) {
 
 func TestAddInstallationRefusesBadProfile(t *testing.T) {
 	o, rec := &options{profile: "nope"}, &controller.PactoReconciler{}
-	if _, err := addPublishers(newFakeManager(), o, "pacto", testIdent, nil, nil, nil, rec); err == nil {
+	if _, _, err := addPublishers(newFakeManager(), o, "pacto", testIdent, nil, nil, nil, rec); err == nil {
 		t.Fatal("an unknown profile stops the operator")
 	}
 }
@@ -134,7 +140,7 @@ func TestChartVersionFlagAdvertised(t *testing.T) {
 	if err := fs.Parse([]string{"--chart-version=0.42.0", "--profile=default"}); err != nil {
 		t.Fatal(err)
 	}
-	inst, err := addPublishers(newFakeManager(), o, "pacto", testIdent, nil, nil, nil, &controller.PactoReconciler{})
+	inst, _, err := addPublishers(newFakeManager(), o, "pacto", testIdent, nil, nil, nil, &controller.PactoReconciler{})
 	if err != nil || inst.ChartVersion != "0.42.0" {
 		t.Fatalf("installation = %+v, %v", inst, err)
 	}
@@ -159,5 +165,30 @@ func TestClusterInventoryFlagsParse(t *testing.T) {
 	err := fs.Parse([]string{"--cluster-inventory-namespaces=argocd,Flux_System"})
 	if err == nil || !strings.Contains(err.Error(), `"Flux_System" is not a namespace name`) {
 		t.Fatalf("a bad namespace = %v", err)
+	}
+}
+
+const testReg = "registry.example/acme"
+
+func TestAddTargetSnapshotRunsOfferings(t *testing.T) {
+	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
+	for _, tc := range []struct {
+		name string
+		o    options
+		want bool
+	}{
+		{"on", options{registry: testReg, crossplaneOfferings: true}, true},
+		{"member", options{registry: testReg, crossplaneOfferings: true, hubURL: "https://pacto.acme.dev"}, true},
+		{"off", options{registry: testReg}, false},
+		{"scoped", options{registry: testReg, crossplaneOfferings: true, namespaces: []string{"team-a"}}, false},
+	} {
+		m := newFakeManager()
+		_, offerings, err := addTargetSnapshot(m, &tc.o, "pacto", testIdent, nil, nil, &detect.Installation{}, nil)
+		if err != nil || m.has(isOfferings) != tc.want || (offerings != nil) != tc.want {
+			t.Fatalf("%s: offerings = %v, added %T, err %v", tc.name, offerings != nil, m.added, err)
+		}
+		if tc.want && offerings().Repository != "registry.example/acme/pacto-inferred/crossplane-uid-1/services" {
+			t.Fatalf("%s: advertisement = %+v", tc.name, offerings())
+		}
 	}
 }

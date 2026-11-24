@@ -15,17 +15,16 @@ import (
 // is not checked. Every field a record says was carried from a registry
 // declaration is declared in pacto.yaml, so a hand-edited bundle cannot
 // claim a carry its contract does not hold. A declaration that claims an
-// external system sits in a contract whose service.external names it.
+// external system sits in a contract whose service.external names it, and
+// one that accepts an inferred offering in a contract whose service.offering
+// names it.
 func declarationStage(result *ValidationResult, c *contract.Contract, rec *contract.InferredRecord) {
 	carriedStage(result, c, rec.Inputs.Declaration)
 	d := rec.Declaration
 	if d == nil {
 		return
 	}
-	if id, ok := contract.InferredFromExternal(d.InferredFrom); ok && c.Service.External != id {
-		result.AddError(contract.InferredRecordFile, string(finding.CodeDeclarationExternalMismatch),
-			"the declaration claims external "+id+", but pacto.yaml declares service.external "+cmp.Or(c.Service.External, "none"))
-	}
+	subjectStage(result, c, d.InferredFrom)
 	declared := make(map[string]string, len(c.Dependencies))
 	for _, dep := range c.Dependencies {
 		declared["dependencies["+dep.Name+"].compatibility"] = dep.Compatibility
@@ -51,6 +50,20 @@ func declarationStage(result *ValidationResult, c *contract.Contract, rec *contr
 		result.AddError(contract.InferredRecordFile, string(finding.CodeDeclarationRangeNotAccepted),
 			strings.TrimSuffix(f.Field, ".compatibility")+" declares compatibility "+got+", a proposed range nobody accepted; "+
 				"keep compatibility: unknown or accept the proposal "+f.Proposed)
+	}
+}
+
+// subjectStage adds an error when inferredFrom claims an external system
+// pacto.yaml's service.external does not name, or accepts an inferred
+// offering its service.offering does not name.
+func subjectStage(result *ValidationResult, c *contract.Contract, inferredFrom string) {
+	if id, ok := contract.InferredFromExternal(inferredFrom); ok && c.Service.External != id {
+		result.AddError(contract.InferredRecordFile, string(finding.CodeDeclarationExternalMismatch),
+			"the declaration claims external "+id+", but pacto.yaml declares service.external "+cmp.Or(c.Service.External, "none"))
+	}
+	if _, name, _, ok := contract.InferredFromOffering(inferredFrom); ok && c.Service.Offering != name {
+		result.AddError(contract.InferredRecordFile, string(finding.CodeDeclarationOfferingMismatch),
+			"the declaration accepts the inferred offering "+name+", but pacto.yaml declares service.offering "+cmp.Or(c.Service.Offering, "none"))
 	}
 }
 

@@ -523,4 +523,22 @@ describe('adapters reporting', () => {
     expect(note.querySelector('a')?.getAttribute('href')).toBe('https://pacto.run/latest/platform-offerings/#consumers');
     done();
   });
+
+  it('says once whether an accepted provider drifted from its source object, and nothing without drift', async () => {
+    const drifted = provider('xbucket', { drift: { state: 'drifted', producer: 'crossplane-6f1c', acceptedDigest: 'sha256:4c1e', newestVersion: '0.0.0-inferred.4.0', asOf: '2026-11-23T10:02:00Z', reason: 'source object changed since accepted (now generation 4)' } });
+    const unknown = provider('ybucket', { drift: { state: 'unknown', producer: 'crossplane-6f1c', acceptedDigest: 'sha256:5d2f', reason: 'observation is stale' } });
+    const plain = provider('zbucket');
+    const { target, done } = await render(detail({ providers: preview([drifted, unknown, plain]) }));
+    const cards = Array.from(target.querySelectorAll('[data-testid="offering-provider"]'));
+    const line = (c: Element) => c.querySelectorAll('[data-testid="provider-drift"]');
+    expect(line(cards[0])).toHaveLength(1);
+    expect(text(line(cards[0])[0])).toMatch(/^drifted source object changed since accepted \(now generation 4\), Nov 23, 2026/);
+    // A confirmed drift carries the warn tone, an unknown one the neutral hatch.
+    expect(line(cards[0])[0].querySelector('.badge-warn')?.textContent).toBe('drifted');
+    expect(text(line(cards[1])[0])).toBe('drift unknown observation is stale');
+    expect(line(cards[1])[0].querySelector('.badge-neutral .hatch')).not.toBeNull();
+    expect(line(cards[1])[0].querySelector('.badge-warn')).toBeNull();
+    expect(line(cards[2])).toHaveLength(0);
+    done();
+  });
 });

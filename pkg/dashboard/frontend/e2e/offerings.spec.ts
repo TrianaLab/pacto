@@ -36,13 +36,13 @@ test.describe('WASM demo — platform offerings', () => {
     expect(await noSideScroll(page)).toBe(true);
   });
 
-  test('the demo lists its six offerings and postgresql and shared-config have two providers', async ({ page }) => {
+  test('the demo lists its seven offerings and postgresql and shared-config have two providers', async ({ page }) => {
     await page.goto('/#/fleet/offerings');
     const list = page.getByTestId('offering-list');
     await expect(list).toBeVisible({ timeout: T });
     const rows = list.locator('tbody tr');
-    await expect(rows).toHaveCount(6);
-    for (const name of ['messaging', 'postgresql', 'redis', 'security-scanning', 'shared-config', 'shared-policy']) {
+    await expect(rows).toHaveCount(7);
+    for (const name of ['messaging', 'objectstore', 'postgresql', 'redis', 'security-scanning', 'shared-config', 'shared-policy']) {
       await expect(list.locator(`a.entity-link[href$="/fleet/offerings/${name}"]`)).toBeVisible();
     }
     await expect(rows.filter({ has: page.locator('a.entity-link[href$="/fleet/offerings/shared-config"]') })).toContainText('2 providers');
@@ -58,7 +58,7 @@ test.describe('WASM demo — platform offerings', () => {
     const fig = page.getByTestId('offerings-figure');
     await expect(fig).toBeVisible({ timeout: T });
     await expect(fig).toContainText('Are the requests for platform offerings ready?');
-    await expect(fig).toContainText(/across 6 offerings/);
+    await expect(fig).toContainText(/across 7 offerings/);
     // The Failed station and the offering it names both open the failed-request list.
     await expect(fig.locator('a[data-lists="1"]')).toHaveAttribute('href', /[?&]failed=1/);
     await expect(fig.locator(`a.chip[href$="/fleet/offerings/postgresql"]`)).toBeVisible();

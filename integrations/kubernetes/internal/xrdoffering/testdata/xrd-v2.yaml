@@ -1,0 +1,24 @@
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: xqueues.messaging.acme.io
+  generation: 1
+spec:
+  scope: Namespaced
+  group: messaging.acme.io
+  names:
+    kind: XQueue
+    plural: xqueues
+  versions:
+    - name: v1
+      served: true
+      referenceable: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                size:
+                  type: integer

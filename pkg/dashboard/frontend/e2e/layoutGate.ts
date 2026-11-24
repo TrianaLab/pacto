@@ -193,6 +193,24 @@ export function installScaleFixture(): void {
         offeringAgg(ag, LIST_TOTAL.offering);
       }
     }
+    // 515-S4: the inferred offering rows at their longest, a 63-character offering read
+    // from a long source object with a dozen classes; and, behind a flag, no declared
+    // offering at all beside the inferred ones (the empty state keeps its inferred link).
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'offering' && q.get('declaration') === 'inferred') {
+      (doc.entities as Record<string, unknown>[]).forEach((r, i) => {
+        const f = r.inferredOffering as Record<string, unknown> | undefined;
+        if (!f) return;
+        const slug = `x${'bucket-replicated-'.repeat(5)}`.slice(0, 61).replace(/-+$/, '') + `-${i}`;
+        Object.assign(f, { offering: slug, from: `CompositeResourceDefinition ${longName(slug)}.storage.acme.io`, generation: 1234567,
+          classes: Array.from({ length: 12 }, (_, j) => longName(`class-${j}`).slice(0, 63).replace(/-+$/, '')) });
+      });
+    }
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'offering' && !q.get('declaration') && (window as unknown as { __offeringsOnlyInferred?: boolean }).__offeringsOnlyInferred) {
+      Object.assign(doc, { entities: [], count: 0, total: 0, truncated: false, inferredTotal: 2 });
+      delete doc.nextOffset;
+      const ag = doc.aggregate as Record<string, unknown> | undefined;
+      if (ag) Object.assign(ag, { matched: 0, offeringCount: 0 });
+    }
     // The non-compliant rankings at fleet scale (389 of 5,000 across 300 owners and
     // domains, names up to 200 characters), and every list a lane links to holds exactly
     // what the lane counts.
@@ -632,6 +650,18 @@ export function installScaleFixture(): void {
         for (const k of ['successorRange', 'supportedRange']) if (u[k]) u[k] = 'unknown';
       }
       for (const t of [cons?.phases, cons?.phaseConsumers]) if (t?.ready) t.readyUnsigned = Math.floor(t.ready / 2);
+    }
+    // 515-S4: the provider block's drift line, as the API sends OfferingProvider.drift:
+    // drifted on the first provider, unknown with a long reason on the next.
+    if (route === '/api/fleet/entities/offering' && (window as unknown as { __offeringDrift?: boolean }).__offeringDrift) {
+      const items = ((doc.offering as Record<string, unknown> | undefined)?.providers as { items?: Record<string, unknown>[] } | undefined)?.items ?? [];
+      const producer = 'crossplane-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11';
+      items.forEach((p, i) => {
+        p.drift = i % 2 === 0
+          ? { state: 'drifted', producer, acceptedDigest: `sha256:${'4c'.repeat(32)}`, newestRef: `ghcr.io/${longName('acme')}/pacto-inferred/${producer}/services@sha256:${'9d'.repeat(32)}`,
+            newestVersion: '0.0.0-inferred.1234567.89', asOf: '2026-11-23T10:02:00Z', reason: 'source object changed since accepted (now generation 1234567)' }
+          : { state: 'unknown', producer, acceptedDigest: `sha256:${'4c'.repeat(32)}`, reason: `the producer's last run stopped short: ${longName('the run stopped at 200 source objects')}` };
+      });
     }
     // A checked range's answer carries the provider's successor at its longest ref.
     if (route === '/api/fleet/versions') {
@@ -1947,6 +1977,13 @@ export function installScaleFixture(): void {
       return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
         detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
     }
+    // 515-S4: an inferred offering whose parameters are open, refused with every open path.
+    if ((window as unknown as { __offeringSchemaOpen?: boolean }).__offeringSchemaOpen && method === 'POST' && route === '/api/fleet/declare') {
+      const paths = Array.from({ length: 8 }, (_, i) => `provisioning: schema.properties.${longName(`parameters-${i}`).replace(/[^a-z0-9-]/g, '')}`);
+      return { status: 200, contentType: 'application/json', body: JSON.stringify({ signing: { mode: 'none', reason: 'the demo has no sign-in' }, write: { available: true },
+        refusal: { code: 'OfferingSchemaOpen', message: `the offering's parameters are not a closed space, open at ${paths.join(', ')}: close each path in a folder (additionalProperties: false, a type, a class enum) and accept it with --dir`,
+          command: `pacto declare offering:xbucket --from oci://ghcr.io/acme/pacto-inferred/crossplane-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11/services@sha256:${'4c'.repeat(32)} --registry demo.pacto.local --version 1.0.0` } }) };
+    }
     if (flags.__pactoDeclare && method === 'POST' && route === '/api/fleet/declare') {
       return { status: 200, contentType: 'application/json', body: JSON.stringify(declareAnswer(body)) };
     }
@@ -2543,6 +2580,38 @@ export const claimRoute = (mode: '' | 'refused') => async (page: Page) => {
   await panel.getByTestId('claim-name').fill(`stripe-${'payments-'.repeat(8)}`.slice(0, 63).replace(/-+$/, ''));
   await panel.getByTestId('claim-plan').click();
   await expect(panel.getByTestId(mode === 'refused' ? 'refusal' : 'declare-signer').first()).toBeVisible({ timeout: 30_000 });
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
+/** The contributed xbucket's page (515-S4), its key as the fleet routes it. */
+export const XBUCKET = `#/fleet/services/${encodeURIComponent('ghcr.io%2Facme%2Fpacto-inferred%2Fcrossplane-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11/xbucket')}`;
+
+/** The Offerings list on its inferred offerings, by deep link and again after a reload;
+ *  `onlyInferred` answers with no declared offering, so the empty state carries the link. */
+export const inferredOfferingsRoute = (onlyInferred: boolean) => async (page: Page) => {
+  if (onlyInferred) {
+    await page.addInitScript(() => { (window as unknown as { __offeringsOnlyInferred?: boolean }).__offeringsOnlyInferred = true; });
+    await page.goto('/#/fleet/offerings');
+    await page.reload();
+    await expect(page.getByTestId('offering-inferred-total').first()).toBeVisible({ timeout: 30_000 });
+    return;
+  }
+  await page.goto('/#/fleet/offerings?inferred=1');
+  await page.reload();
+  await expect(page.getByTestId('offering-inferred').first()).toBeVisible({ timeout: 30_000 });
+};
+
+/** xbucket's Accept panel planned with a 63-character owner, or refused for an open schema. */
+export const acceptOfferingRoute = (open: boolean) => async (page: Page) => {
+  if (open) await page.addInitScript(() => { (window as unknown as { __offeringSchemaOpen?: boolean }).__offeringSchemaOpen = true; });
+  await page.goto(`/${XBUCKET}?declare=1`);
+  await page.reload();
+  const panel = page.getByTestId('declare');
+  await panel.getByTestId('offering-version').fill('1.0.0');
+  await panel.getByTestId('offering-owner').fill(`team-${'storage-'.repeat(9)}`.slice(0, 63).replace(/-+$/, ''));
+  await panel.getByTestId('offering-plan').click();
+  await expect(panel.getByTestId(open ? 'offering-open-paths' : 'declare-signer').first()).toBeVisible({ timeout: 30_000 });
   await page.mouse.move(0, 0);
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
@@ -3641,6 +3710,22 @@ export const ROUTES: Route[] = [
   { name: 'external entity, unclaimed with claim', open: async (page) => { await page.goto('/#/fleet/externals/stripe'); await expect(page.getByTestId('external-claim')).toBeVisible({ timeout: 30_000 }); } },
   { name: 'external entity, claim panel', open: claimRoute('') },
   { name: 'external entity, claim refused', open: claimRoute('refused') },
+  // 515-S4: the Offerings list switched to its inferred offerings (a deep link that
+  // survives a reload), the list with no declared offering beside them, the contributed
+  // xbucket's Accept panel planned and refused for an open schema, and a provider's drift.
+  { name: 'offerings, inferred shown', list: true, open: inferredOfferingsRoute(false) },
+  { name: 'offerings, only inferred', list: true, open: inferredOfferingsRoute(true) },
+  { name: 'inferred offering page, accept panel', open: acceptOfferingRoute(false) },
+  { name: 'inferred offering page, schema open', open: acceptOfferingRoute(true) },
+  {
+    name: 'offering page, drift',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __offeringDrift?: boolean }).__offeringDrift = true; });
+      await page.goto('/#/fleet/offerings/postgresql');
+      await page.reload();
+      await expect(page.getByTestId('provider-drift').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
   // 511-S5: the installation ladder proposal opened as a person who may confirm it (the
   // default persona is an agent, which sees no Confirm), with the long command shown.
   {

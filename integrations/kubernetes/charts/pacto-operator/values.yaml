@@ -64,6 +64,13 @@ idp:
     # https://pacto.run/latest/integrations/kubernetes/profiles/#crossplane
     install: false
 
+crossplane:
+  offerings:
+    # -- Push each Crossplane XRD as an inferred offering to
+    # `<registry>/pacto-inferred/crossplane-<clusterID>/services`. Needs registry
+    # and a cluster-wide operator. The operator only reads XRDs and Compositions.
+    enabled: true
+
 # -- namespace/name of an existing Secret that authenticates to `registry`, for
 # a registry without workload identity. Pacto proposes one it saw running pods
 # use (helm upgrade notes and Data sources) and never uses it until you name it

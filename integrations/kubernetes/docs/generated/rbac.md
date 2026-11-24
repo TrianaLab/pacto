@@ -25,6 +25,7 @@ Present in every cluster-wide install, including one with every managed componen
 | `"" (core)` | `nodes` | `list` | *not name-restricted* |
 | `"" (core)` | `pods` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
+| `apiextensions.crossplane.io` | `compositeresourcedefinitions`, `compositions` | `get`, `list`, `watch` | *not name-restricted* |
 | `apps` | `deployments`, `replicasets`, `statefulsets`, `daemonsets` | `get`, `list`, `watch` | *not name-restricted* |
 | `argoproj.io` | `applications` | `list` | *not name-restricted* |
 | `batch` | `cronjobs`, `jobs` | `get`, `list`, `watch` | *not name-restricted* |

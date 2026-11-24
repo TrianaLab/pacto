@@ -978,3 +978,47 @@ func TestDetectorCrossplaneHintUnderIDP(t *testing.T) {
 		t.Fatalf("hardened crossplane = %+v", e)
 	}
 }
+
+func TestDetectorAdvertisesOfferings(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, clusterObjects()...)
+	d := newDetector(c, servedAll)
+	asOf := now.Add(-time.Minute)
+	repo := "ghcr.io/acme/pacto-inferred/crossplane-cluster-uid/services"
+	d.Installation, d.LastPush = &detect.Installation{Registry: "ghcr.io/acme"}, func() *detect.PushResult { return nil }
+	d.Offerings = func() *detect.OfferingsAd {
+		return &detect.OfferingsAd{Producer: "crossplane-cluster-uid", Repository: repo, Observed: []string{"xbucket"}, AsOf: &asOf,
+			Partial: "more than 200 XRDs, the rest unknown"}
+	}
+	_ = d.Sync(context.Background())
+	_, res := readResult(t, c)
+	o := res.Installation.Offerings
+	if o == nil || o.Producer != "crossplane-cluster-uid" || o.Repository != repo || !slices.Equal(o.Observed, []string{"xbucket"}) ||
+		!o.AsOf.Equal(asOf) || o.Partial != "more than 200 XRDs, the rest unknown" {
+		t.Fatalf("offerings = %+v", o)
+	}
+}
+
+func TestDetectorAdvertisesOfferingsWheneverPublisherExists(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, clusterObjects()...)
+	d := newDetector(c, servedAll)
+	repo := "ghcr.io/acme/pacto-inferred/crossplane-cluster-uid/services"
+	d.Installation, d.LastPush = &detect.Installation{Registry: "ghcr.io/acme"}, func() *detect.PushResult { return nil }
+	d.Offerings = func() *detect.OfferingsAd {
+		return &detect.OfferingsAd{Producer: "crossplane-cluster-uid", Repository: repo, Partial: "crossplane API not served"}
+	}
+	_ = d.Sync(context.Background())
+	_, res := readResult(t, c)
+	if o := res.Installation.Offerings; o == nil || o.Repository != repo || o.Partial != "crossplane API not served" || o.Observed != nil {
+		t.Fatalf("offerings = %+v", o)
+	}
+}
+
+func TestDetectorNoPublisherNoOfferings(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, clusterObjects()...)
+	d := newDetector(c, servedAll)
+	d.Installation, d.LastPush = &detect.Installation{Registry: "ghcr.io/acme"}, func() *detect.PushResult { return nil }
+	_ = d.Sync(context.Background())
+	if _, res := readResult(t, c); res.Installation == nil || res.Installation.Offerings != nil {
+		t.Fatalf("installation = %+v", res.Installation)
+	}
+}

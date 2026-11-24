@@ -74,7 +74,14 @@ const (
 	CodeDeclarationRangeNotAccepted    Code = "DECLARATION_RANGE_NOT_ACCEPTED" // pacto.yaml declares a range the record only proposed and the declaration did not accept
 	CodeDeclarationAcceptedMismatch    Code = "DECLARATION_ACCEPTED_MISMATCH"  // a range the declaration accepted, or a draft requested, is not the compatibility pacto.yaml declares
 	CodeDeclarationExternalMismatch    Code = "DECLARATION_EXTERNAL_MISMATCH"  // a declaration claims an external system the contract's service.external does not name
+	CodeDeclarationOfferingMismatch    Code = "DECLARATION_OFFERING_MISMATCH"  // a declaration accepts an inferred offering the contract's service.offering does not name
 	CodeCarriedFieldNotDeclared        Code = "CARRIED_FIELD_NOT_DECLARED"     // pacto.inferred.yaml says a field was carried from a registry declaration, and pacto.yaml does not declare it
+	// Values for a tiered offering (its configuration schema declares
+	// x-pacto-tier) outside its parameter space.
+	CodeTierNotTunable       Code = "TierNotTunable"       // an environment sets a field the offering does not mark x-pacto-tier: tunable
+	CodeParameterOutOfRange  Code = "ParameterOutOfRange"  // a value outside the offering's bounds, enum, type or pattern
+	CodeParameterNotDeclared Code = "ParameterNotDeclared" // a field the offering's schema does not declare
+	CodeClassNotOffered      Code = "ClassNotOffered"      // a class the offering does not offer
 
 	// Family 1 — confirmed violations (emitted only by Evaluate). Registry: {RuntimeDrift, Error}.
 	CodeWorkloadMismatch      Code = "WORKLOAD_MISMATCH"
@@ -185,10 +192,15 @@ var registry = map[Code]codeMeta{
 	CodeEnvironmentValuesInvalid:       {CategoryConfigurationViolation, SeverityError},
 	CodeEnvironmentValuesMissing:       {CategoryMissingConfiguration, SeverityError},
 	CodeEnvironmentValuesUnverified:    {CategoryUnresolvedReference, SeverityWarning},
+	CodeTierNotTunable:                 {CategoryConfigurationViolation, SeverityError},
+	CodeParameterOutOfRange:            {CategoryConfigurationViolation, SeverityError},
+	CodeParameterNotDeclared:           {CategoryConfigurationViolation, SeverityError},
+	CodeClassNotOffered:                {CategoryConfigurationViolation, SeverityError},
 	CodeInferredRecordInvalid:          {CategoryInvalidFile, SeverityError},
 	CodeDeclarationRangeNotAccepted:    {CategoryInvalidFile, SeverityError},
 	CodeDeclarationAcceptedMismatch:    {CategoryInvalidFile, SeverityError},
 	CodeDeclarationExternalMismatch:    {CategoryInvalidFile, SeverityError},
+	CodeDeclarationOfferingMismatch:    {CategoryInvalidFile, SeverityError},
 	CodeCarriedFieldNotDeclared:        {CategoryInvalidFile, SeverityError},
 
 	// Family 1 — confirmed violations

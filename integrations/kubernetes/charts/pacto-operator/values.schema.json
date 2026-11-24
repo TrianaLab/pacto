@@ -410,6 +410,22 @@
         }
       }
     },
+    "crossplane": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "offerings": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "description": "Push each Crossplane XRD as an inferred offering to <registry>/pacto-inferred/crossplane-<clusterID>/services; needs registry and a cluster-wide operator."
+            }
+          }
+        }
+      }
+    },
     "registryPullSecret": {
       "type": "string",
       "description": "namespace/name of an existing Secret that authenticates to registry; the chart grants get on that Secret only.",

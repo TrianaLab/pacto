@@ -1212,6 +1212,8 @@ type OfferingProvider struct {
 	// LatestSupported is the newest readable revision that declares no
 	// lifecycle.
 	LatestSupported *EntityRef `json:"latestSupported,omitempty"`
+	// Drift is the provider's [ServiceRecord.OfferingDrift].
+	Drift *OfferingDrift `json:"drift,omitempty" doc:"When the provider was accepted from an inferred offering: whether its source changed since"`
 }
 
 // OfferingProvidersPreview is a bounded preview of offering providers.
@@ -1480,14 +1482,22 @@ func (q *Query) serviceDetail(key string) (*EntityDetail, error) {
 	}
 	actions := []string{"open-graph", "compare", "impact"}
 	if s.Contribution != nil {
-		// A contribution has no contract to compare or change.
+		// A contribution has no contract to compare or change; a verified
+		// inferred offering may be accepted as a declared one.
 		actions = actions[:1]
+		if s.Offering != "" && s.Contribution.KeyID != "" {
+			actions = append(actions, ActionAcceptOffering)
+		}
 	}
 	return &EntityDetail{
 		Meta: q.productMetaWith(conflicts), Entity: self, Status: s.Status,
 		Service: data, Actions: actions, ReplacedFrom: view.ReplacedFrom,
 	}, nil
 }
+
+// ActionAcceptOffering is the detail action of a verified inferred offering:
+// a person accepts it as a declared offering (pacto declare offering:<name>).
+const ActionAcceptOffering = "accept-offering"
 
 func (q *Query) revisionDetail(key string) (*EntityDetail, error) {
 	rev := q.snap.Revisions[RevisionKey(key)]
@@ -1806,7 +1816,7 @@ func (q *Query) offeringProvider(s *ServiceRecord, x *availIndex) OfferingProvid
 		Versions:       q.offeringProviderVersions(s, ""),
 		Interfaces:     interfacesPreview(nil, nil, nil, q.snap.GeneratedAt),
 		Configurations: cfgs, Policies: pols, Consume: consumeSnippet(q.snap, s, newest),
-		Availability: x.providerAvailability(s),
+		Availability: x.providerAvailability(s), Drift: s.OfferingDrift,
 	}
 	if current != nil {
 		if rec := q.snap.Revisions[RevisionKey(current.Key)]; rec.Contract != nil {

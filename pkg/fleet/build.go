@@ -163,6 +163,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 				uses = append(uses, sourcedUse{use: u, source: src.ID()})
 			}
 			facts = append(facts, sourcedFacts(src.ID(), r.col)...)
+			ingestOfferingObservations(snap, r.col.Offerings)
 		}
 	}
 
@@ -176,6 +177,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	revalidateConfigRefs(snap)
 	supersedeContributions(snap)
 	aggregateServices(snap)
+	markOfferings(snap)
 	addInferredServices(snap, inferred)
 	resolveOrigins(snap)
 	cat := opts.ExternalCatalog

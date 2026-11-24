@@ -145,12 +145,20 @@ func Encode(res Result) ([]byte, error) {
 		if n := len(res.Installation.Profile); n > MaxProfiles {
 			return nil, fmt.Errorf("detection installation names %d profiles, more than %d", n, MaxProfiles)
 		}
+		if o := res.Installation.Offerings; o != nil && len(o.Observed) > MaxObservedOfferings {
+			return nil, fmt.Errorf("detection installation advertises %d offerings, more than %d", len(o.Observed), MaxObservedOfferings)
+		}
 		inst := *res.Installation
 		inst.Pushes = slices.Clone(inst.Pushes)
 		inst.Profile = slices.Clone(inst.Profile)
 		if inst.LastPush != nil {
 			lp := *inst.LastPush
 			inst.LastPush = &lp
+		}
+		if inst.Offerings != nil {
+			o := *inst.Offerings
+			o.Observed = slices.Clone(o.Observed)
+			inst.Offerings = &o
 		}
 		res.Installation = &inst
 	}

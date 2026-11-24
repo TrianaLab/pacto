@@ -664,7 +664,7 @@ func TestDeclareAcceptOwnerCheckboxUsesOwnerRule(t *testing.T) {
 	expect(t, fd.Plan.Owner == "team:payments" && slices.ContainsFunc(fd.Plan.Notes, func(n string) bool { return strings.HasPrefix(n, "service.owner changes from") }),
 		"the plan shows the owner change: %+v", fd.Plan)
 	// What 513-S4's rule answers for this very request, straight from the engine.
-	req, err := h.d.request(h.req(), wl, nil, ref, dashboard.ClaimInput{})
+	req, err := h.d.request(h.req(), wl, nil, ref, dashboard.ClaimInput{}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

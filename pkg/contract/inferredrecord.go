@@ -1350,11 +1350,36 @@ func InferredFromExternal(s string) (string, bool) {
 	return id, ok && validIdentity(id)
 }
 
-// validInferredFrom reports whether s is a workload (k8s:) or an external
-// system (external:) inferredFrom.
+// offeringInferredPrefix is the inferredFrom form of an offering accepted
+// from a producer's inferred offering.
+const offeringInferredPrefix = "offering:"
+
+// OfferingInferredFrom is the inferredFrom of an offering accepted from
+// producer's inferred offering service, contributed as digest.
+func OfferingInferredFrom(producer, service, digest string) string {
+	return offeringInferredPrefix + producer + "/" + service + "@" + digest
+}
+
+// InferredFromOffering is the producer, service and contribution digest an
+// accepted offering's inferredFrom (offering:<producer>/<service>@sha256:<hex>)
+// names, and whether s is that form. Like the external form it is checked in
+// code, never by widening inferredFromRE.
+func InferredFromOffering(s string) (producer, service, digest string, ok bool) {
+	rest, ok := strings.CutPrefix(s, offeringInferredPrefix)
+	name, digest, at := strings.Cut(rest, "@")
+	producer, service, slash := strings.Cut(name, "/")
+	if !ok || !at || !slash || !validProducer(producer) || !ValidServiceName(service) || !inferredDigestRE.MatchString(digest) {
+		return "", "", "", false
+	}
+	return producer, service, digest, true
+}
+
+// validInferredFrom reports whether s is a workload (k8s:), an external
+// system (external:) or an accepted offering (offering:) inferredFrom.
 func validInferredFrom(s string) bool {
 	_, external := InferredFromExternal(s)
-	return external || inferredFromRE.MatchString(s)
+	_, _, _, offering := InferredFromOffering(s)
+	return external || offering || inferredFromRE.MatchString(s)
 }
 
 // checkDeclaration is why d cannot be a record's declaration, as a suffix of
@@ -1378,7 +1403,7 @@ func checkDeclaration(d *InferredDeclaration) error {
 	}
 	switch {
 	case d.InferredFrom != "" && !validInferredFrom(d.InferredFrom):
-		return errors.New(".inferredFrom is not k8s:[<cluster>/]<namespace>/<Kind>/<name> or external:<identity>")
+		return errors.New(".inferredFrom is not k8s:[<cluster>/]<namespace>/<Kind>/<name>, external:<identity> or offering:<producer>/<service>@sha256:<hex>")
 	case len(d.Cluster) > 64:
 		return errors.New(".cluster is longer than 64 bytes")
 	}

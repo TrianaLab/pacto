@@ -127,6 +127,14 @@ rules:
   - apiGroups: [""]
     resources: [nodes]
     verbs: [list]
+  {{- if dig "offerings" "enabled" true (.Values.crossplane | default dict) }}
+  # Inferred offerings: each Crossplane XRD and the Compositions that select it
+  # are read, never written, and pushed as an inferred offering under the
+  # registry. Without Crossplane or a registry nothing is read.
+  - apiGroups: [apiextensions.crossplane.io]
+    resources: [compositeresourcedefinitions, compositions]
+    verbs: [get, list, watch]
+  {{- end }}
   {{- if include "pacto-operator.kernelEvidence" . }}
   # The node agent's heartbeat: one Lease per node, read through the cache in
   # the kernel evidence namespace only (the cache never starts a cluster-wide

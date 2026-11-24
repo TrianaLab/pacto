@@ -1227,3 +1227,59 @@ describe('FleetEntityView — contributed service (509-S11)', () => {
     unmount(component); document.body.removeChild(target);
   });
 });
+
+describe('FleetEntityView — inferred offering (515-S4)', () => {
+  beforeEach(() => detailFn.mockReset());
+  const empty = { total: 0, count: 0, truncated: false, items: [] };
+  const KEY = 'ghcr.io/acme/pacto-inferred/crossplane-6f1c/services/xbucket';
+  function offering(actions: string[]): Record<string, any> {
+    return {
+      meta,
+      entity: { kind: 'service', key: KEY, label: 'xbucket', href: `/fleet/services/${encodeURIComponent(KEY)}`, declaration: 'inferred', offering: 'xbucket' },
+      actions,
+      service: {
+        summary: { targets: 0, revisions: 1, declaredDependencies: 0 },
+        ownership: { declared: false },
+        revisions: empty, activeRevisions: empty, deployments: empty, dependencies: empty, dependents: empty, limitations: empty,
+        contribution: { producer: 'crossplane-6f1c', repository: 'ghcr.io/acme/pacto-inferred/crossplane-6f1c/services', ref: 'ghcr.io/acme/pacto-inferred/crossplane-6f1c/services@sha256:4c1e', keyId: 'k' },
+      },
+    };
+  }
+  async function mountWith(d: Record<string, any>, props: Record<string, unknown>) {
+    detailFn.mockResolvedValue(d);
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const component = mount(FleetEntityView, { target, props: { kind: 'service', entityKey: KEY, refreshTick: 0, ...props } });
+    await vi.waitFor(() => expect(target.querySelector('.svc-entity')).toBeTruthy());
+    flushSync();
+    return { target, done: () => { unmount(component); document.body.removeChild(target); } };
+  }
+  const labels = (t: HTMLElement) => Array.from(t.querySelectorAll('.page-hd-action')).map((a) => a.textContent);
+
+  it('offers Accept, linking the page with declare=1, only when the DTO lists accept-offering and the host declares', async () => {
+    const { target, done } = await mountWith(offering(['open-graph', 'accept-offering']), { canDeclare: true });
+    expect(labels(target)).toEqual(['Open in graph', 'Accept']);
+    const accept = Array.from(target.querySelectorAll('.page-hd-action')).find((a) => a.textContent === 'Accept')!;
+    expect(accept.getAttribute('href')).toBe(`#/fleet/services/${encodeURIComponent(KEY)}?declare=1`);
+    // The page carries the panel's fold, closed until declare=1 opens it.
+    expect(target.querySelector('[data-testid="offering-accept"]')).not.toBeNull();
+    done();
+  });
+
+  it('offers no Accept without canDeclare or without accept-offering', async () => {
+    let m = await mountWith(offering(['open-graph', 'accept-offering']), { canDeclare: false });
+    expect(labels(m.target)).toEqual(['Open in graph']);
+    expect(m.target.querySelector('[data-testid="offering-accept"]')).toBeNull();
+    m.done();
+    m = await mountWith(offering(['open-graph']), { canDeclare: true });
+    expect(labels(m.target)).toEqual(['Open in graph']);
+    expect(m.target.querySelector('[data-testid="offering-accept"]')).toBeNull();
+    m.done();
+  });
+
+  it('opens the panel in offering mode from declare=1', async () => {
+    const { target, done } = await mountWith(offering(['open-graph', 'accept-offering']), { canDeclare: true, declareQuery: { open: true, signed: '' } });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-fields"]')).not.toBeNull());
+    done();
+  });
+});

@@ -1814,6 +1814,8 @@ export interface components {
             mode: "sign" | "draft";
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
+            /** @description The offering acceptance the plan was made for */
+            offering?: components["schemas"]["OfferingInput"];
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
             /** @description The inferred service to declare, or external:<identity> to claim an external system */
@@ -1867,6 +1869,8 @@ export interface components {
             intentDigest?: string;
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
+            /** @description Set to accept the inferred offering serviceKey names as a declared offering; the server takes the record it is accepted from from your view of the fleet */
+            offering?: components["schemas"]["OfferingInput"];
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
             /** @description The inferred service to declare, or external:<identity> to claim an external system */
@@ -1928,7 +1932,7 @@ export interface components {
              * @description The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)
              * @enum {string}
              */
-            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "DraftNotOffered";
+            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "OfferingSchemaOpen" | "OfferingSourceInvalid" | "OfferingSourceUnverified" | "OfferingMismatch" | "VersionRequired" | "DraftNotOffered";
             /** @description The command a person runs about it */
             command?: string;
             message: string;
@@ -3686,6 +3690,8 @@ export interface components {
             hiddenProviders?: number;
             /** @description The image an inferred service runs, on list rows */
             image?: string;
+            /** @description On a row of the inferred offering list: the producer, source object, generation, classes and asOf */
+            inferredOffering?: components["schemas"]["Fleet.InferredOfferingFacts"];
             /**
              * @description On an external list row, how its consumers join it
              * @enum {string}
@@ -4356,6 +4362,30 @@ export interface components {
             fields?: number;
             /** Format: int64 */
             services?: number;
+        };
+        "Fleet.InferredOfferingFacts": {
+            /** @description The declared offering a person accepted it as, when visible */
+            acceptedAs?: components["schemas"]["Fleet.EntityRef"];
+            /**
+             * Format: date-time
+             * @description When the producer made the record, from its signed manifest
+             */
+            asOf?: string;
+            /** @description The classes its configuration schema offers */
+            classes?: string[] | null;
+            /** @description The source object, <kind> <name>, as the bundle's source/object.yaml names it */
+            from?: string;
+            /**
+             * Format: int64
+             * @description The source object's generation
+             */
+            generation?: number;
+            /** @description The offering slug */
+            offering: string;
+            /** @description The producer that contributed the inferred offering */
+            producer: string;
+            /** @description The oci:// ref of the newest record: the from an acceptance (pacto declare offering:<name> --from, pacto_declare from) takes */
+            ref?: string;
         };
         "Fleet.InferredPort": {
             /** @description The object path Pacto read the port from */
@@ -5111,6 +5141,28 @@ export interface components {
              */
             unattributed: number;
         };
+        "Fleet.OfferingDrift": {
+            /** @description The digest of the inferred record that was accepted */
+            acceptedDigest: string;
+            /**
+             * Format: date-time
+             * @description When the producer last observed its source objects
+             */
+            asOf?: string;
+            /** @description The repository@digest of the producer's newest record; absent when unknown or hidden */
+            newestRef?: string;
+            /** @description The version of the producer's newest record */
+            newestVersion?: string;
+            /** @description The producer the offering was accepted from */
+            producer: string;
+            /** @description Why the offering drifted or why Pacto cannot tell */
+            reason: string;
+            /**
+             * @description drifted: the producer's newest record differs from the one accepted; unknown: Pacto cannot tell
+             * @enum {string}
+             */
+            state: "drifted" | "unknown";
+        };
         "Fleet.OperationalHealthTally": {
             /**
              * Format: int64
@@ -5837,6 +5889,8 @@ export interface components {
              * @description When the producer made the record, from its signed manifest; absent when unknown
              */
             asOf?: string;
+            /** @description The cluster whose installation advertised the repository; only a reader of that cluster sees the service */
+            cluster?: string;
             /** @description The key of the producer that verified the record's signature */
             keyId?: string;
             /** @description A newer version of the record that was refused, so this older one is shown stale */
@@ -5915,6 +5969,8 @@ export interface components {
             name: string;
             nameInferred?: components["schemas"]["Contract.Inferred"];
             offering?: string;
+            /** @description On a declared offering accepted from an inferred one: whether its source changed since; absent when in sync or not accepted from one */
+            offeringDrift?: components["schemas"]["Fleet.OfferingDrift"];
             /** @enum {string} */
             offeringProvenance?: "declared" | "observed";
             origin?: components["schemas"]["Fleet.ServiceOrigin"];
@@ -7044,6 +7100,16 @@ export interface components {
             terminationGracePeriodSeconds?: number;
             workloadKind?: string;
         };
+        OfferingInput: {
+            /** @description The offering accepted; defaults to the one the inferred offering offers */
+            name?: string;
+            /** @description The team that owns the offering; needed on its first acceptance */
+            owner?: string;
+            /** @description The registry path the offering is published under: the dashboard's registry (the default) or a path below it */
+            registry?: string;
+            /** @description The release version (MAJOR.MINOR.PATCH) the declared offering is published at */
+            version?: string;
+        };
         OperationOutputBody: {
             /** @description What the caller may ask for: approve, reject, accept-unknown, cancel, rollback */
             actions: string[] | null;
@@ -7372,6 +7438,11 @@ export interface components {
              * @description When external systems are listed, how many only hidden services declare; never named
              */
             hidden?: number;
+            /**
+             * Format: int64
+             * @description When declared offerings are listed: how many inferred offerings declaration=inferred lists under the same text filter; never counted in total
+             */
+            inferredTotal?: number;
             /** Format: int64 */
             limit: number;
             meta: components["schemas"]["Fleet.ProductMeta"];
@@ -7828,6 +7899,8 @@ export interface components {
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consume?: components["schemas"]["Fleet.ConsumeSnippet"];
             currentRevision?: components["schemas"]["ProductRef"];
+            /** @description When the provider was accepted from an inferred offering: whether its source changed since */
+            drift?: components["schemas"]["Fleet.OfferingDrift"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
             latestSupported?: components["schemas"]["ProductRef"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
@@ -8065,6 +8138,8 @@ export interface components {
             href: string;
             /** @description The image an inferred service runs, on list rows */
             image?: string;
+            /** @description On a row of the inferred offering list: the producer, source object, generation, classes and asOf */
+            inferredOffering?: components["schemas"]["Fleet.InferredOfferingFacts"];
             /**
              * @description On an external list row, how its consumers join it
              * @enum {string}
@@ -11510,7 +11585,7 @@ export interface operations {
                 service?: string;
                 /** @description Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template */
                 template?: "only" | "exclude";
-                /** @description Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; declared leaves them out. Absent lists every service, inferred ones marked */
+                /** @description Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; with kinds=offering it lists only the inferred offerings producers contribute, as service rows carrying inferredOffering, never consumable; declared leaves them out. Absent lists every service, inferred ones marked */
                 declaration?: "declared" | "inferred";
                 /** @description Group filter for inferred service entities: the workload.group.key of an inferred service; with no kinds it lists services only */
                 group?: string;

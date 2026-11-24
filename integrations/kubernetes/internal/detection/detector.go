@@ -94,6 +94,9 @@ type Detector struct {
 	// attempt, nil before the first one.
 	Installation *detect.Installation
 	LastPush     func() *detect.PushResult
+	// Offerings, set when the operator runs the inferred-offering publisher,
+	// reads its advertisement on every run.
+	Offerings func() *detect.OfferingsAd
 	// Wake, when set, runs a detection at once: the snapshot publisher sends
 	// on it after every push, so lastPush is advertised without waiting for
 	// the next Interval.
@@ -320,6 +323,9 @@ func (d *Detector) installation() *detect.Installation {
 	if p := d.LastPush(); p != nil {
 		last := *p
 		inst.LastPush = &last
+	}
+	if d.Offerings != nil {
+		inst.Offerings = d.Offerings()
 	}
 	return &inst
 }

@@ -108,6 +108,12 @@ const (
 	ProvenanceInferred   = "inferred"
 )
 
+// AnnotationRenews is the manifest annotation of a contribution re-pushed
+// only to renew its age: the digest of the record whose content it repeats,
+// carried across renewals. A declaration accepted from that digest reads the
+// renewal as the same record. Part of the public contribution format.
+const AnnotationRenews = "run.pacto.contribution.renews"
+
 // ValidOCIDigest reports whether d is a complete sha256 or sha512 digest.
 func ValidOCIDigest(d string) bool { return ociDigestRe.MatchString(d) }
 

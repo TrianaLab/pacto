@@ -224,6 +224,12 @@ running workload.
   URL does not name is refused with `GitHostUnknown`. An agent's `repository`
   or `repo_map` steers a pull request only when signed provenance or a GitOps
   source names the same repository.
+- `service: offering:<name>` accepts an
+  [inferred offering](inferred-offerings.md#accept-an-inferred-offering) and
+  takes `version`, `owner`, `from`, `registry`, `draft` and `intent_digest`.
+  The producer signature is verified with the detection the server runs with
+  (`--detected`). The draft is accepted with the `pacto declare offering:<name>
+  --from-draft` command in `acceptCLI`.
 - A plan that changes `service.owner` lists who may set it in `mayAccept`;
   see [Who may set a service owner](owner-setting.md). An HTTP server leaves
   it out, with a generic refusal, for a caller who may not see the service.
@@ -256,6 +262,11 @@ the command a person runs:
 | `PullRequestNeedsLocalToken` | Over HTTP: a pull request runs only where your Git token is, so run the `cli` command |
 | `NotAllowed` | Over HTTP: the caller may not update the workload, names someone else in `on_behalf_of`, or the repository belongs to another workload |
 | `ReviewFailed` | Over HTTP: the review of the caller failed or could not be evaluated |
+| `VersionRequired` | An offering acceptance passed no `version` |
+| `OfferingSchemaOpen` | The offering's parameter schema is open; the message names each open path |
+| `OfferingSourceInvalid` | `from` is no inferred offering contribution |
+| `OfferingSourceUnverified` | No key of the producer verified `from` |
+| `OfferingMismatch` | `from` or the repository offers another name than the subject |
 | `OWNER_SIGNER_NOT_PERSON` | Only a person sets `service.owner`: an agent, CI or workload signer never does, whoever it acts for |
 | `OWNER_SIGNER_NOT_ALLOWED` | The person is no member of the current owner and no default approver |
 | `OWNER_POLICY_UNVERIFIED` | No verified owner policy was read, so who may set `service.owner` is unknown |
@@ -376,6 +387,9 @@ or schema file already there as it is, listed in `kept`.
   `inferred`, which keeps only the services Pacto infers from Kubernetes
   workloads no contract describes, or `declared`, which leaves them out. Empty
   lists every service and marks the inferred ones `declaration: inferred`.
+  With `kind: offering` on `pacto_fleet_entities`, `inferred` lists the
+  [inferred offerings](inferred-offerings.md#list-inferred-offerings)
+  producers contributed instead of the declared ones.
 - `group` on `pacto_fleet_entities` takes a group key, `workload.group.key`,
   and keeps the inferred services the cluster groups under it. An inferred
   service's `workload.group` says how the cluster groups it and where Pacto

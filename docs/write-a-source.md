@@ -104,6 +104,47 @@ The first run creates the key; hand `my-idp__my-idp-2026.pub` to the platform.
   file the list leaves out, or a listed digest differs, Pacto reads nothing
   of the record and the service shows with no calls.
 
+## Contribute an offering
+
+A record may also carry an [inferred offering](inferred-offerings.md): a
+platform offering your tool already describes, which a person reviews and
+accepts. Its `pacto.yaml` adds `service.offering`, set to its `service.name`,
+`service.summary` and one configuration with a closed parameter schema;
+`source/object.yaml` names the
+object your tool read it from. It uses the same key, grant and repository:
+
+```bash
+bundle=$(mktemp -d)
+mkdir -p "$bundle/configuration" "$bundle/source"
+cat > "$bundle/configuration/provisioning.schema.json" <<'EOF'
+{"type": "object", "additionalProperties": false, "required": ["class"],
+ "properties": {"class": {"type": "string", "enum": ["small", "large"]},
+                "sizeGB": {"type": "integer", "minimum": 1, "maximum": 500}}}
+EOF
+cat > "$bundle/source/object.yaml" <<'EOF'
+kind: BucketTemplate
+metadata: {name: bucket, generation: 1}
+EOF
+digest=$(shasum -a 256 "$bundle/source/object.yaml" | cut -d' ' -f1)
+cat > "$bundle/pacto.yaml" <<'EOF'
+pactoVersion: "2.5"
+service: {name: bucket, version: 0.0.0-inferred.1.0, offering: bucket, summary: An object storage bucket.}
+configurations:
+  - {name: provisioning, schema: configuration/provisioning.schema.json, required: true}
+EOF
+cat > "$bundle/pacto.inferred.yaml" <<EOF
+format: pacto.inferred/v1
+inputs:
+  sources: [{path: source/object.yaml, digest: "sha256:$digest"}]
+fields:
+  - {field: service.offering, value: bucket, source: source/object.yaml, confidence: likely}
+EOF
+pacto push "oci://$REGISTRY/pacto-inferred/my-idp/services" -p "$bundle" --sign-key "$KEY"
+```
+
+Push a new version, such as `0.0.0-inferred.2.0`, when the object changes:
+an offering accepted from the older one then shows drift.
+
 ## Map your tool
 
 Any tool maps to the same shape: a service dependencies export, a catalog's

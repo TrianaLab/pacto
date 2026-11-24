@@ -256,6 +256,9 @@ type EntityList struct {
 	// Hidden counts, when external systems are listed, those only services
 	// the caller's permissions hide declare. They are never named.
 	Hidden int `json:"hidden,omitempty" doc:"When external systems are listed, how many only hidden services declare; never named"`
+	// InferredTotal counts, when declared offerings are listed, the inferred
+	// offerings kind offering with declaration inferred lists; never in Total.
+	InferredTotal int `json:"inferredTotal,omitempty" doc:"When declared offerings are listed: how many inferred offerings declaration=inferred lists under the same text filter; never counted in total"`
 	// Aggregate tallies everything the filter matched, not this page. It is what
 	// makes a filtered list page able to say something true about the whole match
 	// instead of about its first 25 rows.
@@ -277,7 +280,8 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		f.Kinds = []EntityKind{KindService, KindRevision, KindTarget}
 	}
 	want := kindSet(f.Kinds)
-	refs, offerings := q.candidateRefs(want, f.SourceHealth)
+	inferredOfferings := want[KindOffering] && f.Declaration == DeclarationInferred
+	refs, offerings := q.candidateRefs(want, f.SourceHealth, inferredOfferings)
 	consumers := q.offeringConsumers(f.Consumes)
 	if f.Phase != "" {
 		consumers = q.offeringConsumersInPhase(f.Consumes, f.Phase, f.Environment)
@@ -306,7 +310,22 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	if want[KindExternal] {
 		res.Hidden = q.snap.hiddenExternals
 	}
+	if want[KindOffering] && !inferredOfferings {
+		res.InferredTotal = q.inferredOfferingCount(f.Text)
+	}
 	return res, nil
+}
+
+// inferredOfferingCount is how many contributed offerings the view holds
+// that match text: the inferred offering list a declared one points at
+// (which keeps only the text filter: no inferred row has a failed request
+// or a lifecycle), never counted in it.
+func (q *Query) inferredOfferingCount(text string) int {
+	n := 0
+	for _, r := range q.inferredOfferingRefs() {
+		n += b2i(matchEntityText(r, text))
+	}
+	return n
 }
 
 // sortEntityList orders a filtered answer by the requested [EntityFilter.Sort],
@@ -666,7 +685,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"environment", f.Environment, []EntityKind{KindTarget, KindService}},
 		{"capability", f.Capability, []EntityKind{KindService}},
 		{"template", f.Template, []EntityKind{KindService, KindRevision}},
-		{"declaration", f.Declaration, []EntityKind{KindService}},
+		{"declaration", f.Declaration, []EntityKind{KindService, KindOffering}},
 		{"group", f.Group, []EntityKind{KindService}},
 		{"createdFrom", f.CreatedFrom, []EntityKind{KindService}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
@@ -706,14 +725,13 @@ func kindSet(kinds []EntityKind) map[EntityKind]bool {
 
 // candidateRefs collects one reference per entity of every requested kind;
 // sourceHealth narrows the sources (see sourceListRefs).
-func (q *Query) candidateRefs(want map[EntityKind]bool, sourceHealth string) ([]EntityRef, map[string]*offeringFacts) {
+// With inferredOfferings the offering candidates are the inferred offerings,
+// as service rows carrying their facts, in place of the declared ones.
+func (q *Query) candidateRefs(want map[EntityKind]bool, sourceHealth string, inferredOfferings bool) ([]EntityRef, map[string]*offeringFacts) {
 	var refs []EntityRef
 	var offerings map[string]*offeringFacts
 	if want[KindService] {
-		created := q.createdCounts()
-		for _, s := range q.snap.Services {
-			refs = append(refs, q.serviceListRef(s, created[s.Key]))
-		}
+		refs = q.serviceCandidates(inferredOfferings)
 	}
 	if want[KindRevision] {
 		for _, r := range q.snap.Revisions {
@@ -734,7 +752,10 @@ func (q *Query) candidateRefs(want map[EntityKind]bool, sourceHealth string) ([]
 	if want[KindDomain] {
 		refs = append(refs, q.domainListRefs()...)
 	}
-	if want[KindOffering] {
+	switch {
+	case inferredOfferings && !want[KindService]:
+		refs = append(refs, q.inferredOfferingRefs()...)
+	case want[KindOffering] && !inferredOfferings:
 		var rows []EntityRef
 		rows, offerings = q.offeringListRefs()
 		refs = append(refs, rows...)
@@ -745,6 +766,37 @@ func (q *Query) candidateRefs(want map[EntityKind]bool, sourceHealth string) ([]
 		}
 	}
 	return refs, offerings
+}
+
+// serviceCandidates is one row per service; with inferredOfferings an
+// inferred offering's row carries its facts.
+func (q *Query) serviceCandidates(inferredOfferings bool) []EntityRef {
+	var accepted map[string]*ServiceRecord
+	if inferredOfferings {
+		accepted = q.acceptedOfferings()
+	}
+	created := q.createdCounts()
+	refs := make([]EntityRef, 0, len(q.snap.Services))
+	for _, s := range q.snap.Services {
+		if inferredOfferings && s.inferredOffering != nil {
+			refs = append(refs, q.inferredOfferingRef(s, accepted))
+			continue
+		}
+		refs = append(refs, q.serviceListRef(s, created[s.Key]))
+	}
+	return refs
+}
+
+// inferredOfferingRefs is one row per inferred offering, with its facts.
+func (q *Query) inferredOfferingRefs() []EntityRef {
+	accepted := q.acceptedOfferings()
+	var refs []EntityRef
+	for _, s := range q.snap.Services {
+		if s.inferredOffering != nil {
+			refs = append(refs, q.inferredOfferingRef(s, accepted))
+		}
+	}
+	return refs
 }
 
 // sourceListRefs is one row per source. Asked for any state but available
