@@ -10,6 +10,9 @@ package delivery
 import (
 	"context"
 	"errors"
+	"maps"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -63,7 +66,7 @@ type PeerOptions struct {
 // PeerMembers is what a promote planned in environment reads beyond the
 // promoter's own Pactos (Cluster.Members), computed as every hub surface
 // computes it: deliveryrecord.ReadJoins and delivery.MembersOf.
-func PeerMembers(o PeerOptions) func(ctx context.Context, environment string) delivery.Members {
+func PeerMembers(o PeerOptions) func(ctx context.Context, environment string, known map[string]bool) delivery.Members {
 	return (&peerReader{o: o}).members
 }
 
@@ -91,7 +94,7 @@ type peerVerdict struct {
 // members are the members a promote in environment reads: none without a
 // repository, one unread cluster on a member, else MembersOf the join list,
 // each approved member read under its approved key.
-func (p *peerReader) members(ctx context.Context, environment string) delivery.Members {
+func (p *peerReader) members(ctx context.Context, environment string, known map[string]bool) delivery.Members {
 	switch {
 	case p.o.Member:
 		return delivery.MemberOnlyUnread()
@@ -101,7 +104,8 @@ func (p *peerReader) members(ctx context.Context, environment string) delivery.M
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	list, repo := p.joinsLocked(ctx)
-	if m, ok := p.byEnv[environment]; ok {
+	key := environment + "\x00" + strings.Join(slices.Sorted(maps.Keys(known)), "\x00")
+	if m, ok := p.byEnv[key]; ok {
 		return m
 	}
 	trust := delivery.JoinTrust(list.Clusters)
@@ -112,17 +116,9 @@ func (p *peerReader) members(ctx context.Context, environment string) delivery.M
 		}
 		return deliveryrecord.OpenMember(b, trust, signing.OpenKey, uid)
 	}
-	m := delivery.MembersOf(list, read, environment, p.o.Now(), &fleet.Cluster{ID: p.o.ClusterID})
-	p.byEnv[environment] = m
+	m := delivery.MembersOf(list, read, environment, known, p.o.Now(), &fleet.Cluster{ID: p.o.ClusterID})
+	p.byEnv[key] = m
 	return m
-}
-
-// joins is the join list of this hub, read at most once per peerListTTL.
-func (p *peerReader) joins(ctx context.Context) delivery.ClusterJoinList {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	l, _ := p.joinsLocked(ctx)
-	return l
 }
 
 // joinsLocked is joins with p.mu held, and the repository it listed.

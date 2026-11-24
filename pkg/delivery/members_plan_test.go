@@ -52,7 +52,7 @@ func membersOf(partial bool, ms ...member) Members {
 		l.Clusters = append(l.Clusters, ClusterJoinState{UID: m.uid, Name: m.name, State: m.state, NameSource: fleet.ClusterNameFromApproval})
 		snaps[m.uid] = TargetSnapshot{Cluster: m.uid, AsOf: now.Add(-m.age).Format(time.RFC3339), Completeness: fleet.CompletenessComplete, Pactos: m.pactos}
 	}
-	return MembersOf(l, func(uid string) (TargetSnapshot, error) { return snaps[uid], nil }, "prod", now, hubCluster)
+	return MembersOf(l, func(uid string) (TargetSnapshot, error) { return snaps[uid], nil }, "prod", nil, now, hubCluster)
 }
 
 func memberSnapshot(t *testing.T, from, to Revision, local []PactoView, m Members) *fleet.FleetSnapshot {
@@ -186,7 +186,7 @@ func TestMembersNeverLowerTheFloor(t *testing.T) {
 		"join list unreadable": membersOf(true),
 		"member promoter":      MemberOnlyUnread(),
 		"member unread": MembersOf(ClusterJoinList{Completeness: fleet.CompletenessComplete, Clusters: []ClusterJoinState{{UID: usUID, State: JoinApproved}}},
-			func(string) (TargetSnapshot, error) { return TargetSnapshot{}, errors.New("registry down") }, "prod", now, hubCluster),
+			func(string) (TargetSnapshot, error) { return TargetSnapshot{}, errors.New("registry down") }, "prod", nil, now, hubCluster),
 	}
 	locals := map[string][]PactoView{"none": nil, "compatible": {checkoutPacto(">=1.0.0")}, "incompatible": {checkoutPacto("^1.0.0")}}
 	for change, sides := range map[string]func() (Revision, Revision){"breaking": breakingSides, "non-breaking": minorSides} {

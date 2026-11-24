@@ -41,7 +41,7 @@ func TestDeliveryDetectedSetsMembers(t *testing.T) {
 	expect(t, cmd.ParseFlags([]string{"--detected", detectedFile(t, e.repo)}) == nil, "flags")
 	c, _, err = deliveryClientFor(cmd, e.d, e.hub())
 	expect(t, err == nil && c.Members != nil, "members: %v", err)
-	got := c.Members(t.Context(), "prod")
+	got := c.Members(t.Context(), "prod", nil)
 	cols := memberSources(t, got)
 	member := cols["member-"+m.uid]
 	expect(t, got.Home != nil && got.Home.ID == clusterHubUID && member != nil && member.State.Status == fleet.SourceAvailable && member.Cluster.Name == "eu-prod",
@@ -60,8 +60,8 @@ func TestMCPPlanAndDashboardPlanAgreeWithMember(t *testing.T) {
 	id.members = svc.PlanMembers(dashboardJoins(d, &rest.Config{}, detectedFile(t, e.repo), delivery.PolicyNamespace))
 	api, err := id.delivery(httptest.NewRequest(http.MethodGet, "/", nil))
 	expect(t, err == nil, "delivery: %v", err)
-	dash := memberSources(t, api.(dashDelivery).act.Members(t.Context(), "prod"))
-	mcp := memberSources(t, deliveryClientsFor(id.trust, id.policyNS, id.members, d)(e.hub()).Members(t.Context(), "prod"))
+	dash := memberSources(t, api.(dashDelivery).act.Members(t.Context(), "prod", nil))
+	mcp := memberSources(t, deliveryClientsFor(id.trust, id.policyNS, id.members, d)(e.hub()).Members(t.Context(), "prod", nil))
 	expect(t, len(dash) == 1 && reflect.DeepEqual(dash, mcp), "dashboard %v, mcp %v", dash, mcp)
 
 	cmd := newMCPCommand(svc, "test", d)

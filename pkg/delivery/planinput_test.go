@@ -19,12 +19,13 @@ type fakeSources struct {
 	inspection ManifestInspection
 	inspected  int
 	// members is what Members answers; membersEnv the environment asked.
-	members    Members
-	membersEnv string
+	members      Members
+	membersEnv   string
+	membersKnown map[string]bool
 }
 
-func (f *fakeSources) Members(_ context.Context, env string) Members {
-	f.membersEnv = env
+func (f *fakeSources) Members(_ context.Context, env string, known map[string]bool) Members {
+	f.membersEnv, f.membersKnown = env, known
 	return f.members
 }
 
@@ -60,8 +61,8 @@ func TestAssemblePlanInput(t *testing.T) {
 	if err != nil || in.To.Bundle == nil || in.Upstream == nil || len(in.Stages) != 1 || in.Snapshot == nil || in.Class != ClassAgent || in.Status.Pointer != dA {
 		t.Fatalf("promote input: %v %+v", err, in)
 	}
-	if src.membersEnv != stage.Spec.Environment {
-		t.Fatalf("members are read for the Stage's environment: %q", src.membersEnv)
+	if src.membersEnv != stage.Spec.Environment || !src.membersKnown[stage.Spec.Environment] || len(src.membersKnown) != 1 {
+		t.Fatalf("members are read for the Stage's environment, knowing the Stages' environments: %q %v", src.membersEnv, src.membersKnown)
 	}
 	if in.Candidates(context.Background(), stage, dC); len(src.described) != 1 {
 		t.Fatal("candidates are read through the sources")

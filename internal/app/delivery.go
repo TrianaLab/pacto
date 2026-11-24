@@ -90,7 +90,7 @@ type Delivery struct {
 	// Members are the hub's members a promote in an environment projects
 	// onto beyond the hub's own Pactos (Service.PlanMembers); nil reads
 	// none.
-	Members func(ctx context.Context, environment string) delivery.Members
+	Members func(ctx context.Context, environment string, known map[string]bool) delivery.Members
 }
 
 // Caller is who the apiserver says is calling, and when they last logged in.
@@ -506,11 +506,11 @@ func (d *Delivery) applierObject(ctx context.Context, ns string, ref delivery.Ap
 	return d.Dynamic.Resource(gvr).Namespace(ns).Get(ctx, ref.Name, metav1.GetOptions{})
 }
 
-func (p planSources) Members(ctx context.Context, environment string) delivery.Members {
+func (p planSources) Members(ctx context.Context, environment string, known map[string]bool) delivery.Members {
 	if p.d.Members == nil {
 		return delivery.Members{}
 	}
-	return p.d.Members(ctx, environment)
+	return p.d.Members(ctx, environment, known)
 }
 
 func (p planSources) Stages(ctx context.Context) ([]delivery.StageObject, error) {

@@ -624,10 +624,7 @@ type Misplaced struct {
 // misplacedLabels returns the environments the Stages declare and every Pacto
 // whose environment label is not one of them.
 func misplacedLabels(pactos []PactoView, stages []StageObject) (known map[string]bool, misplaced []Misplaced) {
-	known = map[string]bool{}
-	for _, s := range stages {
-		known[s.Spec.Environment] = true
-	}
+	known = KnownEnvironments(stages)
 	for _, p := range pactos {
 		if env := p.Metadata.Labels[EnvironmentLabel]; env != "" && !known[env] {
 			m := Misplaced{Note: fmt.Sprintf("Pacto %s/%s is labelled for environment %q, which no Stage declares", p.Metadata.Namespace, p.Metadata.Name, env)}
@@ -638,6 +635,17 @@ func misplacedLabels(pactos []PactoView, stages []StageObject) (known map[string
 		}
 	}
 	return known, misplaced
+}
+
+// KnownEnvironments are the environments stages declare: a Pacto labelled
+// for one of them runs only there, one labelled for another counts in every
+// environment.
+func KnownEnvironments(stages []StageObject) map[string]bool {
+	known := map[string]bool{}
+	for _, s := range stages {
+		known[s.Spec.Environment] = true
+	}
+	return known
 }
 
 // EnvironmentPactos keeps the Pactos that may run in environment. A provider

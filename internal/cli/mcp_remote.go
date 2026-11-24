@@ -503,7 +503,7 @@ func remoteDeliveryClients(cmd *cobra.Command, svc *app.Service, d deps) (func(d
 
 // deliveryClientsFor builds each caller's delivery client over their own
 // token with trust, the policy namespace policyNS and the hub's members.
-func deliveryClientsFor(trust *delivery.TrustConfig, policyNS string, members func(context.Context, string) delivery.Members, d deps) func(dyn dynamic.Interface) *app.Delivery {
+func deliveryClientsFor(trust *delivery.TrustConfig, policyNS string, members func(context.Context, string, map[string]bool) delivery.Members, d deps) func(dyn dynamic.Interface) *app.Delivery {
 	// API discovery is the same for every caller: read once, as the server.
 	var scope delivery.ScopeFunc
 	var infra delivery.InfraFunc

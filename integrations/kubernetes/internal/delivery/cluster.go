@@ -82,7 +82,7 @@ type Cluster struct {
 	// Members reads what a promote in an environment projects onto beyond
 	// this cluster's own Pactos: the clusters that joined it (PeerMembers).
 	// Nil reads none.
-	Members func(ctx context.Context, environment string) delivery.Members
+	Members func(ctx context.Context, environment string, known map[string]bool) delivery.Members
 	// Infra tells which kinds the manifest inspector reads as infrastructure
 	// Crossplane manages (kubecluster.Infra over cached API discovery). Nil
 	// tells them by group only.

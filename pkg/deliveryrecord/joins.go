@@ -113,6 +113,8 @@ var (
 	noteMappingsCut    = clusterNote{fleet.LimitationTargetSnapshotBound, "%s have more than " + fmt.Sprint(delivery.MaxJoinRecords) +
 		" group mapping records and use none until older ones are read", true}
 	noteMappingsSkipped = clusterNote{fleet.LimitationTargetSnapshotInvalid, "%s have group mapping records that were not counted", false}
+	noteOnceApproved    = clusterNote{fleet.LimitationSourcePartial, "members a person approved are pending again (a key changed or the approval no longer counts): " +
+		"%s, so consumers there are unknown", true}
 )
 
 // note adds a limitation, and makes the list partial when uncertain.
@@ -139,7 +141,7 @@ func (jr *joinRead) noteCluster(n clusterNote, uid string) {
 // flushClusterNotes adds one limitation per per-cluster note, with its count.
 func (jr *joinRead) flushClusterNotes() {
 	for _, n := range []clusterNote{noteRecordsUnread, noteRecordsCut, noteReviewFailed, noteReviewForbidden, noteForks, noteSnapshotUnread,
-		noteMappingsUnread, noteMappingsCut, noteMappingsSkipped} {
+		noteMappingsUnread, noteMappingsCut, noteMappingsSkipped, noteOnceApproved} {
 		if c := len(jr.perCluster[n]); c > 0 {
 			jr.note(n.code, fmt.Sprintf(n.message, plural(c, "cluster")), n.uncertain)
 		}
@@ -182,8 +184,8 @@ func (jr *joinRead) read(ctx context.Context) {
 	states, others := delivery.JoinStates(jr.in.Hub, cands, jr.recs)
 	for i, st := range states {
 		c := cand[st.UID]
-		if st.State == delivery.JoinPending && c.Err != "" && jr.decided(st.UID, delivery.JoinApprove) {
-			jr.noteCluster(noteSnapshotUnread, st.UID) // an approved member may be missing
+		if st.State == delivery.JoinPending {
+			jr.notePending(st.UID, c)
 		}
 		switch {
 		case jr.in.PolicyWhy == "" || st.State != delivery.JoinPending:
@@ -337,6 +339,27 @@ func (jr *joinRead) verifyRecord(f Fetched) (delivery.VerifiedJoin, bool) {
 func (jr *joinRead) decided(uid string, dec delivery.JoinDecision) bool {
 	return slices.ContainsFunc(jr.recs[uid].Verified, func(v delivery.VerifiedJoin) bool {
 		return v.Counted && v.Record.Hub == jr.in.Hub && v.Record.Cluster == uid && (dec == "" || v.Record.Decision == dec)
+	})
+}
+
+// notePending counts pending cluster uid (its candidate c) where an
+// approved member may be missing.
+func (jr *joinRead) notePending(uid string, c delivery.JoinCandidate) {
+	if c.Err != "" && jr.decided(uid, delivery.JoinApprove) {
+		jr.noteCluster(noteSnapshotUnread, uid)
+	}
+	if jr.onceApproved(uid) {
+		jr.noteCluster(noteOnceApproved, uid)
+	}
+}
+
+// onceApproved reports whether uid holds an approval of this hub that
+// verifies, counted or not, or a record that could not be judged because the
+// hub's signers are unknown: a person may have approved it.
+func (jr *joinRead) onceApproved(uid string) bool {
+	return slices.ContainsFunc(jr.recs[uid].Verified, func(v delivery.VerifiedJoin) bool {
+		return v.Verified && v.Record.Hub == jr.in.Hub && v.Record.Cluster == uid && v.Record.Decision == delivery.JoinApprove ||
+			!v.Verified && jr.in.PolicyWhy != ""
 	})
 }
 

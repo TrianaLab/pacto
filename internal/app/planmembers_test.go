@@ -44,7 +44,7 @@ func TestClientPlanReadsApprovedMembers(t *testing.T) {
 	e.decide(t, m, delivery.JoinApprove)
 	opts := e.opts()
 	d := &Delivery{Members: e.svc.PlanMembers(&opts)}
-	got := planSources{d}.Members(t.Context(), "prod")
+	got := planSources{d}.Members(t.Context(), "prod", nil)
 	cols := collected(t, got)
 	member, unread := cols["member-"+memberA], cols[delivery.UnreadClustersSourceID]
 	if got.Home == nil || got.Home.ID != joinHub || len(cols) != 2 || member == nil || unread == nil {
@@ -61,11 +61,11 @@ func TestClientPlanWithoutJoinsHasNoMembers(t *testing.T) {
 	if (&Service{}).PlanMembers(nil) != nil {
 		t.Fatal("no joins, no member reader")
 	}
-	if got := (planSources{&Delivery{}}).Members(t.Context(), "prod"); got.Home != nil || got.Sources != nil {
+	if got := (planSources{&Delivery{}}).Members(t.Context(), "prod", nil); got.Home != nil || got.Sources != nil {
 		t.Fatalf("%+v", got)
 	}
 	e := newJoinEnv(t, capabilities.ReferrersNative)
-	got := e.svc.PlanMembers(&JoinOptions{Resolve: func(context.Context) (JoinOptions, error) { return JoinOptions{}, errors.New("no detection") }})(t.Context(), "prod")
+	got := e.svc.PlanMembers(&JoinOptions{Resolve: func(context.Context) (JoinOptions, error) { return JoinOptions{}, errors.New("no detection") }})(t.Context(), "prod", nil)
 	cols := collected(t, got)
 	if got.Home != nil || len(cols) != 1 || cols["cluster-joins"] == nil || cols["cluster-joins"].State.Status != fleet.SourcePartial {
 		t.Fatalf("an unresolved hub reads partial: %+v %v", got, cols)
@@ -81,7 +81,7 @@ func TestClientMembersEqualMembersOf(t *testing.T) {
 	e.publish(t, p, p.key, snapNow)
 	e.decide(t, m, delivery.JoinApprove)
 	opts := e.opts()
-	got := collected(t, e.svc.PlanMembers(&opts)(t.Context(), "prod"))
+	got := collected(t, e.svc.PlanMembers(&opts)(t.Context(), "prod", nil))
 	r := &snapshotReader{cache: &targetSnapshotCache{}, now: e.clock}
 	list, repo := deliveryrecord.ReadJoins(t.Context(), deliveryrecord.JoinRead{Repository: e.repo, Hub: joinHub, Policy: e.policy, Records: &deliveryrecord.Reader{},
 		Authorize: func(ctx context.Context, user, uid string) (bool, error) {
@@ -93,7 +93,7 @@ func TestClientMembersEqualMembersOf(t *testing.T) {
 		Forbidden: apierrors.IsForbidden, VerifyPerson: signing.VerifyPersonRecord, OpenKey: signing.OpenKey, Open: openTargets, Now: e.clock})
 	want := collected(t, delivery.MembersOf(list, func(uid string) (delivery.TargetSnapshot, error) {
 		return r.member(t.Context(), repo, e.repo, delivery.JoinTrust(list.Clusters), uid)
-	}, "prod", e.clock, &fleet.Cluster{ID: joinHub}))
+	}, "prod", nil, e.clock, &fleet.Cluster{ID: joinHub}))
 	if len(got) != 2 || !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v\nwant %+v", got, want)
 	}

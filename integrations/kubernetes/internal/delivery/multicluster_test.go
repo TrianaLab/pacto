@@ -304,7 +304,7 @@ func TestAcknowledgeUpstreamStandIn(t *testing.T) {
 
 // TestPlanSourcesReadNoMembers: the promoter projects onto its own Pactos.
 func TestPlanSourcesReadNoMembers(t *testing.T) {
-	if m := (planSources{}).Members(context.Background(), "prod"); m.Home != nil || m.Sources != nil {
+	if m := (planSources{}).Members(context.Background(), "prod", nil); m.Home != nil || m.Sources != nil {
 		t.Fatalf("%+v", m)
 	}
 }

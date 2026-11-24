@@ -194,7 +194,7 @@ func TestOperatorMembersApprovedOnly(t *testing.T) {
 	e.publish(t, eu, e.now, ledgerView(t, ""), ledgerView(t, "staging"))
 	e.publish(t, us, e.now)
 	e.decide(t, eu, delivery.JoinApprove, "alice@acme.com")
-	m := e.reader(false).members(t.Context(), "prod")
+	m := e.reader(false).members(t.Context(), "prod", map[string]bool{"prod": true, "staging": true})
 	cols := collect(t, m)
 	member, unread := cols["member-"+peerEU], cols[delivery.UnreadClustersSourceID]
 	if m.Home == nil || m.Home.ID != peerHub || len(cols) != 2 || member == nil || unread == nil {
@@ -214,7 +214,7 @@ func TestOperatorMembersSkipsPending(t *testing.T) {
 	e.publish(t, us, e.now, ledgerView(t, ""))
 	e.decide(t, eu, delivery.JoinApprove, "alice@acme.com")
 	e.decide(t, us, delivery.JoinApprove, "mallory@acme.com")
-	cols := collect(t, e.reader(false).members(t.Context(), "prod"))
+	cols := collect(t, e.reader(false).members(t.Context(), "prod", nil))
 	if cols["member-"+peerUS] != nil || cols["member-"+peerEU] == nil || cols[delivery.UnreadClustersSourceID].UnreadClusters != 1 {
 		t.Fatalf("%v", cols)
 	}
@@ -231,13 +231,13 @@ func TestOperatorReviewFailureCountsUnread(t *testing.T) {
 	e.decide(t, eu, delivery.JoinApprove, "alice@acme.com")
 	e.decide(t, us, delivery.JoinApprove, "dave@acme.com")
 	e.reviewErr["oidc:dave@acme.com"] = errors.New("apiserver down")
-	cols := collect(t, e.reader(false).members(t.Context(), "prod"))
+	cols := collect(t, e.reader(false).members(t.Context(), "prod", nil))
 	if cols["member-"+peerUS] != nil || cols[delivery.UnreadClustersSourceID].UnreadClusters != 1 ||
 		cols["cluster-joins"] == nil || cols["cluster-joins"].State.Status != fleet.SourcePartial {
 		t.Fatalf("%v", cols)
 	}
 	e.reviewErr["oidc:dave@acme.com"] = apierrors.NewForbidden(schema.GroupResource{Group: "authorization.k8s.io", Resource: "subjectaccessreviews"}, "", errors.New("no"))
-	cols = collect(t, e.reader(false).members(t.Context(), "prod"))
+	cols = collect(t, e.reader(false).members(t.Context(), "prod", nil))
 	if cols["member-"+peerUS] != nil || !slices.ContainsFunc(cols["cluster-joins"].Limitations, func(l fleet.Limitation) bool {
 		return strings.Contains(l.Message, "may not ask the hub")
 	}) {
@@ -287,18 +287,18 @@ func TestOperatorMembersCached(t *testing.T) {
 	e.publish(t, eu, e.now, ledgerView(t, ""))
 	e.decide(t, eu, delivery.JoinApprove, "alice@acme.com")
 	r := e.reader(false)
-	first := r.members(t.Context(), "prod")
+	first := r.members(t.Context(), "prod", nil)
 	n := e.requests.Load()
-	if again := r.members(t.Context(), "prod"); !reflect.DeepEqual(again, first) || e.requests.Load() != n {
+	if again := r.members(t.Context(), "prod", nil); !reflect.DeepEqual(again, first) || e.requests.Load() != n {
 		t.Fatalf("a second promote in the period read the registry: %d -> %d", n, e.requests.Load())
 	}
-	r.members(t.Context(), "staging")
+	r.members(t.Context(), "staging", nil)
 	afterStaging := e.requests.Load()
-	if l := r.joins(t.Context()); len(l.Clusters) != 1 || afterStaging == n || e.requests.Load() != afterStaging {
+	if l := joinsOf(t.Context(), r); len(l.Clusters) != 1 || afterStaging == n || e.requests.Load() != afterStaging {
 		t.Fatalf("another environment reads only the member, never the list: %+v", l)
 	}
 	e.now = e.now.Add(peerListTTL + time.Second)
-	r.joins(t.Context())
+	joinsOf(t.Context(), r)
 	if e.requests.Load() == afterStaging {
 		t.Fatal("the list is read again once the period passed")
 	}
@@ -308,7 +308,7 @@ func TestOperatorMembersCached(t *testing.T) {
 // and counts other clusters as unread.
 func TestMemberPromoterReadsNoJoins(t *testing.T) {
 	e := newPeerEnv(t)
-	m := e.reader(true).members(t.Context(), "prod")
+	m := e.reader(true).members(t.Context(), "prod", nil)
 	cols := collect(t, m)
 	if e.requests.Load() != 0 || m.Home != nil || len(cols) != 1 || cols[delivery.MemberUnreadID].UnreadClusters != 1 {
 		t.Fatalf("%d requests, %+v %v", e.requests.Load(), m, cols)
@@ -319,11 +319,11 @@ func TestMemberPromoterReadsNoJoins(t *testing.T) {
 // its own Pactos only.
 func TestOperatorNoRegistryNoMembers(t *testing.T) {
 	o := PeerOptions{ClusterID: peerHub}
-	if m := PeerMembers(o)(t.Context(), "prod"); m.Home != nil || m.Sources != nil {
+	if m := PeerMembers(o)(t.Context(), "prod", nil); m.Home != nil || m.Sources != nil {
 		t.Fatalf("%+v", m)
 	}
 	c := Cluster{Members: PeerMembers(PeerOptions{Member: true})}
-	if m := (planSources{c}).Members(t.Context(), "prod"); len(m.Sources) != 1 {
+	if m := (planSources{c}).Members(t.Context(), "prod", nil); len(m.Sources) != 1 {
 		t.Fatalf("plan sources read the cluster's members: %+v", m)
 	}
 }
@@ -334,11 +334,11 @@ func TestNoHubRoleNoUnreadCount(t *testing.T) {
 	e := newPeerEnv(t)
 	e.publish(t, newPeer(peerEU, "eu-prod"), e.now)
 	e.publish(t, newPeer(peerUS, "us-prod"), e.now)
-	if m := e.reader(false).members(t.Context(), "prod"); m.Sources != nil {
+	if m := e.reader(false).members(t.Context(), "prod", nil); m.Sources != nil {
 		t.Fatalf("%v", collect(t, m))
 	}
 	e.policy = delivery.ClassPolicy{}
-	if l := e.reader(false).joins(t.Context()); l.Completeness != fleet.CompletenessComplete || !strings.Contains(l.Clusters[0].Reason, "accepts no signed approvals") {
+	if l := joinsOf(t.Context(), e.reader(false)); l.Completeness != fleet.CompletenessComplete || !strings.Contains(l.Clusters[0].Reason, "accepts no signed approvals") {
 		t.Fatalf("a hub with no signers: %+v", l)
 	}
 }
@@ -377,7 +377,7 @@ func parityFixture(t *testing.T) *peerEnv {
 func TestPeerReaderMembersEqualClusterJoins(t *testing.T) {
 	e := parityFixture(t)
 	want, _ := e.readJoinsAsTheRootModule(t)
-	got := e.reader(false).joins(t.Context())
+	got := joinsOf(t.Context(), e.reader(false))
 	if len(got.Clusters) != 3 || !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v\nwant %+v", got, want)
 	}
@@ -395,8 +395,8 @@ func TestPromoterMembersEqualMembersOf(t *testing.T) {
 			return delivery.TargetSnapshot{}, err
 		}
 		return deliveryrecord.OpenMember(b, trust, signing.OpenKey, uid)
-	}, "prod", e.now, &fleet.Cluster{ID: peerHub}))
-	got := collect(t, e.reader(false).members(t.Context(), "prod"))
+	}, "prod", nil, e.now, &fleet.Cluster{ID: peerHub}))
+	got := collect(t, e.reader(false).members(t.Context(), "prod", nil))
 	if len(got) != 2 || !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %+v\nwant %+v", got, want)
 	}
@@ -410,9 +410,9 @@ func TestOperatorMemberSnapshotUnreadable(t *testing.T) {
 	e.publish(t, eu, e.now)
 	e.decide(t, eu, delivery.JoinApprove, "alice@acme.com")
 	r := e.reader(false)
-	r.joins(t.Context())
+	joinsOf(t.Context(), r)
 	e.down.Store(true)
-	if col := collect(t, r.members(t.Context(), "prod"))["member-"+peerEU]; col == nil || col.State.Status != fleet.SourceUnavailable {
+	if col := collect(t, r.members(t.Context(), "prod", nil))["member-"+peerEU]; col == nil || col.State.Status != fleet.SourceUnavailable {
 		t.Fatalf("%+v", col)
 	}
 }
@@ -448,14 +448,22 @@ func TestMemberConsumerIncompatibleAsksItsOwnersOnThePromoter(t *testing.T) {
 	u := pactoObj("checkout", "checkout", c3, "Compliant", 1, checkoutDep("^1.0.0"))
 	view := pactoView(t, u.Object)
 	list := delivery.ClusterJoinList{Completeness: fleet.CompletenessComplete, Clusters: []delivery.ClusterJoinState{{UID: peerUS, Name: "us-prod", State: delivery.JoinApproved}}}
-	e.op.Cluster.Members = func(_ context.Context, env string) delivery.Members {
+	e.op.Cluster.Members = func(_ context.Context, env string, _ map[string]bool) delivery.Members {
 		return delivery.MembersOf(list, func(string) (delivery.TargetSnapshot, error) {
 			return delivery.TargetSnapshot{Cluster: peerUS, AsOf: e.now.Format(time.RFC3339), Completeness: fleet.CompletenessComplete, Pactos: []delivery.PactoView{view}}, nil
-		}, env, e.now, &fleet.Cluster{ID: "cid"})
+		}, env, nil, e.now, &fleet.Cluster{ID: "cid"})
 	}
 	o := e.drive("p1")
 	if o.Status.Phase != delivery.PhaseHeld || o.Status.Plan.Predicted != delivery.PredictHeld || o.Status.Plan.Floor.Decision != delivery.Approve ||
 		strings.Join(o.Status.Plan.Floor.Owners, ",") != "team-checkout" {
 		t.Fatalf("want Held for team-checkout: %s %+v", o.Status.Phase, o.Status.Plan.Floor)
 	}
+}
+
+// joinsOf is r's join list, read as members reads it.
+func joinsOf(ctx context.Context, r *peerReader) delivery.ClusterJoinList {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	l, _ := r.joinsLocked(ctx)
+	return l
 }

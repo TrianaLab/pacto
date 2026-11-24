@@ -120,7 +120,7 @@ func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.
 // planMembers reads, for each promote, the approved members of the hub dyn
 // reaches, from the registry what its operator detected (--detected)
 // advertises; nil without --detected.
-func planMembers(cmd *cobra.Command, dyn dynamic.Interface, policyNS string) func(context.Context, string) delivery.Members {
+func planMembers(cmd *cobra.Command, dyn dynamic.Interface, policyNS string) func(context.Context, string, map[string]bool) delivery.Members {
 	detected, _ := cmd.Flags().GetString("detected")
 	if detected == "" {
 		return nil

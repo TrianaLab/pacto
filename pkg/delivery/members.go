@@ -16,7 +16,8 @@ const UnreadClustersSourceID = "cluster-joins-unread"
 // list's repository and are not members of this hub, so consumers there are
 // unknown to every gate. It is nil unless this installation acts as a hub (a
 // person approved or removed a member: the list holds an approved or removed
-// state) and some cluster is pending. Removed clusters are not counted: a
+// state, or a pending one whose counted approval named another key) and some
+// cluster is pending. Removed clusters are not counted: a
 // person decided. The count and its limitation never name a cluster.
 func UnreadClusters(list ClusterJoinList) fleet.Source {
 	hub, n := false, 0
@@ -26,6 +27,7 @@ func UnreadClusters(list ClusterJoinList) fleet.Source {
 			hub = true
 		case JoinPending:
 			n++
+			hub = hub || st.ApprovedKeyID != ""
 		}
 	}
 	if !hub || n == 0 {
@@ -67,14 +69,16 @@ const membersListID = "cluster-joins"
 
 // MembersOf are the members of list a promote in environment reads, as of
 // now, the hub being home. Only approved members are read, each through read
-// (which verifies the snapshot under the member's approved key): its Pactos
-// whose environment label names another environment are dropped, and a
+// (which verifies the snapshot under the member's approved key): as on the
+// hub (EnvironmentPactos), its Pactos whose environment label names another
+// environment the hub's Stages declare (known) are dropped, and one labelled
+// for an environment no Stage declares counts in every environment, and a
 // snapshot past TargetSnapshotFreshness reads stale. A member read fails is
 // unavailable, so its consumers are unknown. A list read partly adds one
 // partial source, and pending clusters of a hub add the unread count
 // ([UnreadClusters]). Advertised environments are never read: they are
 // inferred, and inferred never clears a gate.
-func MembersOf(list ClusterJoinList, read func(uid string) (TargetSnapshot, error), environment string, now time.Time, home *fleet.Cluster) Members {
+func MembersOf(list ClusterJoinList, read func(uid string) (TargetSnapshot, error), environment string, known map[string]bool, now time.Time, home *fleet.Cluster) Members {
 	m := Members{Home: home}
 	if list.Completeness != fleet.CompletenessComplete {
 		m.Sources = append(m.Sources, fleet.NewMemorySource(membersListID, fleet.SourceKindTargetSnapshot, &fleet.Collection{
@@ -86,7 +90,7 @@ func MembersOf(list ClusterJoinList, read func(uid string) (TargetSnapshot, erro
 		}
 		cl := &fleet.Cluster{ID: st.UID, Name: st.Name, NameSource: st.NameSource}
 		snap, err := read(st.UID)
-		m.Sources = append(m.Sources, memberSource(cl, snap, err, environment, now))
+		m.Sources = append(m.Sources, memberSource(cl, snap, err, environment, known, now))
 	}
 	if u := UnreadClusters(list); u != nil {
 		m.Sources = append(m.Sources, u)
@@ -96,7 +100,7 @@ func MembersOf(list ClusterJoinList, read func(uid string) (TargetSnapshot, erro
 
 // memberSource is the source of member cl's snapshot snap (err when it was
 // not read), with the Pactos that may run in environment.
-func memberSource(cl *fleet.Cluster, snap TargetSnapshot, err error, environment string, now time.Time) fleet.Source {
+func memberSource(cl *fleet.Cluster, snap TargetSnapshot, err error, environment string, known map[string]bool, now time.Time) fleet.Source {
 	id := "member-" + cl.ID
 	name := cmp.Or(cl.Name, cl.ID)
 	if err != nil {
@@ -107,7 +111,7 @@ func memberSource(cl *fleet.Cluster, snap TargetSnapshot, err error, environment
 	}
 	views := slices.DeleteFunc(slices.Clone(snap.Pactos), func(p PactoView) bool {
 		env := p.Metadata.Labels[EnvironmentLabel]
-		return env != "" && env != environment
+		return known[env] && env != environment
 	})
 	col := LinkedCollection(id, views, now)
 	col.Limitations = append(col.Limitations, sourced(id, snap.Limitations)...)

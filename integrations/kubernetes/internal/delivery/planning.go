@@ -136,11 +136,11 @@ func (p planSources) Kustomizations(ctx context.Context) ([]delivery.Kustomizati
 }
 
 // Members reads the clusters that joined this one, or none.
-func (p planSources) Members(ctx context.Context, environment string) delivery.Members {
+func (p planSources) Members(ctx context.Context, environment string, known map[string]bool) delivery.Members {
 	if p.c.Members == nil {
 		return delivery.Members{}
 	}
-	return p.c.Members(ctx, environment)
+	return p.c.Members(ctx, environment, known)
 }
 
 func (p planSources) Describe(ctx context.Context, stage delivery.StageObject, digest string) delivery.Revision {

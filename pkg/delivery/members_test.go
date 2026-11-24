@@ -34,6 +34,12 @@ func TestUnreadClustersNeedsHubRole(t *testing.T) {
 			t.Errorf("%s with a pending cluster: no carrier", role)
 		}
 	}
+	// A member whose key changed is pending again, and this is still a hub.
+	rotated := joinList(delivery.JoinPending)
+	rotated.Clusters[0].ApprovedKeyID = "key-old"
+	if c := delivery.UnreadClusters(rotated); c == nil {
+		t.Error("a pending cluster a person approved under another key: no carrier")
+	}
 }
 
 func TestUnreadClustersCountsPendingNamesNone(t *testing.T) {
@@ -104,7 +110,7 @@ func TestMembersOfApprovedOnly(t *testing.T) {
 	var read []string
 	l := joinList(delivery.JoinApproved, delivery.JoinPending, delivery.JoinRemoved)
 	l.Completeness = fleet.CompletenessComplete
-	m := delivery.MembersOf(l, readerOf(&read, 0, memberPacto("ledger", "")), "prod", membersNow, hub)
+	m := delivery.MembersOf(l, readerOf(&read, 0, memberPacto("ledger", "")), "prod", nil, membersNow, hub)
 	if m.Home != hub || len(read) != 1 || read[0] != "uid-a" || len(m.Sources) != 2 {
 		t.Fatalf("read %v, %d sources", read, len(m.Sources))
 	}
@@ -119,18 +125,23 @@ func TestMembersOfApprovedOnly(t *testing.T) {
 	}
 }
 
-// TestMembersOfFiltersEnvironmentLabel: a member Pacto labelled for another
-// environment does not run here; an unlabelled one cannot be ruled out.
+// TestMembersOfFiltersEnvironmentLabel: as on the hub, a member Pacto
+// labelled for another environment a Stage declares does not run here; an
+// unlabelled one, or one labelled for an environment no Stage declares
+// (production on a prod promote), cannot be ruled out.
 func TestMembersOfFiltersEnvironmentLabel(t *testing.T) {
 	var read []string
 	l := joinList(delivery.JoinApproved)
 	l.Completeness = fleet.CompletenessComplete
-	m := delivery.MembersOf(l, readerOf(&read, 0, memberPacto("ledger", "prod"), memberPacto("cron", "staging"), memberPacto("audit", "")), "prod", membersNow, hub)
+	known := map[string]bool{"prod": true, "staging": true}
+	m := delivery.MembersOf(l, readerOf(&read, 0, memberPacto("ledger", "prod"), memberPacto("cron", "staging"), memberPacto("audit", ""),
+		memberPacto("checkout", "production")), "prod", known, membersNow, hub)
 	var names []string
 	for _, tg := range collect(t, m.Sources[0]).Targets {
 		names = append(names, tg.Name)
 	}
-	if strings.Join(names, ",") != "ledger,audit" {
+	slices.Sort(names)
+	if strings.Join(names, ",") != "audit,checkout,ledger" {
 		t.Fatalf("targets %v", names)
 	}
 }
@@ -142,7 +153,7 @@ func TestMembersOfIgnoresAdvertisedEnvironments(t *testing.T) {
 	l := joinList(delivery.JoinApproved)
 	l.Completeness = fleet.CompletenessComplete
 	l.Clusters[0].Environments = []delivery.AdvertisedEnvironment{{Name: "staging", Source: "the cluster name"}}
-	m := delivery.MembersOf(l, readerOf(&read, 0, memberPacto("ledger", "")), "prod", membersNow, hub)
+	m := delivery.MembersOf(l, readerOf(&read, 0, memberPacto("ledger", "")), "prod", nil, membersNow, hub)
 	if len(collect(t, m.Sources[0]).Targets) != 1 {
 		t.Fatal("an advertised environment placed a Pacto")
 	}
@@ -154,7 +165,7 @@ func TestMembersOfStaleSource(t *testing.T) {
 	var read []string
 	l := joinList(delivery.JoinApproved)
 	l.Completeness = fleet.CompletenessComplete
-	col := collect(t, delivery.MembersOf(l, readerOf(&read, 20*time.Minute, memberPacto("ledger", "")), "prod", membersNow, hub).Sources[0])
+	col := collect(t, delivery.MembersOf(l, readerOf(&read, 20*time.Minute, memberPacto("ledger", "")), "prod", nil, membersNow, hub).Sources[0])
 	if col.State.Status != fleet.SourceStale || !col.State.LastSuccessfulSync.Equal(membersNow.Add(-20*time.Minute)) ||
 		len(col.Limitations) != 1 || col.Limitations[0].Code != fleet.LimitationTargetSnapshotStale || !strings.Contains(col.Limitations[0].Message, "cluster-a last published 20m ago") {
 		t.Fatalf("%+v %+v", col.State, col.Limitations)
@@ -163,7 +174,7 @@ func TestMembersOfStaleSource(t *testing.T) {
 		return delivery.TargetSnapshot{AsOf: membersNow.Format(time.RFC3339), Completeness: fleet.CompletenessPartial,
 			Limitations: []fleet.Limitation{{Code: fleet.LimitationSourceUnavailable, Source: "publisher", Message: "workloads not read"}}}, nil
 	}
-	col = collect(t, delivery.MembersOf(l, partial, "prod", membersNow, hub).Sources[0])
+	col = collect(t, delivery.MembersOf(l, partial, "prod", nil, membersNow, hub).Sources[0])
 	if col.State.Status != fleet.SourcePartial || col.Limitations[0].Source != "member-uid-a" {
 		t.Fatalf("%+v %+v", col.State, col.Limitations)
 	}
@@ -177,7 +188,7 @@ func TestMembersOfReadErrorUnavailable(t *testing.T) {
 	col := collect(t, delivery.MembersOf(l, func(string) (delivery.TargetSnapshot, error) {
 		return delivery.TargetSnapshot{}, errors.New("registry down")
 	},
-		"prod", membersNow, hub).Sources[0])
+		"prod", nil, membersNow, hub).Sources[0])
 	if col.State.Status != fleet.SourceUnavailable || col.State.Cluster.ID != "uid-a" ||
 		!strings.Contains(col.Limitations[0].Message, "member cluster-a was not read, so consumers there are unknown: registry down") {
 		t.Fatalf("%+v %+v", col.State, col.Limitations)
@@ -190,7 +201,7 @@ func TestMembersOfCountsPendingNamesNone(t *testing.T) {
 	var read []string
 	l := joinList(delivery.JoinRemoved, delivery.JoinPending, delivery.JoinPending)
 	l.Completeness = fleet.CompletenessComplete
-	m := delivery.MembersOf(l, readerOf(&read, 0), "prod", membersNow, hub)
+	m := delivery.MembersOf(l, readerOf(&read, 0), "prod", nil, membersNow, hub)
 	if len(read) != 0 || len(m.Sources) != 1 {
 		t.Fatalf("read %v, %d sources", read, len(m.Sources))
 	}
@@ -205,7 +216,7 @@ func TestMembersOfCountsPendingNamesNone(t *testing.T) {
 func TestMembersOfPartialListKeepsGraphPartial(t *testing.T) {
 	l := delivery.ClusterJoinList{Completeness: fleet.CompletenessPartial,
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationSourceUnavailable, Source: "cluster-joins", Message: "the member clusters were not read: registry down"}}}
-	m := delivery.MembersOf(l, nil, "prod", membersNow, hub)
+	m := delivery.MembersOf(l, nil, "prod", nil, membersNow, hub)
 	snap, err := delivery.Snapshot(t.Context(), nil, nil, nil, membersNow, m)
 	if err != nil {
 		t.Fatal(err)

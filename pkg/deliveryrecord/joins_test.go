@@ -330,13 +330,36 @@ func TestReadJoinsReviewErrorKeepsPending(t *testing.T) {
 			in.PolicyWhy, in.PolicyUnread = "no signers", unread
 			l := e.read(t, in)
 			a, bs := jState(t, l, jA), jState(t, l, jB)
-			want := fleet.CompletenessComplete
-			if unread {
-				want = fleet.CompletenessPartial
-			}
+			// An approval that cannot be judged may be a member's: partial.
+			want := fleet.CompletenessPartial
 			if a.State != delivery.JoinPending || a.Reason != "no signers" || a.Mappings != nil || !strings.HasPrefix(bs.Reason, "no signers; ") ||
 				l.Completeness != want || !says(l, "no signers") {
 				t.Fatalf("%+v %+v %+v", a, bs, l)
+			}
+		})
+	}
+}
+
+// TestReadJoinsOnceApprovedPendingIsPartial: a member a person approved
+// that is pending again (its key changed, or its approver may no longer
+// approve) leaves the list partial, so its consumers read unknown.
+func TestReadJoinsOnceApprovedPendingIsPartial(t *testing.T) {
+	for _, c := range []string{"key", "approver"} {
+		t.Run(c, func(t *testing.T) {
+			e := newJoinsEnv(t, capabilities.ReferrersNative)
+			m := newJMember(jA, "eu-prod")
+			e.publish(t, m, jA, jA, m.key, jNow)
+			e.decide(t, m.record(jHub, "alice", delivery.JoinApprove, 0))
+			if c == "key" {
+				again := newJMember(jA, "eu-prod")
+				e.publish(t, again, jA, jA, again.key, jNow.Add(time.Minute))
+			} else {
+				e.allow["oidc:alice@acme.com"] = false
+			}
+			l := e.read(t, e.in())
+			if st := jState(t, l, jA); st.State != delivery.JoinPending || l.Completeness != fleet.CompletenessPartial ||
+				!says(l, "pending again (a key changed or the approval no longer counts): 1 cluster") {
+				t.Fatalf("%+v %+v", st, l)
 			}
 		})
 	}

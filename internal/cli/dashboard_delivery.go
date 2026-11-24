@@ -46,7 +46,7 @@ type dashboardIdentity struct {
 	infra delivery.InfraFunc
 	// members are the hub's approved members a promote's plan reads
 	// (Service.PlanMembers); nil reads none.
-	members func(context.Context, string) delivery.Members
+	members func(context.Context, string, map[string]bool) delivery.Members
 	served  func(*rest.Config, string) (bool, error)
 	now     func() time.Time
 	state   func(context.Context) authn.State

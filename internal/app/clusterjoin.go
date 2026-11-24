@@ -355,11 +355,11 @@ func readDetection(ctx context.Context, dyn dynamic.Interface, ref string, now f
 // member's snapshot through the shared snapshot cache, verified only under
 // its approved key scoped to its UID. The hub's own Pactos sit in the hub's
 // cluster. nil joins gives nil: no members.
-func (s *Service) PlanMembers(joins *JoinOptions) func(ctx context.Context, environment string) delivery.Members {
+func (s *Service) PlanMembers(joins *JoinOptions) func(ctx context.Context, environment string, known map[string]bool) delivery.Members {
 	if joins == nil {
 		return nil
 	}
-	return func(ctx context.Context, environment string) delivery.Members {
+	return func(ctx context.Context, environment string, known map[string]bool) delivery.Members {
 		list := s.ClusterJoins(ctx, membersOnly(*joins))
 		trust := delivery.JoinTrust(list.Clusters)
 		r := &snapshotReader{cache: &s.snapshots, now: s.env().now()}
@@ -371,7 +371,7 @@ func (s *Service) PlanMembers(joins *JoinOptions) func(ctx context.Context, envi
 		if list.Hub.UID != "" {
 			home = &fleet.Cluster{ID: list.Hub.UID, Name: list.Hub.Name}
 		}
-		return delivery.MembersOf(list, read, environment, r.now, home)
+		return delivery.MembersOf(list, read, environment, known, r.now, home)
 	}
 }
 
