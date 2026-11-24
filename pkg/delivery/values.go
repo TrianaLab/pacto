@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"cmp"
+	"fmt"
 	"path"
 	"strings"
 )
@@ -45,12 +46,11 @@ func argoValues(what string, applier map[string]any, environment string) ValuesS
 	}
 	files := make([]string, len(raw))
 	for i, f := range raw {
-		s, _ := f.(string)
-		files[i] = strings.TrimPrefix(s, "./")
+		files[i] = strings.TrimPrefix(fmt.Sprint(f), "./") // an entry that is no string is named as written
 	}
 	sel := ValuesSelection{File: strings.Join(files, ", "), Form: FormHelmValues}
-	if len(files) != 1 || files[0] != "values-"+environment+".yaml" {
-		sel.Problem = what + " selects " + sel.File + ", and the Stage delivers environment " + environment
+	if len(files) != 1 || environment == "" || files[0] != "values-"+environment+".yaml" {
+		sel.Problem = what + " selects " + sel.File + ", and " + delivers(environment)
 	}
 	return sel
 }
@@ -81,9 +81,17 @@ func overlayValues(what, p, environment string) ValuesSelection {
 	}
 	sel := ValuesSelection{File: p, Form: FormKustomizeOverlay}
 	if path.Base(p) != environment {
-		sel.Problem = what + " builds " + p + ", and the Stage delivers environment " + environment
+		sel.Problem = what + " builds " + p + ", and " + delivers(environment)
 	}
 	return sel
+}
+
+// delivers says which environment the Stage delivers, for a Problem.
+func delivers(environment string) string {
+	if environment == "" {
+		return "the Stage names no environment"
+	}
+	return "the Stage delivers environment " + environment
 }
 
 // appliesStage says whether Kustomization k applies the OCIRepository name

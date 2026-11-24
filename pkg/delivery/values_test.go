@@ -55,7 +55,9 @@ func TestSelectedValuesArgoParentPath(t *testing.T) {
 	got := SelectedValues(argoRef, argoApp(valueFiles("../values-production.yaml"), ""), nil, "prod", "production")
 	wantSelection(t, "parent path", got, "../values-production.yaml", FormHelmValues, "selects ../values-production.yaml")
 	got = SelectedValues(argoRef, argoApp(valueFiles(7), ""), nil, "prod", "production")
-	wantSelection(t, "not a string", got, "", FormHelmValues, "selects , and the Stage")
+	wantSelection(t, "not a string", got, "7", FormHelmValues, "selects 7, and the Stage")
+	got = SelectedValues(argoRef, argoApp(valueFiles("values-.yaml"), ""), nil, "prod", "")
+	wantSelection(t, "no environment", got, "values-.yaml", FormHelmValues, "Application payments selects values-.yaml, and the Stage names no environment")
 	got = SelectedValues(argoRef, argoApp(valueFiles(), ""), nil, "prod", "production")
 	wantSelection(t, "empty", got, "", "", "")
 }

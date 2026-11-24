@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -22,6 +23,12 @@ const tieredSchema = `{"type":"object","additionalProperties":false,"properties"
 // approve every promote.
 func offeringPlan(t *testing.T, prod string, extra fstest.MapFS) (Plan, Verdict) {
 	t.Helper()
+	return offeringPlanWith(t, prod, extra, func(*PlanInput) {})
+}
+
+// offeringPlanWith is offeringPlan with edit applied to the plan's input.
+func offeringPlanWith(t *testing.T, prod string, extra fstest.MapFS, edit func(*PlanInput)) (Plan, Verdict) {
+	t.Helper()
 	pg := bundle("postgresql", "16.1.0")
 	pg.Contract.PactoVersion, pg.Contract.Service.Offering = "2.5", "postgresql"
 	pg.Contract.Configurations = []contract.Configuration{{Name: "default", Schema: "schema.json"}}
@@ -42,8 +49,10 @@ func offeringPlan(t *testing.T, prod string, extra fstest.MapFS) (Plan, Verdict)
 	}
 	stage := stageSpec()
 	stage.Approval.Always = true
-	p := PlanFor(t.Context(), PlanInput{Spec: promote(dA, dB), Stage: stage, From: from, To: to, Snapshot: snap, Class: ClassAgent,
-		Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}, Level: LevelAutonomous}})
+	in := PlanInput{Spec: promote(dA, dB), Stage: stage, From: from, To: to, Snapshot: snap, Class: ClassAgent,
+		Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}, Level: LevelAutonomous}}
+	edit(&in)
+	p := PlanFor(t.Context(), in)
 	return p, verdict(t, p, GateEnvironment)
 }
 
@@ -74,6 +83,22 @@ func TestPlanEnvironmentRefusesParameterCodes(t *testing.T) {
 		if p, v := offeringPlan(t, values, nil); v.Result != Fail || v.Citation["code"] != string(code) || p.Predicted != PredictRejected {
 			t.Errorf("%s: verdict %+v, plan %s", code, v, p.Predicted)
 		}
+	}
+}
+
+// TestPlanParameterRefusalOutranksAnUnreadHold: an inspection Pacto could
+// not read fully queues a question for a person, and a parameter refusal
+// still rejects the promote with nobody asked.
+func TestPlanParameterRefusalOutranksAnUnreadHold(t *testing.T) {
+	ins := ManifestInspection{Artifact: "chart", Namespace: "prod", Unread: []string{"the chart carries a subchart: charts/x"}}
+	p, v := offeringPlanWith(t, "app:\n  storageGB: 100\n", nil, func(in *PlanInput) {
+		in.InspectManifests, in.Manifests = true, func(context.Context) ManifestInspection { return ins }
+	})
+	if m := verdict(t, p, GateManifests); m.Result != Unknown {
+		t.Fatalf("manifests %+v", m)
+	}
+	if v.Result != Fail || p.Predicted != PredictRejected || p.Floor.Human || p.Question != "" {
+		t.Fatalf("verdict %+v, plan %+v", v, p)
 	}
 }
 
