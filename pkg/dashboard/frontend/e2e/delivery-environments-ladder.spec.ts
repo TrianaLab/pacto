@@ -47,15 +47,15 @@ test('an environment row says where it runs and who confirmed it in its tooltip'
   await page.goto('/#/delivery/environments');
   const prod = page.locator('[data-testid="env-cell"][data-stage="prod/payments"]');
   await prod.getByRole('button', { name: 'Where payments runs in prod' }).click({ timeout: T });
-  await expect(prod.locator('.help-body')).toHaveText(
+  await expect(prod.getByTestId('env-placement').locator('.help-body')).toHaveText(
     'From the installation ladder the chart declares. In namespace prod, placement default (the namespace named after the environment), confirmed by alice@example.com.');
   const inTest = page.locator('[data-testid="env-cell"][data-stage="test/payments"]');
   await inTest.getByRole('button', { name: 'Where payments runs in test' }).click();
-  await expect(inTest.locator('.help-body')).toContainText('placement observed (Argo CD Application test/payments already runs it)');
+  await expect(inTest.getByTestId('env-placement').locator('.help-body')).toContainText('placement observed (Argo CD Application test/payments already runs it)');
   // A Stage a person wrote is marked as one.
   const orders = page.locator('[data-testid="env-cell"][data-stage="prod/orders"]');
   await orders.getByRole('button', { name: 'Where orders runs in prod' }).click();
-  await expect(orders.locator('.help-body')).toContainText('From a Stage a person wrote.');
+  await expect(orders.getByTestId('env-placement').locator('.help-body')).toContainText('From a Stage a person wrote.');
 });
 
 test('an unplaced environment says why in the collapsed details', async ({ page }) => {
