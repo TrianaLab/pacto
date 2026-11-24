@@ -689,7 +689,7 @@ export function installScaleFixture(): void {
         r.applier = { manager: state === 'Unknown' ? 'unsupported' : 'argocd', owner: longName(`Application ${String(r.namespace)}/${String(r.service)}`),
           evidence: 'tracking annotation', display: longName(`Argo CD (Application ${String(r.service)}, tracking annotation)`), state,
           message: state === 'Adopted' ? '' : longName(`${state} manager owns Deployment ${String(r.service)}`), completeness: 'complete',
-          asOf: state === 'Unknown' ? '2026-11-08T08:00:00Z' : fresh };
+          asOf: state === 'Unknown' ? '2026-11-08T08:00:00Z' : fresh, values: `overlays/${longName('production-eu-west')}` };
         if (q.get('service') && longName(String(r.service)) === q.get('service')) r.service = q.get('service');
         if (flags.__pactoLongPropose) {
           for (const k of ['namespace', 'stage', 'candidateVersion']) if (typeof r[k] === 'string' && r[k]) r[k] = longName(r[k] as string);
@@ -1974,7 +1974,8 @@ export function installScaleFixture(): void {
     if (flags.__pactoInspected && method === 'POST' && route === '/api/delivery/plan' && Array.isArray(doc.verdicts)) {
       const refused = [`ClusterRoleBinding ${longName('orders-admin')} is cluster-scoped`, `Deployment ${longName('orders')} is in ${longName('kube-system')}, outside prod`];
       doc.verdicts.push({ gate: 'pacto.manifests', phase: 'pre', result: 'Fail', message: `the version reaches outside prod: ${refused.join('; ')}`,
-        citation: { artifact: 'manifests', objects: `${Array.from({ length: 50 }, (_, i) => `Deployment ${longName(`orders-${i}`)}`).join(', ')} and 12 more`, refused: refused.join('; ') } });
+        citation: { artifact: 'manifests', objects: `${Array.from({ length: 50 }, (_, i) => `Deployment ${longName(`orders-${i}`)}`).join(', ')} and 12 more`, refused: refused.join('; '),
+          valuesFile: `${longName('values-production-eu-west')}.yaml`, valuesDigest: 'sha256:' + 'e'.repeat(64) } });
     }
     if (flags.__pactoMultiCluster && method === 'GET' && route === '/api/fleet/entities' && doc.meta) {
       const n63 = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);

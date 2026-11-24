@@ -205,8 +205,8 @@
         {#if applier}
           <!-- Who applies the workloads; a Conflict, Unknown or stale one warns in words, clamped as the Ready reason (svelte-ignore as above). -->
           <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-          {#if applier.warn}<span class="t-meta ev-ready" title={applier.text} tabindex="0" data-testid="env-applier">Applier: <bdi>{applier.display}</bdi>{applier.problem ? `, ${applier.problem}` : ''}{applier.asOf ? ` (${applier.asOf})` : ''}</span>
-          {:else}<span class="t-meta ev-applier" data-testid="env-applier">Applier: <bdi>{applier.display}</bdi>{applier.asOf ? ` (${applier.asOf})` : ''}</span>{/if}
+          {#if applier.warn}<span class="t-meta ev-ready" title={applier.text} tabindex="0" data-testid="env-applier">Applier: <bdi>{applier.display}</bdi>{applier.problem ? `, ${applier.problem}` : ''}{#if applier.values}, values <bdi>{applier.values}</bdi>{' '}<ProvenanceMark label="Where Pacto read the values file" text={applier.valuesTitle} />{/if}{applier.asOf ? ` (${applier.asOf})` : ''}</span>
+          {:else}<span class="t-meta ev-applier" data-testid="env-applier">Applier: <bdi>{applier.display}</bdi>{#if applier.values}, values <bdi>{applier.values}</bdi>{' '}<ProvenanceMark label="Where Pacto read the values file" text={applier.valuesTitle} />{/if}{applier.asOf ? ` (${applier.asOf})` : ''}</span>{/if}
         {/if}
         {#if r.lastCheck}<span class="t-meta" data-testid="env-check">{checkText(r.lastCheck)}</span>{/if}
         {#if r.offers?.length}
