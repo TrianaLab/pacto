@@ -36,4 +36,7 @@ existing install whose Kustomization builds `overlays/<name>` where `<name>`
 differs from `spec.environment`, such as `overlays/prod` on a Stage with
 `spec.environment: production`, and its promotes wait for a person: rename the overlay or create the Stage with
 the matching environment. `spec.environment` must now be a DNS label and is
-fixed at creation; an existing Stage keeps its value.
+fixed at creation; an existing Stage keeps its value, and so does the policy
+an Operation records from it. A `valueFiles` entry that is a URL or an
+absolute path shows as "a values file outside the chart", so Stage status
+never carries a credential or an internal host from the Application.
