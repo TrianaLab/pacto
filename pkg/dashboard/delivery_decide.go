@@ -12,7 +12,8 @@ import (
 // ── actions ────────────────────────────────────────────────────────────
 
 type planInput struct {
-	Body delivery.Request
+	Cluster string `query:"cluster" doc:"The cluster to act in; empty for the dashboard's own, the only one it acts in: another is refused with RemoteClusterReadOnly"`
+	Body    delivery.Request
 }
 
 type planOutput struct {
@@ -25,6 +26,9 @@ func (s *Server) deliveryPlan(ctx context.Context, in *planInput) (*planOutput, 
 	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.refuseRemote(ctx, in.Cluster, in.Body.Namespace, ""); err != nil {
 		return nil, err
 	}
 	p, err := api.Plan(ctx, in.Body)
@@ -52,6 +56,9 @@ func (s *Server) deliveryPropose(ctx context.Context, in *planInput) (*proposeOu
 	if err != nil {
 		return nil, err
 	}
+	if err := s.refuseRemote(ctx, in.Cluster, in.Body.Namespace, ""); err != nil {
+		return nil, err
+	}
 	op, p, err := api.Propose(ctx, in.Body)
 	if err != nil {
 		return nil, err
@@ -64,6 +71,7 @@ func (s *Server) deliveryPropose(ctx context.Context, in *planInput) (*proposeOu
 type decideInput struct {
 	Namespace string `path:"namespace"`
 	Name      string `path:"name"`
+	Cluster   string `query:"cluster" doc:"The cluster of the operation; empty for the dashboard's own, the only one it acts in: another is refused with RemoteClusterReadOnly"`
 	Body      struct {
 		Decision delivery.Decision `json:"decision" enum:"approve,reject,accept-unknown"`
 		Note     string            `json:"note,omitempty"`
@@ -114,6 +122,9 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {
+		return nil, err
+	}
+	if err := s.refuseRemote(ctx, in.Cluster, in.Namespace, in.Name); err != nil {
 		return nil, err
 	}
 	caller, err := api.WhoAmI(ctx)
@@ -206,10 +217,13 @@ func (s *Server) deliveryCancel(ctx context.Context, in *operationInput) (*cance
 	if err != nil {
 		return nil, err
 	}
+	if err := s.refuseRemote(ctx, in.Cluster, in.Namespace, in.Name); err != nil {
+		return nil, err
+	}
 	if err := api.Cancel(ctx, in.Namespace, in.Name); err != nil {
 		return nil, err
 	}
 	out := &cancelOutput{}
-	out.Body.Cancelled = in.Namespace + "/" + in.Name
+	out.Body.Cancelled = delivery.StageKey(delivery.ObjectMeta{Namespace: in.Namespace}, in.Name)
 	return out, nil
 }

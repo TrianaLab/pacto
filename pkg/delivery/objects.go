@@ -10,6 +10,18 @@ type ObjectMeta struct {
 	Labels            map[string]string `json:"labels,omitempty"`
 	Annotations       map[string]string `json:"annotations,omitempty"`
 	Finalizers        []string          `json:"finalizers,omitempty"`
+	// Cluster is set only by a reader that merges several clusters.
+	Cluster string `json:"cluster,omitempty" doc:"The cluster this object was read from, when the answer reads several; empty for the dashboard's own cluster"`
+}
+
+// StageKey names the Stage name in the namespace and cluster of meta:
+// namespace/name for the reader's own cluster (meta.Cluster empty), so two
+// Stages of the same name in two clusters never share a key.
+func StageKey(meta ObjectMeta, name string) string {
+	if meta.Cluster == "" {
+		return meta.Namespace + "/" + name
+	}
+	return meta.Cluster + "/" + meta.Namespace + "/" + name
 }
 
 // StageObject is a Stage as a client reads it.

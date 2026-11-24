@@ -83,7 +83,7 @@ func UpstreamListed(st *StageObject, byStage map[string]*StageObject, read func(
 func stageListed(st *StageObject, byStage map[string]*StageObject, read func(ns string) bool, scope string) *Upstream {
 	c := st.Spec.Candidates
 	u := &Upstream{Kind: "stage", Namespace: cmp.Or(c.UpstreamStage.Namespace, st.Metadata.Namespace), Stage: c.UpstreamStage.Name}
-	switch up := byStage[u.Namespace+"/"+u.Stage]; {
+	switch up := byStage[StageKey(ObjectMeta{Cluster: st.Metadata.Cluster, Namespace: u.Namespace}, u.Stage)]; {
 	case u.Namespace == st.Metadata.Namespace && u.Stage == st.Metadata.Name:
 		u.Problem = "self"
 	case up != nil:

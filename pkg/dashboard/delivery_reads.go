@@ -31,11 +31,21 @@ type Listing struct {
 	everywhere bool
 	listed     []string
 	scope      string
+	// whole is, per remote cluster read, whether every namespace was.
+	whole map[string]bool
 }
 
 // read says whether the listing read namespace ns in full, so a Stage of ns
 // it does not hold does not exist.
 func (l Listing) read(ns string) bool { return l.everywhere || slices.Contains(l.listed, ns) }
+
+// readIn is read for the namespaces of cluster ("" the dashboard's own).
+func (l Listing) readIn(cluster string) func(ns string) bool {
+	if cluster == "" {
+		return l.read
+	}
+	return func(string) bool { return l.whole[cluster] }
+}
 
 func forbidden(err error) bool {
 	var de *DeliveryError
@@ -168,6 +178,9 @@ func (s *Server) serviceOwners(ctx context.Context) map[string]string {
 
 // InboxItem is one operation waiting on someone.
 type InboxItem struct {
+	Cluster   string `json:"cluster,omitempty" doc:"The cluster the operation was read from, when the answer reads several; empty for the dashboard's own cluster"`
+	ReadOnly  bool   `json:"readOnly,omitempty" doc:"The operation is in another cluster: this dashboard only reads it"`
+	Next      string `json:"next,omitempty" doc:"With readOnly: the command that acts on the operation in its own cluster"`
 	Namespace string `json:"namespace"`
 	Name      string `json:"name"`
 	Stage     string `json:"stage"`
@@ -191,7 +204,7 @@ type InboxItem struct {
 }
 
 func inboxItem(o delivery.OperationObject) InboxItem {
-	it := InboxItem{Namespace: o.Metadata.Namespace, Name: o.Metadata.Name, Stage: o.Spec.Stage, Type: o.Spec.Type,
+	it := InboxItem{Cluster: o.Metadata.Cluster, Namespace: o.Metadata.Namespace, Name: o.Metadata.Name, Stage: o.Spec.Stage, Type: o.Spec.Type,
 		From: o.Spec.Params.From, To: o.Spec.Params.To, Phase: o.Status.Phase, Outcome: o.Status.Outcome, Reason: o.Status.Reason,
 		Question: o.Status.Question, Publisher: o.Spec.Params.Publisher}
 	if p := o.Status.Plan; p != nil {
@@ -252,7 +265,7 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	if err != nil {
 		return nil, err
 	}
-	stages, ops, l, err := s.lists(ctx, api, true)
+	stages, ops, l, f, err := s.listsAll(ctx, api, true)
 	if err != nil {
 		return nil, err
 	}
@@ -269,8 +282,10 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	// while the pause it caused lasts; after that it is history.
 	frozen, frozenStages := frozenOf(stages, mine, in.Q)
 	byStage := delivery.StagesByName(stages)
-	access := delivery.AccessMemo(stages, api.WorkloadAccess)
+	access := f.access(stages)
 	held, errored, unchecked := inboxQueues(ctx, ops, in.Q, frozen, caller, access)
+	f.readOnlyItems(held)
+	f.readOnlyItems(errored)
 	out := &inboxOutput{}
 	b := &out.Body
 	b.Listing = uncheckedPartial(l, caller, unchecked)
@@ -297,16 +312,16 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	// Every artifact the page names is read in one go.
 	var on []digestsOn
 	for _, it := range b.Held {
-		if st := byStage[it.Namespace+"/"+it.Stage]; st != nil { // nil: the caller cannot see the Stage
+		if st := byStage[it.key()]; st != nil { // nil: the caller cannot see the Stage
 			on = append(on, digestsOn{st, []string{it.From, it.To}})
 		}
 	}
 	for i := range page {
 		on = append(on, digestsOn{&page[i], []string{page[i].Status.Pointer, page[i].Status.Candidate}})
 	}
-	read := describedAll(ctx, api, nil, on...)
+	read := describedAll(ctx, f, nil, on...)
 	for i, it := range b.Held {
-		if st := byStage[it.Namespace+"/"+it.Stage]; st != nil {
+		if st := byStage[it.key()]; st != nil {
 			b.Held[i].Service, b.Held[i].FromVersion, b.Held[i].ToVersion = st.Spec.Service.Name, read[it.From].Version, read[it.To].Version
 		}
 	}
@@ -314,7 +329,7 @@ func (s *Server) deliveryInbox(ctx context.Context, in *inboxInput) (*inboxOutpu
 	for _, st := range page {
 		b.Frozen = append(b.Frozen, environmentRowOf(st, nil, caller, read, false))
 	}
-	narrowRows(ctx, api, b.Frozen, caller.Class, access)
+	narrowRows(ctx, api, b.Frozen, caller.Class, access(""))
 	b.Errored, b.ErroredPage = pageOf(errored, in.Errored, in.Limit, inboxPage)
 	return out, nil
 }
@@ -328,7 +343,9 @@ func ofService(stages []delivery.StageObject, ops []delivery.OperationObject, se
 	}
 	stages = filter(stages, func(st delivery.StageObject) bool { return delivery.OfService(st, service, domain) })
 	byStage := delivery.StagesByName(stages)
-	return stages, filter(ops, func(o delivery.OperationObject) bool { return byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil })
+	return stages, filter(ops, func(o delivery.OperationObject) bool {
+		return byStage[delivery.StageKey(o.Metadata, o.Spec.Stage)] != nil
+	})
 }
 
 // frozenOf returns the caller's frozen Stages by namespace/name, and those
@@ -338,7 +355,7 @@ func frozenOf(stages []delivery.StageObject, mine func(string) bool, q string) (
 	var frozenStages []delivery.StageObject
 	for _, st := range stages {
 		if st.Status.Frozen && mine(st.Spec.Service.Name) {
-			frozen[st.Metadata.Namespace+"/"+st.Metadata.Name] = true
+			frozen[delivery.StageKey(st.Metadata, st.Metadata.Name)] = true
 			if matches(q, st.Metadata.Namespace, st.Metadata.Name, st.Spec.Service.Name) {
 				frozenStages = append(frozenStages, st)
 			}
@@ -367,7 +384,7 @@ func uncheckedPartial(l Listing, caller delivery.Caller, unchecked []string) Lis
 // the caller may update the workload of a Stage. unchecked names, once per
 // Stage, the held changes left out because that could not be answered.
 func inboxQueues(ctx context.Context, ops []delivery.OperationObject, q string, frozen map[string]bool, caller delivery.Caller,
-	access delivery.StageAccess) (held, errored []InboxItem, unchecked []string) {
+	access func(cluster string) delivery.StageAccess) (held, errored []InboxItem, unchecked []string) {
 	held, errored = []InboxItem{}, []InboxItem{}
 	for _, o := range ops {
 		it := inboxItem(o)
@@ -376,17 +393,22 @@ func inboxQueues(ctx context.Context, ops []delivery.OperationObject, q string, 
 		}
 		switch {
 		case it.Phase == delivery.PhaseHeld:
-			waits, why := waitsOn(ctx, &o, it, caller, access)
+			waits, why := waitsOn(ctx, &o, it, caller, access(it.Cluster))
 			if waits {
 				held = append(held, it)
-			} else if note := it.Namespace + "/" + it.Stage + ": could not check update rights (" + why + ")"; why != "" && !slices.Contains(unchecked, note) {
+			} else if note := it.key() + ": could not check update rights (" + why + ")"; why != "" && !slices.Contains(unchecked, note) {
 				unchecked = append(unchecked, note)
 			}
-		case it.Outcome == delivery.Errored && frozen[it.Namespace+"/"+it.Stage]:
+		case it.Outcome == delivery.Errored && frozen[it.key()]:
 			errored = append(errored, it)
 		}
 	}
 	return held, errored, unchecked
+}
+
+// key is the Stage key of it's Stage (delivery.StageKey).
+func (it InboxItem) key() string {
+	return delivery.StageKey(delivery.ObjectMeta{Cluster: it.Cluster, Namespace: it.Namespace}, it.Stage)
 }
 
 // waitsOn: held op it waits on caller, whose decision the promoter would
@@ -575,8 +597,11 @@ func inboxLadder(ctx context.Context, api DeliveryAPI, caller delivery.Caller, l
 // operations by namespace/Stage and read says what each digest carries. The
 // level and shadow come from ladderOf, so tests can supply a ladder.
 func environmentRowOf(st delivery.StageObject, held map[string]int, caller delivery.Caller, read map[string]delivery.Described, withService bool) EnvironmentRow {
-	row := EnvironmentRow{StageRow: delivery.RowOf(st, delivery.RowInput{Held: held[st.Metadata.Namespace+"/"+st.Metadata.Name],
+	row := EnvironmentRow{StageRow: delivery.RowOf(st, delivery.RowInput{Held: held[delivery.StageKey(st.Metadata, st.Metadata.Name)],
 		Caller: caller, Read: read, WithService: withService})}
+	if row.Cluster != "" { // this dashboard only reads another cluster
+		row.Actions, row.Offers = []string{}, nil
+	}
 	if lad := ladderOf(st); lad.Level != "" {
 		row.Level = lad.Level
 		if lad.Level == "observe" {
@@ -670,7 +695,7 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	if err != nil {
 		return nil, err
 	}
-	stages, ops, l, err := s.lists(ctx, api, true)
+	stages, ops, l, f, err := s.listsAll(ctx, api, true)
 	if err != nil {
 		return nil, err
 	}
@@ -678,8 +703,9 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	held, heldName := map[string]int{}, map[string]string{}
 	for _, o := range ops {
 		if o.Status.Phase == delivery.PhaseHeld {
-			held[o.Metadata.Namespace+"/"+o.Spec.Stage]++
-			heldName[o.Metadata.Namespace+"/"+o.Spec.Stage] = o.Metadata.Name
+			k := delivery.StageKey(o.Metadata, o.Spec.Stage)
+			held[k]++
+			heldName[k] = o.Metadata.Name
 		}
 	}
 	byStage := delivery.StagesByName(stages)
@@ -710,12 +736,12 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	for i := range shown {
 		on = append(on, digestsOn{&shown[i], []string{shown[i].Status.Pointer, shown[i].Status.Candidate}})
 	}
-	read := describedAll(ctx, api, nil, on...)
+	read := describedAll(ctx, f, nil, on...)
 	for _, st := range shown {
 		row := environmentRowOf(st, held, caller, read, in.Service != "")
-		row.Upstream = delivery.UpstreamListed(&st, byStage, l.read, l.scope)
+		row.Upstream = delivery.UpstreamListed(&st, byStage, l.readIn(st.Metadata.Cluster), l.scope)
 		if row.Held == 1 {
-			row.HeldOperation = heldName[st.Metadata.Namespace+"/"+st.Metadata.Name]
+			row.HeldOperation = heldName[delivery.StageKey(st.Metadata, st.Metadata.Name)]
 		}
 		inst.mark(&row, st)
 		out.Body.Environments = append(out.Body.Environments, row)
@@ -725,10 +751,11 @@ func (s *Server) deliveryEnvironments(ctx context.Context, in *environmentsInput
 	if in.Service != "" {
 		undoOffers(ctx, api, shown, out.Body.Environments, caller)
 	}
-	narrowRows(ctx, api, out.Body.Environments, caller.Class, delivery.AccessMemo(shown, api.WorkloadAccess))
+	narrowRows(ctx, api, out.Body.Environments, caller.Class, f.access(shown)(""))
 	s.revisionLinks(ctx, out.Body.Environments)
 	slices.SortFunc(out.Body.Environments, func(a, b EnvironmentRow) int {
-		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace))
+		return cmp.Or(cmp.Compare(a.Service, b.Service), cmp.Compare(a.Environment, b.Environment), cmp.Compare(a.Namespace, b.Namespace),
+			cmp.Compare(a.Cluster, b.Cluster))
 	})
 	return out, nil
 }
@@ -745,7 +772,7 @@ func countStages(stages []delivery.StageObject, held map[string]int) ([]string, 
 		if st.Status.Frozen {
 			c.Frozen++
 		}
-		if held[st.Metadata.Namespace+"/"+st.Metadata.Name] > 0 {
+		if held[delivery.StageKey(st.Metadata, st.Metadata.Name)] > 0 {
 			c.Waiting++
 		}
 	}
@@ -1047,6 +1074,7 @@ func (s *Server) deliveryTrust(ctx context.Context, in *trustInput) (*trustOutpu
 type historyInput struct {
 	Namespace     string `query:"namespace" doc:"Namespace of one Stage (with stage); empty lists every Stage the caller can see"`
 	Stage         string `query:"stage" doc:"One Stage's name"`
+	Cluster       string `query:"cluster" doc:"With namespace and stage: the cluster of the Stage, as the answer's cluster names it; empty for the dashboard's own"`
 	Service       string `query:"service" doc:"Without a stage: keep only the Stages of the service with exactly this name"`
 	Domain        string `query:"domain" doc:"With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any"`
 	Since         string `query:"since" doc:"RFC 3339 time: keep only changes that ran at or after it. A change with no time, or still in flight, is kept"`
@@ -1073,6 +1101,7 @@ const (
 // which the history itself does not carry. Its entries are newest first, and
 // only a page of them.
 type StageHistory struct {
+	Cluster   string `json:"cluster,omitempty" doc:"The cluster the Stage was read from, when the answer reads several or names one; empty for the dashboard's own cluster"`
 	Namespace string `json:"namespace"`
 	delivery.History
 	EntriesPage Page `json:"entriesPage" doc:"Which of the Stage's changes entries holds, newest first"`
@@ -1126,17 +1155,13 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 	if !at.IsZero() {
 		until = at
 	}
-	api, err := s.deliveryFor(ctx)
-	if err != nil {
-		return nil, err
-	}
 	keep := delivery.EntryFilter{Cause: in.Cause, CorrelationID: in.CorrelationID}
 	out := &historyOutput{}
 	out.Body.Listing = Listing{Listing: delivery.Listing{AsOf: time.Now().UTC().Format(time.RFC3339), Completeness: "complete"}}
 	one := in.Namespace != "" && in.Stage != ""
 	// describe: the Stages were read, so their artifacts can be asked for
 	// versions. A Stage that cannot be read still has a history to ask for.
-	targets, describe, err := s.historyTargets(ctx, api, in, out, since, until, keep)
+	targets, describe, api, err := s.historyTargets(ctx, in, out, since, until, keep)
 	if err != nil {
 		return nil, err
 	}
@@ -1155,7 +1180,7 @@ func (s *Server) deliveryHistory(ctx context.Context, in *historyInput) (*histor
 			window = delivery.SliceEntries
 		}
 		h := new(delivery.FilterEntries(window(*hs[i], since, until), keep))
-		sh := StageHistory{Namespace: t.Metadata.Namespace, History: *h, ProblemCount: len(h.Problems), UnreadableCount: len(h.Unreadable)}
+		sh := StageHistory{Cluster: t.Metadata.Cluster, Namespace: t.Metadata.Namespace, History: *h, ProblemCount: len(h.Problems), UnreadableCount: len(h.Unreadable)}
 		entries := slices.Clone(h.Entries)
 		slices.Reverse(entries) // newest first: what a reader looks for is the latest change
 		if one {
@@ -1231,41 +1256,53 @@ func (s *Server) atAnswer(ctx context.Context, t time.Time, ats []delivery.Stage
 
 // historyTargets are the Stages a history page reads: the one named, else a
 // page of every Stage the caller can list that in keeps, with the listing,
-// page, counts and timeline set on out. describe says the Stages were read
-// from the apiserver; a named Stage that cannot be read is still asked for
-// its history.
-func (s *Server) historyTargets(ctx context.Context, api DeliveryAPI, in *historyInput, out *historyOutput, since, until time.Time,
-	keep delivery.EntryFilter) ([]delivery.StageObject, bool, error) {
+// page, counts and timeline set on out, and the API that reads them (the
+// named Stage's cluster, or every cluster listed). describe says the Stages
+// were read from the apiserver; a named Stage that cannot be read is still
+// asked for its history.
+func (s *Server) historyTargets(ctx context.Context, in *historyInput, out *historyOutput, since, until time.Time,
+	keep delivery.EntryFilter) ([]delivery.StageObject, bool, DeliveryAPI, error) {
 	if in.Namespace != "" && in.Stage != "" {
 		if err := s.inScope(in.Namespace); err != nil {
-			return nil, false, err
+			return nil, false, nil, err
+		}
+		api, err := s.deliveryAt(ctx, in.Cluster)
+		if err != nil {
+			return nil, false, nil, err
 		}
 		out.Body.Page = Page{Total: 1, Limit: 1}
 		st, err := api.Stage(ctx, in.Namespace, in.Stage)
 		if err != nil {
-			return []delivery.StageObject{{Metadata: delivery.ObjectMeta{Namespace: in.Namespace, Name: in.Stage}}}, false, nil
+			st = &delivery.StageObject{Metadata: delivery.ObjectMeta{Namespace: in.Namespace, Name: in.Stage}}
 		}
-		return []delivery.StageObject{*st}, true, nil
+		t := *st
+		t.Metadata.Cluster = in.Cluster
+		return []delivery.StageObject{t}, err == nil, api, nil
 	}
-	stages, ops, l, err := s.lists(ctx, api, true)
+	api, err := s.deliveryFor(ctx)
 	if err != nil {
-		return nil, false, err
+		return nil, false, nil, err
+	}
+	stages, ops, l, f, err := s.listsAll(ctx, api, true)
+	if err != nil {
+		return nil, false, nil, err
 	}
 	stages = filter(stages, func(st delivery.StageObject) bool {
-		return matches(in.Q, st.Metadata.Namespace+"/"+st.Metadata.Name, st.Spec.Service.Name, st.Spec.Environment) &&
+		return matches(in.Q, delivery.StageKey(st.Metadata, st.Metadata.Name), st.Spec.Service.Name, st.Spec.Environment) &&
 			delivery.OfService(st, in.Service, in.Domain)
 	})
 	out.Body.Counts = historyCounts(stages, ops)
 	out.Body.Timeline = clusterTimeline(stages, ops, since, until, keep)
 	slices.SortFunc(stages, func(a, b delivery.StageObject) int {
-		return cmp.Or(cmp.Compare(a.Metadata.Namespace, b.Metadata.Namespace), cmp.Compare(a.Metadata.Name, b.Metadata.Name))
+		return cmp.Or(cmp.Compare(a.Metadata.Namespace, b.Metadata.Namespace), cmp.Compare(a.Metadata.Name, b.Metadata.Name),
+			cmp.Compare(a.Metadata.Cluster, b.Metadata.Cluster))
 	})
 	out.Body.Listing = l
 	// Only the page's histories are read: each one reads and verifies a
 	// whole record stream.
 	var targets []delivery.StageObject
 	targets, out.Body.Page = pageOf(stages, in.Offset, in.Limit, historyStagesPage)
-	return targets, true, nil
+	return targets, true, f, nil
 }
 
 // causeReason is the reason of c, empty when there is none.
@@ -1298,6 +1335,9 @@ func historyUndoOffers(ctx context.Context, api DeliveryAPI, targets []delivery.
 	rows := make([]*delivery.StageRow, len(hs))
 	for i := range hs {
 		rows[i] = &delivery.StageRow{Namespace: hs[i].Namespace}
+		if hs[i].Cluster != "" {
+			continue // this dashboard only reads another cluster
+		}
 		for _, e := range hs[i].Entries {
 			if e.Operation != "" && e.Pointer != nil && e.Pointer.After != "" {
 				rows[i].Offers = append(rows[i].Offers, delivery.UndoOffer(targets[i], e, caller))
@@ -1347,12 +1387,12 @@ func historyCounts(stages []delivery.StageObject, ops []delivery.OperationObject
 	held := map[string]bool{}
 	for _, o := range ops {
 		if o.Status.Phase == delivery.PhaseHeld {
-			held[o.Metadata.Namespace+"/"+o.Spec.Stage] = true
+			held[delivery.StageKey(o.Metadata, o.Spec.Stage)] = true
 		}
 	}
 	c := &HistoryCounts{}
 	for _, st := range stages {
-		if held[st.Metadata.Namespace+"/"+st.Metadata.Name] {
+		if held[delivery.StageKey(st.Metadata, st.Metadata.Name)] {
 			c.Waiting++
 		}
 		if st.Status.Frozen {
@@ -1369,7 +1409,7 @@ func clusterTimeline(stages []delivery.StageObject, ops []delivery.OperationObje
 	byStage := delivery.StagesByName(stages)
 	var entries []delivery.HistoryEntry
 	for _, o := range ops {
-		if e := delivery.StatusEntry(o); byStage[o.Metadata.Namespace+"/"+o.Spec.Stage] != nil && keep.Keeps(e) {
+		if e := delivery.StatusEntry(o); byStage[delivery.StageKey(o.Metadata, o.Spec.Stage)] != nil && keep.Keeps(e) {
 			entries = append(entries, e)
 		}
 	}
@@ -1540,11 +1580,15 @@ func (s *Server) revisionLabels(ctx context.Context, read map[string]delivery.De
 
 // undoOffers adds to each row the offer to undo the change its Stage runs,
 // one history read per row, delivery.DescribeParallel at once. rows[i] is shown[i].
+// A row of another cluster offers nothing: this dashboard only reads it.
 func undoOffers(ctx context.Context, api DeliveryAPI, shown []delivery.StageObject, rows []EnvironmentRow, caller delivery.Caller) {
 	offers := make([]*delivery.Offer, len(rows))
 	var g errgroup.Group
 	g.SetLimit(delivery.DescribeParallel)
 	for i := range rows {
+		if rows[i].Cluster != "" {
+			continue
+		}
 		g.Go(func() error {
 			b, err := api.Blame(ctx, rows[i].Namespace, rows[i].Stage, "")
 			offers[i] = delivery.UndoOfferFor(shown[i], b, err, caller)

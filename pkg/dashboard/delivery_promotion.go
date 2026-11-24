@@ -32,7 +32,7 @@ type InboxEnvironment struct {
 func inboxByEnvironment(stages []delivery.StageObject, held, errored []InboxItem, frozen []delivery.StageObject) []InboxEnvironment {
 	byStage := delivery.StagesByName(stages)
 	envOf := func(it InboxItem) string {
-		if st := byStage[it.Namespace+"/"+it.Stage]; st != nil {
+		if st := byStage[it.key()]; st != nil {
 			return st.Spec.Environment
 		}
 		return ""
@@ -71,7 +71,7 @@ func inboxByEnvironment(stages []delivery.StageObject, held, errored []InboxItem
 // inEnvironment keeps the items on Stages in env.
 func inEnvironment(items []InboxItem, byStage map[string]*delivery.StageObject, env string) []InboxItem {
 	return slices.DeleteFunc(items, func(it InboxItem) bool {
-		st := byStage[it.Namespace+"/"+it.Stage]
+		st := byStage[it.key()]
 		return st == nil || st.Spec.Environment != env
 	})
 }
@@ -81,7 +81,7 @@ func inEnvironment(items []InboxItem, byStage map[string]*delivery.StageObject, 
 func outsideEnvironments(items []InboxItem, byStage map[string]*delivery.StageObject, except []string) []InboxItem {
 	return slices.DeleteFunc(items, func(it InboxItem) bool {
 		env := ""
-		if st := byStage[it.Namespace+"/"+it.Stage]; st != nil {
+		if st := byStage[it.key()]; st != nil {
 			env = st.Spec.Environment
 		}
 		return slices.Contains(except, env)
@@ -122,7 +122,7 @@ func upstreamOf(ctx context.Context, api DeliveryAPI, st *delivery.StageObject, 
 // stageState is the one state st is counted in; held counts the held
 // operations by namespace/Stage.
 func stageState(st delivery.StageObject, held map[string]int) string {
-	return delivery.StageState(st, held[st.Metadata.Namespace+"/"+st.Metadata.Name], false)
+	return delivery.StageState(st, held[delivery.StageKey(st.Metadata, st.Metadata.Name)], false)
 }
 
 // EnvironmentCount is how the Stages of one environment stand, over every
@@ -208,7 +208,7 @@ type LastPromotion struct {
 func lastPromotion(g *PromotionGraph, ops []delivery.OperationObject) *LastPromotion {
 	in := map[string]bool{}
 	for _, n := range g.Nodes {
-		in[n.Namespace+"/"+n.Stage] = true
+		in[delivery.StageKey(delivery.ObjectMeta{Cluster: n.Cluster, Namespace: n.Namespace}, n.Stage)] = true
 	}
 	feeder := map[string]string{}
 	for _, e := range g.Edges {
@@ -216,7 +216,7 @@ func lastPromotion(g *PromotionGraph, ops []delivery.OperationObject) *LastPromo
 	}
 	var last *LastPromotion
 	for _, o := range ops {
-		k := o.Metadata.Namespace + "/" + o.Spec.Stage
+		k := delivery.StageKey(o.Metadata, o.Spec.Stage)
 		t := o.Status.Times
 		if !in[k] || o.Spec.Type != delivery.TypePromote || o.Status.Outcome != delivery.Succeeded || t.Finished == "" || (last != nil && t.Finished <= last.Finished) {
 			continue
@@ -228,6 +228,7 @@ func lastPromotion(g *PromotionGraph, ops []delivery.OperationObject) *LastPromo
 
 // PromotionNode is one Stage of a promotion graph.
 type PromotionNode struct {
+	Cluster     string            `json:"cluster,omitempty" doc:"The cluster of the Stage, when the answer reads several; empty for the dashboard's own"`
 	Namespace   string            `json:"namespace"`
 	Stage       string            `json:"stage"`
 	Environment string            `json:"environment"`
@@ -246,19 +247,20 @@ type PromotionEdge struct {
 // listed Stage, so an upstream outside the service still says where it is.
 func promotionGraph(stages []delivery.StageObject, byStage map[string]*delivery.StageObject, l Listing) *PromotionGraph {
 	g := &PromotionGraph{Nodes: []PromotionNode{}, Edges: []PromotionEdge{}}
-	key := func(st *delivery.StageObject) string { return st.Metadata.Namespace + "/" + st.Metadata.Name }
+	key := func(st *delivery.StageObject) string { return delivery.StageKey(st.Metadata, st.Metadata.Name) }
 	nodes := map[string]PromotionNode{}
 	feeds := map[string]map[string]bool{}
 	var keys []string
 	for i := range stages {
 		st := &stages[i]
 		k := key(st)
-		n := PromotionNode{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment, Upstream: *delivery.UpstreamListed(st, byStage, l.read, l.scope)}
+		n := PromotionNode{Cluster: st.Metadata.Cluster, Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Environment: st.Spec.Environment,
+			Upstream: *delivery.UpstreamListed(st, byStage, l.readIn(st.Metadata.Cluster), l.scope)}
 		nodes[k], keys = n, append(keys, k)
 	}
 	for _, k := range keys {
 		if u := nodes[k].Upstream; u.Kind == "stage" && u.Problem == "" {
-			if f := u.Namespace + "/" + u.Stage; f != k {
+			if f := delivery.StageKey(delivery.ObjectMeta{Cluster: nodes[k].Cluster, Namespace: u.Namespace}, u.Stage); f != k {
 				if _, ok := nodes[f]; ok {
 					feeds[k] = map[string]bool{f: true}
 					g.Edges = append(g.Edges, PromotionEdge{From: f, To: k})
