@@ -217,6 +217,27 @@ func TestMediatedRefusesOtherEnvironmentOverlay(t *testing.T) {
 	wantMediated(t, m, statusFalse, "ApplierOverrides", "sets spec.images")
 }
 
+// TestMediatedRefusesOtherNamespaceOverlay: the one Kustomization applying
+// the Stage's OCIRepository from another namespace has its overlay judged
+// and recorded, as one in the Stage's namespace does.
+func TestMediatedRefusesOtherNamespaceOverlay(t *testing.T) {
+	k := guardedKs("payments", "flux-system", func(s map[string]any) {
+		s["sourceRef"].(map[string]any)["namespace"], s["path"] = ns, "overlays/staging"
+	})
+	m := mediatedOf(t, stageObj(dA), ociRepo("payments", dA, "", false), k)
+	wantMediated(t, m, statusFalse, "OtherEnvironmentValues", "Kustomization payments builds overlays/staging")
+}
+
+// TestMediatedHidesRemoteValueFile: a valueFiles URL, which may carry
+// credentials, never reaches the condition a Stage reader sees.
+func TestMediatedHidesRemoteValueFile(t *testing.T) {
+	m := mediatedOf(t, argoStage(dA), argoValuesApp(map[string]any{"valueFiles": []any{"https://deploy:ghp_XXXX@git.internal/values-prod.yaml"}}))
+	wantMediated(t, m, statusFalse, "OtherEnvironmentValues", "selects a values file outside the chart")
+	if strings.Contains(m.Message, "ghp_") || strings.Contains(m.Message, "git.internal") {
+		t.Fatalf("leaks the URL: %+v", m)
+	}
+}
+
 // TestMediatedKeepsRootPath: a path that is no overlay keeps today's result.
 func TestMediatedKeepsRootPath(t *testing.T) {
 	for _, p := range []string{"./", "deploy/", "overlays"} {

@@ -55,11 +55,35 @@ func TestSelectedValuesArgoParentPath(t *testing.T) {
 	got := SelectedValues(argoRef, argoApp(valueFiles("../values-production.yaml"), ""), nil, "prod", "production")
 	wantSelection(t, "parent path", got, "../values-production.yaml", FormHelmValues, "selects ../values-production.yaml")
 	got = SelectedValues(argoRef, argoApp(valueFiles(7), ""), nil, "prod", "production")
-	wantSelection(t, "not a string", got, "7", FormHelmValues, "selects 7, and the Stage")
+	wantSelection(t, "not a string", got, otherValuesFile, FormHelmValues, "selects "+otherValuesFile+", and the Stage")
 	got = SelectedValues(argoRef, argoApp(valueFiles("values-.yaml"), ""), nil, "prod", "")
 	wantSelection(t, "no environment", got, "values-.yaml", FormHelmValues, "Application payments selects values-.yaml, and the Stage names no environment")
 	got = SelectedValues(argoRef, argoApp(valueFiles(), ""), nil, "prod", "production")
 	wantSelection(t, "empty", got, "", "", "")
+}
+
+// A valueFiles entry that is a URL can carry credentials or an internal host
+// a reader of the Stage has no grant on, so it never reaches File or Problem;
+// a long list is counted, never listed in full.
+func TestSelectedValuesArgoHidesRemoteValueFiles(t *testing.T) {
+	secret := "https://deploy:ghp_XXXX@git.internal/payments/values-prod.yaml?ref=main"
+	for _, f := range []any{secret, "/etc/values.yaml", "git.internal:values.yaml", strings.Repeat("a", 254)} {
+		got := SelectedValues(argoRef, argoApp(valueFiles(f), ""), nil, "prod", "production")
+		if strings.Contains(got.File+got.Problem, "ghp_") || strings.Contains(got.File+got.Problem, "internal") || got.File != otherValuesFile {
+			t.Errorf("%v: %+v", f, got)
+		}
+	}
+	got := SelectedValues(argoRef, argoApp(valueFiles("a.yaml", "b.yaml", "c.yaml", "d.yaml", secret), ""), nil, "prod", "production")
+	wantSelection(t, "many", got, "a.yaml, b.yaml, c.yaml, 2 more", FormHelmValues, "selects a.yaml, b.yaml, c.yaml, 2 more")
+}
+
+// A Kustomization in another namespace that applies the Stage's
+// OCIRepository is one Mediated counts, so its overlay is judged too.
+func TestSelectedValuesKustomizeOtherNamespace(t *testing.T) {
+	k := kustomizationOf("flux-system", "payments", ApplierFlux, "prod", "payments")
+	k.Spec.Path = "overlays/staging"
+	got := SelectedValues(ApplyRef{Name: "payments"}, nil, []KustomizationView{k}, "prod", "production")
+	wantSelection(t, "other namespace", got, "overlays/staging", FormKustomizeOverlay, "Kustomization payments builds overlays/staging")
 }
 
 func TestSelectedValuesArgoOtherHelmKey(t *testing.T) {

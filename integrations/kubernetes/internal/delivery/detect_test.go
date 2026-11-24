@@ -449,6 +449,19 @@ func TestDetectApplierValuesUnreadKeepsState(t *testing.T) {
 	if st.Values != "" {
 		t.Fatalf("values: %+v", st)
 	}
+	// A failed read keeps the values last observed: it reads neither as
+	// "selects none" nor as a change.
+	prev := productionStage(stageObj(dA))
+	prev.Status.Applier = &delivery.ApplierStatus{Values: "overlays/production"}
+	if st = e.detect(prev); st.Values != "overlays/production" {
+		t.Fatalf("a failed read keeps the last values: %+v", st)
+	}
+	e.st.Cluster.Cache = interceptor.NewClient(e.c, interceptor.Funcs{Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+		return apierrors.NewForbidden(schema.GroupResource{Resource: "ocirepositories"}, "", errors.New("no RBAC"))
+	}})
+	if st = e.detect(prev); st.Values != "overlays/production" {
+		t.Fatalf("a failed applyRef read keeps the last values: %+v", st)
+	}
 	// Flux turned off reads no values.
 	e.st.Cluster.NoFlux = true
 	if st = e.detect(productionStage(stageObj(dA))); st.Values != "" {
