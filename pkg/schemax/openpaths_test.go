@@ -46,3 +46,16 @@ func TestOpenPathsClosedSchemaEmpty(t *testing.T) {
 		t.Fatalf("got %v", got)
 	}
 }
+
+func TestOpenPathsUntypedJunctorMembersOfATypedNodeClosed(t *testing.T) {
+	doc := schemaDoc(t, `{"type":"object","additionalProperties":false,
+		"properties":{"a":{"type":"string"},"b":{"type":"string"}},
+		"oneOf":[{"required":["a"]},{"required":["b"]}],
+		"allOf":[{"properties":{"a":{"maxLength":3}}}]}`)
+	if got := OpenPaths(doc); len(got) != 0 {
+		t.Fatalf("got %v", got)
+	}
+	if got := OpenPaths(schemaDoc(t, `{"anyOf":[{}]}`)); !slices.Equal(got, []string{"schema.anyOf[0]"}) {
+		t.Fatalf("an untyped node's junctor members still count: got %v", got)
+	}
+}

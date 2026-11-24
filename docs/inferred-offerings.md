@@ -134,6 +134,9 @@ dashboard it needs `update` on the source object in its cluster.
 Acceptance refuses parameters that are not a closed space with
 `OfferingSchemaOpen` and names each open path: an object without
 `additionalProperties: false`, a field with no type and a `class` with no enum.
+The untyped members of a `oneOf`, `anyOf` or `allOf` beside a type, such as
+`oneOf: [{required: [a]}, {required: [b]}]`, only narrow that field and are
+not open.
 
 ```text
 $ pacto declare offering:xbucket --from oci://ghcr.io/acme/pacto-inferred/crossplane-6f1c/services:xbucket_0.0.0-inferred.2.0 \

@@ -12,7 +12,8 @@ import (
 // const, allOf, anyOf or oneOf (a true schema included), and a class
 // property with no enum. Paths start at "schema" and follow the keywords,
 // such as schema.properties.backups. It walks
-// properties, items, prefixItems and the members of allOf, anyOf and oneOf.
+// properties, items, prefixItems and the members of allOf, anyOf and oneOf
+// of a node that has no type, enum or const of its own.
 // ponytail: $ref is not resolved, so a node that only refers reads open; a
 // resolver if refs ever appear in offering schemas.
 func OpenPaths(doc any) []string {
@@ -48,7 +49,15 @@ func openWalk(node any, path string, out *[]string) {
 	if items, ok := m["items"].(map[string]any); ok {
 		openWalk(items, path+".items", out)
 	}
-	for _, k := range []string{"prefixItems", "allOf", "anyOf", "oneOf"} {
+	keys := []string{"prefixItems", "allOf", "anyOf", "oneOf"}
+	if constrained(m) {
+		// A junctor beside a type, enum or const only narrows values the node
+		// already bounds, and a Kubernetes structural schema forbids a type
+		// inside one: its untyped members (oneOf: [{required: [a]}]) are no
+		// open space.
+		keys = keys[:1]
+	}
+	for _, k := range keys {
 		list, _ := m[k].([]any)
 		for i, v := range list {
 			openWalk(v, path+"."+k+"["+strconv.Itoa(i)+"]", out)
@@ -64,10 +73,24 @@ func open(m map[string]any) bool {
 	case isObject(m["type"]):
 		return m["additionalProperties"] != false
 	}
-	for _, k := range []string{"type", "enum", "const", "allOf", "anyOf", "oneOf"} {
+	if constrained(m) {
+		return false
+	}
+	for _, k := range []string{"allOf", "anyOf", "oneOf"} {
 		if _, set := m[k]; set {
 			return false
 		}
 	}
 	return true
+}
+
+// constrained reports whether m bounds its values itself, with a type, an
+// enum or a const.
+func constrained(m map[string]any) bool {
+	for _, k := range []string{"type", "enum", "const"} {
+		if _, set := m[k]; set {
+			return true
+		}
+	}
+	return false
 }
