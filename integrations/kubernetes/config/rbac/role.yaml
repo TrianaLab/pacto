@@ -47,6 +47,26 @@ rules:
   - get
   - list
 - apiGroups:
+  - apiextensions.k8s.io
+  resourceNames:
+  - noderuntimeobservations.pacto.trianalab.io
+  - pactorevisions.pacto.trianalab.io
+  - pactos.pacto.trianalab.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+- apiGroups:
+  - apiextensions.k8s.io
+  resourceNames:
+  - noderuntimeobservations.pacto.trianalab.io
+  - pactorevisions.pacto.trianalab.io
+  - pactos.pacto.trianalab.io
+  resources:
+  - customresourcedefinitions/status
+  verbs:
+  - patch
+- apiGroups:
   - apps
   resources:
   - daemonsets
@@ -155,6 +175,12 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - pacto.trianalab.io
+  resources:
+  - noderuntimeobservations/status
+  verbs:
+  - patch
 - apiGroups:
   - pacto.trianalab.io
   resources:

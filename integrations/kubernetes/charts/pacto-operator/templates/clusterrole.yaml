@@ -38,6 +38,11 @@ rules:
   - apiGroups: [pacto.trianalab.io]
     resources: [noderuntimeobservations]
     verbs: [delete, get, list, watch]
+  # The storage migration rewrites each observation stored as v1alpha1 as v1
+  # through the status subresource, with its content unchanged.
+  - apiGroups: [pacto.trianalab.io]
+    resources: [noderuntimeobservations/status]
+    verbs: [patch]
   # Interface exposure: an Ingress or Gateway API HTTPRoute that routes to the port.
   - apiGroups: [networking.k8s.io]
     resources: [ingresses]
@@ -99,6 +104,17 @@ rules:
   - apiGroups: [pacto.trianalab.io]
     resources: [pactorevisions/status]
     verbs: [get, patch, update]
+  # Storage migration: at start the operator reads its own CRDs by name and,
+  # once every object is rewritten as v1, drops v1alpha1 from their
+  # status.storedVersions. No list and no write to a CRD spec.
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get]
+    resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions/status]
+    verbs: [patch]
+    resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
   # Dashboard teardown, cluster-scoped half: ALWAYS granted, so an operator
   # upgraded from enabled -> disabled can still remove the ClusterRole and
   # binding it created. get + delete by name only, read through the uncached API

@@ -45,6 +45,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/runstats"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/storagemigrate"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
@@ -229,6 +230,17 @@ func runPromoter(args []string) error {
 		return err
 	}
 	gates := delivery.NewGates(cluster, configured)
+	// Every delivery object stored as v1alpha1 is rewritten as v1, then the
+	// CRDs stop listing v1alpha1 as stored. Unconditional: addStats returns
+	// early without a stats repository.
+	dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return err
+	}
+	if err := mgr.Add(&storagemigrate.Migrator{Client: dyn, Discovery: dc, Targets: storagemigrate.DeliveryTargets(),
+		From: "v1alpha1", To: "v1", Log: ctrl.Log.WithName("storage-migration")}); err != nil {
+		return err
+	}
 	stats, err := addStats(mgr, *statsRepository, *statsDockerConfig, keychain, insecure, scope, clusterID)
 	if err != nil {
 		return err

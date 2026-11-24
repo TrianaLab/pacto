@@ -274,14 +274,15 @@ func TestDeliveryWireTypesAreStable(t *testing.T) {
 // may still address the Pacto groups at the deprecated version, each with
 // the reason. A stale entry fails, as in deadcode_test.go.
 var v1alpha1Allowed = map[string]string{
-	"integrations/kubernetes/api/v1alpha1/":                       "the deprecated pacto.trianalab.io package itself",
-	"integrations/kubernetes/api/delivery/v1alpha1/":              "the deprecated delivery.pacto.trianalab.io package itself",
-	"tests/acceptance/kind/fixtures/pacto-operator-v4/":           "the published v4 chart the upgrade scenario installs first",
-	"tests/acceptance/kind/upgrade-v4-v5.sh":                      "addresses the v4 cluster before the upgrade",
-	"integrations/kubernetes/config/crd/bases/":                   "the generated v1alpha1 deprecationWarning",
-	"integrations/kubernetes/charts/pacto-operator/files/crds/":   "the chart copies of the generated CRDs (deprecationWarning)",
-	"integrations/kubernetes/charts/pacto-operator/tests/golden/": "the default render carries the CRDs (deprecationWarning)",
-	"tests/architecture/testdata/crd-v1-drift/":                   "drift fixtures for compareVersions carry the deprecationWarning",
+	"integrations/kubernetes/api/v1alpha1/":                           "the deprecated pacto.trianalab.io package itself",
+	"integrations/kubernetes/api/delivery/v1alpha1/":                  "the deprecated delivery.pacto.trianalab.io package itself",
+	"tests/acceptance/kind/fixtures/pacto-operator-v4/":               "the published v4 chart the upgrade scenario installs first",
+	"tests/acceptance/kind/upgrade-v4-v5.sh":                          "addresses the v4 cluster before the upgrade",
+	"integrations/kubernetes/config/crd/bases/":                       "the generated v1alpha1 deprecationWarning",
+	"integrations/kubernetes/charts/pacto-operator/files/crds/":       "the chart copies of the generated CRDs (deprecationWarning)",
+	"integrations/kubernetes/charts/pacto-operator/tests/golden/":     "the default render carries the CRDs (deprecationWarning)",
+	"tests/architecture/testdata/crd-v1-drift/":                       "drift fixtures for compareVersions carry the deprecationWarning",
+	"integrations/kubernetes/internal/storagemigrate/migrate_test.go": "the storage hash discovery reports while a CRD still stores the deprecated version",
 	"MIGRATION.md":                          "release history",
 	"release/units/k8s-module/CHANGELOG.md": "release history",
 }
