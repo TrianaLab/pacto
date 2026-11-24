@@ -447,7 +447,10 @@ The CustomResourceDefinition "pactos.pacto.trianalab.io" is invalid: status.stor
   the operator cannot list other namespaces and skips the migration. Run this
   script as a cluster admin after the upgrade. If any object fails, do not
   patch `storedVersions`: fix the object and run the script again. The last
-  command of each iteration must print `["v1"]`.
+  command of each iteration must print `["v1"]`. It confirms the patch, not
+  how each object is stored: on a control plane with several apiservers, wait
+  until every apiserver serves the upgraded CRDs (a minute is usually enough)
+  before you run the script.
 
 ```bash
 set -euo pipefail

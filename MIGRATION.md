@@ -564,17 +564,19 @@ kubectl get crd pactos.pacto.trianalab.io -o jsonpath='{.status.storedVersions}'
 The migration of a CRD is done when the second command prints `["v1"]`.
 Read the promoter's log for the delivery CRDs.
 
-When the apiserver rejects some objects, the log names up to 20 of them and
-`storedVersions` stays unchanged:
+When some objects cannot be rewritten, the log names up to 20 of them, each
+with the reason the apiserver gave, and `storedVersions` stays unchanged:
 
 ```text
-storage migration: pactos.pacto.trianalab.io could not rewrite 2 objects ([team-a/orders team-b/fraud]); see MIGRATION.md
+storage migration: pactos.pacto.trianalab.io could not rewrite 2 objects ([team-a/orders: Invalid team-b/fraud: Conflict]); see MIGRATION.md
 ```
 
-An object that today's schema rejects (`Invalid`) needs an edit that makes it
-valid, or its deletion. A `Forbidden` object is usually refused by an
-admission policy. Fix each named object; the next retry rewrites it and then
-patches `storedVersions`.
+A transient reason (`Conflict`, `TooManyRequests`, `Timeout`,
+`ServerTimeout` or `InternalError`) needs no action: the next retry rewrites
+the object. An object that today's schema rejects (`Invalid`) needs an edit
+that makes it valid, or its deletion. A `Forbidden` object is usually refused
+by an admission policy. Fix each `Invalid` or `Forbidden` object; the next
+retry rewrites it and then patches `storedVersions`.
 
 ### The chart refuses to drop a stored version
 
@@ -627,7 +629,10 @@ for crd in pactos.pacto.trianalab.io pactorevisions.pacto.trianalab.io noderunti
 done
 ```
 
-The last command of each iteration must print `["v1"]`.
+The last command of each iteration must print `["v1"]`. It confirms the
+patch, not how each object is stored: on a control plane with several
+apiservers, wait until every apiserver serves the upgraded CRDs (a minute is
+usually enough) before you run the script.
 
 ## Raising pactoVersion with pacto migrate
 
