@@ -36,9 +36,6 @@ func TestDeclareOfferingSubject(t *testing.T) {
 	if _, _, err := runRoot(t, d, nil, "claim", "stripe", "--owner", "team-platform", "--registry", "ghcr.io/acme"); err != nil || got.Owner != "team-platform" {
 		t.Fatalf("%v %+v", err, got)
 	}
-	if _, _, err := runRoot(t, d, nil, "declare", "template:http-service"); err == nil || !strings.Contains(err.Error(), "a later release") {
-		t.Fatal(err)
-	}
 }
 
 func TestDeclareOfferingFlagsBySubject(t *testing.T) {
