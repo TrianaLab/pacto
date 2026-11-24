@@ -127,6 +127,7 @@ func TestConsumableOperatorSignatureNeverAccepts(t *testing.T) {
 func TestConsumableInferredRuleIsUnknownAndPartial(t *testing.T) {
 	l := consumableList(t, csmFleet(t, nil, csmRev("pg", "17.0.0", "postgresql", csmProv(SignatureUnknown, "inferred"))))
 	wantExcluded(t, l, LimitationOfferingAcceptanceUnknown, "postgresql", "no installation publisher rule was read", CompletenessPartial)
+	wantExcluded(t, l, LimitationOfferingAcceptanceUnknown, "postgresql", fixPublisherRule, CompletenessPartial)
 }
 
 func TestConsumableUnverifiedSignatureNotAccepted(t *testing.T) {
@@ -157,19 +158,22 @@ func TestConsumableDeclarationUnmatchedNotAccepted(t *testing.T) {
 }
 
 func TestConsumableUncheckedIsUnknownAndPartial(t *testing.T) {
-	for name, rev := range map[string]RawRevision{
-		"declaration, no provenance": csmDeclRev(t, ana, nil),
-		"declaration, status unknown": csmDeclRev(t, ana, func() *BundleProvenance {
-			p := anaSigned()
-			p.Signature.Status = SignatureUnknown
-			return p
-		}()),
-		"plain, no provenance":  csmRev("pg", "17.0.0", "postgresql", nil),
-		"plain, status unknown": csmRev("pg", "17.0.0", "postgresql", csmProv(SignatureUnknown, "rule")),
+	statusUnknown := anaSigned()
+	statusUnknown.Signature.Status = SignatureUnknown
+	// Each cause carries its own fix: the signature-source advice only when
+	// no source checked signatures.
+	for name, c := range map[string]struct {
+		rev RawRevision
+		fix string
+	}{
+		"declaration, no provenance":  {csmDeclRev(t, ana, nil), fixSignatureSource},
+		"declaration, status unknown": {csmDeclRev(t, ana, statusUnknown), fixSignatureAgain},
+		"plain, no provenance":        {csmRev("pg", "17.0.0", "postgresql", nil), fixSignatureSource},
+		"plain, status unknown":       {csmRev("pg", "17.0.0", "postgresql", csmProv(SignatureUnknown, "rule")), fixSignatureAgain},
 	} {
 		t.Run(name, func(t *testing.T) {
-			l := consumableList(t, csmFleet(t, anaPolicy(), rev))
-			wantExcluded(t, l, LimitationOfferingAcceptanceUnknown, "postgresql", "registry source that checks signatures", CompletenessPartial)
+			l := consumableList(t, csmFleet(t, anaPolicy(), c.rev))
+			wantExcluded(t, l, LimitationOfferingAcceptanceUnknown, "postgresql", "unknown; "+c.fix, CompletenessPartial)
 		})
 	}
 }
@@ -177,6 +181,8 @@ func TestConsumableUncheckedIsUnknownAndPartial(t *testing.T) {
 func TestConsumableNoSignerPolicyIsUnknownAndPartial(t *testing.T) {
 	l := consumableList(t, csmFleet(t, nil, csmDeclRev(t, ana, anaSigned())))
 	wantExcluded(t, l, LimitationOfferingAcceptanceUnknown, "postgresql", noSignerPolicy, CompletenessPartial)
+	// The fix is the signer policy's, never the signature-source advice.
+	wantExcluded(t, l, LimitationOfferingAcceptanceUnknown, "postgresql", "installation signer rule", CompletenessPartial)
 }
 
 func TestConsumableUnreadSignerPolicyIsUnknownAndPartial(t *testing.T) {
@@ -195,7 +201,11 @@ func csmUnreadable(t *testing.T, version string) RawRevision {
 
 func TestConsumableNewestUnreadableIsUnknown(t *testing.T) {
 	l := consumableList(t, csmFleet(t, nil, csmRev("pg", "16.1.0", "postgresql", csmRule()), csmUnreadable(t, "17.0.0")))
-	wantExcluded(t, l, LimitationOfferingAcceptanceUnknown, "postgresql", "newest revision could not be read", CompletenessPartial)
+	// A revision that failed validation is invalid, never "could not be read".
+	wantExcluded(t, l, LimitationOfferingAcceptanceUnknown, "postgresql", "newest revision is invalid), so a missing offering means unknown; "+fixValidRevision, CompletenessPartial)
+	if ex := unreadableNewest(&ContractRevision{}); ex.why != "its newest revision could not be read" || ex.fix != fixValidRevision {
+		t.Errorf("unread newest = %+v", ex)
+	}
 	// No readable revision at all: a target reports the offering.
 	snap, err := Build(context.Background(), BuildOptions{Now: fixedNow},
 		NewMemorySource("oci", "oci", &Collection{Revisions: []RawRevision{csmUnreadable(t, "17.0.0")}}),
@@ -208,7 +218,7 @@ func TestConsumableNewestUnreadableIsUnknown(t *testing.T) {
 	if len(csmLimitations(l, LimitationOfferingNotConsumable)) != 0 {
 		t.Errorf("an unreadable provider was a known exclusion: %+v", l.Meta.Limitations)
 	}
-	wantExcluded(t, l, LimitationOfferingAcceptanceUnknown, "postgresql", "newest revision could not be read", CompletenessPartial)
+	wantExcluded(t, l, LimitationOfferingAcceptanceUnknown, "postgresql", "newest revision is invalid", CompletenessPartial)
 }
 
 func TestConsumableEmptyCompleteStaysComplete(t *testing.T) {
@@ -344,6 +354,44 @@ func TestConsumableRestrictedViewHidesProviders(t *testing.T) {
 	}
 }
 
+// TestConsumableRevisionsHiddenIsUnknown: a view that dropped some of a
+// provider's revisions may have dropped its newest, so the provider reads
+// acceptance-unknown, never consumable at the newest the view kept. Today
+// only a golden path loses revisions to a view, and a golden path provides
+// no offering, so the test marks the drop by hand.
+func TestConsumableRevisionsHiddenIsUnknown(t *testing.T) {
+	q := csmFleet(t, nil, csmRev("pg", "16.1.0", "postgresql", csmRule()))
+	if l := consumableList(t, q); len(l.Entities) != 1 {
+		t.Fatalf("unrestricted = %+v", l.Entities)
+	}
+	q.snap.revisionsHidden = map[ServiceKey]bool{NewServiceKeyDomain(csmDomain, "pg"): true}
+	wantExcluded(t, consumableList(t, q), LimitationOfferingAcceptanceUnknown, "postgresql", "outside your view), so a missing offering means unknown; "+fixWholeView, CompletenessPartial)
+}
+
+// TestConsumableUnknownGroupedByFix: two causes of acceptance-unknown are
+// two limitations, each with its own fix.
+func TestConsumableUnknownGroupedByFix(t *testing.T) {
+	l := consumableList(t, csmFleet(t, nil, csmRev("pg", "17.0.0", "postgresql", csmProv(SignatureUnknown, "inferred")), csmRev("redis", "7.0.0", "redis", nil)))
+	lims := csmLimitations(l, LimitationOfferingAcceptanceUnknown)
+	if len(lims) != 2 || !strings.HasSuffix(lims[0].Message, fixPublisherRule) || !strings.Contains(lims[0].Message, "postgresql") ||
+		!strings.HasSuffix(lims[1].Message, fixSignatureSource) || !strings.Contains(lims[1].Message, "redis") {
+		t.Errorf("limitations = %+v", lims)
+	}
+}
+
+// TestConsumableNothingToConsumeIsNotUnpublished: a published provider
+// whose newest revision declares nothing a consumer references is not told
+// to publish.
+func TestConsumableNothingToConsumeIsNotUnpublished(t *testing.T) {
+	rev := csmRev("pg", "17.0.0", "postgresql", csmRule())
+	rev.Bundle.Contract.Workload = ""
+	l := consumableList(t, csmFleet(t, nil, rev))
+	wantExcluded(t, l, LimitationOfferingNotConsumable, "postgresql", "declares nothing a consumer references", CompletenessComplete)
+	if strings.Contains(l.Meta.Limitations[0].Message, "registry") {
+		t.Errorf("told to publish a published provider: %+v", l.Meta.Limitations)
+	}
+}
+
 func TestConsumableProvidersBounded(t *testing.T) {
 	var revs []RawRevision
 	for i := range 12 {
@@ -377,6 +425,10 @@ func TestConsumableRefusesOtherKind(t *testing.T) {
 			var iq *InvalidQueryError
 			if _, err := csmFleet(t, nil).Entities(f); !errors.As(err, &iq) || iq.Field != "consumable" {
 				t.Errorf("err = %v", err)
+			}
+			// The reason names no CLI flag: MCP and HTTP callers read it too.
+			if iq != nil && strings.Contains(iq.Reason, "--") {
+				t.Errorf("reason names a flag: %q", iq.Reason)
 			}
 		})
 	}

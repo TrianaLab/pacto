@@ -3356,8 +3356,15 @@ export interface components {
              * @enum {string}
              */
             acceptance: "declaration" | "publisher";
-            /** @description The classes the offering provisions: the enum of the class property of a required configuration */
+            /** @description The classes the offering provisions: the enum of the class property of a required configuration, at most 50 */
             classes: string[] | null;
+            /**
+             * Format: int64
+             * @description How many classes the class property allows
+             */
+            classesTotal: number;
+            /** @description The class property allows more classes than classes lists */
+            classesTruncated: boolean;
             /** @description The bundle digest acceptance covers; run pacto lock to pin it */
             digest: string;
             /** @description The interfaces of the revision that declare guarantees; empty when it declares none */

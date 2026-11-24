@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 
@@ -31,7 +32,9 @@ type ConsumableProvider struct {
 	Snippet *ConsumeSnippet `json:"snippet"`
 	// Classes is the enum of the class property of a required configuration,
 	// in schema order; empty when no schema declares one.
-	Classes             []string              `json:"classes" doc:"The classes the offering provisions: the enum of the class property of a required configuration"`
+	Classes             []string              `json:"classes" doc:"The classes the offering provisions: the enum of the class property of a required configuration, at most 50"`
+	ClassesTotal        int                   `json:"classesTotal" doc:"How many classes the class property allows"`
+	ClassesTruncated    bool                  `json:"classesTruncated" doc:"The class property allows more classes than classes lists"`
 	Parameters          []OfferingParameter   `json:"parameters" doc:"The fields of the required configurations' closed schemas, at most 50, by configuration then path"`
 	ParametersTotal     int                   `json:"parametersTotal"`
 	ParametersTruncated bool                  `json:"parametersTruncated"`
@@ -74,10 +77,12 @@ const (
 	ConsumableExcludedObservedOnly      = "observed-only"
 	ConsumableExcludedSunset            = "sunset"
 	ConsumableExcludedNotPublished      = "not-published"
+	ConsumableExcludedNothingToConsume  = "nothing-to-consume"
 	ConsumableExcludedNotAccepted       = "not-accepted"
 	ConsumableExcludedAcceptanceUnknown = "acceptance-unknown"
 	ConsumableExcludedSchemaUnreadable  = "schema-unreadable"
 	ConsumableExcludedSchemaOpen        = "schema-open"
+	ConsumableExcludedSchemaComposed    = "schema-composed"
 )
 
 // Bounds of a consumable list.
@@ -99,31 +104,44 @@ const (
 // signs only inferred contracts.
 var publisherSources = []string{"rule", "pin", "policy", "release"}
 
+// exclusion is why a provider is left out of a consumable list and, for
+// some reasons, more words and the fix of an acceptance-unknown cause.
+type exclusion struct{ reason, why, fix string }
+
+// Fixes of the acceptance-unknown causes.
+const (
+	fixSignatureSource = "read the offerings from a registry source that checks signatures"
+	fixSignatureAgain  = "read the offerings again once the registry source can check the signature"
+	fixPublisherRule   = "add an installation publisher rule for this repository"
+	fixValidRevision   = "publish a valid revision"
+	fixWholeView       = "ask with a view that may read every revision of the provider"
+)
+
 // acceptance is how rev is accepted and by whom, or, with reason
 // not-accepted or acceptance-unknown, why it is not. A declaration revision
 // is judged by its declarer in the order of [declarationRejected]; any other
 // revision by its verified signer. Unknown is never positive: a revision no
 // source checked is acceptance-unknown, never accepted.
-func acceptance(rev *ContractRevision) (how, publisher, reason, why string) {
+func acceptance(rev *ContractRevision) (how, publisher string, ex exclusion) {
 	if rev.Record != nil && rev.Record.Declaration != nil {
 		return declarationAcceptance(rev)
 	}
 	p := rev.Provenance
 	switch {
 	case p == nil:
-		return "", "", ConsumableExcludedAcceptanceUnknown, noSignatureCheck
+		return "", "", exclusion{ConsumableExcludedAcceptanceUnknown, noSignatureCheck, fixSignatureSource}
 	case p.Signature.Status == SignatureUnknown && p.Signature.Source == "inferred":
-		return "", "", ConsumableExcludedAcceptanceUnknown, "no installation publisher rule was read"
+		return "", "", exclusion{ConsumableExcludedAcceptanceUnknown, "no installation publisher rule was read", fixPublisherRule}
 	case p.Signature.Status == SignatureUnknown:
-		return "", "", ConsumableExcludedAcceptanceUnknown, "its signature could not be checked"
+		return "", "", exclusion{ConsumableExcludedAcceptanceUnknown, "its signature could not be checked", fixSignatureAgain}
 	case p.Signature.Status == SignatureVerified && slices.Contains(publisherSources, p.Signature.Source):
-		return AcceptancePublisher, p.Signature.Signer, "", ""
+		return AcceptancePublisher, p.Signature.Signer, exclusion{}
 	case p.Signature.Source == SignatureSourceOperator:
-		return "", "", ConsumableExcludedNotAccepted, "only this installation's operator signed it"
+		return "", "", exclusion{reason: ConsumableExcludedNotAccepted, why: "only this installation's operator signed it"}
 	case p.Signature.Status == SignatureVerified:
-		return "", "", ConsumableExcludedNotAccepted, "no publisher rule, pin, policy or release signer covers its signer"
+		return "", "", exclusion{reason: ConsumableExcludedNotAccepted, why: "no publisher rule, pin, policy or release signer covers its signer"}
 	}
-	return "", "", ConsumableExcludedNotAccepted, "its signature is " + p.Signature.Status
+	return "", "", exclusion{reason: ConsumableExcludedNotAccepted, why: "its signature is " + p.Signature.Status}
 }
 
 // noSignatureCheck is why a revision no source checked signatures of is
@@ -133,19 +151,19 @@ const noSignatureCheck = "this source checks no signatures (a --local fleet or t
 // declarationAcceptance is [acceptance] of a declaration revision: an
 // absent or unread signer policy is unknown, a refused declarer is not
 // accepted.
-func declarationAcceptance(rev *ContractRevision) (how, publisher, reason, why string) {
-	why, _ = declarationRejected(rev)
+func declarationAcceptance(rev *ContractRevision) (how, publisher string, ex exclusion) {
+	why, fix := declarationRejected(rev)
 	switch {
 	case rev.Provenance == nil:
-		return "", "", ConsumableExcludedAcceptanceUnknown, why
+		return "", "", exclusion{ConsumableExcludedAcceptanceUnknown, why, fixSignatureSource}
 	case rev.Provenance.Signature.Status == SignatureUnknown:
-		return "", "", ConsumableExcludedAcceptanceUnknown, "its signatures could not be checked"
+		return "", "", exclusion{ConsumableExcludedAcceptanceUnknown, "its signatures could not be checked", fixSignatureAgain}
 	case why == "":
-		return AcceptanceDeclaration, rev.Record.Declaration.Asker.Subject, "", ""
+		return AcceptanceDeclaration, rev.Record.Declaration.Asker.Subject, exclusion{}
 	case rev.declarationPolicyUnknown:
-		return "", "", ConsumableExcludedAcceptanceUnknown, why
+		return "", "", exclusion{ConsumableExcludedAcceptanceUnknown, why, fix}
 	}
-	return "", "", ConsumableExcludedNotAccepted, why
+	return "", "", exclusion{reason: ConsumableExcludedNotAccepted, why: why}
 }
 
 // consumableProvider judges s, a visible, declared provider of an offering,
@@ -156,7 +174,7 @@ func declarationAcceptance(rev *ContractRevision) (how, publisher, reason, why s
 // offered, since a snippet for it carries a caret range the unjudged newest
 // satisfies. Judge each version and offer the newest accepted one if the
 // provisioning gate needs it.
-func (q *Query) consumableProvider(s *ServiceRecord) (ConsumableProvider, string, string) {
+func (q *Query) consumableProvider(s *ServiceRecord) (ConsumableProvider, exclusion) {
 	var newest *ContractRevision
 	for _, r := range q.revisionsOf(s) {
 		if newest == nil || LessRevisionChrono(newest, r) {
@@ -166,42 +184,63 @@ func (q *Query) consumableProvider(s *ServiceRecord) (ConsumableProvider, string
 	// A provider with no revision at all is known: no contract declares the
 	// offering, only targets report it.
 	if newest == nil && s.OfferingProvenance != ProvenanceDeclared {
-		return ConsumableProvider{}, ConsumableExcludedObservedOnly, ""
+		return ConsumableProvider{}, exclusion{reason: ConsumableExcludedObservedOnly}
 	}
-	if newest == nil || !readableRevision(newest) {
-		return ConsumableProvider{}, ConsumableExcludedAcceptanceUnknown, "its newest revision could not be read"
+	// A restricted view that dropped some revisions may have dropped the
+	// newest: the newest this view holds is never the one judged.
+	if q.snap.revisionsHidden[s.Key] {
+		return ConsumableProvider{}, exclusion{ConsumableExcludedAcceptanceUnknown, "some of its revisions are outside your view", fixWholeView}
+	}
+	if ex := unreadableNewest(newest); ex.reason != "" {
+		return ConsumableProvider{}, ex
 	}
 	if s.OfferingProvenance != ProvenanceDeclared {
-		return ConsumableProvider{}, ConsumableExcludedObservedOnly, ""
+		return ConsumableProvider{}, exclusion{reason: ConsumableExcludedObservedOnly}
 	}
 	lifecycle := revisionLifecycle(newest, q.snap.GeneratedAt)
 	if lifecycle == LifecycleSunset {
-		return ConsumableProvider{}, ConsumableExcludedSunset, ""
+		return ConsumableProvider{}, exclusion{reason: ConsumableExcludedSunset}
+	}
+	if consumeRepo(q.snap, s, newest) == "" {
+		return ConsumableProvider{}, exclusion{reason: ConsumableExcludedNotPublished}
 	}
 	snippet := consumeSnippet(q.snap, s, newest)
 	if snippet == nil {
-		return ConsumableProvider{}, ConsumableExcludedNotPublished, ""
+		return ConsumableProvider{}, exclusion{reason: ConsumableExcludedNothingToConsume}
 	}
-	how, publisher, reason, why := acceptance(newest)
-	if reason != "" {
-		return ConsumableProvider{}, reason, why
+	how, publisher, ex := acceptance(newest)
+	if ex.reason != "" {
+		return ConsumableProvider{}, ex
 	}
 	p := ConsumableProvider{
 		Service: serviceEntityRef(s), Revision: revisionEntityRef(newest), Version: newest.Version, Digest: newest.Digest,
 		Acceptance: how, Publisher: publisher, Lifecycle: lifecycle, Snippet: snippet, Guarantees: guaranteesOf(newest.Contract),
 	}
-	if reason, why := q.parameterSpace(&p, newest); reason != "" {
-		return ConsumableProvider{}, reason, why
+	if ex := q.parameterSpace(&p, newest); ex.reason != "" {
+		return ConsumableProvider{}, ex
 	}
-	return p, "", ""
+	return p, exclusion{}
+}
+
+// unreadableNewest is the acceptance-unknown exclusion of a newest revision
+// that is missing, could not be read or failed validation.
+func unreadableNewest(newest *ContractRevision) exclusion {
+	switch {
+	case newest == nil || newest.Contract == nil:
+		return exclusion{ConsumableExcludedAcceptanceUnknown, "its newest revision could not be read", fixValidRevision}
+	case !readableRevision(newest):
+		return exclusion{ConsumableExcludedAcceptanceUnknown, "its newest revision is invalid", fixValidRevision}
+	}
+	return exclusion{}
 }
 
 // parameterSpace fills p's classes, parameters and schema paths from the
 // schemas of rev's required configurations (a ref'd one read from the
 // revision its edge resolves to), or says why it cannot: schema-unreadable
 // when one cannot be read or parsed, else schema-open naming up to three
-// open paths of the first open one.
-func (q *Query) parameterSpace(p *ConsumableProvider, rev *ContractRevision) (reason, why string) {
+// open paths of the first open one, or schema-composed naming the paths
+// Parameters cannot list.
+func (q *Query) parameterSpace(p *ConsumableProvider, rev *ContractRevision) exclusion {
 	type schema struct {
 		cfg, path string
 		doc       map[string]any
@@ -217,7 +256,7 @@ func (q *Query) parameterSpace(p *ConsumableProvider, rev *ContractRevision) (re
 		}
 		doc, why := schemaDoc(from, path)
 		if why != "" {
-			return ConsumableExcludedSchemaUnreadable, cfg.Name + ": " + why
+			return exclusion{reason: ConsumableExcludedSchemaUnreadable, why: cfg.Name + ": " + why}
 		}
 		schemas = append(schemas, schema{cfg.Name, path, doc})
 	}
@@ -225,21 +264,44 @@ func (q *Query) parameterSpace(p *ConsumableProvider, rev *ContractRevision) (re
 	var params []OfferingParameter
 	for _, sc := range schemas {
 		if open := schemax.OpenPaths(sc.doc); len(open) > 0 {
-			return ConsumableExcludedSchemaOpen, sc.cfg + ": " + someNamesOf(open, ", ")
+			return exclusion{reason: ConsumableExcludedSchemaOpen, why: sc.cfg + ": " + someNamesOf(open, ", ")}
+		}
+		// A closed space Parameters cannot list is never offered as a
+		// shorter one.
+		if composed := schemax.Composed(sc.doc); len(composed) > 0 {
+			return exclusion{reason: ConsumableExcludedSchemaComposed, why: sc.cfg + ": " + someNamesOf(rootNamed(composed), ", ")}
 		}
 		p.SchemaPaths = append(p.SchemaPaths, sc.path)
 		for _, sp := range schemax.Parameters(sc.doc) {
-			op := offeringParameter(sc.cfg, sp)
-			params = append(params, op)
-			if op.Path == schemax.ClassProperty && len(p.Classes) == 0 {
-				for _, c := range op.Enum {
-					p.Classes = append(p.Classes, fmt.Sprint(c))
-				}
+			params = append(params, offeringParameter(sc.cfg, sp))
+			if sp.Path == schemax.ClassProperty && p.ClassesTotal == 0 {
+				p.Classes, p.ClassesTotal, p.ClassesTruncated = classesOf(sp.Enum)
 			}
 		}
 	}
 	p.Parameters, p.ParametersTotal, p.ParametersTruncated = boundSlice(params, MaxConsumableParameters)
-	return "", ""
+	return exclusion{}
+}
+
+// rootNamed is paths with the root's empty path named.
+func rootNamed(paths []string) []string {
+	out := slices.Clone(paths)
+	for i, p := range out {
+		if p == "" {
+			out[i] = "(root)"
+		}
+	}
+	return out
+}
+
+// classesOf is the class property's enum as text, bounded like any enum.
+func classesOf(enum []any) ([]string, int, bool) {
+	shown, total, truncated := boundSlice(enum, MaxParameterEnum)
+	classes := make([]string, len(shown))
+	for i, c := range shown {
+		classes[i] = fmt.Sprint(c)
+	}
+	return classes, total, truncated
 }
 
 // schemaDoc is the parsed schema at path in from's bundle, or why it cannot
@@ -289,13 +351,17 @@ func guaranteesOf(c *contract.Contract) []ConsumableGuarantee {
 // the restricted view removed them, and the row counts them.
 func (q *Query) consumableRows(rows []EntityRef, facts map[string]*offeringFacts) ([]EntityRef, []Limitation) {
 	kept := rows[:0:0]
-	byReason := map[string][]string{}
+	byReason, unknownByFix := map[string][]string{}, map[string][]string{}
 	for _, r := range rows {
 		var providers []ConsumableProvider
 		for _, s := range facts[r.Key].providers {
-			p, reason, why := q.consumableProvider(s)
-			if reason != "" {
-				byReason[reason] = append(byReason[reason], exclusionEntry(r.Key, why))
+			p, ex := q.consumableProvider(s)
+			switch {
+			case ex.reason == ConsumableExcludedAcceptanceUnknown:
+				unknownByFix[ex.fix] = append(unknownByFix[ex.fix], exclusionEntry(r.Key, ex.why))
+				continue
+			case ex.reason != "":
+				byReason[ex.reason] = append(byReason[ex.reason], exclusionEntry(r.Key, ex.why))
 				continue
 			}
 			providers = append(providers, p)
@@ -308,7 +374,7 @@ func (q *Query) consumableRows(rows []EntityRef, facts map[string]*offeringFacts
 		r.Consumable = &ConsumableOffering{Providers: shown, ProvidersTotal: total, ProvidersTruncated: truncated}
 		kept = append(kept, r)
 	}
-	return kept, consumableLimitations(byReason)
+	return kept, consumableLimitations(byReason, unknownByFix)
 }
 
 // exclusionEntry is how a limitation names an offering whose provider is
@@ -327,18 +393,22 @@ var consumableExclusions = []struct{ reason, why, fix string }{
 	{ConsumableExcludedObservedOnly, "only targets report the offering", "the provider declares service.offering in its contract and publishes it"},
 	{ConsumableExcludedSunset, "past the sunset date", "consume the successor"},
 	{ConsumableExcludedNotPublished, "no registry repository to reference", "publish the provider to a registry"},
+	{ConsumableExcludedNothingToConsume, "its newest revision declares nothing a consumer references (no workload, interface, required configuration or policy)",
+		"declare a workload, an interface, a required configuration or a policy"},
 	{ConsumableExcludedNotAccepted, "not accepted", "a person declares the offering with a verified signature the installation signer policy allows, or an installation publisher rule covers its signer"},
 	{ConsumableExcludedSchemaOpen, "an open parameter schema", "a person closes it and accepts again"},
+	{ConsumableExcludedSchemaComposed, "a parameter schema composed with allOf, anyOf or oneOf",
+		"list its fields under properties, and each oneOf or anyOf choice as a const or an enum"},
 }
 
 // maxConsumableNames bounds the offerings a consumable limitation names.
 const maxConsumableNames = 3
 
 // consumableLimitations is one OFFERING_NOT_CONSUMABLE limitation per reason
-// a known exclusion has and one OFFERING_ACCEPTANCE_UNKNOWN for the
+// a known exclusion has and one OFFERING_ACCEPTANCE_UNKNOWN per fix of the
 // providers Pacto could not judge, each counting the providers and naming
 // up to three offerings.
-func consumableLimitations(byReason map[string][]string) []Limitation {
+func consumableLimitations(byReason, unknownByFix map[string][]string) []Limitation {
 	var lims []Limitation
 	for _, e := range consumableExclusions {
 		if names := byReason[e.reason]; len(names) > 0 {
@@ -346,10 +416,10 @@ func consumableLimitations(byReason map[string][]string) []Limitation {
 				Message: fmt.Sprintf("Not consumable, %s: %s (%s); %s", e.why, providersOfOfferings(len(names)), someNames(names), e.fix)})
 		}
 	}
-	if names := byReason[ConsumableExcludedAcceptanceUnknown]; len(names) > 0 {
+	for _, fix := range slices.Sorted(maps.Keys(unknownByFix)) {
+		names := unknownByFix[fix]
 		lims = append(lims, Limitation{Code: LimitationOfferingAcceptanceUnknown,
-			Message: fmt.Sprintf("Acceptance unknown: %s (%s), so a missing offering means unknown; read the offerings from a registry source that checks signatures",
-				providersOfOfferings(len(names)), someNames(names))})
+			Message: fmt.Sprintf("Acceptance unknown: %s (%s), so a missing offering means unknown; %s", providersOfOfferings(len(names)), someNames(names), fix)})
 	}
 	if names := byReason[ConsumableExcludedSchemaUnreadable]; len(names) > 0 {
 		lims = append(lims, Limitation{Code: LimitationOfferingAcceptanceUnknown,
@@ -395,7 +465,7 @@ func validateConsumable(f EntityFilter) error {
 	case len(f.Kinds) != 1 || f.Kinds[0] != KindOffering:
 		return &InvalidQueryError{Field: "consumable", Value: "true", Reason: "consumable keeps offerings; ask kind offering"}
 	case f.Declaration == DeclarationInferred:
-		return &InvalidQueryError{Field: "consumable", Value: "true", Reason: "--consumable lists accepted offerings and --inferred lists inferred ones; ask for one"}
+		return &InvalidQueryError{Field: "consumable", Value: "true", Reason: "consumable lists accepted offerings and declaration inferred lists inferred ones; ask for one"}
 	}
 	return nil
 }

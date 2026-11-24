@@ -167,12 +167,11 @@ providers in your view whose newest revision is accepted, with:
 Acceptance covers the listed digest; run pacto lock to pin it.
 
 A provider is left out, first reason wins, when it is `observed-only`,
-`sunset`, `not-published`, `not-accepted`, `acceptance-unknown`,
-`schema-unreadable` or `schema-open`. An unreadable newest revision is
-`acceptance-unknown` first, and a provider with no revision is
-`observed-only`. Inferred and contributed offerings never
-appear. `OFFERING_NOT_CONSUMABLE` counts the known exclusions per reason,
-naming up to three offerings and an open schema's open paths.
+`sunset`, `not-published`, `nothing-to-consume`, `not-accepted`,
+`acceptance-unknown`, `schema-unreadable`, `schema-open` or
+`schema-composed` (`allOf`, or non-const `oneOf` choices).
+An invalid newest revision reads `acceptance-unknown`. Inferred and contributed offerings never appear.
+`OFFERING_NOT_CONSUMABLE` counts the known exclusions per reason.
 `OFFERING_ACCEPTANCE_UNKNOWN` counts the providers Pacto could not check and
 makes the answer `partial`, so a missing offering means unknown. Discovered,
 user-authored and starter offerings are read by the same rule. A person

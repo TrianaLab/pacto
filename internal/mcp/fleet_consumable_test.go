@@ -55,12 +55,17 @@ func TestMCPFleetEntitiesConsumable(t *testing.T) {
 
 func TestMCPFleetEntitiesConsumableRefusesOtherKind(t *testing.T) {
 	q := consumableFleet(t)
-	for _, args := range []map[string]any{
-		{"consumable": true, "kind": "service"},
-		{"consumable": true, "kind": "offering", "declaration": "inferred"},
+	for _, c := range []struct {
+		args   map[string]any
+		reason string
+	}{
+		{map[string]any{"consumable": true, "kind": "service"}, "consumable keeps offerings; ask kind offering"},
+		{map[string]any{"consumable": true, "kind": "offering", "declaration": "inferred"},
+			"consumable lists accepted offerings and declaration inferred lists inferred ones; ask for one"},
 	} {
-		if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), args); !res.IsError || !strings.Contains(resultText(t, res), "consumable") {
-			t.Errorf("%v = %s, want an error result", args, resultText(t, res))
+		// The reason names the MCP arguments, never a CLI flag.
+		if res := callHandler(t, fleetEntitiesTool(), fleetEntitiesHandler(q, false), c.args); !res.IsError || !strings.Contains(resultText(t, res), c.reason) {
+			t.Errorf("%v = %s, want %q", c.args, resultText(t, res), c.reason)
 		}
 	}
 }

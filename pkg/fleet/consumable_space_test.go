@@ -169,11 +169,28 @@ func TestConsumableEnumBounded(t *testing.T) {
 	if x := paramAt(t, p, "class"); len(x.Enum) != MaxParameterEnum || x.EnumTotal != 80 {
 		t.Errorf("enum = %d, total %d", len(x.Enum), x.EnumTotal)
 	}
+	// Classes are bounded the same way and say so, never a silent cut.
+	if len(p.Classes) != MaxParameterEnum || p.ClassesTotal != 80 || !p.ClassesTruncated {
+		t.Errorf("classes = %d, total %d, truncated %v", len(p.Classes), p.ClassesTotal, p.ClassesTruncated)
+	}
 }
 
 func TestConsumableNoConfigurationEmptySpace(t *testing.T) {
 	p := spaceOf(t, csmRev("pg", "17.0.0", "postgresql", csmRule()))
 	if p.Parameters == nil || len(p.Parameters) != 0 || p.ParametersTotal != 0 || len(p.Classes) != 0 || len(p.SchemaPaths) != 0 || p.Guarantees == nil {
 		t.Errorf("provider = %+v", p)
+	}
+}
+
+// TestConsumableComposedSchemaExcluded: a closed schema whose fields sit in
+// an allOf is left out with its reason, never listed with an empty or short
+// parameter space.
+func TestConsumableComposedSchemaExcluded(t *testing.T) {
+	r := csmSpaceRev(`{"allOf":[{"type":"object","additionalProperties":false,"required":["size"],"properties":{"size":{"type":"integer","minimum":1,"maximum":5,"x-pacto-tier":"tunable"}}}]}`)
+	wantExcluded(t, consumableList(t, csmFleet(t, nil, r)), LimitationOfferingNotConsumable, "postgresql: db: (root)", "composed with allOf", CompletenessComplete)
+	// Const choices are an enum, so the provider stays consumable.
+	p := spaceOf(t, csmSpaceRev(`{"type":"object","additionalProperties":false,"properties":{"size":{"oneOf":[{"const":"s"},{"const":"m"}]}}}`))
+	if x := paramAt(t, p, "size"); len(x.Enum) != 2 {
+		t.Errorf("size = %+v", x)
 	}
 }

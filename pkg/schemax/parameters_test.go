@@ -2,6 +2,7 @@ package schemax
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -101,5 +102,29 @@ func TestNumberKinds(t *testing.T) {
 	}
 	if number("2") != nil || length("2") != nil {
 		t.Error("a string is no number")
+	}
+}
+
+// TestComposedSchemas: a schema OpenPaths reads closed through a junctor is
+// named by Composed unless its oneOf or anyOf choices are consts or enums,
+// which Parameters reads as the field's enum.
+func TestComposedSchemas(t *testing.T) {
+	root := map[string]any{"allOf": []any{map[string]any{"type": "object", "additionalProperties": false, "required": []any{"size"},
+		"properties": map[string]any{"size": map[string]any{"type": "integer", "x-pacto-tier": "tunable"}}}}}
+	if got := Composed(root); !slices.Equal(got, []string{""}) {
+		t.Errorf("root allOf = %q", got)
+	}
+	choice := map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{
+		"size": map[string]any{"oneOf": []any{map[string]any{"const": "s"}, map[string]any{"enum": []any{"m", "l"}}}},
+		"tier": map[string]any{"anyOf": []any{map[string]any{"type": "string"}, map[string]any{"type": "integer"}}},
+	}}
+	if got := Composed(choice); !slices.Equal(got, []string{"tier"}) {
+		t.Errorf("choices = %q", got)
+	}
+	if ps := Parameters(choice); len(ps) != 2 || !slices.Equal(ps[0].Enum, []any{"s", "m", "l"}) || ps[1].Enum != nil {
+		t.Errorf("parameters = %+v", ps)
+	}
+	if got := Composed(map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "string"}}}); got != nil {
+		t.Errorf("plain = %q", got)
 	}
 }

@@ -91,7 +91,71 @@ func parameter(root, node map[string]any, path []string, required, sensitive boo
 	if c, ok := node["const"]; ok && p.Enum == nil {
 		p.Enum = []any{c} // ponytail: a const is a one-value enum to a consumer
 	}
+	if p.Enum == nil {
+		p.Enum = choices(node)
+	}
 	return p
+}
+
+// Composed lists the dot paths of the nodes of the configuration schema doc,
+// following properties from the root ("" is the root), that compose their
+// schema with allOf, anyOf or oneOf in a way [Parameters] cannot enumerate. A
+// node whose oneOf or anyOf members each hold a const or an enum is not one:
+// Parameters reads it as an enum.
+// ponytail: an allOf is never merged; merge its members' properties when a consume schema needs it.
+func Composed(doc any) []string {
+	if d, ok := doc.(Doc); ok {
+		doc = map[string]any(d)
+	}
+	root, _ := doc.(map[string]any)
+	var out []string
+	composedWalk(root, nil, &out)
+	return out
+}
+
+func composedWalk(node map[string]any, path []string, out *[]string) {
+	if node == nil {
+		return
+	}
+	_, all := node["allOf"]
+	_, anyOf := node["anyOf"]
+	_, one := node["oneOf"]
+	if all || ((anyOf || one) && choices(node) == nil) {
+		*out = append(*out, strings.Join(path, "."))
+	}
+	props, _ := node["properties"].(map[string]any)
+	keys := make([]string, 0, len(props))
+	for k := range props {
+		keys = append(keys, k)
+	}
+	slices.Sort(keys)
+	for _, k := range keys {
+		sub, _ := props[k].(map[string]any)
+		composedWalk(sub, append(slices.Clip(path), k), out)
+	}
+}
+
+// choices is the values node's oneOf or anyOf members allow when each holds
+// a const or an enum, nil otherwise or when node has an allOf or both.
+func choices(node map[string]any) []any {
+	one, _ := node["oneOf"].([]any)
+	anyOf, _ := node["anyOf"].([]any)
+	if _, all := node["allOf"]; all || (one != nil && anyOf != nil) {
+		return nil
+	}
+	members := append(one, anyOf...)
+	var values []any
+	for _, m := range members {
+		mm, _ := m.(map[string]any)
+		if c, ok := mm["const"]; ok {
+			values = append(values, c)
+		} else if e, ok := mm["enum"].([]any); ok {
+			values = append(values, e...)
+		} else {
+			return nil
+		}
+	}
+	return values
 }
 
 // number is v as a JSON Schema number, nil when v is none; JSON decodes
