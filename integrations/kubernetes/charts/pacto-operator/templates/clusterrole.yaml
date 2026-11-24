@@ -184,6 +184,27 @@ rules:
     resources: [subjectaccessreviews]
     verbs: [create]
   {{- end }}
+  {{- if dig "enabled" false (.Values.clusterInventory | default dict) }}
+  # Cluster inventory (clusterInventory.enabled, a person's choice): detection
+  # lists the clusters each inventory knows, as metadata, uncached and with no
+  # watch, and only where the cluster serves the API. Rendered whenever the
+  # ClusterRole is, controller.watchNamespaces included.
+  {{- if or (include "pacto-operator.apiServed" (list $ "cluster.x-k8s.io/v1beta2")) (include "pacto-operator.apiServed" (list $ "cluster.x-k8s.io/v1beta1")) }}
+  - apiGroups: [cluster.x-k8s.io]
+    resources: [clusters]
+    verbs: [list]
+  {{- end }}
+  {{- if include "pacto-operator.apiServed" (list $ "cluster.open-cluster-management.io/v1") }}
+  - apiGroups: [cluster.open-cluster-management.io]
+    resources: [managedclusters]
+    verbs: [list]
+  {{- end }}
+  {{- if include "pacto-operator.apiServed" (list $ "management.cattle.io/v3") }}
+  - apiGroups: [management.cattle.io]
+    resources: [clusters]
+    verbs: [list]
+  {{- end }}
+  {{- end }}
   {{- if .Values.nodeAgent.enabled }}
   # Node agent, cluster-scoped half. Nodes get is the orphan prune: the objects
   # of a node that is gone are deleted. The agent namespace is read and

@@ -336,6 +336,10 @@ type ClusterJoinState struct {
 	// Mappings are the group mappings an approved member's reads use, one
 	// per issuer, newest approved first.
 	Mappings []GroupMappingState `json:"mappings,omitempty"`
+	// InventoryEnvironments are the environments the labels of a matched
+	// candidate name: inferred by the hub, kept apart from Environments,
+	// which only the member signs. They never reach placement or a gate.
+	InventoryEnvironments []InventoryEnvironment `json:"inventoryEnvironments,omitempty"`
 }
 
 // ClusterJoinList is every cluster a hub read from its registry.
@@ -354,6 +358,16 @@ type ClusterJoinList struct {
 	// the hub's review allowed them on a restricted surface, always on an
 	// unrestricted one. pacto cluster approve checks the right itself.
 	CanApprove bool `json:"canApprove"`
+	// Candidates are the clusters the hub's GitOps and cluster managers
+	// know, as of CandidatesAsOf, each matched to a member by UID or not.
+	// CandidatesCompleteness is theirs alone (their limitations name
+	// CandidatesID): it never changes Completeness, so candidates never
+	// change what is counted about members. HiddenCandidates counts those
+	// the reader may not see.
+	Candidates             []ClusterCandidate `json:"candidates,omitempty"`
+	CandidatesAsOf         string             `json:"candidatesAsOf,omitempty"`
+	CandidatesCompleteness fleet.Completeness `json:"candidatesCompleteness,omitempty"`
+	HiddenCandidates       int                `json:"hiddenCandidates,omitempty"`
 }
 
 // JoinStates are the states of cands as hub reads them with recs (by UID):

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
-import { clusterWord, clusterReason, clusterCaptionParts, showClusters, approveCommand, isDNSLabel, shortKey, joinNameTip, joinHostsTip, approvedWords, removedWords, snapshotWords, joinCounts, type ClusterSummary } from './clusters.ts';
+import { clusterWord, clusterReason, clusterCaptionParts, showClusters, approveCommand, isDNSLabel, shortKey, joinNameTip, joinHostsTip, approvedWords, removedWords, snapshotWords, joinCounts, candidateGroups, candidateWord, candidateTip, candidateLabels, hiddenCandidateCount, type ClusterSummary } from './clusters.ts';
+import type { ClusterCandidate } from './api.ts';
 
 const c = (id: string, name: string, status: ClusterSummary['status'] = 'available', access?: ClusterSummary['access']): ClusterSummary =>
   ({ id, name, status, targets: 1, ...(access ? { access } : {}) });
@@ -108,5 +109,50 @@ describe('join row words', () => {
     expect(snapshotWords({ uid: 'u', state: 'pending', status: 'stale', snapshotAsOf: '2026-11-17T10:00:00Z' })).toBe('snapshot stale, from 2026-11-17 10:00');
     expect(snapshotWords({ uid: 'u', state: 'pending', status: 'unavailable' })).toBe('snapshot unreachable');
     expect(snapshotWords({ uid: 'u', state: 'pending', status: 'available' })).toBe('');
+  });
+});
+
+describe('candidate clusters', () => {
+  const cand = (over: Partial<ClusterCandidate>): ClusterCandidate =>
+    ({ source: 'argocd', kind: 'Secret', namespace: 'argocd', name: 'eu-prod', match: 'unmatched', ...over });
+
+  it('groups candidates by source, with an install only for argocd and flux', () => {
+    const g = candidateGroups([cand({ source: 'capi', kind: 'Cluster', name: 'c' }), cand({}), cand({ source: 'flux', name: 'f' }), cand({ name: 'us' })]);
+    expect(g.map((x) => [x.source, x.label, x.install, x.action, x.items.length])).toEqual([
+      ['argocd', 'Argo CD', 'argocd', 'Get ApplicationSet', 2], ['flux', 'Flux', 'flux', 'Get Flux manifests', 1], ['capi', 'Cluster API', null, '', 1]]);
+    expect(candidateGroups([])).toEqual([]);
+  });
+
+  it('never says not joined', () => {
+    const words = [cand({}), cand({ match: 'same-uid', uid: '9f1c4e2a-1' }), cand({ match: 'matched', member: { uid: 'u', name: 'eu-prod' } }), cand({ match: 'matched', member: { uid: 'u' } })].map(candidateWord);
+    expect(words).toEqual(['not matched', 'states the same UID', 'matched to eu-prod', 'matched']);
+    expect(words.join(' ')).not.toMatch(/joined|member of|not a member/);
+  });
+
+  it('keeps the uid out of every label and names it with its source in the tip', () => {
+    const uid = '9f1c4e2a-0000-4000-8000-000000000001';
+    const c = cand({ match: 'matched', uid, uidSource: 'annotation pacto.trianalab.io/cluster-uid', member: { uid, name: 'eu-prod' }, labels: { env: 'prod' } });
+    expect(candidateWord(c) + candidateLabels(c.labels).shown.join(' ')).not.toContain(uid.slice(0, 8));
+    expect(candidateTip(c)).toBe(`From Argo CD Secret argocd/eu-prod. States UID ${uid} (annotation pacto.trianalab.io/cluster-uid). The approved member eu-prod publishes that UID under its approved key. Labels: env=prod.`);
+    expect(candidateTip(cand({ source: 'rancher', kind: 'Cluster', namespace: undefined, name: 'c-1', reason: 'the candidate states no cluster UID' })))
+      .toBe('From Rancher Cluster c-1. The candidate states no cluster UID.');
+    expect(candidateTip(cand({ match: 'same-uid', uid: 'x', reason: 'a person has not approved it' }))).toBe('From Argo CD Secret argocd/eu-prod. States UID x. A person has not approved it.');
+    expect(candidateTip(cand({ match: 'matched', member: { uid: 'u' } }))).toContain('The approved member publishes that UID');
+  });
+
+  it('the tip holds every label, so touch reaches those past the first three', () => {
+    expect(candidateTip(cand({ labels: { 'cluster.x-k8s.io/cluster-name': 'capi-workload', env: 'prod', region: 'eu', tier: 'gold' } })))
+      .toBe('From Argo CD Secret argocd/eu-prod. Labels: cluster.x-k8s.io/cluster-name=capi-workload, env=prod, region=eu, tier=gold.');
+  });
+
+  it('labels collapse after three with the rest in the title', () => {
+    expect(candidateLabels({ region: 'eu', env: 'prod', tier: 'a', b: '1' })).toEqual({ shown: ['b=1', 'env=prod', 'region=eu'], more: 1, title: 'b=1, env=prod, region=eu, tier=a' });
+    expect(candidateLabels(undefined)).toEqual({ shown: [], more: 0, title: '' });
+  });
+
+  it('hidden candidates counted', () => {
+    expect(hiddenCandidateCount(0)).toBe('');
+    expect(hiddenCandidateCount(1)).toBe('1 candidate cluster hidden: they show to those who may approve clusterjoins');
+    expect(hiddenCandidateCount(3)).toBe('3 candidate clusters hidden: they show to those who may approve clusterjoins');
   });
 });

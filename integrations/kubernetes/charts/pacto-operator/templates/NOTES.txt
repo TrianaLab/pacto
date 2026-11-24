@@ -383,6 +383,14 @@ Proposed pull Secret (inferred from pod specs; it needs push on
 {{- end }}
 {{- end }}
 {{- end }}
+{{- if dig "enabled" false (.Values.clusterInventory | default dict) }}
+
+Candidate clusters show in the dashboard's Data sources and in
+`pacto cluster list`; nothing joins on its own.
+{{- if not (dig "secretNamespaces" list (.Values.clusterInventory | default dict)) }}
+  Argo CD and Flux clusters need clusterInventory.secretNamespaces.
+{{- end }}
+{{- end }}
 {{- with include "pacto-operator.evidenceLedgers" . | fromYamlArray }}
 
 The Evidence Server also tags, with evidence.registry.credentialsSecret, only

@@ -6,8 +6,13 @@
 # --dashboard-allow-anonymous, because a reused release now signs people in
 # (tokenSignIn is a new key, so the reused values never turn it off), and
 # 510-S9 adds --dashboard-mcp after it, because dashboard.mcp is a new key too,
-# so a reused release serves MCP at /mcp.
+# so a reused release serves MCP at /mcp. 514-S5 adds --chart-version after
+# --metrics-secure on every install (the chart version is pinned to 9.9.9
+# below, so a release bump never edits these lists); clusterInventory is a new
+# key, so the reused values never turn the inventory on.
 suite: upgrade with reused 6.x values
+chart:
+  version: 9.9.9
 templates:
   - templates/deployment.yaml
   - templates/clusterrole.yaml
@@ -17,6 +22,8 @@ templates:
 set:
   # 6.x values carry no fingerprints key: --reuse-values keeps it absent.
   fingerprints: null
+  # 6.x values carry no clusterInventory key either (514-S5).
+  clusterInventory: null
 tests:
   - it: should render the 6.x arguments for 6.x default values
     template: templates/deployment.yaml
@@ -42,6 +49,7 @@ tests:
           - --health-probe-bind-address=:8081
           - --metrics-bind-address=:8443
           - --metrics-secure=true
+          - --chart-version=9.9.9
           - --node-agent-namespace=pacto-node-agent
           - --enable-dashboard
           - --dashboard-cpu-request=50m
@@ -64,6 +72,7 @@ tests:
           - --health-probe-bind-address=:8081
           - --metrics-bind-address=:8443
           - --metrics-secure=true
+          - --chart-version=9.9.9
           - --node-agent-namespace=pacto-node-agent
           - --enable-dashboard
           - --dashboard-cpu-request=50m
@@ -95,6 +104,7 @@ tests:
           - --health-probe-bind-address=:8081
           - --metrics-bind-address=:8443
           - --metrics-secure=true
+          - --chart-version=9.9.9
           - --enable-kernel-evidence
           - --caller-coverage-ignore-namespace=kube-flannel
           - --caller-coverage-ignore-namespace=calico-system
@@ -127,6 +137,7 @@ tests:
           - --health-probe-bind-address=:8081
           - --metrics-bind-address=:8443
           - --metrics-secure=true
+          - --chart-version=9.9.9
           - --enable-kernel-evidence
           - --caller-coverage-ignore-namespace=kube-flannel
           - --caller-coverage-ignore-namespace=calico-system
@@ -166,6 +177,7 @@ tests:
           - --health-probe-bind-address=:8081
           - --metrics-bind-address=:8443
           - --metrics-secure=true
+          - --chart-version=9.9.9
           - --enable-probing
           - --enable-metrics-observation
           - --node-agent-namespace=pacto-node-agent
@@ -223,6 +235,7 @@ tests:
           - --health-probe-bind-address=:8081
           - --metrics-bind-address=:8443
           - --metrics-secure=true
+          - --chart-version=9.9.9
           - --node-agent-namespace=pacto-node-agent
           - --enable-dashboard
           - --dashboard-cpu-request=50m

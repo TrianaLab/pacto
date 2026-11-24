@@ -222,6 +222,18 @@ The privilege idp adds:
 - `create`, `delete`, `get`, `patch` and `update` on Deployments and Services in the release namespace, for the Evidence Server
 - With `idp.crossplane.install=true` only, the upstream Crossplane chart's RBAC: the `crossplane` ServiceAccount writes CRDs, Secrets, ServiceAccounts, Services, Deployments and webhook configurations cluster-wide, the `rbac-manager` ServiceAccount may escalate and bind ClusterRoles, and the `crossplane:masters` group is bound to `crossplane-admin`
 
+### Cluster inventory
+
+`clusterInventory.enabled=true` lists the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher know on a hub; Data sources and `pacto cluster list` show them, and nothing joins on its own. It adds `list` on each inventory API the cluster serves. Argo CD cluster Secrets and Flux kubeconfig Secrets are read only in the namespaces `clusterInventory.secretNamespaces` names, each through a Role with `list` on `secrets` and its RoleBinding:
+
+```yaml
+clusterInventory:
+  enabled: true
+  secretNamespaces: [argocd, flux-system]
+```
+
+The Roles render only when both values are set. The grant lets the operator's ServiceAccount list those Secrets, data included; Pacto requests their metadata only, and no ClusterRole grants Secrets. [Install members](https://pacto.run/latest/install-members/) lists the candidates and installs the chart on them through Argo CD or Flux.
+
 ## Artifact Verification
 
 The chart and the controller image are signed keyless with Sigstore. [Published artifacts](https://pacto.run/latest/integrations/kubernetes/artifact-hub/) gives the coordinates and the verify command.

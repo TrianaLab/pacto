@@ -192,6 +192,13 @@ Controller arguments derived from values
 - --registry-push-prefix={{ . }}
 {{- end }}
 {{- end }}
+{{- if dig "enabled" false (.Values.clusterInventory | default dict) }}
+- --cluster-inventory
+{{- with dig "secretNamespaces" list (.Values.clusterInventory | default dict) }}
+- --cluster-inventory-namespaces={{ join "," . }}
+{{- end }}
+{{- end }}
+- --chart-version={{ .Chart.Version }}
 {{- if include "pacto-operator.member" . }}
 - --hub-url={{ .Values.hub.url }}
 {{- if .Values.hub.caConfigMap }}

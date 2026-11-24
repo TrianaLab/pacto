@@ -2,6 +2,8 @@ package main
 
 import (
 	"crypto/ed25519"
+	"flag"
+	"io"
 	"slices"
 	"strings"
 	"testing"
@@ -120,5 +122,42 @@ func TestIDPPiecesOnlyUnderIDP(t *testing.T) {
 		got[0].Kind != "evidence" || got[0].Value != "on" ||
 		got[1].Kind != "recorder" || got[1].Value != "off" {
 		t.Fatalf("pieces %+v", got)
+	}
+}
+
+// TestChartVersionFlagAdvertised: --chart-version reaches the installation
+// block detection advertises, the version a generated member install pins.
+func TestChartVersionFlagAdvertised(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	o := &options{}
+	bindFlags(fs, o)
+	if err := fs.Parse([]string{"--chart-version=0.42.0", "--profile=default"}); err != nil {
+		t.Fatal(err)
+	}
+	inst, err := addPublishers(newFakeManager(), o, "pacto", testIdent, nil, nil, nil, &controller.PactoReconciler{})
+	if err != nil || inst.ChartVersion != "0.42.0" {
+		t.Fatalf("installation = %+v, %v", inst, err)
+	}
+}
+
+// TestClusterInventoryFlagsParse: the inventory flags parse into the
+// Detector's config, and a namespace that is not a DNS label stops the
+// operator at start.
+func TestClusterInventoryFlagsParse(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	o := &options{}
+	bindFlags(fs, o)
+	if err := fs.Parse([]string{"--cluster-inventory", "--cluster-inventory-namespaces=argocd,flux-system"}); err != nil {
+		t.Fatal(err)
+	}
+	if !o.inventory.Enabled || !slices.Equal(o.inventory.SecretNamespaces, []string{"argocd", "flux-system"}) {
+		t.Fatalf("inventory = %+v", o.inventory)
+	}
+	fs = flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	bindFlags(fs, &options{})
+	err := fs.Parse([]string{"--cluster-inventory-namespaces=argocd,Flux_System"})
+	if err == nil || !strings.Contains(err.Error(), `"Flux_System" is not a namespace name`) {
+		t.Fatalf("a bad namespace = %v", err)
 	}
 }

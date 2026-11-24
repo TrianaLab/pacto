@@ -213,6 +213,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			opts.Declare = declarer
 			opts.Outside = members.outside()
 			opts.ClusterJoins = identity.clusterJoins(joins)
+			opts.ClusterInstall = dashboardInstall(d, clusterCfg, det.detected, fopts.ClusterJoins, joins)
 			mcpLine, err := mountDashboardMCP(v, svc, version, repos, identity, managerFleetProvider(mgr), fopts.Provenance, d, &opts)
 			if err != nil {
 				return err

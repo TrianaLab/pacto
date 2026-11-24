@@ -115,9 +115,10 @@ func mcpClusters(svc *app.Service, d deps, joins *app.JoinOptions, restricted bo
 const approverReview = "cluster-join-approver"
 
 // visibleJoins is l as one reader sees it: approved members always, without
-// their group mappings unless the reader may approve; pending and removed
-// rows only when may says the reader may approve clusterjoins (an
-// unrestricted reader passes true), otherwise counted in Hidden. A review
+// their group mappings and inventory environments unless the reader may
+// approve; pending and removed rows and the candidate clusters only when
+// may says the reader may approve clusterjoins (an unrestricted reader
+// passes true), otherwise counted in Hidden and HiddenCandidates. A review
 // that failed (err) hides and counts them too and makes the list partial:
 // a reader is never shown an empty list for a forbidden one.
 func visibleJoins(l delivery.ClusterJoinList, may bool, err error) delivery.ClusterJoinList {
@@ -132,11 +133,17 @@ func visibleJoins(l delivery.ClusterJoinList, may bool, err error) delivery.Clus
 			// for those who may approve. Readers see the mapping in force
 			// on the link of a cluster their view shows.
 			c.Mappings = nil
+			// Inventory environments name objects in the hub's GitOps
+			// namespaces, as the candidates do.
+			c.InventoryEnvironments = nil
 			rows = append(rows, c)
 		}
 	}
 	l.Hidden += len(l.Clusters) - len(rows)
 	l.Clusters = rows
+	l.HiddenCandidates += len(l.Candidates)
+	l.Candidates, l.CandidatesAsOf, l.CandidatesCompleteness = nil, "", ""
+	l.Limitations = slices.DeleteFunc(slices.Clone(l.Limitations), func(lim fleet.Limitation) bool { return lim.Source == delivery.CandidatesID })
 	if err != nil {
 		l.Limitations = append(slices.Clone(l.Limitations), fleet.Limitation{Code: fleet.LimitationSourceUnavailable, Source: approverReview,
 			Message: "whether you may approve clusterjoins could not be checked, so pending and removed clusters are hidden: " + err.Error()})

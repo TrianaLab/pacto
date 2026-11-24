@@ -457,9 +457,29 @@ export interface paths {
         };
         /**
          * List the member clusters of this hub
-         * @description The clusters that publish to this hub's registry and where each stands: approved members, pending clusters with why they are pending and removed members, as pacto cluster list and pacto_cluster_list answer. A signed-in reader who may not approve clusterjoins sees the approved members only; the rest are counted in hidden. Approving is a person's signed decision with pacto cluster approve.
+         * @description The clusters that publish to this hub's registry and where each stands: approved members, pending clusters with why they are pending and removed members, as pacto cluster list and pacto_cluster_list answer. A signed-in reader who may not approve clusterjoins sees the approved members only; the rest are counted in hidden, and the candidate clusters the hub's GitOps and cluster managers know in hiddenCandidates. A candidate is matched to a member only by a UID it states. Approving is a person's signed decision with pacto cluster approve.
          */
         get: operations["get-fleet-clusters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/clusters/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the install of the Pacto chart on every member
+         * @description The Argo CD ApplicationSet (from=argocd) or Flux HelmReleases (from=flux) that install the Pacto chart on every cluster the engine reaches, as pacto cluster install prints them. The values are only registry: set hub.url with pacto cluster install --hub-url. Pacto writes nothing to Git and applies nothing; deleting the files never uninstalls Pacto from a member. Only for a reader who may approve clusterjoins.
+         */
+        get: operations["get-fleet-clusters-install"];
         put?: never;
         post?: never;
         delete?: never;
@@ -2086,13 +2106,35 @@ export interface components {
             result: "Pass" | "Fail" | "Unknown";
             verdicts: components["schemas"]["Delivery.Verdict"][] | null;
         };
+        "Delivery.ClusterCandidate": {
+            displayName?: string;
+            kind: string;
+            labels?: {
+                [key: string]: string;
+            };
+            /** @enum {string} */
+            match: "matched" | "same-uid" | "unmatched";
+            member?: components["schemas"]["Delivery.ClusterRef"];
+            name: string;
+            namespace?: string;
+            reason?: string;
+            /** @enum {string} */
+            source: "argocd" | "flux" | "capi" | "ocm" | "rancher";
+            uid?: string;
+            uidSource?: string;
+        };
         "Delivery.ClusterJoinList": {
             asOf: string;
             canApprove: boolean;
+            candidates?: components["schemas"]["Delivery.ClusterCandidate"][] | null;
+            candidatesAsOf?: string;
+            candidatesCompleteness?: string;
             clusters: components["schemas"]["Delivery.ClusterJoinState"][] | null;
             completeness: string;
             /** Format: int64 */
             hidden: number;
+            /** Format: int64 */
+            hiddenCandidates?: number;
             hub: components["schemas"]["Delivery.ClusterRef"];
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             /** Format: int64 */
@@ -2105,6 +2147,7 @@ export interface components {
             approvedPublicKey?: string;
             approver?: string;
             environments?: components["schemas"]["Delivery.AdvertisedEnvironment"][] | null;
+            inventoryEnvironments?: components["schemas"]["Delivery.InventoryEnvironment"][] | null;
             keyID?: string;
             mappings?: components["schemas"]["Delivery.GroupMappingState"][] | null;
             mayReplace?: components["schemas"]["Delivery.ClusterRef"];
@@ -2244,6 +2287,11 @@ export interface components {
         };
         "Delivery.ImpactGate": {
             declaredConsumersOnly?: boolean;
+        };
+        "Delivery.InventoryEnvironment": {
+            candidate: string;
+            name: string;
+            source: string;
         };
         "Delivery.LadderRung": {
             name: string;
@@ -11271,6 +11319,67 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Delivery.ClusterJoinList"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "get-fleet-clusters-install": {
+        parameters: {
+            query: {
+                /** @description the engine that applies the install */
+                from: "argocd" | "flux";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The install as YAML, an attachment */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/yaml": string;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
                 };
             };
             /** @description Internal Server Error */

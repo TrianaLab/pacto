@@ -1,14 +1,18 @@
 package main
 
 import (
+	"context"
 	"crypto/ed25519"
 	"crypto/sha256"
 	"crypto/x509"
+	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
+	"strings"
 	"time"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -113,8 +117,42 @@ func demoMemberLinks() fleet.Source {
 	return fleet.NewMemorySource("member-links", fleet.SourceKindMemberLinks, &fleet.Collection{Advisory: true, ClusterLinks: links})
 }
 
+// demoClusters is what the hub's operator found in its Argo CD and Cluster
+// API: eu-prod's cluster Secret states eu-prod's UID and env=prod, the
+// staging-west Secret states none, and ap-dev-pool is a Cluster API cluster.
+//
+//go:embed clusters.json
+var demoClusters []byte
+
+// demoChartVersion is the chart version the demo hub hands out.
+const demoChartVersion = "6.6.0"
+
+// demoCandidates is demoClusters read now, as the hub reads clusters.json.
+func demoCandidates() detect.Clusters {
+	c, err := detect.DecodeClusters(demoClusters)
+	if err != nil {
+		panic(err) // the embedded file is fixed
+	}
+	c.AsOf = demoNow()
+	return c
+}
+
+// demoClusterInstall is the hub's member install for the engine from, over
+// the demo candidates, as the dashboard download hands it out.
+func demoClusterInstall(_ context.Context, from string) ([]byte, error) {
+	l, c := demoClusterJoins(), demoCandidates()
+	res, err := delivery.MemberInstall(delivery.MemberInstallOptions{Engine: from,
+		Registry: strings.TrimSuffix(demoTargetsRepository, "/"+delivery.TargetSnapshotRepository), ChartVersion: demoChartVersion,
+		Argo: c.From(detect.SourceArgoCD), Flux: c.From(detect.SourceFlux), Matched: l.Candidates, HubUID: l.Hub.UID})
+	if err != nil {
+		return nil, err
+	}
+	return delivery.MemberInstallDownload(res), nil
+}
+
 // demoClusterJoins is the hub's join list: what pacto cluster list prints and
-// the Data sources page shows on the hub.
+// the Data sources page shows on the hub, with the candidate clusters matched
+// by the UID they state.
 func demoClusterJoins() delivery.ClusterJoinList {
 	l := delivery.ClusterJoinList{Hub: delivery.ClusterRef{UID: prodClusterID, Name: "production"}, Repository: demoTargetsRepository,
 		AsOf: demoNow().Format(time.RFC3339), Completeness: fleet.CompletenessComplete, CanApprove: true}
@@ -127,10 +165,11 @@ func demoClusterJoins() delivery.ClusterJoinList {
 			rec := sha256.Sum256([]byte("join " + m.uid))
 			st.Approver, st.ApprovedAt = demoApprover, demoNow().Add(-72*time.Hour).Format(time.RFC3339)
 			st.Record = demoTargetsRepository + "@sha256:" + hex.EncodeToString(rec[:])
+			st.ApprovedKeyID, st.ApprovedPublicKey = keyID, pub
 		} else {
 			st.Reason = "no approval yet"
 		}
 		l.Clusters = append(l.Clusters, st)
 	}
-	return l
+	return delivery.MatchCandidates(l, demoCandidates(), demoNow())
 }

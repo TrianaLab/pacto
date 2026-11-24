@@ -455,3 +455,25 @@ tests:
     asserts:
       - notMatchRegexRaw:
           pattern: "dashboard.repositories is deprecated"
+
+  - it: names where candidate clusters show when clusterInventory is enabled
+    set:
+      clusterInventory.enabled: true
+      clusterInventory.secretNamespaces: [argocd]
+    asserts:
+      - matchRegexRaw:
+          pattern: "Candidate clusters show in the dashboard's Data sources"
+      - notMatchRegexRaw:
+          pattern: "need clusterInventory.secretNamespaces"
+
+  - it: names the missing Secret namespaces when clusterInventory has none
+    set:
+      clusterInventory.enabled: true
+    asserts:
+      - matchRegexRaw:
+          pattern: "Argo CD and Flux clusters need clusterInventory.secretNamespaces"
+
+  - it: says nothing about candidate clusters by default
+    asserts:
+      - notMatchRegexRaw:
+          pattern: "Candidate clusters"

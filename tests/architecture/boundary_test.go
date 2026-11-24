@@ -313,6 +313,14 @@ func TestDiscoverReadsNoClusterOrRuntime(t *testing.T) {
 // cluster records they come from.
 var clusterViewSymbols = []string{"ClusterSummary", "ClusterRecord", "ClusterNoAccess", "ClusterReviewFailed", "ClusterNotReviewable"}
 
+// joinListReaders are the gate-path files whose Clusters selectors name the
+// hub's member join list (delivery.ClusterJoinList.Clusters) and the
+// candidate inventory (detect.Clusters), never a fleet cluster view; every
+// other check still applies to them.
+var joinListReaders = map[string]string{
+	"pkg/delivery/clustercandidates.go": "matches the hub's candidate clusters to its join list by stated UID; it reads no fleet view",
+}
+
 // TestNoGateReadsClusterAccess keeps cluster access marks, per-cluster
 // summaries and the Cluster list filter out of every gate: they describe what
 // one reader may see, so a gate that read them would pass or fail by who asked.
@@ -351,7 +359,8 @@ func clusterViewReads(t *testing.T, path, rel string) []string {
 		switch n := n.(type) {
 		case *ast.SelectorExpr:
 			x, ok := n.X.(*ast.Ident)
-			if (ok && x.Name == "fleet" && slices.Contains(clusterViewSymbols, n.Sel.Name)) || n.Sel.Name == "Clusters" || n.Sel.Name == "ClustersTruncated" {
+			joinList := joinListReaders[rel] != "" && n.Sel.Name == "Clusters"
+			if (ok && x.Name == "fleet" && slices.Contains(clusterViewSymbols, n.Sel.Name)) || (n.Sel.Name == "Clusters" && !joinList) || n.Sel.Name == "ClustersTruncated" {
 				at(n)
 			}
 		case *ast.CompositeLit:

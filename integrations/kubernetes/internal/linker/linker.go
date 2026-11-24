@@ -351,9 +351,12 @@ const (
 )
 
 // room is the most linked.json may take in cm beside the detection payload
-// and its headroom, so the two keys together stay under the ConfigMap bound.
+// and its headroom, and the full bound of clusters.json whatever its size
+// now (it can grow to its bound between two cycles), so the keys together
+// stay under the ConfigMap bound.
 func room(cm *corev1.ConfigMap) int {
-	return maxConfigMapBytes - detectionHeadroom - len(detect.ConfigMapKey) - len(cm.Data[detect.ConfigMapKey]) - len(core.LinkedConfigMapKey)
+	return maxConfigMapBytes - detectionHeadroom - len(detect.ConfigMapKey) - len(cm.Data[detect.ConfigMapKey]) - len(core.LinkedConfigMapKey) -
+		len(detect.ClustersConfigMapKey) - detect.MaxClustersBytes
 }
 
 // encode encodes out within the smaller of the bound and room, dropping the

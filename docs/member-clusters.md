@@ -14,7 +14,8 @@ approver signers.
 ## Set up the member and the hub
 
 1. Install the operator in the member with `--set registry=ghcr.io/acme` and
-   nothing else. It publishes its signed snapshot to
+   nothing else, or every member at once
+   [through Argo CD or Flux](install-members.md). It publishes its signed snapshot to
    `ghcr.io/acme/pacto-targets:cluster-<uid>` with its display name, the
    environments it seems to host and its installation key.
 2. On the hub's operator, set `delivery.enabled=true` and
@@ -29,9 +30,8 @@ kubectl create clusterrole pacto-cluster-approver --verb=approve --resource=clus
 kubectl create clusterrolebinding pacto-cluster-approver --clusterrole=pacto-cluster-approver --user=oidc:alice@acme.com
 ```
 
-`clusterjoins` is a virtual resource with no CRD. The hub reviews the user an
-approval's certificate names with no groups, since a certificate names none,
-so a grant to a group never counts. A profile `hardened` cluster can be a
+`clusterjoins` is a virtual resource with no CRD. A certificate names no
+groups, so the hub never counts a grant to a group. A profile `hardened` cluster can be a
 member but never a hub: it renders no delivery and so no approver signers.
 
 ## Approve a member

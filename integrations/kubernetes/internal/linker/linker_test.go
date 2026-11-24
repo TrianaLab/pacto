@@ -389,6 +389,25 @@ func TestLinkerLeavesRoomForDetection(t *testing.T) {
 	}
 }
 
+// TestRoomReservesClustersBound: the room reserves the full bound of
+// clusters.json whatever its size now, and a full clusters.json beside a full
+// linked.json and detected.json at its headroom stays under the bound.
+func TestRoomReservesClustersBound(t *testing.T) {
+	reserve := len(detect.ClustersConfigMapKey) + detect.MaxClustersBytes
+	base := maxConfigMapBytes - detectionHeadroom - len(detect.ConfigMapKey) - len(core.LinkedConfigMapKey)
+	for _, clusters := range []string{"", "{}", strings.Repeat("x", detect.MaxClustersBytes)} {
+		if got := room(&corev1.ConfigMap{Data: map[string]string{detect.ClustersConfigMapKey: clusters}}); got != base-reserve {
+			t.Errorf("clusters.json of %d bytes: room %d, want %d", len(clusters), got, base-reserve)
+		}
+	}
+	detected := strings.Repeat("d", 32<<10)
+	r := room(&corev1.ConfigMap{Data: map[string]string{detect.ConfigMapKey: detected}})
+	total := len(detect.ConfigMapKey) + len(detected) + detectionHeadroom + len(core.LinkedConfigMapKey) + min(r, core.MaxLinkedBytes) + reserve
+	if total > maxConfigMapBytes {
+		t.Errorf("every key at its bound takes %d bytes, more than %d", total, maxConfigMapBytes)
+	}
+}
+
 // A forbidden list and a failed write never stop the operator: Sync returns
 // nil and what it wrote is partial.
 func TestLinkerFirstSyncListErrorDoesNotStopManager(t *testing.T) {

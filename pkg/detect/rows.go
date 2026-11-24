@@ -2,6 +2,7 @@ package detect
 
 import (
 	"cmp"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -21,7 +22,7 @@ var rowNames = map[string]string{
 	"jaeger": "Jaeger", "datadog": "Datadog", "traces": "Traces",
 	"istio-egress": "Istio egress", "cilium-fqdn": "Cilium FQDN", "egress-gateway": "Egress gateway",
 	"crossplane": "Crossplane", "evidence": "Evidence", "recorder": "Recorder", fleet.ProviderApplier: "Applier",
-	"backstage": "Backstage catalog",
+	"backstage": "Backstage catalog", inventoryKind: "Cluster inventory",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -48,6 +49,7 @@ var usedFor = map[string]string{
 	"evidence":            "Evidence Server for provisioning reports (profile idp)",
 	"recorder":            "signed delivery records (profile idp)",
 	"backstage":           "inferred owners, domains and dependencies, read by the dashboard; nothing is turned on",
+	inventoryKind:         "candidate clusters for pacto cluster install; nothing joins on its own",
 }
 
 // egressSentence is what an egress reader's row is used for.
@@ -69,7 +71,8 @@ const observedEdges = "observed edges, read by the dashboard; nothing is turned 
 // maps a Result through this one function. An Installation block adds the
 // one declared row; every row built from the entries stays inferred. An
 // Applier row's hint is always [FluxInstallHint]: the ConfigMap decides
-// whether the offer shows, never what a person copies.
+// whether the offer shows, never what a person copies. A cluster-inventory
+// row's hint is rebuilt by inventoryHint from its namespaces.
 func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 	rows := make([]fleet.Provider, 0, len(res.Entries)+1)
 	if res.Installation != nil {
@@ -83,8 +86,12 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 			Provenance: fleet.ProvenanceInferred, AsOf: &asOf, Hint: e.Hint, Details: slices.Clone(e.Details),
 			Scope: e.Scope, Cluster: cluster, ClusterID: res.Cluster,
 		}
-		if e.Kind == fleet.ProviderApplier && p.Hint != "" {
+		switch {
+		case p.Hint == "":
+		case e.Kind == fleet.ProviderApplier:
 			p.Hint = FluxInstallHint
+		case e.Kind == inventoryKind:
+			p.Hint = inventoryHint(e.Namespaces)
 		}
 		for _, ns := range e.Namespaces {
 			p.Objects = append(p.Objects, fleet.ProviderObject{Kind: "Namespace", Namespace: ns, Name: ns})
@@ -155,3 +162,21 @@ func status(c string, age time.Duration) fleet.SourceStatus {
 	}
 	return fleet.SourceAvailable
 }
+
+// inventoryHint is the one proposal a cluster-inventory row carries, rebuilt
+// by every reader from the namespaces that are DNS labels, so a hand-edited
+// hint never reaches a person. Like [FluxInstallHint] it names values of the
+// Pacto release the person already runs, at the chart version it runs.
+func inventoryHint(namespaces []string) string {
+	hint := "Set clusterInventory on this Pacto release, at the chart version it runs: helm upgrade <release> oci://ghcr.io/trianalab/pacto/charts/pacto-operator" +
+		" --version <version> -n <namespace> --reset-then-reuse-values --set clusterInventory.enabled=true"
+	ns := slices.DeleteFunc(slices.Clone(namespaces), func(n string) bool { return !dnsLabel.MatchString(n) })
+	slices.Sort(ns)
+	if ns = slices.Compact(ns); len(ns) > 0 {
+		hint += " --set 'clusterInventory.secretNamespaces={" + strings.Join(ns, ",") + "}'"
+	}
+	return hint
+}
+
+// dnsLabel is a namespace name: a DNS label of at most 63 characters.
+var dnsLabel = regexp.MustCompile(`^[a-z0-9]([-a-z0-9]{0,61}[a-z0-9])?$`)

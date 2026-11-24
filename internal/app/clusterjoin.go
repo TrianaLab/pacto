@@ -21,6 +21,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
@@ -45,6 +46,10 @@ type JoinOptions struct {
 	// reader follows the hub's detection: an error is a partial list that
 	// says why, and no repository an empty one (the hub sets no registry).
 	Resolve func(context.Context) (JoinOptions, error)
+	// Candidates, when set, reads the clusters the hub's GitOps and cluster
+	// managers know (the operator's clusters.json), matched to the members
+	// by UID at the end of each read.
+	Candidates func(context.Context) (detect.Clusters, error)
 }
 
 const (
@@ -73,8 +78,18 @@ func (s *Service) ClusterJoins(ctx context.Context, opts JoinOptions) delivery.C
 	now := s.env().now()
 	if opts.Resolve != nil {
 		r, err := opts.Resolve(ctx)
-		if err != nil || r.Repository == "" {
-			return unresolvedJoins(now, err)
+		switch {
+		case err != nil:
+			l := unresolvedJoins(now, err)
+			l.CandidatesCompleteness = fleet.CompletenessPartial
+			l.Limitations = append(l.Limitations, fleet.Limitation{Code: fleet.LimitationSourceUnavailable, Source: delivery.CandidatesID,
+				Message: "the candidate clusters were not read: " + err.Error()})
+			return l
+		case r.Repository == "" && r.Candidates != nil:
+			// No member can join, yet the candidates the operator wrote show.
+			return withCandidates(ctx, unresolvedJoins(now, nil), r.Candidates, now)
+		case r.Repository == "":
+			return unresolvedJoins(now, nil)
 		}
 		opts = r
 	}
@@ -85,7 +100,24 @@ func (s *Service) ClusterJoins(ctx context.Context, opts JoinOptions) delivery.C
 	if jr.partial {
 		jr.list.Completeness = fleet.CompletenessPartial
 	}
-	return jr.list
+	if opts.Candidates == nil {
+		return jr.list
+	}
+	return withCandidates(ctx, jr.list, opts.Candidates, now)
+}
+
+// withCandidates is l with the candidates read matched to its members: a
+// failed read leaves the candidates partial and says why, never an empty
+// list of them.
+func withCandidates(ctx context.Context, l delivery.ClusterJoinList, read func(context.Context) (detect.Clusters, error), now time.Time) delivery.ClusterJoinList {
+	c, err := read(ctx)
+	if err != nil {
+		l.CandidatesCompleteness = fleet.CompletenessPartial
+		l.Limitations = append(l.Limitations, fleet.Limitation{Code: fleet.LimitationSourceUnavailable, Source: delivery.CandidatesID,
+			Message: "the candidate clusters were not read: " + err.Error()})
+		return l
+	}
+	return delivery.MatchCandidates(l, c, now)
 }
 
 // unresolvedJoins is the list of a hub whose join options could not be
@@ -520,7 +552,7 @@ func selfSigned(bundle []byte, uid string, j delivery.SnapshotJoin) bool {
 // approved key scoped to its UID. A member r already read is skipped. A list
 // read partly adds one partial source that says what was not read.
 func (s *Service) clusterJoinSources(ctx context.Context, r *snapshotReader, opts JoinOptions) []fleet.Source {
-	list := s.ClusterJoins(ctx, opts)
+	list := s.ClusterJoins(ctx, membersOnly(opts))
 	var out []fleet.Source
 	if list.Completeness != fleet.CompletenessComplete { // its limitations name no cluster
 		id := r.claim(clusterJoinsID)
@@ -541,6 +573,20 @@ func (s *Service) clusterJoinSources(ctx context.Context, r *snapshotReader, opt
 		out = append(out, m.snapshot(ctx, repo, list.Repository, delivery.TargetSnapshotTagPrefix+st.UID)...)
 	}
 	return out
+}
+
+// membersOnly is opts reading no candidates, however it resolves: the fleet
+// reads members only, so no candidate reaches a source, a gate or a count.
+func membersOnly(opts JoinOptions) JoinOptions {
+	opts.Candidates = nil
+	if resolve := opts.Resolve; resolve != nil {
+		opts.Resolve = func(ctx context.Context) (JoinOptions, error) {
+			r, err := resolve(ctx)
+			r.Candidates = nil
+			return r, err
+		}
+	}
+	return opts
 }
 
 // WriteClusterJoin signs rec, a person's decision on a member, with signer
@@ -613,18 +659,9 @@ func (d *Delivery) ClassPolicy(ctx context.Context) (delivery.ClassPolicy, error
 // credentials are set: they answer any host, and a detection a ConfigMap
 // writer can forge must not choose where they are sent.
 func AdvertisedTargets(ctx context.Context, dyn dynamic.Interface, ref string, now func() time.Time) (string, error) {
-	src := fleetsrc.NewDetectionFileSource("detection", ref, now)
-	if rest, ok := strings.CutPrefix(ref, "k8s:"); ok {
-		ns, name, _ := strings.Cut(rest, "/")
-		src = fleetsrc.NewDetectionK8sSource("detection", dyn, ns, name, now)
-	}
-	res, st := src.Read(ctx)
+	res, why := readDetection(ctx, dyn, ref, now)
 	switch {
-	case st.Status != fleet.SourceAvailable:
-		why := string(st.Status)
-		if st.Error != nil {
-			why = st.Error.Message
-		}
+	case why != "":
 		return "", fmt.Errorf("the detection %s names no registry: %s", ref, why)
 	case res.Installation == nil || res.Installation.Targets == "":
 		return "", nil
@@ -634,4 +671,36 @@ func AdvertisedTargets(ctx context.Context, dyn dynamic.Interface, ref string, n
 			ref, res.Installation.Targets, res.Installation.Targets)
 	}
 	return res.Installation.Targets, nil
+}
+
+// AdvertisedChartVersion is the chart version the operator's detection at
+// ref advertises (installation.chartVersion), read as AdvertisedTargets
+// reads it; "" when it names none.
+func AdvertisedChartVersion(ctx context.Context, dyn dynamic.Interface, ref string, now func() time.Time) (string, error) {
+	res, why := readDetection(ctx, dyn, ref, now)
+	switch {
+	case why != "":
+		return "", fmt.Errorf("the detection %s names no chart version: %s", ref, why)
+	case res.Installation == nil:
+		return "", nil
+	}
+	return res.Installation.ChartVersion, nil
+}
+
+// readDetection reads the operator's detection at ref (k8s:<namespace>/<name>
+// with dyn, or a file); why says why it is not available.
+func readDetection(ctx context.Context, dyn dynamic.Interface, ref string, now func() time.Time) (detect.Result, string) {
+	src := fleetsrc.NewDetectionFileSource("detection", ref, now)
+	if rest, ok := strings.CutPrefix(ref, "k8s:"); ok {
+		ns, name, _ := strings.Cut(rest, "/")
+		src = fleetsrc.NewDetectionK8sSource("detection", dyn, ns, name, now)
+	}
+	res, st := src.Read(ctx)
+	if st.Status == fleet.SourceAvailable {
+		return res, ""
+	}
+	if st.Error != nil {
+		return res, st.Error.Message
+	}
+	return res, string(st.Status)
 }
