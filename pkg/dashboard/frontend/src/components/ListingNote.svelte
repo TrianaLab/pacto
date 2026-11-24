@@ -42,5 +42,7 @@
   .ln-partial {
     margin: 0; padding: var(--sp-2) var(--sp-3); border-radius: var(--radius-sm);
     background: var(--c-warn-bg); color: var(--c-warn); border: 1px solid var(--c-warn-border);
+    /* A cluster or namespace name may be 63 characters with no break. */
+    overflow-wrap: anywhere;
   }
 </style>
