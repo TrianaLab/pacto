@@ -499,6 +499,12 @@ const (
 	// LimitationInferredServicesCapped: a source reported more than
 	// MaxInferredServices workloads; the rest were not read.
 	LimitationInferredServicesCapped = "INFERRED_SERVICES_CAPPED"
+	// LimitationInferredTemplatesCapped: the sources list more than
+	// MaxInferredTemplates golden paths; the first by name are shown.
+	LimitationInferredTemplatesCapped = "INFERRED_TEMPLATES_CAPPED"
+	// LimitationInferredTemplatesSkipped: a source listed templates whose
+	// name a contract cannot carry; they are not listed.
+	LimitationInferredTemplatesSkipped = "INFERRED_TEMPLATES_SKIPPED"
 	// LimitationDeclarationUnverified: Pacto could not read the Pacto targets
 	// of an inferred service's namespace, so a contract may describe it.
 	LimitationDeclarationUnverified = "DECLARATION_UNVERIFIED"
@@ -1838,6 +1844,19 @@ type FleetSnapshot struct {
 	// Providers are what each source detected and read evidence from, sorted
 	// by source then id. They never change completeness or any source state.
 	Providers []Provider `json:"providers,omitempty"`
+	// InferredTemplates are the golden paths catalogs outside every registry
+	// hold (see [Collection.InferredTemplates]), sorted by name.
+	InferredTemplates []InferredTemplate `json:"inferredTemplates,omitempty" doc:"Golden paths catalogs outside every registry hold, inferred: never services, never signed or declared, never offered for creation until a person accepts one"`
+	// templateSources are the ids of the sources that list inferred
+	// templates (Collection.ListsTemplates), in source order.
+	templateSources []templateLister
+	// templatesValid are the templates whose name a contract can carry, one
+	// per source and entity, sorted, unmarked and uncapped; templatesSkipped
+	// names those left out.
+	templatesValid   []InferredTemplate
+	templatesSkipped []Limitation
+	// templateNotes are the limitations the template fold raised.
+	templateNotes []Limitation
 
 	// templateEdges are the declared dependency and reference edges of the
 	// golden paths (see deriveTemplate). They are kept out of Relationships and

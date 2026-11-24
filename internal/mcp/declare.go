@@ -69,9 +69,11 @@ func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 			"With service offering:<name>, from (an inferred offering's contribution ref: inferredOffering.ref on a pacto_fleet_entities row with kind offering and declaration inferred), " +
 			"version and owner it plans accepting that inferred offering as a declared offering; a person accepts the draft with the exact command its result names " +
 			"in acceptCLI (pacto declare offering:<name> --from <ref> --detected <detection> --registry <registry> --version <version> --from-draft draft-<n> --yes). " +
-			"An acceptance takes only owner, version, from, registry, draft and intent; over HTTP it is only planned.",
+			"An acceptance takes only owner, version, from, registry, draft and intent; over HTTP it is only planned. " +
+			"With service template:<namespace>/<name> it accepts a golden path a catalog holds as a contract-only golden path: " +
+			"it takes only registry, draft and intent, and a person accepts the draft.",
 		InputSchema: inputSchema(map[string]property{
-			"service":       {Type: "string", Description: "The workload: name, namespace/name, namespace/Kind/name or k8s:namespace/Kind/name; external:<identity> to claim an external system; or offering:<name> to accept an inferred offering"},
+			"service":       {Type: "string", Description: "The workload: name, namespace/name, namespace/Kind/name or k8s:namespace/Kind/name; external:<identity> to claim an external system; offering:<name> to accept an inferred offering; or template:<namespace>/<name> to accept a golden path a catalog holds"},
 			"owner":         {Type: "string", Description: "The team that owns the external system or the offering; required when service is external:<identity>, and on an offering's first acceptance", Pattern: ownerPattern},
 			"version":       {Type: "string", Description: "With service offering:<name>: the version the declared offering publishes, MAJOR.MINOR.PATCH above the newest declared", Pattern: versionPattern},
 			"from":          {Type: "string", Description: "With service offering:<name>: the inferred offering's contribution ref (oci://<registry>/pacto-inferred/<producer>/services:<tag> or @<digest>), inferredOffering.ref on its pacto_fleet_entities row"},

@@ -455,12 +455,15 @@ func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assem
 		return bare
 	}
 	s.readOfferings(src, opts)
-	if opts.LiveEdges == nil {
+	if opts.LiveEdges == nil && opts.BackstageURL == "" {
 		return []fleet.Source{src}
 	}
 	res, st := src.Read(ctx)
 	if st.Status == fleet.SourceUnavailable {
 		return append([]fleet.Source{src}, bare...)
+	}
+	if opts.LiveEdges == nil {
+		return []fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), withoutNotDetectedBackstage(res), s.env().now)}
 	}
 	var kinds []string
 	for kind, id := range liveEdgeIDs {
@@ -469,6 +472,9 @@ func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assem
 		}
 	}
 	rest, taken := detect.SplitEdgeKinds(res, kinds)
+	if opts.BackstageURL != "" {
+		rest = withoutNotDetectedBackstage(rest)
+	}
 	fixed := fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)
 	s.readOfferings(fixed, opts)
 	out := append([]fleet.Source{fixed}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
@@ -491,6 +497,14 @@ func (s *Service) readOfferings(src *fleetsrc.DetectionSource, opts FleetOptions
 		window = fleet.RecentEvidenceWindow
 	}
 	src.Contributions, src.Freshness = s.contributionReader(opts, now), window
+}
+
+// withoutNotDetectedBackstage is res without its not-detected Backstage row,
+// for a host with a configured catalog: that catalog's own state row speaks
+// for it, so never advise setting what is already set.
+func withoutNotDetectedBackstage(res detect.Result) detect.Result {
+	res.Entries = slices.DeleteFunc(slices.Clone(res.Entries), func(e detect.Entry) bool { return e.Kind == "backstage" && e.Value == detect.NotDetected })
+	return res
 }
 
 // detectedBackstage is the tokenless Backstage source over the detected

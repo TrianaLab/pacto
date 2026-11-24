@@ -130,6 +130,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	var observed []observedInput
 	var uses []sourcedUse
 	var facts []sourcedFact
+	var templates []sourcedTemplate
 	var inferred []inferredInput
 	undeclaredOnly := map[string]bool{}
 	// Sources are processed in declared order so composition is deterministic
@@ -164,6 +165,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 			}
 			facts = append(facts, sourcedFacts(src.ID(), r.col)...)
 			ingestOfferingObservations(snap, r.col.Offerings)
+			templates = append(templates, sourcedTemplates(snap, src.ID(), r.col)...)
 		}
 	}
 
@@ -191,6 +193,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	foldObservedRelationships(snap, observed)
 	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
 	foldServiceFacts(snap, facts)
+	foldInferredTemplates(snap, templates)
 	attachInferredProviders(snap, cat)
 	linkExternalClaims(snap)
 	finalizeExternals(snap)

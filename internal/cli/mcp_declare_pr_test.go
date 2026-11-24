@@ -69,7 +69,7 @@ func argoKubeAt(t *testing.T, image, repoURL string) {
 // prServer is a stdio pacto_declare server whose pull requests go to gh,
 // with no credential helper.
 func prServer(gh http.RoundTripper) func() *mcpsdk.Server {
-	decl := newMCPDeclarer(app.NewService(nil, nil), "", "")
+	decl := newMCPDeclarer(app.NewService(nil, nil), "", "", "")
 	decl.git = deps{gitTransport: gh, gitCredentialFill: noHelper}
 	return func() *mcpsdk.Server {
 		s, _ := pactomcp.New("v", pactomcp.Authoring{Declare: decl}, pactomcp.Modes{})
@@ -153,7 +153,7 @@ func TestMCPDeclarePRWithoutToken(t *testing.T) {
 	}
 	// A run straight to Execute (pacto_declare always plans first) refuses
 	// in the plan it carries out, before the write.
-	decl := newMCPDeclarer(app.NewService(nil, nil), "", "")
+	decl := newMCPDeclarer(app.NewService(nil, nil), "", "", "")
 	decl.git = deps{gitTransport: noHost{t}, gitCredentialFill: noHelper}
 	_, refused, err := decl.Execute(t.Context(), pactomcp.DeclareArgs{Service: "invoices", Namespace: "billing", Registry: w.host + "/acme", PR: true, OnBehalfOf: "ana"})
 	if err != nil || refused == nil || refused.Code != pactomcp.RefusalGitTokenMissing {
@@ -210,7 +210,7 @@ func TestMCPDeclareRepoMapStdioOnly(t *testing.T) {
 	if refused == nil || refused.Code != pactomcp.RefusalExecuteNeedsStdio || !strings.Contains(refused.Message, "repo_map") {
 		t.Fatalf("%+v", refused)
 	}
-	req, err := newMCPDeclarer(nil, "", "").request(pactomcp.DeclareArgs{Service: "invoices", PR: true, Repository: "r", Folder: "f", RepoMap: "m.yaml"})
+	req, err := newMCPDeclarer(nil, "", "", "").request(pactomcp.DeclareArgs{Service: "invoices", PR: true, Repository: "r", Folder: "f", RepoMap: "m.yaml"})
 	if err != nil || !req.PR || req.Repository != "r" || req.Folder != "f" || req.RepoMap != "m.yaml" || !req.Agent {
 		t.Fatalf("%v %+v", err, req)
 	}

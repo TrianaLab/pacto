@@ -263,6 +263,9 @@ type EntityList struct {
 	// makes a filtered list page able to say something true about the whole match
 	// instead of about its first 25 rows.
 	Aggregate EntityAggregate `json:"aggregate"`
+	// InferredTemplates, with template only, are the golden paths catalogs
+	// hold that no registry publishes (see [Query.InferredTemplates]).
+	InferredTemplates *InferredTemplateList `json:"inferredTemplates,omitempty" doc:"With template only: golden paths catalogs hold that no registry publishes, inferred and listed apart from the declared ones; declaration declared leaves them out"`
 }
 
 // Entities searches services, revisions, targets, owners and sources with one
@@ -312,6 +315,9 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	}
 	if want[KindOffering] && !inferredOfferings {
 		res.InferredTotal = q.inferredOfferingCount(f.Text)
+	}
+	if f.Template == TemplateOnly && f.Declaration != DeclarationDeclared {
+		res.InferredTemplates = q.InferredTemplates(f.Text)
 	}
 	return res, nil
 }

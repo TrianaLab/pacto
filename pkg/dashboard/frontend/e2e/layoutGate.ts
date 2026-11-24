@@ -134,7 +134,8 @@ export function installScaleFixture(): void {
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
     if (route === '/api/capabilities' && statsMode() !== 'engine') doc.stats = statsMode() !== 'off';
     // A host that plans no declaration (513-S6): the inferred page says the command.
-    if (route === '/api/capabilities' && (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare) doc.declare = false;
+    // A host that declares nothing for this caller accepts no golden path either.
+    if (route === '/api/capabilities' && (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare) { doc.declare = false; doc.declareTemplate = false; }
     // 510-S9: `sessionStorage['fixture.mcp'] = 'served'` answers as a token sign-in dashboard that
     // serves /mcp (a signed-in pacto-viewer), so the Connect an agent line shows its URL and
     // snippet instead of the demo's text. `issuer` answers as an issuer-only dashboard: /mcp at
@@ -259,7 +260,7 @@ export function installScaleFixture(): void {
     }
     // The inferred population at fleet scale (509-S1): 12,400 workloads no contract
     // describes, each row's image a digest reference with no break point.
-    if (route === '/api/fleet/entities' && q.get('declaration') === 'inferred' && Number(q.get('limit') || 25) > 1
+    if (route === '/api/fleet/entities' && q.get('declaration') === 'inferred' && Number(q.get('limit') || 25) > 1 && q.get('template') !== 'only'
       && !['text', 'ownerKey', 'owner', 'status', 'ownership', 'gap', 'lifecycle', 'businessDomain'].some((k) => q.get(k))) {
       page(doc, 12400);
       const ag = doc.aggregate as Record<string, unknown> | undefined;
@@ -272,6 +273,25 @@ export function installScaleFixture(): void {
         r.group = { ...g, label: `Argo CD Application ${longName(`group-${String(r.key)}`)}`.padEnd(200, 'x').slice(0, 200) };
         r.repository = `https://github.com/${longName(`repository-${String(r.key)}`)}`.padEnd(300, 'y').slice(0, 300);
       }
+    }
+    // Inferred golden paths a catalog holds (515-S7): 30 rows with names near 63
+    // characters, long titles, 200-character summaries and long hosts, half with a link,
+    // a few from an unverified catalog and one whose name a service holds (shown without
+    // Show more); one template
+    // linked by name to the first declared path; partial with three long reasons.
+    if (route === '/api/fleet/entities' && q.get('template') === 'only' && q.get('declaration') !== 'declared') {
+      const host = (i: number) => `${longName(`catalog-host-${i % 3}`).replace(/[^a-z0-9-]/g, '').slice(0, 60)}.example.com`;
+      const items = Array.from({ length: 30 }, (_, i) => {
+        const name = `${`template-${i}-`}${'springboot-service-'.repeat(4)}`.slice(0, 63).replace(/-+$/, '');
+        return { name, entity: `template:${'n'.repeat(40)}/${name}`, from: `Backstage (${host(i)})`, source: 'backstage-catalog', provenance: 'inferred',
+          title: longName(`template-title-${i}`), summary: `Scaffold a service ${longName(`summary-${i}`)}`.padEnd(200, 's').slice(0, 200),
+          owner: `group:default/${longName(`owner-${i}`)}`, observedAt: new Date(Date.now() - 60_000).toISOString(),
+          acceptable: i % 7 !== 3, nameTaken: i === 2 || undefined, url: i % 2 ? undefined : `https://${host(i)}/create/templates/default/${name}` };
+      });
+      const first = (doc.entities as Record<string, unknown>[] | undefined)?.[0];
+      const declared = first ? [{ ...items[0], name: String(first.label), entity: `template:default/${String(first.label)}`, declaredAs: String(first.key), url: `https://${host(0)}/create/templates/default/${String(first.label)}` }] : [];
+      doc.inferredTemplates = { completeness: 'partial', asOf: new Date(Date.now() - 60_000).toISOString(), total: items.length, items, declared,
+        limitations: [1, 2, 3].map((i) => ({ code: 'SOURCE_PARTIAL', source: 'backstage-catalog', message: `the catalog read stopped at page ${i}: ${longName(`catalog-limitation-${i}`)}` })) };
     }
     // Detected providers at scale (509-S2): 30 rows from 4 sources in 3 clusters, long
     // names and evidence, 20 objects, two partial rows with reasons, and 6 Kubernetes
@@ -357,6 +377,14 @@ export function installScaleFixture(): void {
         objects: [{ kind: 'Service', namespace: 'n'.repeat(63), name: longName('otel-collector-service') }],
         hint: `exporters: {otlphttp/pacto: {endpoint: "http://pacto-dashboard.${'n'.repeat(63)}:4318", encoding: json}}`,
         limitations: [{ code: 'EDGE_SOURCE_PARTIAL', source: 'otlp-receiver', message: `not exporting to pacto-dashboard.${'n'.repeat(63)}:4318; ${longName('requests-used-protobuf-set-encoding-json')}` }],
+      });
+      // The Backstage catalog row when no Backstage runs in a watched namespace (515-S7):
+      // not detected, partial, with the invisible-external reason.
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'backstage', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Backstage catalog',
+        evidence: `not detected no Backstage image runs in a watched namespace (from running pods and Services, cluster ${clusters[0]})`,
+        status: 'partial', cluster: clusters[0], usedFor: ['set dashboard.backstage.url to read its owners and golden paths; nothing is read'],
+        limitations: [{ code: 'DETECTION_BACKSTAGE_PARTIAL', source: 'cluster-detection', message: 'an external Backstage is invisible to the cluster: set dashboard.backstage.url to read its owners and templates' }],
       });
       // A producer's row (509-S11): a 200-character producer id and a 300-character
       // contribution repository, stale with its reason, both uses at once.
@@ -1782,7 +1810,24 @@ export function installScaleFixture(): void {
   const DECLARE_INTENT = `sha256:${'b3'.repeat(32)}`;
   const declareAnswer = (body: string | null) => {
     const mode = flags.__pactoDeclare;
-    const b = JSON.parse(body || '{}') as { fromDraft?: { tag?: string } };
+    const b = JSON.parse(body || '{}') as { fromDraft?: { tag?: string }; serviceKey?: string };
+    // A golden path a catalog holds (515-S7): a long name, a 200-character summary, its
+    // three notes at their longest, and no workload or cluster section.
+    if (b.serviceKey?.startsWith('template:')) {
+      const tname = b.serviceKey.split('/').pop() ?? '';
+      const tsummary = `Scaffold a service ${longName('template-summary')}`.padEnd(200, 's').slice(0, 200);
+      const trepo = `ghcr.io/${longName('acme')}/${tname}`;
+      const tcommand = `pacto declare ${b.serviceKey} --backstage-url https://${longName('catalog')}.example.com --registry ghcr.io/${longName('acme')}`;
+      return { plan: { service: tname, version: '0.1.0', bundleRepo: trepo, state: 'draft', ranges: [], intentDigest: DECLARE_INTENT,
+        signer: { subject: `${longName('ana')}@acme.example`, class: 'human', source: 'login' },
+        notes: [`drafted from ${b.serviceKey} in Backstage (${longName('catalog')}.example.com), read 2026-11-23T09:00:00Z`,
+          'the golden path holds the contract only: Backstage keeps the template\'s steps and skeleton; open it there to scaffold code',
+          `Backstage names group:default/${longName('platform-team')} as owner: declare service.owner in a later version`],
+        contract: { text: `pactoVersion: "2.5"\nservice:\n  name: ${tname}\n  version: 0.1.0\n  summary: "${tsummary}"\n  template: {}\n` },
+        record: { text: 'format: pacto.inferred/v1\nfields: []\n' } },
+        command: `${tcommand} --intent ${DECLARE_INTENT}`, signing: { mode: 'none', reason: longName('a token sign-in signs nothing') }, write: { available: true },
+        ...(mode === 'signed' ? { signing: { mode: 'fresh-login', identity: `${longName('ana')}@acme.example` }, signTicket: 't'.repeat(43), signedIn: true } : {}) };
+    }
     const name = longName('legacy-billing');
     const repo = `ghcr.io/${longName('acme')}/${name}`;
     const who = `${longName('ana')}@acme.example`;
@@ -3753,6 +3798,14 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
+  // 515-S7: inferred golden paths a catalog holds, muted rows in the Golden paths table;
+  // Accept opens the Declare panel on the page; a signing login comes back to it.
+  { name: 'golden paths, inferred from a catalog', list: true, open: async (page) => { await page.goto('/#/fleet/golden-paths?declaration=inferred'); await expect(page.locator('[data-testid=golden-path-list] tbody tr').first()).toHaveClass(/gp-inferred/, { timeout: 30_000 }); } },
+  { name: 'golden paths, accept an inferred path', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __pactoDeclare?: string }).__pactoDeclare = 'panel'; }); await page.goto('/#/fleet/golden-paths'); await page.reload(); await page.getByTestId('inferred-accept').first().click(); await expect(page.getByTestId('golden-path-accept').getByTestId('declare-command')).toBeVisible({ timeout: 30_000 }); await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0)); } }, // reload: the init script only runs on a new document
+  { name: 'golden paths, back from a signing login', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __pactoDeclare?: string }).__pactoDeclare = 'signed'; }); await page.goto(`/#/fleet/golden-paths?declare=${encodeURIComponent(`template:default/${'springboot-service-'.repeat(4).slice(0, 63).replace(/-+$/, '')}`)}&signed=${encodeURIComponent(DECLARE_INTENT)}`); await page.reload(); await expect(page.getByTestId('golden-path-accept').getByTestId('declare-signed-return')).toBeVisible({ timeout: 30_000 }); await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0)); } },
+  // Every inferred row expanded on a host that declares nothing for this caller: the
+  // longest no-accept line (the CLI command with a long subject) and Show fewer.
+  { name: 'golden paths, inferred expanded, no declare', list: true, open: async (page) => { await page.addInitScript(() => { (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare = true; }); await page.goto('/#/fleet/golden-paths?declaration=inferred'); await page.reload(); await page.getByTestId('inferred-more').click(); await expect(page.getByTestId('inferred-more')).toHaveText('Show fewer inferred', { timeout: 30_000 }); await expect(page.getByText('Accept it from a terminal: pacto declare').first()).toBeVisible({ timeout: 30_000 }); await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0)); } },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

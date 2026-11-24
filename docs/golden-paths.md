@@ -103,6 +103,19 @@ A service is a golden path only while it runs nowhere. A deployed service that
 declares `service.template` stays a service, keeps its dependents and raises
 `GOLDEN_PATH_DEPLOYED` until someone removes the field or stops running it.
 
+### Inferred golden paths
+
+A [Backstage catalog](backstage-catalog.md#software-templates) Pacto reads
+adds its software templates as inferred golden paths:
+
+- muted rows under Golden paths, a block under
+  `pacto fleet entities --template` and `inferredTemplates` in
+  `pacto_fleet_entities` with `template: only`; `--declaration inferred` keeps
+  only those;
+- never signed, never counted and never offered by `pacto init --from`,
+  `pacto_create` or Create service until a person
+  [accepts one](backstage-catalog.md#accept-a-template-as-a-golden-path).
+
 ## Create a service
 
 ```bash

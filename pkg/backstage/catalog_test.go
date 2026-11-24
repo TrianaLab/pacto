@@ -3,6 +3,8 @@ package backstage
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -59,9 +61,10 @@ func TestReadCatalogPage(t *testing.T) {
 		{name: "no name", item: component("", "", nil, nil), none: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			facts, next, _, err := ReadCatalogPage(page(t, "c2", tc.item), at)
-			if err != nil || next != "c2" {
-				t.Fatalf("ReadCatalogPage = %v, %q", err, next)
+			read, err := ReadCatalogPage(page(t, "c2", tc.item), at)
+			facts := read.Facts
+			if err != nil || read.Next != "c2" {
+				t.Fatalf("ReadCatalogPage = %v, %q", err, read.Next)
 			}
 			if tc.none {
 				if len(facts) != 0 {
@@ -78,11 +81,11 @@ func TestReadCatalogPage(t *testing.T) {
 			}
 		})
 	}
-	if _, _, _, err := ReadCatalogPage([]byte("{"), at); err == nil {
+	if _, err := ReadCatalogPage([]byte("{"), at); err == nil {
 		t.Error("bad JSON decoded")
 	}
-	if _, next, _, _ := ReadCatalogPage(page(t, ""), at); next != "" {
-		t.Errorf("last page next = %q", next)
+	if read, _ := ReadCatalogPage(page(t, ""), at); read.Next != "" {
+		t.Errorf("last page next = %q", read.Next)
 	}
 }
 
@@ -92,12 +95,89 @@ func TestReadCatalogPageBounds(t *testing.T) {
 		deps[i] = fmt.Sprintf("component:svc-%d", i)
 	}
 	long := strings.Repeat("a", 300)
-	facts, _, trimmed, err := ReadCatalogPage(page(t, "", component("led\x00ger\u202e", "", map[string]string{AnnotationServiceKey: long}, map[string]any{"dependsOn": deps})), time.Now())
+	read, err := ReadCatalogPage(page(t, "", component("led\x00ger\u202e", "", map[string]string{AnnotationServiceKey: long}, map[string]any{"dependsOn": deps})), time.Now())
+	facts, trimmed := read.Facts, read.Trimmed
 	if err != nil || len(facts) != 1 || trimmed != 1 {
 		t.Fatalf("ReadCatalogPage = %+v, %d trimmed, %v", facts, trimmed, err)
 	}
 	f := facts[0]
 	if f.Name != "ledger" || len([]rune(string(f.ServiceKey))) != maxFactRunes || len(f.DependsOn) != MaxFactDependsOn {
 		t.Errorf("fact = name %q, key %d runes, %d dependsOn", f.Name, len([]rune(string(f.ServiceKey))), len(f.DependsOn))
+	}
+}
+
+func TestReadCatalogPageTemplates(t *testing.T) {
+	data, err := os.ReadFile("testdata/catalog-templates.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	at := time.Date(2026, 11, 23, 9, 0, 0, 0, time.UTC)
+	read, err := ReadCatalogPage(data, at)
+	if err != nil || read.Next != "c2" {
+		t.Fatalf("ReadCatalogPage = %v, %q", err, read.Next)
+	}
+	if len(read.Facts) != 1 || read.Facts[0].Name != "ledger" {
+		t.Errorf("facts = %+v, want the one Component", read.Facts)
+	}
+	want := []fleet.RawInferredTemplate{
+		{Name: "springboot-service", Entity: "template:default/springboot-service", Title: "Spring Boot service",
+			Summary: "A Spring Boot service with Postgres and CI", Type: "service", Owner: contract.Owner{Team: "platform-team"}, ObservedAt: &at},
+		{Name: "docs-site", Entity: "template:web/docs-site", Title: "Docs site", Summary: "Docs site", Type: "website", ObservedAt: &at},
+		{Name: "Spring_Boot", Entity: "template:default/Spring_Boot", ObservedAt: &at},
+	}
+	if got, w := fmt.Sprintf("%+v", deref(read.Templates)), fmt.Sprintf("%+v", deref(want)); got != w {
+		t.Errorf("templates = %s\nwant        %s", got, w)
+	}
+}
+
+// deref drops the ObservedAt pointers so two lists compare by value.
+func deref(ts []fleet.RawInferredTemplate) []fleet.RawInferredTemplate {
+	out := slices.Clone(ts)
+	for i := range out {
+		if out[i].ObservedAt == nil {
+			continue
+		}
+		at := *out[i].ObservedAt
+		out[i].ObservedAt = nil
+		out[i].Summary += " @" + at.Format(time.RFC3339)
+	}
+	return out
+}
+
+// TestReadCatalogPageComponentsUnchanged: Templates on a page change none of
+// the facts its Components give.
+func TestReadCatalogPageComponentsUnchanged(t *testing.T) {
+	at := time.Now()
+	comps := []map[string]any{
+		component("ledger", "", nil, map[string]any{"owner": "group:default/team-ledger", "dependsOn": []string{"component:accounts"}}),
+		component("accounts", "finance", nil, map[string]any{"system": "payments"}),
+	}
+	tmpl := map[string]any{"apiVersion": "scaffolder.backstage.io/v1beta3", "kind": "Template", "metadata": map[string]any{"name": "ledger"}}
+	alone, _ := ReadCatalogPage(page(t, "", comps...), at)
+	mixed, _ := ReadCatalogPage(page(t, "", comps[0], tmpl, comps[1]), at)
+	if got, want := fmt.Sprintf("%+v", mixed.Facts), fmt.Sprintf("%+v", alone.Facts); got != want || len(mixed.Templates) != 1 {
+		t.Errorf("facts with a template = %s\nwant %s (templates %d)", got, want, len(mixed.Templates))
+	}
+}
+
+func TestScaffolderURLEscapesNamespace(t *testing.T) {
+	for _, tc := range []struct{ base, ns, name, want string }{
+		{"https://bs.example/", "default", "go-http", "https://bs.example/create/templates/default/go-http"},
+		{"https://bs.example", "a/b", "x y", "https://bs.example/create/templates/a%2Fb/x%20y"},
+		{"https://bs.example", "..", "x", ""},
+		{"https://bs.example", ".", "x", ""},
+		{"https://bs.example", "default", "", ""},
+		{"https://bs.example", "../..%2F", "x", "https://bs.example/create/templates/..%2F..%252F/x"},
+	} {
+		got := ScaffolderURL(tc.base, tc.ns, tc.name)
+		if got != tc.want {
+			t.Errorf("ScaffolderURL(%q, %q, %q) = %q, want %q", tc.base, tc.ns, tc.name, got, tc.want)
+		}
+		if got != "" && !strings.HasPrefix(got, ScaffolderRoot(tc.base)+"/templates/") {
+			t.Errorf("%q does not start with the scaffolder root %q", got, ScaffolderRoot(tc.base))
+		}
+	}
+	if got := ScaffolderRoot("https://bs.example//"); got != "https://bs.example/create" {
+		t.Errorf("ScaffolderRoot = %q", got)
 	}
 }

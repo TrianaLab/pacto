@@ -210,7 +210,7 @@ func TestDetectorResultAllKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	cm, res := readResult(t, c)
-	if !res.AsOf.Equal(now) || res.Cluster != "cluster-uid" || res.ClusterName != "kind-pacto" || len(res.Entries) != 9 || cm.Labels[detect.ManagedByLabel] != detect.ManagedBy {
+	if !res.AsOf.Equal(now) || res.Cluster != "cluster-uid" || res.ClusterName != "kind-pacto" || len(res.Entries) != 10 || cm.Labels[detect.ManagedByLabel] != detect.ManagedBy {
 		t.Fatalf("result = %+v", res)
 	}
 	for kind, ok := range map[string]func(detect.Entry) bool{

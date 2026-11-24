@@ -578,3 +578,18 @@ func TestInitFromPublishedDirectory(t *testing.T) {
 		t.Errorf("unknown: %v", r.Unknown)
 	}
 }
+
+// TestInitFromInferredTemplateRefused: an inferred golden path is never
+// offered for creation: pacto init --from names the accept command, and
+// nothing is written.
+func TestInitFromInferredTemplateRefused(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "gift-cards")
+	_, err := (&Service{}).InitFrom(t.Context(), InitOptions{Dir: target, Owner: "checkout"}, InitFrom{From: "template:default/springboot-service"})
+	if err == nil || err.Error() != "template:default/springboot-service is an inferred golden path: open it in Backstage, "+
+		"or accept it first with pacto declare template:default/springboot-service" {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("wrote %s: %v", target, err)
+	}
+}

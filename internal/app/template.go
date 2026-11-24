@@ -89,8 +89,13 @@ func (s *Service) InitFrom(ctx context.Context, opts InitOptions, from InitFrom)
 }
 
 // resolveTemplate reads the golden path from, a directory or an oci://
-// reference, and what service.origin records of it.
+// reference, and what service.origin records of it. An inferred golden path
+// (template:<namespace>/<name>) is refused: it is never offered for creation
+// until a person accepts it.
 func (s *Service) resolveTemplate(ctx context.Context, from, absTarget string, trust *delivery.TrustConfig) (*pactify.Template, error) {
+	if strings.HasPrefix(from, fleet.TemplateSubjectPrefix) {
+		return nil, fmt.Errorf("%s is an inferred golden path: open it in Backstage, or accept it first with pacto declare %s", from, from)
+	}
 	if strings.HasPrefix(from, contract.OCIScheme) {
 		return s.ociTemplate(ctx, from, trust)
 	}

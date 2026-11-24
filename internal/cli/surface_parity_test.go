@@ -378,7 +378,8 @@ func ciRows() []surfaceRow {
 // contract's first tool: the agent's dry_run and intent_digest are the
 // person's --yes and --intent.
 func declareRows() []surfaceRow {
-	const why = "the dashboard Declare panel names the inferred service by its fleet key and reads its workload from the snapshot"
+	const why = "the dashboard Declare panel names the inferred service by its fleet key and reads its workload from the snapshot; " +
+		"a golden path a catalog holds is named template:<namespace>/<name> on every surface"
 	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
 	const plan, accept = "POST /api/fleet/declare", "POST /api/fleet/declare/accept"
 	const prWhy = "D7: --pr runs only where your Git token is"
@@ -396,6 +397,7 @@ func declareRows() []surfaceRow {
 			{"declare --dir", "pacto_declare.dir", "", "the dashboard declares a workload the fleet sees, never a folder; over MCP dir is stdio only"},
 			{"", "pacto_declare.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for (over HTTP the caller the server reviewed); the CLI and the dashboard run as that person"},
 			{"declare --delivery-trust", "", "", "stdio pacto_declare and the dashboard read the server's own --delivery-trust"},
+			{"declare --backstage-url", "", "", "the dashboard and HTTP MCP read the catalog the installation configured; stdio pacto_declare reads the server's own --backstage-url"},
 			{"declare --draft", "pacto_declare.draft", "", "the dashboard Declare panel writes drafts through POST /api/fleet/declare/accept mode draft; over HTTP MCP every write is a draft, written only when the server has --registry"},
 		},
 		alike("declare", "pacto_declare", "", "the dashboard reads the workload's namespace from the snapshot, declares into its own --registry and reads the cluster as the person",

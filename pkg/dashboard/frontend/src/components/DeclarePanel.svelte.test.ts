@@ -337,6 +337,23 @@ describe('DeclarePanel', () => {
   });
 });
 
+describe('DeclarePanel template', () => {
+  it('renders a template plan with its notes and no cluster section or deploy row', async () => {
+    const notes = ['drafted from template:default/springboot-service in Catalog (catalog.acme.io)', 'the golden path holds the contract only'];
+    planFn.mockResolvedValue(answer({}, { service: 'springboot-service', inferredFrom: undefined, deploy: undefined, ranges: [], notes }));
+    await render({ serviceKey: 'template:default/springboot-service' });
+    expect(planFn).toHaveBeenCalledWith(expect.objectContaining({ serviceKey: 'template:default/springboot-service' }));
+    for (const n of notes) expect(text(q('[data-testid="declare"]'))).toContain(n);
+    expect(text(q('.dp-facts'))).not.toContain('Deploy');
+    expect(q('[data-testid="declare-ranges"]')).toBeNull();
+    expect(q('[data-testid="declare-completeness"]')).toBeNull();
+    acceptFn.mockResolvedValue({ draft: true, tag: 'draft-1' });
+    planFn.mockResolvedValue(answer({}, { deploy: undefined, ranges: [], notes }));
+    button('Save draft').click();
+    await vi.waitFor(() => expect(text(q('[data-testid="declare-result"]'))).toContain('update pactos in the installation namespace'));
+  });
+});
+
 describe('DeclarePanel claim', () => {
   const CLAIM = 'external:stripe';
   const claimAnswer = (patch: Record<string, unknown> = {}) => answer({ command: 'pacto claim stripe --owner team-platform --registry ghcr.io/acme --intent sha256:i1', ...patch },
