@@ -120,3 +120,14 @@ func TestFleetDetectionReadsOfferings(t *testing.T) {
 		t.Fatalf("source = %+v", src)
 	}
 }
+
+// TestContributionRootsIncludeDiscovery: a managed dashboard configured with
+// only the installation registry (no contract ref, no target snapshot) reads
+// the inferred offerings the operator publishes under it, once per root.
+func TestContributionRootsIncludeDiscovery(t *testing.T) {
+	got := contributionRoots(FleetOptions{OCIRefs: []string{"reg.example/acme/svc"}, Discover: []string{"reg.example/acme", "other.example/x"}})
+	want := []string{"reg.example/acme", "reg.example", "other.example/x"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("roots = %v, want %v", got, want)
+	}
+}

@@ -708,7 +708,10 @@ func (s *Service) contributionReader(opts FleetOptions, now func() time.Time) fl
 }
 
 // contributionRoots are the registry roots a producer's contribution
-// repository may live under: every root of the registry refs opts reads.
+// repository may live under: every root of the registry refs opts reads,
+// and every registry prefix it discovers from (the installation registry a
+// managed dashboard is configured with, under which the operator publishes
+// its inferred offerings).
 func contributionRoots(opts FleetOptions) []string {
 	var roots []string
 	for _, ref := range slices.Concat(opts.OCIRefs, opts.TargetSnapshot) {
@@ -716,6 +719,11 @@ func contributionRoots(opts FleetOptions) []string {
 			if !slices.Contains(roots, r) {
 				roots = append(roots, r)
 			}
+		}
+	}
+	for _, p := range opts.Discover {
+		if !slices.Contains(roots, p) {
+			roots = append(roots, p)
 		}
 	}
 	return roots
