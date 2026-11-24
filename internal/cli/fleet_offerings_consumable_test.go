@@ -63,7 +63,7 @@ func TestFleetOfferingsConsumableText(t *testing.T) {
 	ans := consumableAnswer(t)
 	got := textOf(t, func(cmd *cobra.Command) error { return printFleetOfferings(cmd, ans, "consumable", "", "text") })
 	wantLines(t, got,
-		"postgresql  17.0.0  sha256:4c4c4c4c4c4c...  declared, publisher https://github.com/acme/pg/.github/workflows/publish.yml@refs/heads/main\n",
+		"postgresql  ghcr.io/acme/pg  17.0.0  sha256:4c4c4c4c4c4c...  declared, publisher https://github.com/acme/pg/.github/workflows/publish.yml@refs/heads/main\n",
 		"  classes     small, large\n",
 		"  contract    class, engine  (set once, same in every environment)\n",
 		"  tunable     backupRetentionDays 1-35, storageGB 10-500\n",
@@ -93,9 +93,9 @@ func TestFleetOfferingsConsumableLines(t *testing.T) {
 	var buf bytes.Buffer
 	printConsumable(&buf, fleet.EntityRef{Label: "x"})
 	printConsumable(&buf, fleet.EntityRef{Label: "pg", Consumable: &fleet.ConsumableOffering{ProvidersTotal: 12, ProvidersTruncated: true,
-		Providers: []fleet.ConsumableProvider{{Version: "1.0.0", Digest: "sha256:1", Publisher: "p", Lifecycle: fleet.LifecycleDeprecated,
+		Providers: []fleet.ConsumableProvider{{Service: fleet.EntityRef{Label: "pg-aws", Domain: "acme"}, Version: "1.0.0", Digest: "sha256:1", Publisher: "p", Lifecycle: fleet.LifecycleDeprecated,
 			Parameters: []fleet.OfferingParameter{{Path: "size", Tier: "tunable"}}, ParametersTotal: 60, ParametersTruncated: true}}}})
-	wantLines(t, buf.String(), "pg  1.0.0  sha256:1  declared, deprecated, publisher p\n", "  tunable     size\n", "  parameters  1 of 60 shown\n",
+	wantLines(t, buf.String(), "pg  acme/pg-aws  1.0.0  sha256:1  declared, deprecated, publisher p\n", "  tunable     size\n", "  parameters  1 of 60 shown\n",
 		"  guarantees  declares no guarantees\n", "  ... 1 of 12 providers shown\n")
 	if strings.Contains(buf.String(), "contract ") || strings.Contains(buf.String(), "classes") {
 		t.Errorf("empty lines printed:\n%s", buf.String())
@@ -169,5 +169,55 @@ func TestMCPFleetViewConsumableHidesProviders(t *testing.T) {
 	out, _ := json.Marshal(res)
 	if len(res.Entities) != 0 || strings.Contains(string(out), "postgresql") || strings.Contains(string(out), `/pg"`) {
 		t.Errorf("a hidden provider is named:\n%s", out)
+	}
+}
+
+// TestFleetOfferingsConsumableNamesConfigurations: with several required
+// configurations a field is named with its configuration, and a cut class
+// list says so.
+func TestFleetOfferingsConsumableNamesConfigurations(t *testing.T) {
+	var buf bytes.Buffer
+	printConsumable(&buf, fleet.EntityRef{Label: "pg", Consumable: &fleet.ConsumableOffering{ProvidersTotal: 1, Providers: []fleet.ConsumableProvider{{
+		Service: fleet.EntityRef{Label: "pg"}, Version: "1.0.0", Digest: "sha256:1", Publisher: "p", SchemaPaths: []string{"db.json", "backup.json"},
+		Classes: []string{"a", "b"}, ClassesTotal: 60, ClassesTruncated: true,
+		Parameters: []fleet.OfferingParameter{{Configuration: "db", Path: "size", Tier: "tunable"}, {Configuration: "backup", Path: "size", Tier: "tunable"}}}}}})
+	wantLines(t, buf.String(), "  classes     a, b  (2 of 60 shown)\n", "  tunable     db.size, backup.size\n")
+}
+
+// TestFleetOfferingsConsumableNotesLeftOut: a complete answer that left a
+// provider out says so on stderr, never only in JSON.
+func TestFleetOfferingsConsumableNotesLeftOut(t *testing.T) {
+	ans := &fleetOfferings{Offerings: []fleetOffering{}, Completeness: fleet.CompletenessComplete, Limitations: []fleet.Limitation{
+		{Code: fleet.LimitationOfferingNotConsumable, Message: "Not consumable, not accepted: 1 provider of an offering you may see (postgresql); fix"}}}
+	cmd := &cobra.Command{}
+	var out, errBuf bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetErr(&errBuf)
+	if err := printFleetOfferings(cmd, ans, "consumable", "", "text"); err != nil {
+		t.Fatal(err)
+	}
+	wantLines(t, out.String(), "No consumable offerings\n")
+	wantLines(t, errBuf.String(), "note: [OFFERING_NOT_CONSUMABLE] Not consumable, not accepted: 1 provider of an offering you may see (postgresql); fix\n")
+}
+
+// TestFleetOfferingsConsumableFromAccepted: a consumable row's from and asOf
+// name the provider acceptance judged, never a provider it left out that
+// sorts first.
+func TestFleetOfferingsConsumableFromAccepted(t *testing.T) {
+	c := &contract.Contract{PactoVersion: "2.4", Workload: contract.WorkloadService, Service: contract.Service{Name: "aaa-pg", Version: "18.0.0", Offering: "postgresql"}}
+	aaa := fleet.RawRevision{Bundle: &contract.Bundle{Contract: c, FS: fstest.MapFS{}}, Domain: "ghcr.io/acme",
+		RequestedRef: "oci://ghcr.io/acme/aaa-pg:18.0.0", Digest: "sha256:" + strings.Repeat("5d", 32),
+		Provenance: &fleet.BundleProvenance{Source: "oci", Signature: fleet.BundleSignature{Status: fleet.SignatureUnsigned, Source: "none"}}}
+	q := consumableQuery(t, fleet.NewMemorySource("oci2", "oci", &fleet.Collection{Revisions: []fleet.RawRevision{aaa}}))
+	res, err := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Consumable: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ans := offeringsAnswer(q.SnapshotForSerialization(), res)
+	if len(ans.Offerings) != 1 || ans.Offerings[0].From != "ghcr.io%2Facme/pg 17.0.0" {
+		t.Fatalf("offerings = %+v", ans.Offerings)
+	}
+	if p := ans.Offerings[0].Consumable.Providers[0]; ans.Offerings[0].AsOf != p.Revision.FetchedAt {
+		t.Errorf("asOf = %v, want the accepted revision's %v", ans.Offerings[0].AsOf, p.Revision.FetchedAt)
 	}
 }

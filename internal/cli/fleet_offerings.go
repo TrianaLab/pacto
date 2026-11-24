@@ -104,6 +104,12 @@ func offeringsAnswer(snap *fleet.FleetSnapshot, res *fleet.EntityList) *fleetOff
 		} else {
 			row.From, row.AsOf, row.Drift = providerFacts(snap, e.Key)
 		}
+		// A consumable row is read from the provider acceptance judged, never
+		// from one it left out.
+		if c := e.Consumable; c != nil && len(c.Providers) > 0 {
+			p := c.Providers[0]
+			row.From, row.AsOf = strings.TrimSpace(p.Service.Key+" "+p.Version), p.Revision.FetchedAt
+		}
 		out.Offerings = append(out.Offerings, row)
 	}
 	return out
@@ -176,8 +182,22 @@ func printFleetOfferings(cmd *cobra.Command, res *fleetOfferings, what, detected
 		}
 		_, _ = fmt.Fprintf(w, "asOf %s  completeness %s%s\n", res.AsOf.Format(time.RFC3339), res.Completeness, tail)
 		warnPartial(cmd, fleet.Meta{Completeness: res.Completeness, AsOf: res.AsOf, Limitations: res.Limitations})
+		if what == "consumable" && res.Completeness == fleet.CompletenessComplete {
+			noteLeftOut(cmd, res.Limitations)
+		}
 		return nil
 	}, nil)
+}
+
+// noteLeftOut prints each provider a complete consumable answer left out
+// and why, which warnPartial keeps for partial answers: an exclusion is
+// never silent.
+func noteLeftOut(cmd *cobra.Command, lims []fleet.Limitation) {
+	for _, l := range lims {
+		if l.Code == fleet.LimitationOfferingNotConsumable {
+			_, _ = fmt.Fprintf(cmd.ErrOrStderr(), "note: [%s] %s\n", l.Code, l.Message)
+		}
+	}
 }
 
 // noOfferings is the line of an empty page: a partial answer leaves
@@ -257,16 +277,24 @@ func printConsumable(w io.Writer, o fleet.EntityRef) {
 		if p.Lifecycle == fleet.LifecycleDeprecated {
 			state += ", deprecated"
 		}
-		_, _ = fmt.Fprintf(w, "%s  %s  %s  %s, publisher %s\n", o.Label, p.Version, shortDigest(p.Digest), state, p.Publisher)
+		_, _ = fmt.Fprintf(w, "%s  %s  %s  %s  %s, publisher %s\n", o.Label, serviceName(p.Service), p.Version, shortDigest(p.Digest), state, p.Publisher)
 		var contract, tunable []string
 		for _, x := range p.Parameters {
+			path := x.Path
+			if len(p.SchemaPaths) > 1 {
+				path = x.Configuration + "." + path // several configurations may share a field name
+			}
 			if x.Tier == schemax.TierTunable {
-				tunable = append(tunable, strings.TrimSpace(x.Path+" "+boundsText(x)))
+				tunable = append(tunable, strings.TrimSpace(path+" "+boundsText(x)))
 			} else {
-				contract = append(contract, x.Path)
+				contract = append(contract, path)
 			}
 		}
-		consumableLine(w, "classes", strings.Join(p.Classes, ", "))
+		classes := strings.Join(p.Classes, ", ")
+		if p.ClassesTruncated {
+			classes += fmt.Sprintf("  (%d of %d shown)", len(p.Classes), p.ClassesTotal)
+		}
+		consumableLine(w, "classes", classes)
 		if len(contract) > 0 {
 			consumableLine(w, "contract", strings.Join(contract, ", ")+"  (set once, same in every environment)")
 		}
@@ -280,6 +308,14 @@ func printConsumable(w io.Writer, o fleet.EntityRef) {
 	if c.ProvidersTruncated {
 		_, _ = fmt.Fprintf(w, "  ... %d of %d providers shown\n", len(c.Providers), c.ProvidersTotal)
 	}
+}
+
+// serviceName is a service reference's domain and name, the readable form of its key.
+func serviceName(s fleet.EntityRef) string {
+	if s.Domain == "" {
+		return s.Label
+	}
+	return s.Domain + "/" + s.Label
 }
 
 // consumableLine prints one labelled line of a consumable provider; an
