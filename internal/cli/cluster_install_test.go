@@ -278,14 +278,14 @@ func TestDashboardInstall(t *testing.T) {
 	d := e.d
 	d.dynamicFor = func(*rest.Config) (dynamic.Interface, error) { return e.hub(), nil }
 	list := listOf(delivery.ClusterJoinList{Candidates: []delivery.ClusterCandidate{
-		{Source: detect.SourceArgoCD, Kind: "Secret", Namespace: "gitops", Name: "eu", Match: delivery.CandidateMatched}}})
+		{Source: detect.SourceArgoCD, Kind: "Secret", Namespace: "gitops", Name: "eu", Match: delivery.CandidateMatched, Member: &delivery.ClusterRef{Name: "eu"}}}})
 	install := func(d deps, det, from string) (string, error) {
 		b, err := dashboardInstall(d, &rest.Config{}, det, &app.JoinOptions{}, list)(t.Context(), from)
 		return string(b), err
 	}
 	host := strings.TrimSuffix(e.repo, "/"+delivery.TargetSnapshotRepository)
 	out, err := install(d, det, "argocd")
-	expect(t, err == nil && strings.HasPrefix(out, "# warning: Argo CD cluster Secret gitops/eu is an approved member") && strings.Contains(out, "kind: ApplicationSet\n") &&
+	expect(t, err == nil && strings.HasPrefix(out, "# warning: Argo CD cluster Secret gitops/eu is the approved member eu,") && strings.Contains(out, "kind: ApplicationSet\n") &&
 		strings.Contains(out, "registry: "+host+"\n") && strings.Contains(out, "targetRevision: 4.6.0\n") && !strings.Contains(out, "hub:"), "%v %s", err, out)
 	out, err = install(d, det, "flux")
 	expect(t, err == nil && strings.Contains(out, "kind: HelmRelease\n") && !strings.Contains(out, "bootstrap"), "flux %v %s", err, out)

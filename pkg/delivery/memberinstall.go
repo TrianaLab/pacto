@@ -257,10 +257,8 @@ func candidateWarnings(o MemberInstallOptions) []string {
 		}
 		var why string
 		switch {
-		case c.Match == CandidateMatched && c.Member != nil:
+		case c.Match == CandidateMatched: // the match always names its Member
 			why = "is the approved member " + cmp.Or(c.Member.Name, shortClusterUID(c.Member.UID)) + ", which runs Pacto; keep it out"
-		case c.Match == CandidateMatched:
-			why = "is an approved member, which runs Pacto; keep it out"
 		case c.Match == CandidateSameUID:
 			why = "states the UID a pending or removed cluster reported about itself; if that cluster still runs Pacto, keep it out"
 		case c.UID != "" && c.UID == o.HubUID:

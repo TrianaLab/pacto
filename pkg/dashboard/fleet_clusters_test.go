@@ -168,7 +168,11 @@ func TestInstallRouteNeedsChartVersion(t *testing.T) {
 // not the request's, so it answers 502 rather than 422.
 func TestInstallRouteHubReadIs502(t *testing.T) {
 	var asked string
-	err := HubReadError{Err: errors.New("the candidate clusters were not read: Forbidden")}
+	inner := errors.New("the candidate clusters were not read: Forbidden")
+	err := HubReadError{Err: inner}
+	if !errors.Is(err, inner) {
+		t.Error("HubReadError hides the error it wraps")
+	}
 	code, body := fetch(t, installServer(t, memberList(), nil, &asked, fmt.Errorf("wrapped: %w", err)), "/api/fleet/clusters/install?from=flux")
 	if code != http.StatusBadGateway || !strings.Contains(body, "the hub could not be read for the member install") || !strings.Contains(body, "Forbidden") {
 		t.Errorf("status %d: %s", code, body)
