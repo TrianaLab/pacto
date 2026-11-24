@@ -170,6 +170,12 @@ func TestStaleClusterKeepsUnmet(t *testing.T) {
 	if r.CompatibilityVerdict != CompatibilityIncompatible || r.rangeVerdict != CompatibilityUnknown || r.Note != "policy; cluster gone could not be read, so Pacto cannot tell which revision of ref runs there now" {
 		t.Fatalf("%+v", r)
 	}
+	// A cluster with no summary is named by its uid prefix, never the whole uid.
+	u := AffectedConsumer{Service: "ref", CompatibilityVerdict: CompatibilityCompatible, Clusters: []string{usID}}
+	staleClustersUnknown(&u, nil, evidenceNow)
+	if !strings.HasPrefix(u.Note, "cluster "+usID[:8]+" could not be read") || strings.Contains(u.Note, usID) {
+		t.Fatalf("%+v", u)
+	}
 }
 
 func TestPublishedAgo(t *testing.T) {
@@ -272,5 +278,46 @@ func TestSingleClusterImpactJSONUnchanged(t *testing.T) {
 	}
 	if string(append(got, '\n')) != string(want) {
 		t.Errorf("single-cluster answer changed:\n%s", got)
+	}
+}
+
+// serviceEvent asks what happens to the consumers of payments.
+func serviceEvent(snap *fleet.FleetSnapshot, kind string) *Result {
+	return Analyze(context.Background(), nil, nil, nil, nil, snap, Options{Event: &Event{Kind: kind, Service: "payments"}})
+}
+
+func TestServiceEventNamesConsumerClusters(t *testing.T) {
+	res := serviceEvent(euUS(t, 0), EventRemoved)
+	if len(res.Clusters) != 2 {
+		t.Fatalf("clusters %+v", res.Clusters)
+	}
+	if c := rowOf(t, res, "ledger"); !slices.Equal(c.Clusters, []string{usID}) {
+		t.Errorf("ledger clusters %v", c.Clusters)
+	}
+}
+
+func TestOfferingEventNamesConsumerClusters(t *testing.T) {
+	pg := offeringRev("payments", "pay", "payments")
+	snap := clusterFleet(t, []fleet.RawRevision{pg, clusterRev("ledger", onPayments(">=1.0.0"))},
+		clusterSource(euID, "eu-prod", fleet.ClusterNameFromApproval, evidenceNow, "payments"),
+		clusterSource(usID, "us-prod", fleet.ClusterNameFromContext, evidenceNow, "ledger"))
+	res := offeringEvent(snap, EventUnavailable, "pay")
+	if c := rowOf(t, res, "ledger"); len(res.Clusters) != 2 || !slices.Equal(c.Clusters, []string{usID}) {
+		t.Fatalf("clusters %+v ledger %v", res.Clusters, c.Clusters)
+	}
+}
+
+func TestEventWithUnreadClustersNeverClears(t *testing.T) {
+	snap := clusterFleet(t, []fleet.RawRevision{clusterRev("payments")},
+		clusterSource(euID, "eu-prod", fleet.ClusterNameFromApproval, evidenceNow, "payments"), unreadCarrier(2))
+	res := serviceEvent(snap, EventRemoved)
+	if res.UnreadClusters != 2 || res.Gate != GateUnverified || !strings.Contains(res.GateReason, "2 clusters publish to this hub") {
+		t.Fatalf("unread %d gate %s %q", res.UnreadClusters, res.Gate, res.GateReason)
+	}
+	// Without unread clusters, nobody visible is still a clear event answer.
+	snap = clusterFleet(t, []fleet.RawRevision{clusterRev("payments")},
+		clusterSource(euID, "eu-prod", fleet.ClusterNameFromApproval, evidenceNow, "payments"))
+	if res := serviceEvent(snap, EventRemoved); res.Gate != GateClear {
+		t.Fatalf("gate %s %q", res.Gate, res.GateReason)
 	}
 }

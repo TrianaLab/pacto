@@ -72,7 +72,8 @@ func staleClustersUnknown(c *AffectedConsumer, statuses map[string]fleet.Cluster
 	}
 	id := c.Clusters[i]
 	sum := statuses[id]
-	note := "cluster " + cmp.Or(sum.Name, id) + " " + publishedAgo(sum.AsOf, at) + ", so Pacto cannot tell which revision of " + c.Service + " runs there now"
+	// With no summary, the uid prefix: the display name of last resort (514 D2).
+	note := "cluster " + cmp.Or(sum.Name, id[:min(8, len(id))]) + " " + publishedAgo(sum.AsOf, at) + ", so Pacto cannot tell which revision of " + c.Service + " runs there now"
 	if c.Note != "" {
 		note = c.Note + "; " + note
 	}

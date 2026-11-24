@@ -64,6 +64,7 @@ func analyzeOfferingEvent(snap *fleet.FleetSnapshot, q *fleet.Query, opts Option
 	res.ChangedOwnerKey = ""
 	res.noteUnlistedOffering(q, providers)
 	res.noteStaleConsumers()
+	res.attributeClusters(snap, q, q.ProductMeta(), targetClusters(snap))
 	res.Limitations = dedupeLimitations(res.Limitations)
 	return res
 }
