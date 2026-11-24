@@ -227,7 +227,11 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	res.Installation = d.installation()
 
 	ws, refs, sampled, wsErr := d.workloads(ctx)
-	res.SecretRefs = refs
+	res.SecretRefs, res.SecretRefsTotal = refs.out, refs.total
+	if sampled {
+		// A sampled run did not read every pod: at least one ref is unread.
+		res.SecretRefsTotal++
+	}
 	reg := or(wsErr, "registry", func() detect.Entry { return detect.Registries(ws, sampled, !scoped) })
 	res.Entries = append(res.Entries, reg)
 	if ps := detect.PullSecret(ws, reg, sampled, !scoped); ps.Kind != "" {
@@ -445,8 +449,9 @@ func (d *Detector) scopes() []string {
 
 // workloads reads running pods page by page, at most MaxPods, outside the
 // skipped namespaces, grouped by controller owner, and the Secret names each
-// owner's pods reference (names only, at most detect.MaxSecretRefs).
-func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, []fleet.RawSecretRef, bool, error) {
+// owner's pods reference (names only, at most detect.MaxSecretRefs, with
+// their total; one unread on a failed list).
+func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, secretRefs, bool, error) {
 	byID, order, seen := map[string]*detect.Workload{}, []string{}, 0
 	refs := secretRefs{seen: map[fleet.RawSecretRef]bool{}, cluster: d.Cluster, name: d.ClusterName}
 	for _, ns := range d.scopes() {
@@ -455,11 +460,12 @@ func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, []fleet.Ra
 			l := &corev1.PodList{}
 			if err := d.Reader.List(ctx, l, client.InNamespace(ns), client.MatchingFields{"status.phase": string(corev1.PodRunning)},
 				client.Limit(pageSize), client.Continue(next)); err != nil {
-				return nil, nil, false, err
+				// No pod read in full: the refs are unknown, never none.
+				return nil, secretRefs{total: 1}, false, err
 			}
 			for i := range l.Items {
 				if seen == detect.MaxPods {
-					return collect(byID, order), refs.out, true, nil
+					return collect(byID, order), refs, true, nil
 				}
 				seen++
 				p := &l.Items[i]
@@ -491,7 +497,7 @@ func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, []fleet.Ra
 			}
 		}
 	}
-	return collect(byID, order), refs.out, false, nil
+	return collect(byID, order), refs, false, nil
 }
 
 // ownerObject is the controller o of p as a detect object: a ReplicaSet

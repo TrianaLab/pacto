@@ -261,14 +261,21 @@ func (r *run) keepLink(key fleet.ExternalKey, link string, prev *contract.Bundle
 }
 
 // keepEngine is the observed engines key's new contract records: engine, or
-// the ones prev (a tag this installation signed) records when engine is
-// empty on a partial run, which may have missed the resources. A complete
-// run with no observed engine removes them.
+// on a partial run, which may have missed resources, the ones prev (a tag
+// this installation signed) records unless engine holds every one of them.
+// A complete run with no observed engine removes them.
 func (r *run) keepEngine(engine string, prev *contract.Bundle) string {
-	if engine != "" || !r.partial {
+	old := engineOf(prev)
+	if !r.partial || old == "" {
 		return engine
 	}
-	return engineOf(prev)
+	set := strings.Split(engine, ", ")
+	for _, e := range strings.Split(old, ", ") {
+		if !slices.Contains(set, e) {
+			return old
+		}
+	}
+	return engine
 }
 
 // push writes b to repo, tags it version and signs it, returning its

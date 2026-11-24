@@ -90,11 +90,20 @@ type Result struct {
 	// SecretRefs are the Secret names the running pods reference, names
 	// only, at most [MaxSecretRefs].
 	SecretRefs []fleet.RawSecretRef `json:"secretRefs,omitempty"`
+	// SecretRefsTotal is how many Secret refs the operator found, more than
+	// SecretRefs when the list is capped; a run that sampled the pods
+	// counts at least one more, since it did not read them all.
+	SecretRefsTotal int `json:"secretRefsTotal,omitempty"`
 }
 
 // ManagedCapped is whether res found more managed resources than it lists.
 func (res Result) ManagedCapped() bool {
 	return res.ManagedResourcesTotal > len(res.ManagedResources)
+}
+
+// SecretRefsCapped is whether res found more Secret refs than it lists.
+func (res Result) SecretRefsCapped() bool {
+	return res.SecretRefsTotal > len(res.SecretRefs)
 }
 
 // Entry is one thing the operator detected. Kind is an open string:
@@ -240,6 +249,7 @@ func sanitizeManaged(res *Result) {
 		m.Missing = cleanAll(m.Missing, MaxNamed)
 		m.ConnectionSecrets = cleanAll(m.ConnectionSecrets, MaxNamed)
 	}
+	res.SecretRefsTotal = max(res.SecretRefsTotal, len(res.SecretRefs))
 	res.SecretRefs = capped(res.SecretRefs, MaxSecretRefs)
 	for i := range res.SecretRefs {
 		r := &res.SecretRefs[i]

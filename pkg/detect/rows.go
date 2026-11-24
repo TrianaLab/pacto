@@ -108,7 +108,7 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 			p.Limitations = []fleet.Limitation{{Code: code, Source: source, Message: e.Reason}}
 		}
 		if capped {
-			p.Limitations = append(p.Limitations, ManagedCappedLimitation(res, source))
+			p.Limitations = append(p.Limitations, CappedLimitations(res, source)...)
 		}
 		rows = append(rows, p)
 	}
@@ -130,21 +130,45 @@ func rowUsedFor(kind string) []string {
 }
 
 // managedCap lowers a complete managed entry of a capped res to partial and
-// says whether it did: what lies past the cap is unknown.
+// says whether it did: what lies past the cap is unknown. Capped Secret refs
+// lower the managed-resources entry, whose consumers they join.
 func managedCap(res Result, e Entry) (Entry, bool) {
-	if !res.ManagedCapped() || !slices.Contains(ManagedKinds, e.Kind) || e.Completeness != Complete {
+	refs := res.SecretRefsCapped() && e.Kind == fleet.ProviderManagedResources
+	if !res.ManagedCapped() && !refs || !slices.Contains(ManagedKinds, e.Kind) || e.Completeness != Complete {
 		return e, false
 	}
 	e.Completeness = Partial
 	return e, true
 }
 
-// ManagedCappedLimitation is the MANAGED_RESOURCES_CAPPED limitation of a
-// capped res read by source.
-func ManagedCappedLimitation(res Result, source string) fleet.Limitation {
-	return fleet.Limitation{Code: fleet.LimitationManagedResourcesCapped, Source: source,
-		Message: strconv.Itoa(res.ManagedResourcesTotal-len(res.ManagedResources)) + " of " + strconv.Itoa(res.ManagedResourcesTotal) +
-			" managed resources past the bound of " + strconv.Itoa(MaxManagedResources) + " were not kept; raise MaxManagedResources if a real cluster hits it"}
+// CappedLimitations are the limitations of res's capped lists read by
+// source: MANAGED_RESOURCES_CAPPED and SECRET_REFS_CAPPED.
+func CappedLimitations(res Result, source string) []fleet.Limitation {
+	var out []fleet.Limitation
+	if res.ManagedCapped() {
+		out = append(out, fleet.Limitation{Code: fleet.LimitationManagedResourcesCapped, Source: source,
+			Message: strconv.Itoa(res.ManagedResourcesTotal-len(res.ManagedResources)) + " of " + strconv.Itoa(res.ManagedResourcesTotal) +
+				" managed resources past the bound of " + strconv.Itoa(MaxManagedResources) + " were not kept; raise MaxManagedResources if a real cluster hits it"})
+	}
+	if res.SecretRefsCapped() {
+		out = append(out, fleet.Limitation{Code: fleet.LimitationSecretRefsCapped, Source: source,
+			Message: "the Secret names the running pods reference were not all kept or read, so a service that uses a managed resource through its connection Secret may be missing"})
+	}
+	return out
+}
+
+// ReadsPartial is one SOURCE_PARTIAL limitation of source per managed-kind
+// entry of res that did not read everything: partial, or unknown with no
+// hint (a read that failed; an entry with a hint is off until a person turns
+// it on).
+func ReadsPartial(res Result, source string) []fleet.Limitation {
+	var out []fleet.Limitation
+	for _, e := range res.Entries {
+		if slices.Contains(ManagedKinds, e.Kind) && (e.Completeness == Partial || e.Completeness == Unknown && e.Hint == "") {
+			out = append(out, fleet.Limitation{Code: fleet.LimitationSourcePartial, Source: source, Message: e.Kind + " did not read everything: " + cmp.Or(e.Reason, e.Completeness)})
+		}
+	}
+	return out
 }
 
 // rowName is the row name of kind.

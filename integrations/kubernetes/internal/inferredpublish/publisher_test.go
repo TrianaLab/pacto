@@ -341,6 +341,25 @@ func TestPublisherPartialBeforeFirstDetection(t *testing.T) {
 	if got := tags(t, repo); len(got) != 1 {
 		t.Fatalf("a capped detection removed the engine: tags = %v", got)
 	}
+	// A state read that failed, or Secret refs not all read, may have missed
+	// the resource: partial too.
+	res = detected("")
+	res.Entries = []detect.Entry{detect.TerraformEntry(nil, map[string]string{"s3://acme-tf/prod.tfstate": "503"})}
+	p.run(context.Background())
+	res = detected("")
+	res.SecretRefsTotal = detect.MaxSecretRefs + 1
+	p.run(context.Background())
+	if got := tags(t, repo); len(got) != 1 {
+		t.Fatalf("a failed read removed the engine: tags = %v", got)
+	}
+	// An inventory that is off until a person turns it on reads nothing
+	// that failed: a complete run with no engine removes it.
+	res = detected("")
+	res.Entries = []detect.Entry{detect.CloudInventoryEntry("off", "aws role", "", true, nil)}
+	p.run(context.Background())
+	if got := tags(t, repo); len(got) != 2 || engineAt(t, repo, "0.0.2") != "" {
+		t.Fatalf("an off inventory kept the run partial: tags = %v", got)
+	}
 	p.Detected = nil
 	if extra, undetected := p.detected(); extra != nil || undetected {
 		t.Fatalf("no detector: %v, %v", extra, undetected)

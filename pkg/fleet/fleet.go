@@ -662,6 +662,10 @@ const (
 	// LimitationManagedResourcesCapped: a reader found more managed
 	// resources than its bound keeps; what lies past it is unknown.
 	LimitationManagedResourcesCapped = "MANAGED_RESOURCES_CAPPED"
+	// LimitationSecretRefsCapped: a reader kept or read only some of the
+	// Secret names the running pods reference, so a connection-secret
+	// consumer may be missing.
+	LimitationSecretRefsCapped = "SECRET_REFS_CAPPED"
 	// LimitationExternalCatalogMismatch: a source classified external uses
 	// with a catalog other than the one this snapshot classifies with, so
 	// one external system may join evidence from two catalog versions.

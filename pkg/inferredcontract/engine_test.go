@@ -99,11 +99,18 @@ func TestPartialRunKeepsEngine(t *testing.T) {
 	if rep := publishOK(t, d, root, snap); len(rep.Published) != 0 || rep.Unchanged != 1 {
 		t.Errorf("a partial run removed the engine: %+v", rep)
 	}
-	// A partial run that reads one still moves it.
+	// A partial run that reads only another engine may have missed the
+	// resource that reports the old one: it keeps it.
 	snap = engineFleet(t, "postgres 17")
 	snap.Completeness = fleet.CompletenessPartial
-	if rep := publishOK(t, d, root, snap); len(rep.Published) != 1 || engineAt(t, reg, root+"/stripe:0.0.2") != "postgres 17" {
-		t.Errorf("partial run with an engine = %+v", rep)
+	if rep := publishOK(t, d, root, snap); len(rep.Published) != 0 || rep.Unchanged != 1 {
+		t.Errorf("a partial subset moved the engine: %+v", rep)
+	}
+	// A partial run that reads every engine recorded, and more, adds it.
+	snap = engineFleet(t, "postgres 16", "postgres 17")
+	snap.Completeness = fleet.CompletenessPartial
+	if rep := publishOK(t, d, root, snap); len(rep.Published) != 1 || engineAt(t, reg, root+"/stripe:0.0.2") != "postgres 16, postgres 17" {
+		t.Errorf("partial superset = %+v", rep)
 	}
 }
 

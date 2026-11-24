@@ -110,9 +110,7 @@ func (s *DetectionSource) Collect(ctx context.Context) (*fleet.Collection, error
 	if state.Status != fleet.SourceUnavailable {
 		col.Providers = detect.ProviderRows(res, s.id, s.now())
 		col.ManagedResources, col.SecretRefs = stampManaged(res)
-		if res.ManagedCapped() {
-			col.Limitations = append(col.Limitations, detect.ManagedCappedLimitation(res, s.id))
-		}
+		col.Limitations = append(col.Limitations, detect.CappedLimitations(res, s.id)...)
 	}
 	return col, nil
 }

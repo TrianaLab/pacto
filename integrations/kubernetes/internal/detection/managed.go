@@ -51,7 +51,8 @@ type managedRun struct {
 
 // managed reads the managed resources of the catalog kinds discovery serves,
 // with the uncached reader, and returns its entry: a kind the operator may
-// not list (a SelfSubjectAccessReview says no) is unread; a resource's claim
+// not list (a SelfSubjectAccessReview says no) is unread, and a review that
+// fails makes the entry unknown; a resource's claim
 // is kept only when its composite confirms it. Nothing is read without
 // Readers.Managed or in a namespace-list install.
 func (d *Detector) managed(ctx context.Context, res *detect.Result) {
@@ -78,7 +79,12 @@ func (d *Detector) managed(ctx context.Context, res *detect.Result) {
 		group, version, _ := strings.Cut(gv, "/")
 		groups = append(groups, group)
 		for _, r := range served[gv] {
-			if !d.mayList(ctx, group, r.Name) {
+			allowed, err := d.mayList(ctx, group, r.Name)
+			if err != nil {
+				res.Entries = append(res.Entries, detect.UnknownEntry(kind, "the access review failed: "+reason(err)))
+				return
+			}
+			if !allowed {
 				run.unread = append(run.unread, group+"/"+r.Name)
 				continue
 			}
@@ -199,11 +205,15 @@ func str(u *unstructured.Unstructured, path ...string) string {
 }
 
 // mayList asks the API server whether the operator may list resource of
-// group cluster-wide. A review that fails reads as no.
-func (d *Detector) mayList(ctx context.Context, group, resource string) bool {
+// group cluster-wide. A review that fails is its error: whether the
+// operator may list it is then unknown, never no.
+func (d *Detector) mayList(ctx context.Context, group, resource string) (bool, error) {
 	r := &authorizationv1.SelfSubjectAccessReview{Spec: authorizationv1.SelfSubjectAccessReviewSpec{
 		ResourceAttributes: &authorizationv1.ResourceAttributes{Verb: "list", Group: group, Resource: resource}}}
-	return d.Writer.Create(ctx, r) == nil && r.Status.Allowed
+	if err := d.Writer.Create(ctx, r); err != nil {
+		return false, err
+	}
+	return r.Status.Allowed, nil
 }
 
 // listAll lists every object of gvk cluster-wide in pages of pageSize and
@@ -233,16 +243,18 @@ func (d *Detector) listAll(ctx context.Context, gvk schema.GroupVersionKind, fn 
 }
 
 // secretRefs collects the Secret names each workload's pods reference, once
-// per workload and Secret, on one cluster.
+// per workload and Secret, on one cluster; total counts them past the bound.
 type secretRefs struct {
 	seen          map[fleet.RawSecretRef]bool
 	out           []fleet.RawSecretRef
+	total         int
 	cluster, name string
 }
 
 // add records the Secret names p references for its owner, p itself when it
-// has none, while fewer than detect.MaxSecretRefs are kept. Only the names
-// in the pod spec are read, never a Secret.
+// has none, keeping them while fewer than detect.MaxSecretRefs are kept and
+// counting every one. Only the names in the pod spec are read, never a
+// Secret.
 func (s *secretRefs) add(owner detect.Object, p *corev1.Pod) {
 	if owner.Kind == "" {
 		owner = detect.Object{Kind: "Pod", Namespace: p.Namespace, Name: p.Name}
@@ -250,8 +262,11 @@ func (s *secretRefs) add(owner detect.Object, p *corev1.Pod) {
 	spec, _ := runtime.DefaultUnstructuredConverter.ToUnstructured(&p.Spec)
 	for _, secret := range workloadshape.SecretNames("Pod", map[string]any{"spec": map[string]any{"template": map[string]any{"spec": spec}}}) {
 		ref := fleet.RawSecretRef{Cluster: s.cluster, ClusterName: s.name, Namespace: p.Namespace, Kind: owner.Kind, Name: owner.Name, Secret: secret}
-		if !s.seen[ref] && len(s.out) < detect.MaxSecretRefs {
-			s.seen[ref] = true
+		if s.seen[ref] {
+			continue
+		}
+		s.seen[ref], s.total = true, s.total+1
+		if len(s.out) < detect.MaxSecretRefs {
 			s.out = append(s.out, ref)
 		}
 	}

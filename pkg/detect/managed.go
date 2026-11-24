@@ -15,12 +15,12 @@ import (
 const ManagedUpgradeHint = "helm upgrade <release> <chart> --reuse-values"
 
 // ClaimUnverified starts the managed-resources detail that counts the
-// resources whose claim labels no composite confirms.
+// resources whose claim labels no composite Pacto read confirms.
 const ClaimUnverified = "MANAGED_CLAIM_UNVERIFIED"
 
 // ManagedEntry is the managed-resources entry of a run that listed the
 // catalog kinds of groups and found total resources, unverified of which
-// name a claim no composite confirms; unread are the <group>/<plural> kinds
+// name a claim no composite Pacto read confirms; unread are the <group>/<plural> kinds
 // the operator may not list. A namespace-list install reads none and is
 // unknown; an unread kind makes the entry partial with the helm upgrade
 // hint. The details stay within [MaxDetails]: the reason counts every
@@ -38,11 +38,11 @@ func ManagedEntry(groups, unread []string, total, unverified int, scoped bool) E
 		e.Value, e.Evidence = strconv.Itoa(total)+" managed resources", "lists the catalog kinds of "+strings.Join(groups, ", ")
 	}
 	if unverified > 0 {
-		e.Details = []string{ClaimUnverified + ": " + strconv.Itoa(unverified) + " resources name a claim no composite confirms; their claim labels are ignored"}
+		e.Details = []string{ClaimUnverified + ": " + strconv.Itoa(unverified) + " resources name a claim Pacto could not confirm with a composite it read; their claim labels are ignored"}
 	}
 	if len(unread) > 0 {
 		e.Completeness, e.Hint = Partial, ManagedUpgradeHint
-		e.Reason = strconv.Itoa(len(unread)) + " managed-resource kinds served since the chart was installed are not granted"
+		e.Reason = strconv.Itoa(len(unread)) + " managed-resource kinds the operator may not list"
 		for _, k := range unread[:min(len(unread), MaxDetails-len(e.Details))] {
 			e.Details = append(e.Details, "unread "+k)
 		}

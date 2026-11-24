@@ -436,6 +436,10 @@ func TestDetectorCapsPods(t *testing.T) {
 	if e := entry(t, res, "nodes"); !strings.Contains(e.Reason, "not confirmed on the node; sampled the first 5000 nodes") {
 		t.Errorf("nodes = %+v", e)
 	}
+	// The sampled pods leave some Secret refs unread: the refs read capped.
+	if !res.SecretRefsCapped() {
+		t.Errorf("secret refs %d of %d", len(res.SecretRefs), res.SecretRefsTotal)
+	}
 	if pages != 4 {
 		t.Errorf("pages = %d, want the reads to stop at the caps", pages)
 	}
@@ -992,5 +996,20 @@ func TestDetectorLastResult(t *testing.T) {
 	got := d.Last()
 	if got == nil || got.Cluster != "cluster-uid" || !got.AsOf.Equal(written.AsOf) || len(got.Entries) != len(written.Entries) {
 		t.Fatalf("Last = %+v, written %+v", got, written)
+	}
+}
+
+// TestDetectorPodListErrorLeavesSecretRefsUnknown: a pod list that fails
+// reads no Secret ref, and the refs read capped, never none.
+func TestDetectorPodListErrorLeavesSecretRefsUnknown(t *testing.T) {
+	c := newClient(interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, l client.ObjectList, opts ...client.ListOption) error {
+		if _, ok := l.(*corev1.PodList); ok {
+			return errors.New("dial tcp 10.0.0.1:443")
+		}
+		return c.List(ctx, l, opts...)
+	}}, operatorDeployment())
+	_ = newDetector(c, servedAll).Sync(context.Background())
+	if _, res := readResult(t, c); len(res.SecretRefs) != 0 || !res.SecretRefsCapped() {
+		t.Errorf("secret refs %d of %d", len(res.SecretRefs), res.SecretRefsTotal)
 	}
 }

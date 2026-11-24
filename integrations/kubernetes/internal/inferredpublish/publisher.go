@@ -182,9 +182,9 @@ func (p *InferredPublisher) detected() (extra []fleet.Source, undetected bool) {
 	for i := range col.SecretRefs {
 		col.SecretRefs[i].Cluster, col.SecretRefs[i].ClusterName = "", ""
 	}
-	if res.ManagedCapped() {
-		col.Limitations = append(col.Limitations, detect.ManagedCappedLimitation(*res, detectionSource))
-	}
+	// A capped list or a read that failed makes the snapshot partial, so
+	// no published engine is dropped or narrowed on a transient failure.
+	col.Limitations = append(detect.CappedLimitations(*res, detectionSource), detect.ReadsPartial(*res, detectionSource)...)
 	return []fleet.Source{fleet.NewMemorySource(detectionSource, fleet.SourceKindDetection, col)}, false
 }
 

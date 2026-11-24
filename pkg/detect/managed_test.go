@@ -51,6 +51,10 @@ func TestDecodeCapsAndCleansManagedResources(t *testing.T) {
 	if len(res.ManagedResources) != MaxManagedResources || len(res.SecretRefs) != MaxSecretRefs || res.ManagedResourcesTotal != 600 || !res.ManagedCapped() {
 		t.Fatalf("not capped: %d resources (total %d), %d refs", len(res.ManagedResources), res.ManagedResourcesTotal, len(res.SecretRefs))
 	}
+	// A hand-edited list past the cap still reads capped.
+	if res.SecretRefsTotal != MaxSecretRefs+5 || !res.SecretRefsCapped() {
+		t.Fatalf("refs total %d", res.SecretRefsTotal)
+	}
 	g, s := res.ManagedResources[499], res.SecretRefs[0]
 	for _, v := range []string{g.Source, g.Identity, g.Missing[0], g.Entry, g.Catalog, g.Type, g.Cluster, g.ClusterName, g.Namespace, g.Name,
 		g.Location, g.ConnectionSecrets[0], g.Claim, g.Engine, g.EngineRequested, s.Cluster, s.ClusterName, s.Namespace, s.Kind, s.Name, s.Secret} {
@@ -163,5 +167,38 @@ func TestCloudInventoryRowOffNamesOptIn(t *testing.T) {
 		!strings.Contains(e.Reason, "controller.cloudInventory") || !strings.Contains(e.Reason, "arn:aws:iam::1:role/pacto") ||
 		!strings.Contains(e.Hint, "--set controller.cloudInventory=") {
 		t.Errorf("off with an identity = %+v", e)
+	}
+}
+
+// TestDetectRowsPartialWhenSecretRefsCapped: Secret refs not all kept or
+// read lower the managed-resources row alone, with a count-free reason.
+func TestDetectRowsPartialWhenSecretRefsCapped(t *testing.T) {
+	entries := []Entry{{Kind: fleet.ProviderManagedResources, Completeness: Complete}, {Kind: "terraform", Completeness: Complete}}
+	res := Result{AsOf: asOf, Entries: entries, SecretRefs: make([]fleet.RawSecretRef, 2), SecretRefsTotal: 3}
+	rows := ProviderRows(res, "operator", asOf)
+	managed := row(t, rows, fleet.ProviderManagedResources)
+	if managed.Status != fleet.SourcePartial || len(managed.Limitations) != 1 || managed.Limitations[0].Code != fleet.LimitationSecretRefsCapped {
+		t.Fatalf("managed row = %+v", managed)
+	}
+	if tf := row(t, rows, "terraform"); tf.Status != fleet.SourceAvailable {
+		t.Errorf("terraform row = %+v", tf)
+	}
+}
+
+// TestReadsPartial: a managed-kind entry that did not read everything is one
+// SOURCE_PARTIAL; an off entry (with a hint), a complete one and another
+// kind are none.
+func TestReadsPartial(t *testing.T) {
+	res := Result{Entries: []Entry{
+		TerraformEntry([]string{"s3://a/x"}, map[string]string{"s3://a/y": "503"}),
+		CloudInventoryEntry("aws", "role", "", true, errors.New("throttled")),
+		CloudInventoryEntry("off", "role", "", true, nil),
+		{Kind: fleet.ProviderManagedResources, Completeness: Complete},
+		{Kind: "registry", Completeness: Unknown},
+	}}
+	got := ReadsPartial(res, "detection")
+	if len(got) != 2 || got[0].Code != fleet.LimitationSourcePartial || !strings.Contains(got[0].Message, "terraform did not read everything: 1 of 2") ||
+		!strings.Contains(got[1].Message, "cloud-inventory did not read everything: reading the aws inventory failed") {
+		t.Fatalf("%+v", got)
 	}
 }

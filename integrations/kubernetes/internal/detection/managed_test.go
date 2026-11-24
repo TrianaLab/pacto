@@ -189,7 +189,7 @@ func TestDetectorClaimSecretJoined(t *testing.T) {
 func TestDetectorCountsUnverifiedClaims(t *testing.T) {
 	res := managedResult(t, &cluster{objects: objects()})
 	e := entry(t, res, fleet.ProviderManagedResources)
-	if !slices.Equal(e.Details, []string{detect.ClaimUnverified + ": 1 resources name a claim no composite confirms; their claim labels are ignored"}) ||
+	if !slices.Equal(e.Details, []string{detect.ClaimUnverified + ": 1 resources name a claim Pacto could not confirm with a composite it read; their claim labels are ignored"}) ||
 		res.ManagedResources[1].Claim != "" {
 		t.Errorf("entry = %+v, forged = %+v", e, res.ManagedResources[1])
 	}
@@ -283,11 +283,39 @@ func TestDetectorReportsSecretRefs(t *testing.T) {
 	if !slices.Equal(res.SecretRefs, want) {
 		t.Errorf("refs = %+v", res.SecretRefs)
 	}
-	// Past the bound no ref is kept.
+	if res.SecretRefsTotal != 2 || res.SecretRefsCapped() {
+		t.Errorf("total %d", res.SecretRefsTotal)
+	}
+	// Past the bound no ref is kept, and each is counted once.
 	refs := secretRefs{seen: map[fleet.RawSecretRef]bool{}, out: make([]fleet.RawSecretRef, detect.MaxSecretRefs)}
 	refs.add(detect.Object{}, bare)
-	if len(refs.out) != detect.MaxSecretRefs {
-		t.Errorf("kept %d refs", len(refs.out))
+	refs.add(detect.Object{}, bare)
+	if len(refs.out) != detect.MaxSecretRefs || refs.total != 1 {
+		t.Errorf("kept %d refs, counted %d", len(refs.out), refs.total)
+	}
+}
+
+// TestDetectorFailedAccessReviewIsUnknown: a review that fails says nothing
+// about whether the operator may list a kind: the entry is unknown, never a
+// kind unread for lack of a grant.
+func TestDetectorFailedAccessReviewIsUnknown(t *testing.T) {
+	f := &cluster{objects: objects()}
+	funcs := f.funcs()
+	funcs.Create = func(ctx context.Context, c client.WithWatch, o client.Object, opts ...client.CreateOption) error {
+		if _, ok := o.(*authorizationv1.SelfSubjectAccessReview); ok {
+			return errors.New("dial tcp 10.0.0.1:443")
+		}
+		return c.Create(ctx, o, opts...)
+	}
+	c := newClient(funcs, operatorDeployment())
+	d := newDetector(c, servedAll)
+	d.Readers.Managed = served
+	if err := d.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, res := readResult(t, c)
+	if e := entry(t, res, fleet.ProviderManagedResources); e.Completeness != detect.Unknown || !strings.Contains(e.Reason, "the access review failed") || len(e.Details) != 0 {
+		t.Errorf("entry = %+v", e)
 	}
 }
 
