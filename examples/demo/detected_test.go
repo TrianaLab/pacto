@@ -13,12 +13,15 @@ import (
 // three egress readers and the running Crossplane among them) plus the one declared Installation row, from an available advisory
 // source that adds no snapshot limitation, so the demo's completeness is what
 // its other sources make it. The three trace backends a live edge source
-// reads are that source's rows, never the detection source's.
+// reads are that source's rows, never the detection source's. The producer
+// row of the inferred offerings the installation advertises is apart.
 func TestDemoFleetHasDetectedRows(t *testing.T) {
 	snap := demoFleet(t)
 	var rows []fleet.Provider
 	declared := 0
-	for _, p := range snap.Providers {
+	// source_offering.go's producer row is apart.
+	offerings := fleet.ProducerRowPrefix + demoOfferingProducer
+	for _, p := range slices.DeleteFunc(slices.Clone(snap.Providers), func(p fleet.Provider) bool { return p.ID == offerings }) {
 		if p.Source != "cluster-detection" {
 			continue
 		}
