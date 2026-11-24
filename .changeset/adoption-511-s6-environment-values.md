@@ -34,6 +34,6 @@ any other, such as two value files or `values-staging.yaml` on a production
 Stage, reads `False` with `OtherEnvironmentValues`. This also refuses an
 existing install whose Kustomization builds `overlays/<name>` where `<name>`
 differs from `spec.environment`, such as `overlays/prod` on a Stage with
-`spec.environment: production`: rename the overlay or create the Stage with
+`spec.environment: production`, and its promotes wait for a person: rename the overlay or create the Stage with
 the matching environment. `spec.environment` must now be a DNS label and is
 fixed at creation; an existing Stage keeps its value.
