@@ -76,11 +76,24 @@ func revisionConfigRefVerdict(rev *fleet.ContractRevision, names []string, provi
 			return CompatibilityUnknown, err.Error() + " in " + who
 		}
 	}
-	var violations, unverified []string
+	violations, unverified := valueFindings(rev, &c, fsys, refs, who)
+	switch {
+	case len(violations) > 0:
+		return CompatibilityIncompatible, strings.Join(violations, "; ")
+	case len(unverified) > 0:
+		return CompatibilityUnknown, strings.Join(unverified, "; ")
+	}
+	return CompatibilityCompatible, "the values for configuration " + strings.Join(names, ", ") + " satisfy the schema of " + who
+}
+
+// valueFindings checks the values c, rev's contract narrowed to the
+// configurations that name the provider who, gives against refs: the
+// violations, and the values nobody checked.
+func valueFindings(rev *fleet.ContractRevision, c *contract.Contract, fsys fs.FS, refs validation.ConfigRefs, who string) (violations, unverified []string) {
 	recorded := recordedTierFindings(rev)
 	for _, st := range []validation.Stage{
-		validation.ConfigRefStage(&c, refs, validation.ValidationResult{}, validation.ConfigRefOptions{}),
-		validation.EnvironmentStageWith(&c, fsys, refs),
+		validation.ConfigRefStage(c, refs, validation.ValidationResult{}, validation.ConfigRefOptions{}),
+		validation.EnvironmentStageWith(c, fsys, refs),
 	} {
 		for _, e := range st.Errors {
 			// ENVIRONMENT_UNKNOWN_CONFIGURATION is a configuration this check
@@ -99,13 +112,7 @@ func revisionConfigRefVerdict(rev *fleet.ContractRevision, names []string, provi
 			}
 		}
 	}
-	switch {
-	case len(violations) > 0:
-		return CompatibilityIncompatible, strings.Join(violations, "; ")
-	case len(unverified) > 0:
-		return CompatibilityUnknown, strings.Join(unverified, "; ")
-	}
-	return CompatibilityCompatible, "the values for configuration " + strings.Join(names, ", ") + " satisfy the schema of " + who
+	return violations, unverified
 }
 
 // recordedTierFindings is the set of tierKey of the TierNotTunable findings

@@ -124,12 +124,7 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 			return fail("", "ref", false, "ref %q resolved to an empty bundle", entry.Ref)
 		}
 		p := bundle.Contract
-		if hop == 0 {
-			r.Provider, r.ProviderName, r.ProviderVersion = p, p.Service.Name, p.Service.Version
-		}
-		if r.Offering == nil && p.Service.Offering != "" {
-			r.Offering, r.OfferingFS = p, bundle.FS
-		}
+		r.note(hop, bundle)
 		sel, code, why := SelectConfiguration(entry, p)
 		if code != "" {
 			field := "ref"
@@ -153,6 +148,18 @@ func resolveConfigRef(ctx context.Context, version string, cfg contract.Configur
 		return r, nil
 	}
 	return fail("", "ref", false, "ref %q chains through more than %d configuration refs", cfg.Ref, MaxConfigRefHops)
+}
+
+// note records what hop of the chain, bundle, says of r: the provider at hop
+// 0, and the first offering.
+func (r *ResolvedConfigRef) note(hop int, bundle *contract.Bundle) {
+	p := bundle.Contract
+	if hop == 0 {
+		r.Provider, r.ProviderName, r.ProviderVersion = p, p.Service.Name, p.Service.Version
+	}
+	if r.Offering == nil && p.Service.Offering != "" {
+		r.Offering, r.OfferingFS = p, bundle.FS
+	}
 }
 
 // readConfigSchema reads and compiles the configuration schema at path.
