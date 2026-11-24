@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -56,7 +57,14 @@ type PlacementRule struct {
 	Services     []string `json:"services,omitempty"`
 	Environments []string `json:"environments"`
 	Namespace    string   `json:"namespace"`
+	// Clusters are the uids of the members the rule places on; none is
+	// every cluster. Only the uid means the same on the hub and the member.
+	Clusters []string `json:"clusters,omitempty"`
 }
+
+// clusterUIDPattern is the shape of a cluster uid: the kube-system
+// namespace uid, a lowercase UUID.
+var clusterUIDPattern = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
 // PlacementPolicy is the signed placement policy (placement/v1): its rules,
 // first match wins, and when it was signed.
@@ -77,8 +85,9 @@ type PlacementStatement struct {
 
 // OpenPlacementPolicy verifies a placement policy bundle with verify and
 // returns the policy. Decoding is strict; a policy with no signed time, or a
-// rule with no environment or whose namespace is not a DNS label once
-// {service} and {environment} are filled in, is refused.
+// rule with no environment, whose namespace is not a DNS label once
+// {service} and {environment} are filled in or that names a cluster by
+// anything but its uid, is refused.
 func OpenPlacementPolicy(bundle []byte, verify func(bundle []byte) error) (PlacementPolicy, error) {
 	var st PlacementStatement
 	if _, err := openStatement(bundle, PredicatePlacement, &st); err != nil {
@@ -94,6 +103,11 @@ func OpenPlacementPolicy(bundle []byte, verify func(bundle []byte) error) (Place
 	for i, r := range p.Rules {
 		if len(r.Environments) == 0 || !dnsLabel(expandNamespace(r.Namespace, "a", "a")) {
 			return PlacementPolicy{}, fmt.Errorf("placement rule %d (%s) needs environments and a namespace that is a DNS label, with only {service} and {environment} filled in", i, r.Name)
+		}
+		for _, c := range r.Clusters {
+			if !clusterUIDPattern.MatchString(c) {
+				return PlacementPolicy{}, fmt.Errorf("placement rule %d (%s) names cluster %q: name the member by its uid: a display name can differ between the hub and the member", i, r.Name, c)
+			}
 		}
 	}
 	return p, nil
@@ -128,6 +142,9 @@ type PlacementInput struct {
 	Owner       string
 	Rung        string
 	HostedRungs []string
+	// ClusterUID is this cluster's uid: a rule naming other clusters is
+	// skipped.
+	ClusterUID string
 	// Policy is the verified placement policy's rules; nil when none.
 	Policy []PlacementRule
 	Pactos []PactoView
@@ -318,7 +335,7 @@ func placeByStage(in PlacementInput) (Placement, bool, string) {
 
 func placeByPolicy(in PlacementInput) (Placement, bool, string) {
 	for _, r := range in.Policy {
-		if servesService(r.Services, in.Service.Name) && (slices.Contains(r.Environments, in.Rung) || slices.Contains(r.Environments, "*")) {
+		if (len(r.Clusters) == 0 || slices.Contains(r.Clusters, in.ClusterUID)) && servesService(r.Services, in.Service.Name) && (slices.Contains(r.Environments, in.Rung) || slices.Contains(r.Environments, "*")) {
 			return Placement{Namespace: expandNamespace(r.Namespace, in.Service.Name, in.Rung), Provenance: PlacementDeclared,
 				Source: PlacementFromPolicy, Evidence: "placement rule " + r.Name}, true, ""
 		}

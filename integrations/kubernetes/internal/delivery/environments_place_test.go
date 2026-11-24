@@ -536,3 +536,20 @@ func TestHandWrittenStageRowIsPlaced(t *testing.T) {
 		t.Fatalf("placement %+v", p)
 	}
 }
+
+func TestPlaceServicePassesClusterIdentity(t *testing.T) {
+	const own, other = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b", "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d"
+	pe := newPlaceEnv(t, interceptor.Funcs{}, namespace("staging"), namespace("production"), namespace("us-payments"), namespace("eu-payments"))
+	pe.r.ClusterID = own
+	pe.r.Placement = func(context.Context) (*delivery.PlacementPolicy, string) {
+		return &delivery.PlacementPolicy{Rules: []delivery.PlacementRule{
+			{Name: "us", Environments: []string{"production"}, Namespace: "us-{service}", Clusters: []string{other}},
+			{Name: "eu", Environments: []string{"production"}, Namespace: "eu-{service}", Clusters: []string{own}},
+		}}, ""
+	}
+	pe.publish(t, "payments", delivered("payments"), nil)
+	pe.pass(t)
+	if p := rowOf(t, pe.rows(t), "payments", "production").Placement; p.Namespace != "eu-payments" || p.Evidence != "placement rule eu" {
+		t.Fatalf("placement %+v", p)
+	}
+}

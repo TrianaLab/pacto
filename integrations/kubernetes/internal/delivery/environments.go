@@ -604,7 +604,7 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 	if c.Publish == nil || c.Publish.Deploy == "" {
 		return nil // Pacto delivers only what publishes a deploy artifact
 	}
-	in := delivery.PlacementInput{Service: svc, Owner: c.Service.Owner.Team, HostedRungs: st.hosted, Policy: st.policy,
+	in := delivery.PlacementInput{Service: svc, Owner: c.Service.Owner.Team, HostedRungs: st.hosted, ClusterUID: r.ClusterID, Policy: st.policy,
 		Pactos: st.pactos, Stages: st.stages, BundleRepository: bundleRepo, GitOps: st.gitops, Namespaces: st.namespaces,
 		SystemNamespaces: []string{r.Namespace, "flux-system", "argocd"}, Taken: map[string]string{}, CreateNamespaces: r.CreateNamespaces,
 		Unread: st.unreadSteps}

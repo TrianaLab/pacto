@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 
@@ -525,5 +526,89 @@ func TestPlacementStepsAlwaysPlace(t *testing.T) {
 	placementSteps = nil
 	if p := ResolvePlacement(placeIn("staging")); p != (Placement{}) {
 		t.Fatalf("no step: %+v", p)
+	}
+}
+
+const (
+	memberUID = "6f1c2a3b-4d5e-4f60-8a7b-9c0d1e2f3a4b"
+	otherUID  = "0a1b2c3d-4e5f-4a6b-8c7d-8e9f0a1b2c3d"
+)
+
+func TestPlacementRuleClusters(t *testing.T) {
+	open := func(clusters ...string) (PlacementPolicy, error) {
+		return OpenPlacementPolicy(signPlacement(t, PlacementPolicy{At: "2026-11-23T10:00:00Z",
+			Rules: []PlacementRule{{Name: "eu", Environments: []string{"production"}, Namespace: "{service}", Clusters: clusters}}}), ok)
+	}
+	if p, err := open(memberUID); err != nil || !slices.Equal(p.Rules[0].Clusters, []string{memberUID}) {
+		t.Fatalf("uid: %+v %v", p, err)
+	}
+	for _, bad := range []string{"eu-prod", "", strings.ToUpper(memberUID), memberUID + "0", "6f1c2a3b4d5e4f608a7b9c0d1e2f3a4b"} {
+		if _, err := open(memberUID, bad); err == nil || !strings.Contains(err.Error(), "name the member by its uid") {
+			t.Errorf("cluster %q: %v", bad, err)
+		}
+	}
+	b := signPlacement(t, map[string]any{"at": "2026-11-23T10:00:00Z",
+		"rules": []any{map[string]any{"name": "r", "environments": []string{"*"}, "namespace": "x", "clusters": []string{memberUID}, "members": true}}})
+	if _, err := OpenPlacementPolicy(b, ok); err == nil {
+		t.Fatal("an unknown rule key opened")
+	}
+}
+
+func TestPlaceByPolicySkipsRuleForOtherCluster(t *testing.T) {
+	in := placeIn("production")
+	in.ClusterUID = memberUID
+	in.Namespaces["eu-payments"], in.Namespaces["us-payments"] = true, true
+	in.Policy = []PlacementRule{
+		{Name: "us", Environments: []string{"production"}, Namespace: "us-{service}", Clusters: []string{otherUID}},
+		{Name: "eu", Environments: []string{"production"}, Namespace: "eu-{service}", Clusters: []string{otherUID, memberUID}},
+	}
+	if p := ResolvePlacement(in); p.Namespace != "eu-payments" || p.Source != PlacementFromPolicy || p.Evidence != "placement rule eu" {
+		t.Fatalf("placement %+v", p)
+	}
+	// No rule for this cluster: the next step places.
+	in.ClusterUID = "1b2c3d4e-5f60-4a7b-8c9d-0e1f2a3b4c5d"
+	if p := ResolvePlacement(in); p.Source == PlacementFromPolicy {
+		t.Fatalf("another cluster's rule placed: %+v", p)
+	}
+	// A cluster that does not know its uid matches no rule naming clusters.
+	in.ClusterUID = ""
+	if p := ResolvePlacement(in); p.Source == PlacementFromPolicy {
+		t.Fatalf("a rule naming clusters placed without a uid: %+v", p)
+	}
+}
+
+func TestPlaceByPolicyApprovalRenameNeedsUID(t *testing.T) {
+	// The hub renamed the member eu-prod at approval; the member never
+	// learns that name, so a rule naming it is refused at open.
+	rule := func(cluster string) []byte {
+		return signPlacement(t, PlacementPolicy{At: "2026-11-23T10:00:00Z",
+			Rules: []PlacementRule{{Name: "eu", Environments: []string{"production"}, Namespace: "eu-{service}", Clusters: []string{cluster}}}})
+	}
+	if _, err := OpenPlacementPolicy(rule("eu-prod"), ok); err == nil || !strings.Contains(err.Error(), "a display name can differ between the hub and the member") {
+		t.Fatalf("display name: %v", err)
+	}
+	pol, err := OpenPlacementPolicy(rule(memberUID), ok)
+	if err != nil {
+		t.Fatal(err)
+	}
+	in := placeIn("production")
+	in.ClusterUID, in.Policy = memberUID, pol.Rules
+	in.Namespaces["eu-payments"] = true
+	if p := ResolvePlacement(in); p.Namespace != "eu-payments" || p.Provenance != PlacementDeclared {
+		t.Fatalf("placement %+v", p)
+	}
+}
+
+func TestPlaceByPolicyWithoutClustersUnchanged(t *testing.T) {
+	// 511-S5's policies name no cluster: every cluster, with or without a
+	// uid, places by them as before.
+	for _, uid := range []string{"", memberUID} {
+		in := placeIn("staging")
+		in.ClusterUID = uid
+		in.Policy = []PlacementRule{{Name: "per-env", Services: []string{"pay*"}, Environments: []string{"staging"}, Namespace: "{service}-{environment}"}}
+		in.Namespaces["payments-staging"] = true
+		if p := ResolvePlacement(in); p.Namespace != "payments-staging" || p.Source != PlacementFromPolicy {
+			t.Fatalf("uid %q: %+v", uid, p)
+		}
 	}
 }
