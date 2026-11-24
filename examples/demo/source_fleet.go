@@ -203,7 +203,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 		Cluster:      prodCluster,
 		Providers:    []fleet.Provider{crdRow, demoKernelEgressRow()},
 		Targets:      targets,
-		Provisioning: demoProvisioning(src),
+		Provisioning: append(demoProvisioning(src), demoManagedProvisioning(src)),
 		Extensions:   demoExtensionRecords(src),
 		Usage:        demoUsage(src),
 		ExternalUses: demoExternalUses(demoNow()),
@@ -236,10 +236,11 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 	// A registry mirror that answered, but not with everything it holds: partial is a
 	// third source state, distinct from available and unavailable, and the source
 	// health strip is meant to distinguish all three.
-	// It also holds stripe's two inferred contracts (source_inferred.go), which the
-	// fleet shows on the stripe external, never as a service.
+	// It also holds stripe's and orders-db's two inferred contracts each
+	// (source_inferred.go, source_managed.go), which the fleet shows on their
+	// externals, never as services.
 	mirror := fleet.NewMemorySource("registry-mirror", "oci", &fleet.Collection{
-		Revisions:   demoInferredRevisions(),
+		Revisions:   append(demoInferredRevisions(), demoOrdersDBRevisions()...),
 		State:       &fleet.SourceState{Status: fleet.SourcePartial},
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationSourcePartial, Source: "registry-mirror", Message: "tag listing truncated by the mirror"}},
 	})
@@ -255,14 +256,18 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 	})
 	// What the cluster's operator detected: an advisory source whose rows are
 	// hints, dated now so they read current. The trace backends it found are
-	// read by their own edge sources, one row each.
+	// read by their own edge sources, one row each. It also read the managed
+	// cloud resources and the Secret names that join them to their consumers
+	// (source_managed.go).
 	detected, err := demoDetection(prodCluster.ID)
 	if err != nil {
 		return nil, nil, err
 	}
+	detected = withDemoManaged(detected, prodCluster)
 	rest, traceSources := demoTraceSources(detected, demoNow())
 	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
 		Advisory: true, Providers: detect.ProviderRows(rest, "cluster-detection", demoNow()),
+		ManagedResources: rest.ManagedResources, SecretRefs: rest.SecretRefs,
 	})
 	linked := fleet.NewMemorySource("k8s-production-linked", fleet.SourceKindLinked, &fleet.Collection{
 		Cluster: prodCluster, Targets: linkedTargets,

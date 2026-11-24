@@ -229,6 +229,10 @@ func TestResourceCoverageCountsViewerRecords(t *testing.T) {
 	if c := m.Match.Resources; c == nil || c.ThroughOfferings != 1 || c.Discovered != 2 || c.Percent == nil || *c.Percent != 50 {
 		t.Errorf("fleet = %+v", c)
 	}
+	// The Overview's match tile carries the same figure.
+	if c := NewQuery(snap).Overview().Summary.Match.Resources; c == nil || c.ThroughOfferings != 1 || c.Discovered != 2 {
+		t.Errorf("overview = %+v", c)
+	}
 	// A viewer of prod-a reads orders-db only.
 	rm, err := NewQuery(snap).Restrict(func(c, _ string) bool { return c == "uid-a" }, nil).Map(MapQuery{})
 	if err != nil {

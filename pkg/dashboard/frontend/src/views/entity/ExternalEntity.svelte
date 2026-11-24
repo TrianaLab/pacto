@@ -207,8 +207,8 @@
                 {/if}
                 {#if outside && claimable}
                   <div class="xe-res-actions">
-                    <button type="button" class="btn btn-sm" aria-controls="xe-claim-panel" onclick={() => claimWith('join')} data-testid="resource-claim-join">Claim into an offering</button>
-                    <button type="button" class="btn btn-sm" aria-controls="xe-claim-panel" onclick={() => claimWith('propose')} data-testid="resource-claim-propose">Propose an offering</button>
+                    <button type="button" class="btn btn-sm" aria-controls={claimOpen ? 'xe-claim-panel' : undefined} onclick={() => claimWith('join')} data-testid="resource-claim-join">Claim into an offering</button>
+                    <button type="button" class="btn btn-sm" aria-controls={claimOpen ? 'xe-claim-panel' : undefined} onclick={() => claimWith('propose')} data-testid="resource-claim-propose">Propose an offering</button>
                   </div>
                 {/if}
               </li>

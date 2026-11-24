@@ -315,8 +315,11 @@ describe('ExternalEntity resources (517-S7)', () => {
     const propose = obj.querySelector('[data-testid="resource-claim-propose"]') as HTMLButtonElement;
     expect(join.textContent).toBe('Claim into an offering');
     expect(propose.textContent).toBe('Propose an offering');
+    // They name the panel they control only once it exists (axe aria-valid-attr-value).
+    expect(join.hasAttribute('aria-controls')).toBe(false);
     propose.click();
     flushSync();
+    expect(join.getAttribute('aria-controls')).toBe('xe-claim-panel');
     // The existing claim panel opens, with its Offering field focused.
     const field = t.querySelector('[data-testid="claim-offering"]') as HTMLInputElement;
     expect(field).toBeTruthy();

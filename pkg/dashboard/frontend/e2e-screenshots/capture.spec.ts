@@ -143,6 +143,16 @@ const SHOTS: { name: string; open: (page: Page) => Promise<void>; clip?: { x: nu
     },
     element: '[data-testid="declare-panel"]',
   },
+  // 517-S7: orders-db's Resources block, its Crossplane instance outside the contract
+  // with both claim paths (examples/demo/source_managed.go).
+  {
+    name: 'external-managed-resources',
+    open: async (p) => {
+      await go(p, '/#/fleet/externals/aws/rds/123456789012/eu-west-1/orders-db', 'orders-db');
+      await expect(p.getByTestId('external-resource')).toHaveCount(1);
+    },
+    element: '#sec-resources',
+  },
 ];
 
 async function finish(page: Page) {
