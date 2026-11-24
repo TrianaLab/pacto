@@ -137,12 +137,11 @@ newest readable revision:
 - a `policies` entry named after the provider when the provider declares a
   policy or ships `policy/schema.json`, and neither entry above applies.
 
-The snippet carries the same entries twice: as YAML in `yaml` and as
-structured contract entries in `entries` (`dependency`, `configurations` and
-`policy`), so an agent can add them without parsing YAML. The dependency `ref`
-is the provider's registry repository without a tag or
-digest. A deprecated current revision adds a comment saying so. A provider
-that is not published to a registry has no snippet.
+The snippet carries the entries as YAML in `yaml` and as structured entries
+in `entries` (`dependency`, `configurations` and `policy`), so an agent need
+not parse YAML. The dependency `ref` is the provider's registry repository
+without a tag or digest. A deprecated current revision adds a comment saying
+so. An unpublished provider has no snippet.
 
 ## Provider versions
 
