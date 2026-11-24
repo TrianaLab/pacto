@@ -98,6 +98,8 @@ var deadCodeAllowlist = map[string]string{
 	"integrations/kubernetes/api/v1alpha1.CollectionRunning":  crdVocabulary,
 	"integrations/kubernetes/api/v1alpha1.CollectionDegraded": crdVocabulary,
 	"integrations/kubernetes/api/v1alpha1.CollectionFailed":   crdVocabulary,
+
+	"pkg/validation.CheckOfferingValues": "515-S6 P3 wires it",
 }
 
 // crdVocabulary is the operator's counterpart of schemaVocabulary: the values

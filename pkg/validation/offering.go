@@ -64,25 +64,35 @@ type offeringParams struct {
 // one that maps to no parameter code is passed to legacy.
 func (o offeringParams) violations(schema *jsonschema.Schema, values any, legacy func(*jsonschema.ValidationError)) []paramFinding {
 	var out []paramFinding
-	for _, v := range schemaViolations(schema.Validate(values)) {
-		code := parameterCode(v)
+	eachParameter(schema, values, legacy, func(code string, at []string, k jsonschema.ErrorKind) {
+		suggest := ""
 		switch {
-		case code == "":
-			legacy(v)
 		case code == string(finding.CodeParameterNotDeclared):
+			suggest, k = contract.DidYouMean(at[len(at)-1], schemaProperties(o.doc, at[:len(at)-1])), nil
+		case !writeOnlyAt(o.doc, at): // a suggestion would hint at a secret value
+			suggest = enumSuggestion(k)
+		}
+		out = append(out, o.finding(code, at, suggest, k))
+	})
+	return out
+}
+
+// eachParameter calls fn with the parameter code, the instance path and the
+// error kind of each violation of schema by values that parameterCode
+// covers, once per key for an undeclared field; legacy takes the others.
+func eachParameter(schema *jsonschema.Schema, values any, legacy func(*jsonschema.ValidationError), fn func(code string, at []string, k jsonschema.ErrorKind)) {
+	for _, v := range schemaViolations(schema.Validate(values)) {
+		switch code := parameterCode(v); code {
+		case "":
+			legacy(v)
+		case string(finding.CodeParameterNotDeclared):
 			for _, key := range v.ErrorKind.(*kind.AdditionalProperties).Properties {
-				at := append(slices.Clone(v.InstanceLocation), key)
-				out = append(out, o.finding(code, at, contract.DidYouMean(key, schemaProperties(o.doc, v.InstanceLocation)), nil))
+				fn(code, append(slices.Clone(v.InstanceLocation), key), v.ErrorKind)
 			}
 		default:
-			suggest := ""
-			if !writeOnlyAt(o.doc, v.InstanceLocation) { // a suggestion would hint at a secret value
-				suggest = enumSuggestion(v.ErrorKind)
-			}
-			out = append(out, o.finding(code, v.InstanceLocation, suggest, v.ErrorKind))
+			fn(code, v.InstanceLocation, v.ErrorKind)
 		}
 	}
-	return out
 }
 
 // finding is the paramFinding for code at path.
@@ -131,17 +141,28 @@ func junctionAt(doc any, path []string) string {
 }
 
 // tierFindings is a TierNotTunable finding for each path given sets that the
-// offering does not mark tunable (see [schemax.TierAt]): a non-null leaf, a
-// null (it removes the value, on a leaf or an object, and with an object
-// every field the schema declares under it) and values that are not an
-// object (they replace the configuration root). reported holds the paths
-// already reported with a parameter code, which are skipped with everything
-// under them.
+// offering does not mark tunable (see untunablePaths). reported holds the
+// paths already reported with a parameter code, which are skipped with
+// everything under them.
 func (o offeringParams) tierFindings(given any, reported map[string]bool) []paramFinding {
 	var out []paramFinding
+	for _, at := range untunablePaths(o.doc, given, reported) {
+		out = append(out, o.finding(string(finding.CodeTierNotTunable), at, "", nil))
+	}
+	return out
+}
+
+// untunablePaths is each path given sets that the configuration schema doc
+// does not mark tunable (see [schemax.TierAt]): a non-null leaf, a null (it
+// removes the value, on a leaf or an object, and with an object every field
+// the schema declares under it) and values that are not an object (they
+// replace the configuration root). Paths in skip, keyed by paramKey, are
+// left out with everything under them.
+func untunablePaths(doc, given any, skip map[string]bool) [][]string {
+	var out [][]string
 	var walk func(at []string, v any, root bool)
 	walk = func(at []string, v any, root bool) {
-		if reported[strings.Join(at, "\x00")] {
+		if skip[paramKey(at)] {
 			return
 		}
 		if m, isMap := v.(map[string]any); isMap {
@@ -153,33 +174,36 @@ func (o offeringParams) tierFindings(given any, reported map[string]bool) []para
 		if root && v == nil {
 			return // a configuration given no values sets nothing
 		}
-		tier, _ := schemax.TierAt(o.doc, at)
+		tier, _ := schemax.TierAt(doc, at)
 		switch {
 		case tier != schemax.TierTunable:
-			out = append(out, o.finding(string(finding.CodeTierNotTunable), at, "", nil))
+			out = append(out, at)
 		case v == nil:
-			out = append(out, o.untunableBelow(at)...)
+			out = append(out, untunableBelow(doc, at)...)
 		}
 	}
 	walk(nil, given, true)
 	return out
 }
 
-// untunableBelow is a TierNotTunable finding for each field the schema
-// declares under the tunable path at that is not tunable itself, the
-// nearest one on each branch: a null at removes them all.
-func (o offeringParams) untunableBelow(at []string) []paramFinding {
-	var out []paramFinding
-	for _, k := range schemaProperties(o.doc, at) {
+// untunableBelow is each field the schema doc declares under the tunable
+// path at that is not tunable itself, the nearest one on each branch: a null
+// at removes them all.
+func untunableBelow(doc any, at []string) [][]string {
+	var out [][]string
+	for _, k := range schemaProperties(doc, at) {
 		p := append(slices.Clone(at), k)
-		if tier, _ := schemax.TierAt(o.doc, p); tier != schemax.TierTunable {
-			out = append(out, o.finding(string(finding.CodeTierNotTunable), p, "", nil))
+		if tier, _ := schemax.TierAt(doc, p); tier != schemax.TierTunable {
+			out = append(out, p)
 			continue
 		}
-		out = append(out, o.untunableBelow(p)...)
+		out = append(out, untunableBelow(doc, p)...)
 	}
 	return out
 }
+
+// paramKey is path as a map key.
+func paramKey(path []string) string { return strings.Join(path, "\x00") }
 
 // offeringFindings judges the values an environment gives (given) a
 // configuration backed by a tiered offering, merged over its defaults:
@@ -197,7 +221,7 @@ func offeringFindings(o offeringParams, schema *jsonschema.Schema, defaults map[
 	out := o.violations(schema, EffectiveValues(defaults, given), legacy)
 	reported := map[string]bool{}
 	for _, f := range out {
-		reported[strings.Join(f.path, "\x00")] = true
+		reported[paramKey(f.path)] = true
 	}
 	return append(out, o.tierFindings(given, reported)...)
 }

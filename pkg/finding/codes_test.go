@@ -37,6 +37,7 @@ func TestCategoryOf(t *testing.T) {
 		CodeParameterOutOfRange:          CategoryConfigurationViolation,
 		CodeParameterNotDeclared:         CategoryConfigurationViolation,
 		CodeClassNotOffered:              CategoryConfigurationViolation,
+		CodeParameterSensitive:           CategoryConfigurationViolation,
 		CodeTagNotDigest:                 CategoryInvalidReference,
 		CodeEmptyCompatibility:           CategoryInvalidDependency,
 		CodeDependencyNameRequired:       CategoryInvalidDependency,
