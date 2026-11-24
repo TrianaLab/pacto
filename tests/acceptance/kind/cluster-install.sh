@@ -295,7 +295,7 @@ DASH_PF=
 section "SCENARIO 2: the generated ApplicationSet installs Pacto on the member, never on the hub"
 pacto_hub cluster install --from argocd --insecure-registry --chart "$CHART" > "$WORK/m.yaml" 2>"$WORK/m.err" ||
   { cat "$WORK/m.err" >&2; fail "pacto cluster install --from argocd failed"; }
-as_json() { kubectl create --dry-run=client -o json -f "$1"; } # FILE — its objects as one JSON List
+as_json() { kubectl create --dry-run=client -o json -f "$1" | jq -s "{items: .}"; } # FILE — its objects as one {items} (kubectl prints one document per object)
 APPSET="$(as_json "$WORK/m.yaml" | jq -c 'first(.items[] | select(.kind == "ApplicationSet"))')"
 keys="$(jq -c '.spec.template.spec.source.helm.valuesObject | keys' <<<"$APPSET")"
 [ "$keys" = '["insecureRegistries","registry"]' ] || fail "the generated values hold $keys, not exactly registry and insecureRegistries"

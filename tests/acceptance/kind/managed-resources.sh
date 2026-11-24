@@ -201,8 +201,8 @@ jq -e '.external.resources | length == 1 and .[0].contract == "outside" and .[0]
 pass "legacy-db, the hand-applied claim, reads outside the contract"
 
 OVERVIEW="$(fleet overview)" || fail "pacto fleet overview failed: $(cat "$WORK/fleet.err")"
-jq -e '.match.resources.throughOfferings == 1 and .match.resources.discovered == 2' <<<"$OVERVIEW" >/dev/null \
-  || fail "the match tally does not count 1 of 2 resources through offerings: $(jq -c .match.resources <<<"$OVERVIEW")"
+jq -e '.summary.match.resources.throughOfferings == 1 and .summary.match.resources.discovered == 2' <<<"$OVERVIEW" >/dev/null \
+  || fail "the match tally does not count 1 of 2 resources through offerings: $(jq -c .summary.match.resources <<<"$OVERVIEW")"
 pass "resources through offerings: 1 of 2"
 kill "$EV_PF" "$REG_PF" 2>/dev/null || true
 
