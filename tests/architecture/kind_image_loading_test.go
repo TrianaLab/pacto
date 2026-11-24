@@ -82,9 +82,11 @@ func kindMatrixScenarios(t *testing.T) []string {
 	if !ok {
 		t.Fatal("the ci-e2e-kind scenario matrix has no closing bracket")
 	}
+	// A leg may name several scenarios, separated by spaces: it runs them one
+	// after another on one runner.
 	var out []string
-	for name := range strings.SplitSeq(list, ",") {
-		out = append(out, strings.TrimSpace(name))
+	for leg := range strings.SplitSeq(list, ",") {
+		out = append(out, strings.Fields(leg)...)
 	}
 	return out
 }
@@ -155,9 +157,10 @@ func TestEveryDeliveryPhaseHasAShard(t *testing.T) {
 		t.Fatal("ci-e2e-kind-delivery has no `phase: [...]` matrix")
 	}
 	list, _, _ = strings.Cut(after, "]")
+	// A leg may name several phases, separated by spaces: one setup, then each.
 	var matrix []string
-	for name := range strings.SplitSeq(list, ",") {
-		matrix = append(matrix, strings.TrimSpace(name))
+	for leg := range strings.SplitSeq(list, ",") {
+		matrix = append(matrix, strings.Fields(leg)...)
 	}
 
 	slices.Sort(phases)

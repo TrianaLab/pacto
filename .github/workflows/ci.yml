@@ -523,11 +523,17 @@ jobs:
     # Shard the self-provisioning kind scenarios across parallel runners (each
     # spins up its own cluster) instead of running them serially in one job. The
     # `required` aggregate waits for all matrix legs, so coverage is unchanged.
+    # A leg naming several scenarios runs them one after another on the same
+    # runner, each on its own cluster with its own log: the short ones would
+    # otherwise each pay a runner, the setup and the image download for two or
+    # three minutes of test, and wait for a free runner under the org's
+    # concurrent-job cap. The legs are listed longest first, the order the runner
+    # queue starts them in, so the long poles never start last.
     strategy:
       fail-fast: false
       matrix:
         # delivery runs in its own sharded job below (ci-e2e-kind-delivery).
-        scenario: [reconcile, dashboard, upgrade, evidence, operational-graph, observation, gitops-flux, gitops-argocd, gitops-argocd-sync, gitops-kargo, linked-workloads, runtime-conformance, least-privilege, profiles, idp, delivery-argocd, delivery-idp-flux, delivery-environments, multi-cluster, cluster-join, cluster-install, member-review, managed-resources]
+        scenario: [delivery-environments, idp, runtime-conformance, delivery-idp-flux, member-review, cluster-install, linked-workloads, least-privilege, delivery-argocd gitops-kargo, profiles dashboard, upgrade multi-cluster observation, managed-resources gitops-flux, operational-graph, reconcile gitops-argocd, cluster-join, gitops-argocd-sync, evidence]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
@@ -535,7 +541,7 @@ jobs:
           go-version-file: go.mod
       # The operational-graph scenario drives the LIVE dashboard in Chromium via
       # Playwright, so it needs Node (the other scenarios do not).
-      - if: matrix.scenario == 'operational-graph'
+      - if: contains(matrix.scenario, 'operational-graph')
         uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
         with:
           node-version: '22'
@@ -549,7 +555,7 @@ jobs:
       # delivery-idp-flux publishes the manifests, Kustomize and Helm versions Flux applies.
       # delivery-environments resolves what pacto ci --publish pushed and pushes a crafted bundle.
       # linked-workloads publishes the Argo CD source and reads the target snapshot.
-      - if: matrix.scenario == 'evidence' || startsWith(matrix.scenario, 'gitops-') || startsWith(matrix.scenario, 'delivery-') || matrix.scenario == 'linked-workloads'
+      - if: contains(matrix.scenario, 'evidence') || contains(matrix.scenario, 'gitops-') || contains(matrix.scenario, 'delivery-') || contains(matrix.scenario, 'linked-workloads')
         uses: oras-project/setup-oras@ac735097e22fe643015b0d19645f7c9a69942128 # v2
       - name: Install kind (checksum-verified via GOSUMDB)
         timeout-minutes: 5
@@ -565,11 +571,19 @@ jobs:
           path: ${{ runner.temp }}/delivery-images
       # 50, not 35: idp waits on the operator's five-minute evidence gate and
       # detection rounds several times over.
+      # A scenario that fails stops its leg: the harness keeps a failed cluster in
+      # CI for the diagnostics below, and the next scenario must not run beside it.
       - name: Run the scenario
         timeout-minutes: 50
+        env:
+          SCENARIOS: ${{ matrix.scenario }}
         run: |
           export PACTO_KIND_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar"
-          bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-${{ matrix.scenario }}
+          for s in $SCENARIOS; do
+            echo "::group::$s"
+            bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/$s.log" make "test-acceptance-kind-$s" || exit
+            echo "::endgroup::"
+          done
       - name: Collect cluster diagnostics
         if: failure()
         timeout-minutes: 10
@@ -579,7 +593,7 @@ jobs:
         timeout-minutes: 5
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: kind-${{ matrix.scenario }}-diagnostics
+          name: kind-${{ strategy.job-index }}-diagnostics
           path: |
             ${{ runner.temp }}/diagnostics
             pkg/dashboard/frontend/test-results
@@ -611,15 +625,31 @@ jobs:
           DELIVERY_SAVE_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar" bash tests/acceptance/kind/delivery.sh
       # The demo's third-party images (Argo CD, Dex, Keycloak, Flux, zot...), pulled
       # once here with retries so no demo shard pulls from a public registry.
+      # A separate artifact, so the kind and delivery shards download only the
+      # Pacto images: the third-party archive is most of the bytes and only the
+      # delivery-demo shards load it (they download both, by pattern).
       - name: Pull the delivery demo's third-party images
+        id: third-party
         if: needs.changes.outputs.delivery == 'true' || needs.changes.outputs.delivery_ui == 'true' || startsWith(github.head_ref, 'changeset-release/') || github.event_name == 'workflow_dispatch'
         timeout-minutes: 15
-        run: bash scripts/ci/kind-run.sh "$RUNNER_TEMP/save-images.log" bash tests/acceptance/kind/delivery-demo.sh save-images "$RUNNER_TEMP/delivery-images/demo-third-party.tar"
+        run: |
+          mkdir -p "$RUNNER_TEMP/demo-images"
+          bash scripts/ci/kind-run.sh "$RUNNER_TEMP/save-images.log" bash tests/acceptance/kind/delivery-demo.sh save-images "$RUNNER_TEMP/demo-images/demo-third-party.tar"
+      # 5 minutes each: the whole archive uploaded in under 30 seconds.
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
-        timeout-minutes: 10
+        timeout-minutes: 5
         with:
           name: delivery-images
           path: ${{ runner.temp }}/delivery-images
+          compression-level: 1
+          retention-days: 1
+          overwrite: true
+      - if: steps.third-party.outcome == 'success'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        timeout-minutes: 5
+        with:
+          name: delivery-images-third-party
+          path: ${{ runner.temp }}/demo-images
           compression-level: 1
           retention-days: 1
           overwrite: true
@@ -632,7 +662,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        phase: [core, health, publish, ordering, identity, records, ladder, appliers, registrytags]
+        # Longest first, as in ci-e2e-kind. A leg naming several phases runs the
+        # setup once and then each phase, one at a time, on that one cluster.
+        phase: [identity, health, registrytags, records, core, ladder, publish ordering appliers]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: actions/setup-go@d8cbb8045d7f43706b9177cceb36c1f91a6644d5 # v7
@@ -651,11 +683,13 @@ jobs:
         with:
           name: delivery-images
           path: ${{ runner.temp }}/delivery-images
-      - name: Run the ${{ matrix.phase }} phase
+      - name: Run the ${{ matrix.phase }} phases
         timeout-minutes: 45
         env:
-          DELIVERY_PHASES: ${{ matrix.phase }}
+          PHASES: ${{ matrix.phase }}
+          DELIVERY_SEQUENTIAL: '1'
         run: |
+          export DELIVERY_PHASES="${PHASES// /,}"
           export DELIVERY_LOAD_IMAGES="$RUNNER_TEMP/delivery-images/delivery-images.tar"
           bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/run.log" make test-acceptance-kind-delivery
       - name: Collect cluster diagnostics
@@ -667,7 +701,7 @@ jobs:
         timeout-minutes: 5
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
         with:
-          name: kind-delivery-${{ matrix.phase }}-diagnostics
+          name: kind-delivery-${{ strategy.job-index }}-diagnostics
           path: ${{ runner.temp }}/diagnostics
           if-no-files-found: ignore
           retention-days: 7
