@@ -797,3 +797,72 @@ func TestPrintPlanManifestsAbsentWithoutGate(t *testing.T) {
 		}
 	}
 }
+
+// valuesPlanAnswer is a promote plan whose pacto.published, pacto.manifests and
+// pacto.environment verdicts carry the given citations.
+func valuesPlanAnswer(published delivery.Result, upstream string, manifests, environment map[string]string) delivery.PlanAnswer {
+	pub := map[string]string{}
+	if upstream != "" {
+		pub["upstream"] = upstream
+	}
+	return delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, To: "sha256:ab12...", Verdicts: []delivery.Verdict{
+		{Gate: delivery.GatePublished, Result: published, Citation: pub},
+		{Gate: delivery.GateApplier, Result: delivery.Pass, Citation: map[string]string{"observed": "Argo CD Application payments", "declared": "Application payments"}},
+		{Gate: delivery.GateManifests, Result: delivery.Pass, Citation: manifests},
+		{Gate: delivery.GateEnvironment, Result: delivery.Pass, Citation: environment,
+			Message: "the values of environment production satisfy the configuration schemas"},
+	}}}
+}
+
+// TestPrintPlanValues: the plan names the values file the applier applies,
+// read from the digest it ships, the upstream Stage that verified that
+// digest and whether Pacto checks the same values.
+func TestPrintPlanValues(t *testing.T) {
+	chart := map[string]string{"valuesFile": "values-production.yaml", "valuesDigest": "sha256:5e0c..."}
+	same := map[string]string{"checkedValues": "environments[1].file"}
+	for _, tc := range []struct {
+		name string
+		p    delivery.PlanAnswer
+		want string
+	}{
+		{"upstream pass, same values (the Goal's UX block)", valuesPlanAnswer(delivery.Pass, "test/payments", chart, same),
+			"applier:   Argo CD Application payments; declared Application payments\n" +
+				"values:    values-production.yaml sha256:5e0c... in sha256:ab12... (the digest test/payments verified); Pacto checks the same values as environments[1].file\n"},
+		{"artifact-fed Stage", valuesPlanAnswer(delivery.Pass, "", chart, same),
+			"values:    values-production.yaml sha256:5e0c... in sha256:ab12...; Pacto checks the same values as environments[1].file\n"},
+		{"upstream fail", valuesPlanAnswer(delivery.Fail, "test/payments", chart, same),
+			"values:    values-production.yaml sha256:5e0c... in sha256:ab12...; Pacto checks the same values as environments[1].file\n"},
+		{"different values", valuesPlanAnswer(delivery.Pass, "test/payments", chart, map[string]string{}),
+			"values:    values-production.yaml sha256:5e0c... in sha256:ab12... (the digest test/payments verified)\n"},
+		{"overlay", valuesPlanAnswer(delivery.Pass, "", map[string]string{"valuesFile": "overlays/production"}, map[string]string{}),
+			"values:    overlays/production in sha256:ab12...\n"},
+	} {
+		var b strings.Builder
+		printPlan(&b, tc.p)
+		if !strings.Contains(b.String(), tc.want) {
+			t.Fatalf("%s: want %q in\n%s", tc.name, tc.want, b.String())
+		}
+	}
+	// The environment verdict of the Goal reads Checked: a Pass on an
+	// evidence gate only says the gate ran (delivery.VerdictLabel).
+	var b strings.Builder
+	printPlan(&b, valuesPlanAnswer(delivery.Pass, "test/payments", chart, same))
+	if want := "  pacto.environment Checked  the values of environment production satisfy the configuration schemas\n"; !strings.Contains(b.String(), want) {
+		t.Fatalf("want %q in\n%s", want, b.String())
+	}
+}
+
+// TestNoValuesLineWithoutInspection: the plan prints a values line only for
+// a values file the inspector read.
+func TestNoValuesLineWithoutInspection(t *testing.T) {
+	for _, p := range []delivery.PlanAnswer{
+		valuesPlanAnswer(delivery.Pass, "test/payments", map[string]string{"objects": "Deployment payments"}, map[string]string{}),
+		{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}}}},
+	} {
+		var b strings.Builder
+		printPlan(&b, p)
+		if strings.Contains(b.String(), "values:") {
+			t.Fatalf("no values line expected in\n%s", b.String())
+		}
+	}
+}

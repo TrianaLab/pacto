@@ -1308,7 +1308,8 @@ func TestEnvironmentGateSameValues(t *testing.T) {
 	v := verdict(t, p, GateEnvironment)
 	if v.Result != Pass || p.Predicted != PredictProceeds ||
 		v.Message != "the values of environment prod satisfy the configuration schemas; Argo CD applies the same values as environments[1].file" ||
-		v.Citation["appliedValues"] != "values-prod.yaml" || v.Citation["appliedValuesDigest"] != "sha256:5e0c" {
+		v.Citation["appliedValues"] != "values-prod.yaml" || v.Citation["appliedValuesDigest"] != "sha256:5e0c" ||
+		v.Citation["checkedValues"] != "environments[1].file" {
 		t.Fatalf("the same values pass: %+v %+v", v, p)
 	}
 }

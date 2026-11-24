@@ -506,7 +506,8 @@ func environmentGate(in PlanInput, p *Plan, ins ManifestInspection) bool {
 		holdFor(p, AcceptUnknown, why, "Pacto cannot verify the values of environment "+env+" in "+short(p.To)+": "+why+". Accept the unknown?")
 		askServiceTeam(in, p)
 	case a.chart:
-		v.Message += fmt.Sprintf("; Argo CD applies the same values as environments[%d].file", i)
+		v.Citation["checkedValues"] = fmt.Sprintf("environments[%d].file", i)
+		v.Message += "; Argo CD applies the same values as " + v.Citation["checkedValues"]
 	}
 	return true
 }
