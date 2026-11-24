@@ -532,8 +532,12 @@ describe('adapters reporting', () => {
     const cards = Array.from(target.querySelectorAll('[data-testid="offering-provider"]'));
     const line = (c: Element) => c.querySelectorAll('[data-testid="provider-drift"]');
     expect(line(cards[0])).toHaveLength(1);
-    expect(text(line(cards[0])[0])).toMatch(/^source object changed since accepted \(now generation 4\), Nov 23, 2026/);
-    expect(text(line(cards[1])[0])).toBe('drift unknown: observation is stale');
+    expect(text(line(cards[0])[0])).toMatch(/^drifted source object changed since accepted \(now generation 4\), Nov 23, 2026/);
+    // A confirmed drift carries the warn tone, an unknown one the neutral hatch.
+    expect(line(cards[0])[0].querySelector('.badge-warn')?.textContent).toBe('drifted');
+    expect(text(line(cards[1])[0])).toBe('drift unknown observation is stale');
+    expect(line(cards[1])[0].querySelector('.badge-neutral .hatch')).not.toBeNull();
+    expect(line(cards[1])[0].querySelector('.badge-warn')).toBeNull();
     expect(line(cards[2])).toHaveLength(0);
     done();
   });

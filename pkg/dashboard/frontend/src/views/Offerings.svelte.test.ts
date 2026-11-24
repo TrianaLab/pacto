@@ -14,6 +14,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 
 // @ts-expect-error — Svelte component has no declaration file
 import FleetOfferingsView from './FleetOfferingsView.svelte';
+import { formatDateTime } from '../lib/dateFormat.ts';
 
 const meta = { schemaVersion: 'pacto.dev/fleet-product/v1', snapshotId: 'x', asOf: '2026-11-04T10:00:00Z', completeness: 'complete', sources: [] };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
@@ -189,7 +190,8 @@ describe('FleetOfferingsView', () => {
     (row.querySelector('[data-testid="offering-inferred"] .help-btn') as HTMLButtonElement).click();
     await vi.waitFor(() => expect(row.querySelector('[data-testid="offering-inferred"] .prov-tip')).not.toBeNull());
     const tip = row.querySelector('[data-testid="offering-inferred"] .prov-tip')!.textContent ?? '';
-    for (const w of ['crossplane-6f1c', 'CompositeResourceDefinition xxbuckets.storage.acme.io generation 2', 'small, large', '2026-11-23T10:02:00Z']) expect(tip).toContain(w);
+    for (const w of ['crossplane-6f1c', 'CompositeResourceDefinition xxbuckets.storage.acme.io generation 2', 'small, large', `as of ${formatDateTime('2026-11-23T10:02:00Z')}`]) expect(tip).toContain(w);
+    expect(tip).not.toContain('2026-11-23T10:02:00Z');
     // One cell replaces lifecycle, availability, consumers, failed and observed targets.
     const cells = row.querySelectorAll('td');
     expect(cells.length).toBe(1);
@@ -202,6 +204,41 @@ describe('FleetOfferingsView', () => {
     box.checked = false;
     box.dispatchEvent(new Event('change', { bubbles: true }));
     expect(location.hash).toBe('#/fleet/offerings');
+    done();
+  });
+
+  it('names the declared offering an accepted inferred one became, instead of the accept hint', async () => {
+    const accepted = inferredRef('objectstore');
+    (accepted.inferredOffering as Record<string, unknown>).acceptedAs = { kind: 'offering', key: 'objectstore', label: 'objectstore', href: '/fleet/offerings/objectstore' };
+    entitiesFn.mockResolvedValue(listResp([accepted]));
+    const { target, done } = mountView({ inferred: '1' });
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="offering-list"] tbody tr').length).toBe(1));
+    const cell = target.querySelector('[data-testid="offering-list"] tbody td') as HTMLElement;
+    expect(cell.textContent?.replace(/\s+/g, ' ')).toContain('accepted as objectstore');
+    expect(cell.textContent).not.toContain('accept to make it consumable');
+    expect(cell.querySelector('[data-testid="offering-inferred-accepted"] a.entity-link')).not.toBeNull();
+    done();
+  });
+
+  it('drops the failed and lifecycle filters on the way to the inferred list, which no inferred row can match', async () => {
+    entitiesFn.mockResolvedValue({ ...listResp([offeringRef('postgresql', 1, 3)]), inferredTotal: 2 });
+    const { target, done } = mountView({ failed: '1', lifecycle: 'deprecated', text: 'redis' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-inferred-total"]')).not.toBeNull());
+    const want = '#/fleet/offerings?text=redis&inferred=1';
+    expect(target.querySelector('[data-testid="offering-inferred-total"]')?.getAttribute('href')).toBe(want);
+    const box = target.querySelector('[data-testid="offering-inferred-filter"]') as HTMLInputElement;
+    box.checked = true;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe(want);
+    done();
+  });
+
+  it('hides the failed and lifecycle filters while the inferred list shows', async () => {
+    entitiesFn.mockResolvedValue(listResp([inferredRef('xbucket')]));
+    const { target, done } = mountView({ inferred: '1' });
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="offering-list"] tbody tr').length).toBe(1));
+    expect(target.querySelector('[data-testid="offering-failed-filter"]')).toBeNull();
+    expect(target.querySelector('.ov-filters')?.textContent).not.toContain('Lifecycle');
     done();
   });
 

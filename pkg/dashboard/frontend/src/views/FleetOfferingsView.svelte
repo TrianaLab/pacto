@@ -18,6 +18,7 @@
   import { loadOfferingsFigure } from '../lib/lazyFigures.ts';
   import { urlInt, limitParam, pastEnd } from '../lib/paging.ts';
   import { formatCount } from '../lib/format.ts';
+  import { formatDateTime } from '../lib/dateFormat.ts';
   import { flip } from 'svelte/animate';
   import { MOTION, dur } from '../lib/motion.ts';
 
@@ -90,15 +91,18 @@
     onlyInferred ? { key: 'inferred', label: 'Shows', value: 'inferred' } : null,
   ].filter(Boolean));
   function removeChip(key) { location.hash = urlWith({ [key]: key === 'failed' || key === 'inferred' ? false : '' }); }
-  const inferredHref = $derived(urlWith({ inferred: true }));
+  // No inferred row has a failed request or a lifecycle: the inferred list keeps the search alone.
+  const INFERRED_ON = { inferred: true, failed: false, lifecycle: '' };
+  const inferredHref = $derived(urlWith(INFERRED_ON));
   // The inferred row's tip: who produced it, from which source object and when.
   const inferredTip = (f) => [
     `Inferred by ${f.producer}`,
     f.from ? `from ${f.from}${f.generation ? ` generation ${f.generation}` : ''}` : '',
     f.classes?.length ? `classes ${f.classes.join(', ')}` : '',
-    f.asOf ? `as of ${f.asOf}` : '',
+    f.asOf ? `as of ${formatDateTime(f.asOf)}` : '',
   ].filter(Boolean).join(', ') + '. A producer\'s record, never a contract: it never counts as declared or clears a gate.';
-  const inferredLine = (f) => `Inferred from ${f.from || f.producer}${f.classes?.length ? `, classes ${f.classes.join(', ')}` : ''}; accept to make it consumable`;
+  // An offering a person already accepted names the declared one instead of the accept hint.
+  const inferredLine = (f) => `Inferred from ${f.from || f.producer}${f.classes?.length ? `, classes ${f.classes.join(', ')}` : ''}; ${f.acceptedAs ? 'accepted as' : 'accept to make it consumable'}`;
   const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 
   const LIFECYCLE_BADGE = { supported: ['supported', 'ok'], deprecated: ['deprecated', 'warn'], sunset: ['past sunset', 'err'] };
@@ -138,13 +142,15 @@
       <input class="input" type="search" bind:value={textDraft} placeholder="Search offerings..." aria-label="Search offerings" />
       <button type="submit" class="btn">Search</button>
     </form>
+    {#if !onlyInferred}
     <Select label="Lifecycle" value={lifecycle} options={LIFECYCLES} onchange={(e) => { location.hash = urlWith({ lifecycle: e.currentTarget.value }); }} />
     <label class="ov-failed">
       <input type="checkbox" checked={onlyFailed} onchange={(e) => { location.hash = urlWith({ failed: e.currentTarget.checked }); }} data-testid="offering-failed-filter" />
       Only offerings with a failed request
     </label>
+    {/if}
     <label class="ov-failed">
-      <input type="checkbox" checked={onlyInferred} onchange={(e) => { location.hash = urlWith({ inferred: e.currentTarget.checked }); }} data-testid="offering-inferred-filter" />
+      <input type="checkbox" checked={onlyInferred} onchange={(e) => { location.hash = urlWith(e.currentTarget.checked ? INFERRED_ON : { inferred: false }); }} data-testid="offering-inferred-filter" />
       Inferred offerings
     </label>
     <ListSort value={order} options={[['failed', 'Most consumers with a failed request first'], ['consumers', 'Most consumers first'], ['name', 'Name'], ['services', 'Most providers first']]} href={sortHref} testid="offering-sort" />
@@ -208,7 +214,7 @@
               <th scope="row">
                 <span class="ot-inferred-name"><EntityLink {ref} showStatus={false} showKind={false} /><span data-testid="offering-inferred"><ProvenanceMark label={`Inferred offering: from ${f.producer}`} text={inferredTip(f)} /></span></span>
               </th>
-              <td colspan="6" data-label="Inferred"><span class="ot-note" title={inferredLine(f)}><bdi>{inferredLine(f)}</bdi></span></td>
+              <td colspan="6" data-label="Inferred"><span class="ot-note" title={inferredLine(f) + (f.acceptedAs ? ` ${f.acceptedAs.label}` : '')}><bdi>{inferredLine(f)}</bdi>{#if f.acceptedAs}{' '}<span data-testid="offering-inferred-accepted"><EntityLink ref={f.acceptedAs} showStatus={false} showKind={false} /></span>{/if}</span></td>
               {:else}
               <th scope="row">
                 <span class="cell-stack"><EntityLink {ref} showStatus={false} showKind={false} /><span class="t-meta">{plural(ref.services ?? 0, 'provider', 'providers')}</span>{#if hiddenP}<span class="t-meta" data-testid="offering-hidden-providers">+{plural(hiddenP, 'provider', 'providers')} you may not see</span>{/if}</span>

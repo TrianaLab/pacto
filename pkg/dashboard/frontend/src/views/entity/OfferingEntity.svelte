@@ -74,7 +74,8 @@
           {#if p.summary}<p class="oe-summary t-body-2">{p.summary}</p>{/if}
           <OfferingAvailability availability={p.availability} compact />
           <!-- A provider accepted from an inferred offering: one line on whether its source object changed since. -->
-          {#if p.drift}<p class="oe-note" data-testid="provider-drift">{#if p.drift.state === 'drifted'}<bdi>{p.drift.reason}</bdi>{#if p.drift.asOf}, {formatDate(p.drift.asOf)}{/if}{:else}drift unknown: <bdi>{p.drift.reason}</bdi>{/if}</p>{/if}
+          <!-- A confirmed drift is a warning; an unknown one keeps the neutral hatch of unknown. -->
+          {#if p.drift}<p class="oe-note" data-testid="provider-drift">{#if p.drift.state === 'drifted'}<span class="badge badge-warn">drifted</span> <bdi>{p.drift.reason}</bdi>{#if p.drift.asOf}, {formatDate(p.drift.asOf)}{/if}{:else}<span class="badge badge-neutral"><span class="oe-hatch hatch" aria-hidden="true"></span>drift unknown</span> <bdi>{p.drift.reason}</bdi>{/if}</p>{/if}
           <!-- Provider revisions (current, successor, latest supported): their compliance is not this offering's availability. -->
           {#if p.currentRevision}
             <div class="oe-row"><span class="oe-k">Current</span><EntityLink ref={inService(p.currentRevision, self)} showStatus={false} showKind={false} /></div>
@@ -241,6 +242,7 @@
   .oe-k { color: var(--c-text-3); font: var(--role-label-font); font-variant-caps: var(--role-label-caps); letter-spacing: var(--role-label-tracking); }
   .oe-note, .oe-caption { color: var(--c-text-3); font-size: var(--text-sm); overflow-wrap: anywhere; }
   .oe-note { margin: 0; }
+  .oe-hatch { display: inline-block; inline-size: 0.75em; block-size: 0.75em; margin-inline-end: var(--sp-1); border-radius: 2px; vertical-align: middle; box-shadow: inset 0 0 0 1px var(--c-neutral); }
   .oe-arrow { color: var(--c-text-3); }
   /* The snippet scrolls by itself and never widens the page. */
   .consume-snippet { margin: 0; padding: var(--sp-2) var(--sp-3); max-width: 100%; overflow-x: auto; background: var(--c-surface-inset); border: 1px solid var(--c-border); border-radius: var(--radius-sm); font-size: var(--text-sm); }

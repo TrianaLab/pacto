@@ -492,6 +492,22 @@ describe('DeclarePanel offering', () => {
     await vi.waitFor(() => expect(q('[data-testid="offering-open-paths"]')).toBeTruthy());
     expect(Array.from(target.querySelectorAll('[data-testid="offering-open-paths"] li')).map(text)).toEqual(['provisioning: schema.properties.tags', 'provisioning: schema.properties.class']);
     expect(text(q('[data-testid="declare-refusal-command"]'))).toContain('--dir <folder>');
+    // The paths are listed once: the server message folds under Details.
+    expect(text(q('[data-testid="refusal"] .rn-head'))).toBe('Its parameters are not a closed space yet.');
+    expect(q('[data-testid="refusal"] details.rn-more')).toBeTruthy();
+  });
+
+  it('points at the owner field when a first acceptance names no owner', async () => {
+    planFn.mockResolvedValue({ signing: { mode: 'none' }, write: { available: true },
+      refusal: { code: 'OwnerRequired', message: 'a first acceptance names its owner: pass --owner', command: 'pacto declare offering:xbucket --owner <team>' } });
+    await open();
+    type('offering-version', '1.0.0');
+    submit();
+    await vi.waitFor(() => expect(q('[data-code="OwnerRequired"]')).toBeTruthy());
+    expect(text(q('[data-testid="refusal"] .rn-head'))).toBe('Name the team that owns it first.');
+    const ownerField = q('[data-testid="offering-owner"]')!;
+    expect(ownerField.getAttribute('aria-invalid')).toBe('true');
+    await vi.waitFor(() => expect(document.activeElement).toBe(ownerField));
   });
 
   it('shows an unverified source refusal with its next command', async () => {

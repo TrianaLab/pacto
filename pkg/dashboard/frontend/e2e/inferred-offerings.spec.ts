@@ -26,6 +26,11 @@ test('the inferred checkbox lists the inferred offerings muted, each with one ma
   await expect(page.getByTestId('offering-list').locator('tbody tr:not(.ot-inferred)')).toHaveCount(0);
   const xbucket = rows.filter({ hasText: 'xbucket' });
   await expect(xbucket).toContainText('Inferred from CompositeResourceDefinition xbuckets.storage.acme.io, classes large, small; accept to make it consumable');
+  // objectstore was accepted already: its row names the declared offering, never the accept hint.
+  const objectstore = rows.filter({ hasText: 'xobjectstores' });
+  await expect(objectstore).toContainText('; accepted as');
+  await expect(objectstore).not.toContainText('accept to make it consumable');
+  await expect(objectstore.getByTestId('offering-inferred-accepted').locator('a.entity-link')).toHaveText(/objectstore/);
   // Muted through the text token, never a fade.
   const style = await xbucket.evaluate((el) => { const s = getComputedStyle(el); return { opacity: s.opacity, filter: s.filter }; });
   expect(style).toEqual({ opacity: '1', filter: 'none' });

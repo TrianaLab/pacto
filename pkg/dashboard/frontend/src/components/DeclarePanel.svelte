@@ -43,6 +43,10 @@
   let answer = $state(null);
   let error = $state(null);
   let loading = $state(false);
+  // A first acceptance with no owner is refused by the server: the owner field is the next step.
+  let ownerInput = $state(null);
+  const ownerRequired = $derived(asks === 'offering' && answer?.refusal?.code === 'OwnerRequired');
+  $effect(() => { if (ownerRequired) ownerInput?.focus(); });
   let accept = $state([]);
   let draft = $state(null);
   let busy = $state(false);
@@ -217,7 +221,7 @@
   {#if offering}
     <form class="dp-claim" onsubmit={planClaim} novalidate data-testid="offering-fields">
       <label class="dp-field"><span>Version</span><input class="input" bind:value={version} required maxlength="64" autocomplete="off" placeholder="1.0.0" aria-invalid={claimTouched && claimError.field === 'version' ? 'true' : undefined} aria-describedby="dp-offering-error" data-testid="offering-version" /></label>
-      <label class="dp-field"><span>Owner team <span class="t-meta">(first acceptance)</span></span><input class="input" bind:value={owner} maxlength="253" autocomplete="off" aria-invalid={claimTouched && claimError.field === 'owner' ? 'true' : undefined} aria-describedby="dp-offering-error" data-testid="offering-owner" /></label>
+      <label class="dp-field"><span>Owner team <span class="t-meta">(first acceptance)</span></span><input class="input" bind:this={ownerInput} bind:value={owner} maxlength="253" autocomplete="off" aria-invalid={ownerRequired || (claimTouched && claimError.field === 'owner') ? 'true' : undefined} aria-describedby="dp-offering-error" data-testid="offering-owner" /></label>
       <label class="dp-field"><span>Registry path <span class="t-meta">(optional)</span></span><input class="input" bind:value={registry} maxlength="512" autocomplete="off" data-testid="offering-registry" /></label>
       <button type="submit" class="btn btn-sm" aria-disabled={loading ? 'true' : undefined} data-testid="offering-plan">Show the plan</button>
       <p class="t-meta dp-p" id="dp-offering-error" role={claimTouched && claimError.message ? 'alert' : undefined}>{claimTouched ? claimError.message : ''}</p>
