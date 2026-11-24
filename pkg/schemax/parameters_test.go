@@ -127,4 +127,17 @@ func TestComposedSchemas(t *testing.T) {
 	if got := Composed(map[string]any{"type": "object", "properties": map[string]any{"a": map[string]any{"type": "string"}}}); got != nil {
 		t.Errorf("plain = %q", got)
 	}
+	if got := Composed(Doc(root)); !slices.Equal(got, []string{""}) {
+		t.Errorf("Doc allOf = %q", got)
+	}
+	if got := Composed(map[string]any{"properties": map[string]any{"a": true}}); got != nil {
+		t.Errorf("non-object property = %q", got)
+	}
+	both := map[string]any{"oneOf": []any{map[string]any{"const": "a"}}, "anyOf": []any{map[string]any{"const": "b"}}}
+	if got := choices(both); got != nil {
+		t.Errorf("oneOf and anyOf choices = %v", got)
+	}
+	if got := choices(map[string]any{"allOf": []any{}, "oneOf": []any{map[string]any{"const": "a"}}}); got != nil {
+		t.Errorf("allOf choices = %v", got)
+	}
 }
