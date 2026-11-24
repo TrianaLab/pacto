@@ -40,7 +40,7 @@ func openWalk(node any, path string, out *[]string) {
 	if props, ok := m["properties"].(map[string]any); ok {
 		for name, v := range props {
 			p := path + ".properties." + name
-			if sub, ok := v.(map[string]any); ok && name == "class" && sub["enum"] == nil {
+			if sub, ok := v.(map[string]any); ok && name == ClassProperty && sub["enum"] == nil {
 				*out = append(*out, p)
 				continue
 			}

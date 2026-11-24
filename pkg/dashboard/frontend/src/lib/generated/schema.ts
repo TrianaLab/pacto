@@ -3334,6 +3334,11 @@ export interface components {
             /** Format: int64 */
             warning: number;
         };
+        "Fleet.ConsumableGuarantee": {
+            guarantees: components["schemas"]["Contract.Guarantees"];
+            interface: string;
+            text: string;
+        };
         "Fleet.ConsumableOffering": {
             /** @description The providers of this offering a caller may consume, at most 10, by service key */
             providers: components["schemas"]["Fleet.ConsumableProvider"][] | null;
@@ -3351,14 +3356,25 @@ export interface components {
              * @enum {string}
              */
             acceptance: "declaration" | "publisher";
+            /** @description The classes the offering provisions: the enum of the class property of a required configuration */
+            classes: string[] | null;
             /** @description The bundle digest acceptance covers; run pacto lock to pin it */
             digest: string;
+            /** @description The interfaces of the revision that declare guarantees; empty when it declares none */
+            guarantees: components["schemas"]["Fleet.ConsumableGuarantee"][] | null;
             /** @enum {string} */
             lifecycle: "supported" | "deprecated";
+            /** @description The fields of the required configurations' closed schemas, at most 50, by configuration then path */
+            parameters: components["schemas"]["Fleet.OfferingParameter"][] | null;
+            /** Format: int64 */
+            parametersTotal: number;
+            parametersTruncated: boolean;
             /** @description Who accepted it: the declaring person or the verified signer */
             publisher: string;
             /** @description The newest revision of the provider, the one acceptance judged and the snippet pins */
             revision: components["schemas"]["Fleet.EntityRef"];
+            /** @description The schema files the parameters come from, in the bundle that declares each */
+            schemaPaths: string[] | null;
             service: components["schemas"]["Fleet.EntityRef"];
             snippet: components["schemas"]["Fleet.ConsumeSnippet"];
             version: string;
@@ -5145,6 +5161,42 @@ export interface components {
              * @enum {string}
              */
             state: "drifted" | "unknown";
+        };
+        "Fleet.OfferingParameter": {
+            /** @description The provider's configuration the field belongs to */
+            configuration: string;
+            default?: unknown;
+            /** @description The allowed values, at most 50 */
+            enum?: unknown[] | null;
+            /**
+             * Format: int64
+             * @description How many values the schema allows
+             */
+            enumTotal?: number;
+            /** Format: double */
+            exclusiveMaximum?: number;
+            /** Format: double */
+            exclusiveMinimum?: number;
+            /** Format: int64 */
+            maxLength?: number;
+            /** Format: double */
+            maximum?: number;
+            /** Format: int64 */
+            minLength?: number;
+            /** Format: double */
+            minimum?: number;
+            /** @description The field's path in dot notation */
+            path: string;
+            pattern?: string;
+            required: boolean;
+            /** @description The field is writeOnly, holds a writeOnly field or sits under a writeOnly object */
+            sensitive: boolean;
+            /**
+             * @description contract: set once, the same in every environment; tunable: may change per environment within the bounds
+             * @enum {string}
+             */
+            tier: "contract" | "tunable";
+            type?: string;
         };
         "Fleet.OperationalHealthTally": {
             /**

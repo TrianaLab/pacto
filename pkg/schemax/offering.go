@@ -11,6 +11,10 @@ const (
 	TierTunable  = "tunable"  // may change per environment, within the schema's bounds
 )
 
+// ClassProperty is the configuration property whose enum lists the classes
+// (Composition names) an offering provisions.
+const ClassProperty = "class"
+
 // Tier is node's own tier: TierTunable only when node declares exactly
 // "tunable", TierContract otherwise (absent or unknown values close).
 func Tier(node map[string]any) string {
