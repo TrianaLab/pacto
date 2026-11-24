@@ -79,6 +79,9 @@ pacto.inferred.yaml as inferred.`,
 			if err := declareSubject(&req, args[0]); err != nil {
 				return err
 			}
+			if err := subjectFlags(cmd, req.Service); err != nil {
+				return err
+			}
 			if req.Draft && req.FromDraft != "" {
 				return errDraftAndFromDraft
 			}
@@ -107,6 +110,7 @@ pacto.inferred.yaml as inferred.`,
 	f.StringVar(&req.From, "from", "", "with offering:<name>, the inferred offering's contribution ref (oci://<registry>/pacto-inferred/<producer>/services:<tag>), as pacto fleet offerings --inferred prints it")
 	f.StringVar(&req.Version, "version", "", "with offering:<name>, the version you publish (MAJOR.MINOR.PATCH, above the newest declared)")
 	f.StringVar(&req.Detected, "detected", "", "with offering:<name>, the detection whose installation key verifies --from: k8s:<namespace>/<name> of the operator's <release>-detected ConfigMap, or a file holding the same JSON")
+	f.StringVar(&req.ContributionTrust, "contribution-trust", "", "with offering:<name>, a contribution trust config (pacto.dev/evidence-trust/v1) whose grant to a third-party producer verifies --from")
 	declareFlags(f, &req, &yes)
 	return cmd
 }
@@ -191,16 +195,38 @@ func declareSubject(req *app.DeclareRequest, arg string) error {
 	return nil
 }
 
+// subjectFlags refuses a flag the subject takes not, as pacto_declare
+// refuses the argument: an offering acceptance's on a workload, a workload's
+// on an offering acceptance.
+func subjectFlags(cmd *cobra.Command, service string) error {
+	flags, why := []string{"owner", "from", "version", "detected", "contribution-trust"}, "is an offering acceptance's (offering:<name>): run again without it"
+	if strings.HasPrefix(service, pactomcp.OfferingSubjectPrefix) {
+		flags, why = []string{"namespace", "accept", "max-items", "call-window", "pr", "repository", "folder", "repo-map", "git-host"},
+			"is a workload's: accepting an offering takes --from, --version, --owner, --detected, --contribution-trust, --dir and --registry"
+	}
+	for _, name := range flags {
+		if cmd.Flags().Changed(name) {
+			return fmt.Errorf("--%s %s", name, why)
+		}
+	}
+	return nil
+}
+
 // declareDynamic is the kubeconfig client the declaration reads the cluster
 // with. A run without a registry is refused before any read, so it builds
 // none; a --dir run or a claim whose client fails declares with its cluster
 // facts dropped (a claim reads only the installation signer policy there).
+// An offering acceptance needs one only to read a k8s: detection.
 func declareDynamic(req app.DeclareRequest) (dynamic.Interface, error) {
 	if req.Registry == "" {
 		return nil, nil
 	}
 	dyn, err := initDynamic()
-	if err != nil && req.Dir == "" && !strings.HasPrefix(req.Service, fleet.ExternalSubjectPrefix) && !strings.HasPrefix(req.Service, pactomcp.OfferingSubjectPrefix) {
+	offer := strings.HasPrefix(req.Service, pactomcp.OfferingSubjectPrefix)
+	switch {
+	case err != nil && offer && strings.HasPrefix(req.Detected, "k8s:"):
+		return nil, fmt.Errorf("reading the detection %s needs the cluster: %w", req.Detected, err)
+	case err != nil && req.Dir == "" && !strings.HasPrefix(req.Service, fleet.ExternalSubjectPrefix) && !offer:
 		return nil, fmt.Errorf("declaring a workload reads the cluster: %w", err)
 	}
 	if err != nil {

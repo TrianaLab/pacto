@@ -4311,6 +4311,8 @@ export interface components {
             offering: string;
             /** @description The producer that contributed the inferred offering */
             producer: string;
+            /** @description The oci:// ref of the newest record: the from an acceptance (pacto declare offering:<name> --from, pacto_declare from) takes */
+            ref?: string;
         };
         "Fleet.InferredPort": {
             /** @description The object path Pacto read the port from */
@@ -7329,7 +7331,7 @@ export interface components {
             hidden?: number;
             /**
              * Format: int64
-             * @description When declared offerings are listed: how many inferred offerings declaration=inferred lists; never counted in total
+             * @description When declared offerings are listed: how many inferred offerings declaration=inferred lists under the same text filter; never counted in total
              */
             inferredTotal?: number;
             /** Format: int64 */

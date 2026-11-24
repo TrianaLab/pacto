@@ -72,7 +72,8 @@ func TestFleetOfferingsInferredListsInferredRows(t *testing.T) {
 	row := func(accepted *fleet.EntityRef) fleet.EntityRef {
 		return fleet.EntityRef{Kind: fleet.KindService, Key: "ghcr.io/acme/pacto-inferred/crossplane-6f1c/services/xbucket", Label: "xbucket",
 			Declaration: fleet.DeclarationInferred, InferredOffering: &fleet.InferredOfferingFacts{Producer: "crossplane-6f1c", Offering: "xbucket",
-				From: "CompositeResourceDefinition xbuckets.storage.acme.io", Generation: 2, Classes: []string{"large", "small"}, AsOf: &gen, AcceptedAs: accepted}}
+				From: "CompositeResourceDefinition xbuckets.storage.acme.io", Generation: 2, Classes: []string{"large", "small"}, AsOf: &gen, AcceptedAs: accepted,
+				Ref: "oci://ghcr.io/acme/pacto-inferred/crossplane-6f1c/services:xbucket_0.0.0-inferred.2.0"}}
 	}
 	res := &fleet.EntityList{Total: 1, Count: 1, Meta: fleet.ProductMeta{AsOf: offeringsAsOf, Completeness: fleet.CompletenessComplete},
 		Entities: []fleet.EntityRef{row(nil)}}

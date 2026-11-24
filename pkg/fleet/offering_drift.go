@@ -47,8 +47,9 @@ type OfferingDrift struct {
 // InferredOfferingFacts is what an inferred offering's list row says: the
 // producer and offering, the source object it was read from (<kind> <name>
 // as the bundle's source/object.yaml names it) and its generation, the
-// classes its configuration schema offers, when the producer made it and,
-// when a person accepted it, the declared service.
+// classes its configuration schema offers, when the producer made it, the
+// ref an acceptance takes and, when a person accepted it, the declared
+// service.
 type InferredOfferingFacts struct {
 	Producer   string     `json:"producer" doc:"The producer that contributed the inferred offering"`
 	Offering   string     `json:"offering" doc:"The offering slug"`
@@ -56,6 +57,7 @@ type InferredOfferingFacts struct {
 	Generation int64      `json:"generation,omitempty" doc:"The source object's generation"`
 	Classes    []string   `json:"classes,omitempty" doc:"The classes its configuration schema offers"`
 	AsOf       *time.Time `json:"asOf,omitempty" doc:"When the producer made the record, from its signed manifest"`
+	Ref        string     `json:"ref,omitempty" doc:"The oci:// ref of the newest record: the from an acceptance (pacto declare offering:<name> --from, pacto_declare from) takes"`
 	AcceptedAs *EntityRef `json:"acceptedAs,omitempty" doc:"The declared offering a person accepted it as, when visible"`
 }
 
@@ -143,27 +145,60 @@ func offeringDrift(snap *FleetSnapshot, p, svc, d string) *OfferingDrift {
 	if observed {
 		out.AsOf = obs.AsOf
 	}
-	switch {
-	case observed && obs.Unread != "":
-		out.Reason = "the producer's records were not all read: " + obs.Unread
-	case observed && obs.Partial != "":
-		out.Reason = "the producer's last run stopped short: " + obs.Partial
-	case head != nil && head.contributor != nil && head.contributor.NewerRefused != "":
-		out.Reason = "the producer's newest record " + head.contributor.NewerRefused + " was refused"
-	case head != nil && head.Digest != d && (head.contributor == nil || head.contributor.Renews != d):
-		out.State, out.Reason = DriftDrifted, "source object changed since accepted"+generationNote(head)
-	case !observed:
-		out.Reason = "the producer reports no observation"
-	case obs.AsOf == nil || snap.GeneratedAt.Sub(*obs.AsOf) > cmp.Or(snap.provisioningWindow, RecentEvidenceWindow):
-		out.Reason = "observation is stale"
-	case !slices.Contains(obs.Observed, svc):
-		out.Reason = "source object no longer observed"
-	case head == nil:
-		out.Reason = "no record of the source object was read"
-	default:
+	out.State, out.Reason = driftState(snap, head, obs, observed, svc, d)
+	if out.Reason == "" {
 		return nil
 	}
 	return out
+}
+
+// driftState is the state and reason of an offering accepted from record d
+// of svc, given the producer's newest record head and its observation;
+// an empty reason when it is in sync.
+func driftState(snap *FleetSnapshot, head *ContractRevision, obs OfferingObservation, observed bool, svc, d string) (string, string) {
+	if why := readShort(obs, observed); why != "" {
+		return DriftUnknown, why
+	}
+	if state, why := headDrift(head, d); why != "" {
+		return state, why
+	}
+	switch {
+	case !observed:
+		return DriftUnknown, "the producer reports no observation"
+	case obs.AsOf == nil || snap.GeneratedAt.Sub(*obs.AsOf) > cmp.Or(snap.provisioningWindow, RecentEvidenceWindow):
+		return DriftUnknown, "observation is stale"
+	case !slices.Contains(obs.Observed, svc):
+		return DriftUnknown, "source object no longer observed"
+	case head == nil:
+		return DriftUnknown, "no record of the source object was read"
+	}
+	return "", ""
+}
+
+// readShort is why the producer's observation proves nothing: its records
+// were not all read or its last run stopped short; "" otherwise.
+func readShort(obs OfferingObservation, observed bool) string {
+	switch {
+	case observed && obs.Unread != "":
+		return "the producer's records were not all read: " + obs.Unread
+	case observed && obs.Partial != "":
+		return "the producer's last run stopped short: " + obs.Partial
+	}
+	return ""
+}
+
+// headDrift is unknown when head was read only because a newer record was
+// refused, drifted when it is neither d nor a renewal of d; "" otherwise.
+func headDrift(head *ContractRevision, d string) (string, string) {
+	switch {
+	case head == nil:
+		return "", ""
+	case head.contributor != nil && head.contributor.NewerRefused != "":
+		return DriftUnknown, "the producer's newest record " + head.contributor.NewerRefused + " was refused"
+	case head.Digest != d && (head.contributor == nil || head.contributor.Renews != d):
+		return DriftDrifted, "source object changed since accepted" + generationNote(head)
+	}
+	return "", ""
 }
 
 // generationNote is " (now generation N)" when head's bundle names its
@@ -180,8 +215,12 @@ func generationNote(head *ContractRevision) string {
 func inferredOfferingFacts(snap *FleetSnapshot, s *ServiceRecord) *InferredOfferingFacts {
 	newest := newestRevision(snap, s)
 	from, gen := offeringSource(newest)
-	return &InferredOfferingFacts{Producer: s.Contribution.Producer, Offering: s.Offering, From: from, Generation: gen,
+	facts := &InferredOfferingFacts{Producer: s.Contribution.Producer, Offering: s.Offering, From: from, Generation: gen,
 		Classes: offeringClasses(newest), AsOf: s.Contribution.AsOf}
+	if newest != nil && newest.ResolvedRef != "" {
+		facts.Ref = contract.OCIScheme + contract.TrimOCIScheme(newest.ResolvedRef)
+	}
+	return facts
 }
 
 // SourceObject is the cluster object a contribution cites in its bundle's

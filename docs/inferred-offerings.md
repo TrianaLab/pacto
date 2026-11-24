@@ -114,18 +114,24 @@ pacto declare offering:xbucket \
 ```
 
 `--detected` names the operator detection whose installation key must verify
-`--from`; content no key verified is refused with `OfferingSourceUnverified`.
+`--from`. For a third-party producer, `--contribution-trust` names the
+contribution trust config that grants it instead. Content no key verified is
+refused with `OfferingSourceUnverified`.
 `--version` is the version you publish, above the newest declared one.
 `--owner` is required on the first acceptance. The offering is published to
 `<registry>/<name>`, never under `pacto-inferred`, signed by your Sigstore
 login, with a [declaration](contract-reference/inferred-record.md#declaration)
 that names `inferredFrom: offering:<producer>/<service>@<digest>`. Run it
 again with `--yes --intent <digest>` to publish. A later acceptance keeps the
-summary, the lifecycle and the owner you set before.
+summary, the lifecycle and the owner you set before. Without `--dir` its
+schema comes from the new contribution, so tier marks you set reset; the plan
+names each schema that changed.
 
 An agent's `pacto_declare` with `service: offering:<name>` takes `version`,
-`owner` and `from` and writes a `draft-<n>` a person accepts with
-`--from-draft`. On the dashboard, the page of an inferred offering offers
+`owner` and `from` (the `inferredOffering.ref` of the inferred row) and, over
+stdio, writes a `draft-<n>`. A person accepts it with the full command the
+answer's `acceptCLI` names, `--from-draft` included. Over HTTP the server only
+plans the acceptance. On the dashboard, the page of an inferred offering offers
 **Accept this offering**, which plans and publishes the same way; on a shared
 dashboard it needs `update` on the source object in its cluster.
 

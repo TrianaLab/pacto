@@ -151,10 +151,12 @@ func (pl *declarePlanner) verifyProducer(ctx context.Context, repo, digest, prod
 		why = errors.Join(errs...).Error()
 	}
 	sub := pl.req
-	sub.Detected = cmp.Or(sub.Detected, detectedPlaceholder)
+	if sub.ContributionTrust == "" {
+		sub.Detected = cmp.Or(sub.Detected, detectedPlaceholder)
+	}
 	return "", &DeclareError{Code: codeOfferingSourceUnverified, CLI: sub.command(""),
-		Message: "no key of " + producer + " verified " + repo + "@" + digest + " (" + why + "): pass --detected with the detection of the installation that produced it, " +
-			"or grant the producer in the contribution trust config"}
+		Message: "no key of " + producer + " verified " + repo + "@" + digest + " (" + why + "): pass --detected with the detection of the operator installation that produced it, " +
+			"or --contribution-trust with a contribution trust config that grants a third-party producer"}
 }
 
 // producerKeys are the keys that may have signed producer's contributions in
@@ -349,9 +351,11 @@ func mappingValue(m *yaml.Node, key string) *yaml.Node {
 // reoffer keeps, in a re-acceptance from the contribution, what the person
 // set on the baseline: its summary and service lifecycle, and its owner when
 // no --owner is given (Decision 11). With req.Dir the person's folder is the
-// declaration and is kept as it is.
-// ponytail: tunable tier marks are not carried yet; they need the shared tier
-// reader (pkg/schemax), which a later change brings.
+// declaration and is kept as it is. A configuration schema of the baseline
+// that differs from the contribution's is named in a note: its tier marks
+// and edits are not carried.
+// ponytail: tunable tier marks are named, not carried; carrying them needs
+// the shared tier reader (pkg/schemax), which a later change brings.
 func (pl *declarePlanner) reoffer(base *contract.Bundle) {
 	if pl.req.Dir != "" {
 		return
@@ -375,6 +379,18 @@ func (pl *declarePlanner) reoffer(base *contract.Bundle) {
 	pl.raw, pl.folder = raw, c
 	if len(carried) > 0 {
 		pl.plan.Notes = append(pl.plan.Notes, "carried from "+pl.plan.Baseline.Version+": "+strings.Join(carried, ", "))
+	}
+	var changed []string
+	for _, cf := range base.Contract.Configurations {
+		was, err := fs.ReadFile(base.FS, cf.Schema)
+		now, nerr := os.ReadFile(filepath.Join(pl.dir, filepath.FromSlash(cf.Schema)))
+		if cf.Schema != "" && (err != nil || nerr != nil || !bytes.Equal(was, now)) {
+			changed = append(changed, cf.Schema)
+		}
+	}
+	if len(changed) > 0 {
+		pl.plan.Notes = append(pl.plan.Notes, "not carried from "+pl.plan.Baseline.Version+": "+strings.Join(changed, ", ")+
+			" comes from the new contribution, so its tier marks and edits reset; accept with --dir to keep them")
 	}
 }
 
@@ -408,6 +424,7 @@ func (req DeclareRequest) offeringCommand(intent string) string {
 	}
 	add("--from", cmp.Or(req.From, "<contribution>"))
 	add("--detected", req.Detected)
+	add("--contribution-trust", req.ContributionTrust)
 	add("--dir", req.Dir)
 	add("--registry", cmp.Or(req.Registry, "<registry>"))
 	add("--version", cmp.Or(req.Version, "<version>"))

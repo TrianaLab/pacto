@@ -333,11 +333,17 @@ func selfFrom(w dashboard.DeclareWorkload) string {
 	return fleet.K8sCaller("", w.Namespace, w.Kind, w.Name)
 }
 
-// claimRedacted is the one refusal a claim of w answers when the repository
-// it writes to holds what the viewer's restricted view hides: it names no
-// service, version, inferredFrom or tag. Nil for a workload, or when the
-// viewer may read everything there.
+// claimRedacted is the one refusal a claim or an offering acceptance of w
+// answers when the repository it writes to holds what the viewer's
+// restricted view hides: it names no service, version, inferredFrom or tag.
+// Nil for a workload, or when the viewer may read everything there.
 func claimRedacted(w dashboard.DeclareWorkload, req app.DeclareRequest, p *app.DeclarePlan, err error) *dashboard.DeclareRefusal {
+	if offer, ok := strings.CutPrefix(req.Service, pactomcp.OfferingSubjectPrefix); ok {
+		if offeringHidden(w.View, req.Registry, offer, p, err) {
+			return refused(string(pactomcp.RefusalNotAllowed), offeringHiddenMessage, declareCommand(req, ""))
+		}
+		return nil
+	}
 	id, ok := claimOf(w)
 	if !ok || !claimHidden(w.View, id, cmp.Or(req.Name, inferredcontract.ServiceName(fleet.ExternalKey(id))), p, err) {
 		return nil

@@ -194,7 +194,9 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	r.offering(&req)
 	p, _, err := r.svc.PlanDeclare(ctx, req)
 	if p != nil {
-		if _, claim := a.Claim(); claim || !r.writes() || a.Registry != r.registry {
+		_, claim := a.Claim()
+		_, offer := a.Offering()
+		if claim || offer || !r.writes() || a.Registry != r.registry {
 			// This server signs nothing and writes no draft here: who would sign
 			// is the person who runs the plan's command, whose login decides the state.
 			p.Signer = app.SignerView{Class: contract.SignerClassAgent, Source: "none",
@@ -224,7 +226,7 @@ func (r remoteDeclarer) offeringArgs(ctx context.Context, a pactomcp.DeclareArgs
 		return nil
 	}
 	return &pactomcp.Refused{Code: pactomcp.RefusalNotAllowed, Message: "your view of the fleet lists no inferred offering at " + a.From +
-		": accept one pacto_fleet_entities lists with kind offering and declaration inferred, or run pacto declare on your machine", CLI: a.Command("")}
+		": accept the inferredOffering.ref of a row pacto_fleet_entities lists with kind offering and declaration inferred, or run pacto declare on your machine", CLI: a.Command("")}
 }
 
 // listsContribution reports whether view q (nil: one that shows nothing)
@@ -275,6 +277,9 @@ func (r remoteDeclarer) redact(ctx context.Context, a pactomcp.DeclareArgs, p *a
 	if id, ok := a.Claim(); ok && claimHidden(r.view(ctx), id, cmp.Or(a.Name, inferredcontract.ServiceName(fleet.ExternalKey(id))), p, err) {
 		return nil, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), CLI: a.Command(""), Message: claimHiddenMessage}
 	}
+	if offer, ok := a.Offering(); ok && offeringHidden(r.view(ctx), a.Registry, offer, p, err) {
+		return nil, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), CLI: a.Command(""), Message: offeringHiddenMessage}
+	}
 	return r.hide(ctx, p, err)
 }
 
@@ -303,6 +308,25 @@ func claimHidden(q *fleet.Query, id, name string, p *app.DeclarePlan, err error)
 		held = true
 		return false
 	}) || held && !showsService(q, name)
+}
+
+// offeringHiddenMessage is the one refusal of an offering acceptance whose
+// repository holds what the caller may not read.
+const offeringHiddenMessage = "the repository for this offering holds a service you may not read: accept it into another registry path, or with the CLI"
+
+// offeringHidden reports whether the repository an acceptance of offer into
+// registry writes to holds what view q (nil: one that shows nothing) does
+// not show at that repository: a published version, a draft, or a refusal
+// that names what it holds. The contributed service may share the name, so
+// the repository's own service key decides, never the bare name.
+func offeringHidden(q *fleet.Query, registry, offer string, p *app.DeclarePlan, err error) bool {
+	if p == nil {
+		p = &app.DeclarePlan{}
+	}
+	var de *app.DeclareError
+	mismatch := errors.As(err, &de) && de.Code == string(pactomcp.RefusalOfferingMismatch)
+	held := p.Baseline != nil || len(p.Skipped) > 0 || p.DraftsTotal > 0 || mismatch || baselineRefusal(err)
+	return held && !showsService(q, string(fleet.NewServiceKeyDomain(strings.TrimSuffix(registry, "/"), offer)))
 }
 
 // lists reports whether view q lists the external system id.
@@ -429,7 +453,9 @@ func hiddenOwnerRefusal(err error) error {
 // runs, replaying every argument the intent digest binds, without --yes.
 // A claim is never written here: no review of the caller backs it, and the
 // draft would go with the server's own push credential (the shared
-// dashboard's rule), so it names the pacto claim a person runs.
+// dashboard's rule), so it names the pacto claim a person runs. Nor is an
+// offering acceptance: no review of the caller on its source object backs
+// it either, so it names the pacto declare a person runs.
 func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.RawMessage, *pactomcp.Refused, error) {
 	if _, claim := a.Claim(); claim {
 		a, refused := r.claimArgs(ctx, a)
@@ -439,8 +465,12 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans a claim: a draft would go with its own push " +
 			"credential for any caller; run the command on your machine, where adding --yes publishes the claim signed by you", CLI: a.Command(a.IntentDigest)}, nil
 	}
-	if refused := r.offeringArgs(ctx, a); refused != nil {
-		return nil, refused, nil
+	if _, offer := a.Offering(); offer {
+		if refused := r.offeringArgs(ctx, a); refused != nil {
+			return nil, refused, nil
+		}
+		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans an offering acceptance: a draft would go " +
+			"with its own push credential for any caller; run the command on your machine, where adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}, nil
 	}
 	if !r.writes() {
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no declaration: run the command on your machine; " +
@@ -476,12 +506,8 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalPlanStale, Message: "the plan changed since intent " + a.IntentDigest + " was reviewed; it is now " +
 			p.IntentDigest + ": review the new plan"}, nil
 	}
-	// An offering names no workload to update: an agent only drafts, and a
-	// person's acceptance of the draft is the gate.
-	if _, offer := a.Offering(); !offer {
-		if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
-			return nil, refused, nil
-		}
+	if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
+		return nil, refused, nil
 	}
 	req.Store = pushWriter(r.push, p.BundleRepo)
 	return mcpWritten(writeServerDraft(ctx, r.svc, req, p, decl, who.person.User, "mcp"))

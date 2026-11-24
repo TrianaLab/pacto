@@ -27,9 +27,9 @@ func TestDeclareOfferingSubject(t *testing.T) {
 	var got app.DeclareRequest
 	d := declareDeps(t, &got, offeringPlanFixture(), nil, nil)
 	_, _, err := runRoot(t, d, nil, "declare", "offering:xbucket", "--from", offeringFrom, "--version", "1.0.0", "--owner", "team-storage",
-		"--detected", "k8s:pacto-system/pacto-operator-detected", "--registry", "ghcr.io/acme/offerings")
+		"--detected", "detected.json", "--contribution-trust", "trust.yaml", "--registry", "ghcr.io/acme/offerings")
 	if err != nil || got.Service != "offering:xbucket" || got.From != offeringFrom || got.Version != "1.0.0" || got.Owner != "team-storage" ||
-		got.Detected != "k8s:pacto-system/pacto-operator-detected" || got.Registry != "ghcr.io/acme/offerings" || got.Dynamic != nil {
+		got.Detected != "detected.json" || got.ContributionTrust != "trust.yaml" || got.Registry != "ghcr.io/acme/offerings" || got.Dynamic != nil {
 		t.Fatalf("%v %+v", err, got)
 	}
 	// pacto claim keeps its own --owner: the tree builds with no duplicate flag.
@@ -38,6 +38,29 @@ func TestDeclareOfferingSubject(t *testing.T) {
 	}
 	if _, _, err := runRoot(t, d, nil, "declare", "template:http-service"); err == nil || !strings.Contains(err.Error(), "a later release") {
 		t.Fatal(err)
+	}
+}
+
+func TestDeclareOfferingFlagsBySubject(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	d := declareDeps(t, &got, offeringPlanFixture(), nil, nil)
+	// A k8s: detection needs the cluster: its error is the cause, not a
+	// missing --detected.
+	_, _, err := runRoot(t, d, nil, "declare", "offering:xbucket", "--from", offeringFrom, "--version", "1.0.0",
+		"--detected", "k8s:pacto-system/pacto-operator-detected", "--registry", "ghcr.io/acme/offerings")
+	if err == nil || !strings.Contains(err.Error(), "reading the detection k8s:pacto-system/pacto-operator-detected needs the cluster: ") {
+		t.Fatal(err)
+	}
+	// Each subject refuses the other's flags, as pacto_declare does.
+	for _, args := range [][]string{
+		{"declare", "billing/invoices", "--registry", "r", "--version", "2.0.0"},
+		{"declare", "billing/invoices", "--registry", "r", "--owner", "team-x"},
+		{"declare", "offering:xbucket", "--registry", "r", "--namespace", "billing"},
+	} {
+		if _, _, err := runRoot(t, d, nil, args...); err == nil || !strings.Contains(err.Error(), "--") {
+			t.Errorf("%v: %v", args, err)
+		}
 	}
 }
 

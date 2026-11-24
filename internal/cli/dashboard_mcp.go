@@ -72,6 +72,15 @@ func dashboardMCPSourceFor(v *viper.Viper, id *dashboardIdentity) string {
 // viewer, trust and policy namespace), its fleet and its delivery probe. Every
 // request carries a bearer the handlers verify themselves, so they mount
 // outside the session guard (dashboard.Options.Outside).
+// dashboardAuthoring is /mcp's authoring: it plans declarations only, and
+// verifies an offering's contribution with the dashboard's own detection, as
+// the dashboard's declarer does.
+// ponytail: pass the dashboard's registry and push credential here once
+// agents should write drafts through it.
+func dashboardAuthoring(v *viper.Viper, svc *app.Service, repos []string, fleet *pactomcp.FleetMode) pactomcp.Authoring {
+	return remoteAuthoring(svc, repos, fleet, "", nil, v.GetString("dashboard.detected"))
+}
+
 func newDashboardMCP(v *viper.Viper, svc *app.Service, version string, repos []string, id *dashboardIdentity, src pactomcp.FleetQuerySource,
 	prov *app.ProvenanceChecker, d deps) (map[string]http.Handler, error) {
 	issuer, resource, exchange := v.GetString("dashboard.oidc-issuer-url"), v.GetString("dashboard.mcp-url"), v.GetString("dashboard.mcp-exchange-audience")
@@ -86,9 +95,7 @@ func newDashboardMCP(v *viper.Viper, svc *app.Service, version string, repos []s
 		claims: claimsFlags(func(name string) string { return v.GetString("dashboard." + name) })}
 	rm.modes = pactomcp.Modes{Transport: "http", Fleet: &pactomcp.FleetMode{Src: src, Opts: pactomcp.FleetOptions{
 		View: viewerFleetView(id.viewer), Impact: dashboardMCPImpact(svc, prov), DashboardURL: strings.TrimSuffix(resource, "/mcp")}}}
-	// ponytail: /mcp plans declarations only; pass the dashboard's registry
-	// and push credential here once agents should write drafts through it.
-	rm.authoring = remoteAuthoring(svc, repos, rm.modes.Fleet, "", nil, "")
+	rm.authoring = dashboardAuthoring(v, svc, repos, rm.modes.Fleet)
 	// Delivery follows the dashboard: served with a cluster, with its trust
 	// and policy namespace.
 	rm.delivery = deliveryClientsFor(id.trust, id.policyNS, d)

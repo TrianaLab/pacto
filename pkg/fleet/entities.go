@@ -258,7 +258,7 @@ type EntityList struct {
 	Hidden int `json:"hidden,omitempty" doc:"When external systems are listed, how many only hidden services declare; never named"`
 	// InferredTotal counts, when declared offerings are listed, the inferred
 	// offerings kind offering with declaration inferred lists; never in Total.
-	InferredTotal int `json:"inferredTotal,omitempty" doc:"When declared offerings are listed: how many inferred offerings declaration=inferred lists; never counted in total"`
+	InferredTotal int `json:"inferredTotal,omitempty" doc:"When declared offerings are listed: how many inferred offerings declaration=inferred lists under the same text filter; never counted in total"`
 	// Aggregate tallies everything the filter matched, not this page. It is what
 	// makes a filtered list page able to say something true about the whole match
 	// instead of about its first 25 rows.
@@ -311,17 +311,19 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		res.Hidden = q.snap.hiddenExternals
 	}
 	if want[KindOffering] && !inferredOfferings {
-		res.InferredTotal = q.inferredOfferingCount()
+		res.InferredTotal = q.inferredOfferingCount(f.Text)
 	}
 	return res, nil
 }
 
-// inferredOfferingCount is how many contributed offerings the view holds:
-// the inferred offering list a declared one points at, never counted in it.
-func (q *Query) inferredOfferingCount() int {
+// inferredOfferingCount is how many contributed offerings the view holds
+// that match text: the inferred offering list a declared one points at
+// (which keeps only the text filter: no inferred row has a failed request
+// or a lifecycle), never counted in it.
+func (q *Query) inferredOfferingCount(text string) int {
 	n := 0
-	for _, s := range q.snap.Services {
-		n += b2i(s.inferredOffering != nil)
+	for _, r := range q.inferredOfferingRefs() {
+		n += b2i(matchEntityText(r, text))
 	}
 	return n
 }

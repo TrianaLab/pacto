@@ -17,6 +17,7 @@ import (
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
@@ -215,5 +216,55 @@ func TestRemoteDeclareOfferingOnlyFromVisibleContribution(t *testing.T) {
 	rd.offering(&req)
 	if req.Detected != "" {
 		t.Fatalf("a workload took the detection: %+v", req)
+	}
+}
+
+func TestRemoteDeclareOfferingExecuteWritesNothing(t *testing.T) {
+	// A shared HTTP server never writes an offering draft with its own push
+	// credential: a listed contribution still names the command a person runs.
+	ref := "ghcr.io/acme/pacto-inferred/idp-c1/services:xbucket_0.0.0-inferred.2.0"
+	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://ghcr.io/acme/offerings"}, contributionFleet(ref))
+	a := pactomcp.DeclareArgs{Service: "offering:xbucket", From: "oci://" + ref, Version: "1.0.0", Owner: "team-storage",
+		Registry: "ghcr.io/acme/offerings", IntentDigest: "sha256:intent"}
+	raw, refused, err := httpWriting(rd).Execute(remoteCtx(nil), a)
+	if err != nil || raw != nil || refused == nil || refused.Code != pactomcp.RefusalExecuteNeedsStdio || !strings.Contains(refused.CLI, "pacto declare offering:xbucket") {
+		t.Fatalf("%s %+v %v", raw, refused, err)
+	}
+}
+
+func TestDashboardMCPVerifiesOfferingsWithItsDetection(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.detected", "k8s:pacto-system/pacto-operator-detected")
+	rd, ok := dashboardAuthoring(v, app.NewService(nil, nil), nil, nil).Declare.(remoteDeclarer)
+	if !ok || rd.detected != "k8s:pacto-system/pacto-operator-detected" {
+		t.Fatalf("declarer = %+v", rd)
+	}
+}
+
+func TestOfferingHiddenByRepositoryKey(t *testing.T) {
+	// The contributed xbucket shares the name; only the target repository's
+	// own service decides what the caller may read there.
+	key := fleet.NewServiceKeyDomain("ghcr.io/acme/team-b", "xbucket")
+	hiding := fleet.NewQuery(&fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{
+		"c/xbucket": {Key: "c/xbucket", Offering: "xbucket", Contribution: &fleet.ServiceContribution{Producer: "idp-c1"}}}})
+	showing := fleet.NewQuery(&fleet.FleetSnapshot{Services: map[fleet.ServiceKey]*fleet.ServiceRecord{key: {Key: key, Name: "xbucket"}}})
+	held := &app.DeclarePlan{Baseline: &app.DeclareBaseline{}}
+	mismatch := &app.DeclareError{Code: string(pactomcp.RefusalOfferingMismatch), Message: "ghcr.io/acme/team-b/xbucket already holds xbucket 3.4.1"}
+	for name, c := range map[string]struct {
+		q    *fleet.Query
+		p    *app.DeclarePlan
+		err  error
+		want bool
+	}{
+		"hidden baseline":   {hiding, held, nil, true},
+		"hidden mismatch":   {hiding, nil, mismatch, true},
+		"no view":           {nil, held, nil, true},
+		"shown baseline":    {showing, held, nil, false},
+		"empty repository":  {hiding, &app.DeclarePlan{}, nil, false},
+		"unrelated refusal": {hiding, nil, &app.DeclareError{Code: "VersionRequired"}, false},
+	} {
+		if got := offeringHidden(c.q, "ghcr.io/acme/team-b/", "xbucket", c.p, c.err); got != c.want {
+			t.Errorf("%s: hidden = %v", name, got)
+		}
 	}
 }

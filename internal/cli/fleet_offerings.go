@@ -14,7 +14,6 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
-	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -88,24 +87,13 @@ func offeringsAnswer(snap *fleet.FleetSnapshot, res *fleet.EntityList) *fleetOff
 	for _, e := range res.Entities {
 		row := fleetOffering{EntityRef: e}
 		if e.InferredOffering != nil {
-			row.From = contributionFrom(snap, fleet.ServiceKey(e.Key))
+			row.From = e.InferredOffering.Ref
 		} else {
 			row.From, row.AsOf, row.Drift = providerFacts(snap, e.Key)
 		}
 		out.Offerings = append(out.Offerings, row)
 	}
 	return out
-}
-
-// contributionFrom is the oci:// ref of the newest record of the inferred
-// offering key, the --from a person accepts it with; empty when none is
-// read.
-func contributionFrom(snap *fleet.FleetSnapshot, key fleet.ServiceKey) string {
-	newest := newestRevision(snap, snap.Services[key])
-	if newest == nil || newest.ResolvedRef == "" {
-		return ""
-	}
-	return "oci://" + contract.TrimOCIScheme(newest.ResolvedRef)
 }
 
 // newestRevision is s's newest readable revision; nil for none.

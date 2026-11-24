@@ -347,6 +347,29 @@ func TestAcceptOfferingRepositoryInferred(t *testing.T) {
 	}
 }
 
+// TestAcceptOfferingNamesUncarriedTiers: a re-acceptance from the
+// contribution, after one from a folder that marked a field tunable, names
+// the schema whose marks reset.
+func TestAcceptOfferingNamesUncarriedTiers(t *testing.T) {
+	w := newOfferingWorld(t)
+	w.withOwnerPolicy(t)
+	from, _ := w.xbucket(t, 2)
+	req := w.offerReq(from)
+	tunable := strings.Replace(closedOffering, `"maximum":100,"x-pacto-tier":"contract"`, `"maximum":100,"x-pacto-tier":"tunable"`, 1)
+	req.Dir = offeringDir(t, "xbucket", provisioningCfg, map[string]string{"configuration/provisioning.schema.json": tunable})
+	w.login(personToken("admin@acme.com"))
+	w.declare(t, req)
+	from, _ = w.contribute(t, w.repo, 3, contributionFiles(3, closedOffering), w.kp)
+	again := w.offerReq(from)
+	again.Owner, again.Version = "", "1.1.0"
+	p, _ := w.plan(t, again)
+	if !slices.ContainsFunc(p.Notes, func(n string) bool {
+		return strings.HasPrefix(n, "not carried from 1.0.0: configuration/provisioning.schema.json comes from the new contribution")
+	}) {
+		t.Fatalf("%v", p.Notes)
+	}
+}
+
 // TestAcceptOfferingCarriesBaselineChoices: a re-acceptance from a newer
 // contribution keeps the baseline's summary and owner.
 func TestAcceptOfferingCarriesBaselineChoices(t *testing.T) {

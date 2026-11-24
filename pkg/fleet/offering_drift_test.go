@@ -127,7 +127,7 @@ func TestDeclarationFilterOfferingCase(t *testing.T) {
 	q := offFleet(t, []RawRevision{declaredPostgres()}, []RawRevision{xbucket(2)}, []OfferingObservation{freshObs("xbucket")})
 	res := offEntities(t, q, EntityFilter{Declaration: DeclarationInferred})
 	want := &InferredOfferingFacts{Producer: offProducer, Offering: "xbucket", From: "SourceKind xbuckets.example.io", Generation: 2,
-		Classes: []string{"large", "small"}, AsOf: ptrTime(fixedNow().Add(-time.Hour))}
+		Classes: []string{"large", "small"}, AsOf: ptrTime(fixedNow().Add(-time.Hour)), Ref: "oci://" + offRepo + "@" + xbucket(2).Digest}
 	if len(res.Entities) != 1 || res.Entities[0].Kind != KindService || res.Entities[0].Key != string(xbucketKey) ||
 		res.Entities[0].Declaration != DeclarationInferred || !reflect.DeepEqual(res.Entities[0].InferredOffering, want) {
 		t.Fatalf("inferred offerings = %+v", res.Entities)
@@ -153,6 +153,20 @@ func TestInferredOfferingNotInTotal(t *testing.T) {
 	inferred := offEntities(t, q, EntityFilter{Declaration: DeclarationInferred, Limit: 1})
 	if inferred.Total != 2 || inferred.Count != 1 || !inferred.Truncated || inferred.InferredTotal != 0 {
 		t.Fatalf("inferred page = %+v", inferred)
+	}
+}
+
+func TestInferredTotalKeepsTextFilter(t *testing.T) {
+	// The count promises what the inferred list, under the same text, lists.
+	q := offFleet(t, []RawRevision{declaredPostgres()},
+		[]RawRevision{xbucket(2), offContribution("xqueue", 1, offRepo, offProducer, offCluster, fixedNow())}, []OfferingObservation{freshObs("xbucket", "xqueue")})
+	declared := offEntities(t, q, EntityFilter{Text: "xbucket"})
+	inferred := offEntities(t, q, EntityFilter{Text: "xbucket", Declaration: DeclarationInferred})
+	if declared.InferredTotal != 1 || inferred.Total != 1 {
+		t.Fatalf("inferred total %d, inferred list %d", declared.InferredTotal, inferred.Total)
+	}
+	if facts := inferred.Entities[0].InferredOffering; facts == nil || facts.Ref != "oci://"+offRepo+"@"+xbucket(2).Digest {
+		t.Fatalf("facts = %+v, want the ref an acceptance takes", facts)
 	}
 }
 
