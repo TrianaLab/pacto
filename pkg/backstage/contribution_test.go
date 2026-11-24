@@ -128,3 +128,14 @@ func TestOfferingAnnotation(t *testing.T) {
 		t.Error("a service that provides no offering names one")
 	}
 }
+
+// TestContributedOfferingExportsInferred: a contributed service whose record
+// names an offering carries the offering, the contributor and the inferred
+// provenance together. The contribution format names an offering
+// contribution after its offering.
+func TestContributedOfferingExportsInferred(t *testing.T) {
+	ann := byKey(t, ctbMap(t, nil, contributed("postgresql", "postgresql", fixed.Add(-time.Hour))), ctbKey("postgresql")).Metadata.Annotations
+	if ann[AnnotationOffering] != "postgresql" || ann[AnnotationContributedBy] != ctbProducer || ann[AnnotationProvenance] != provenanceInferred {
+		t.Errorf("annotations = %v", ann)
+	}
+}
