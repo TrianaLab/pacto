@@ -7,7 +7,7 @@ import {
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
   exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
   causeText, historyWindow, windowSince, samePerson, classSourceLabel, accessSourceLabel, gateLabel, applierLine, serverNow,
-  placementTip, ladderCommand,
+  placementTip, ladderCommand, memberStateLabel, placementSourceLabel, memberRefusalLine,
 } from './delivery.ts';
 import { changeSummary } from './changeFigure.ts';
 import {
@@ -522,5 +522,31 @@ describe('ladderCommand', () => {
     const d = `sha256:${'5be1'.repeat(16)}`;
     expect(ladderCommand({ command: `pacto delivery ladder confirm --proposal ${d}`, proposalDigest: d })).toBe(`pacto delivery ladder confirm --proposal ${d}`);
     expect(ladderCommand({ command: '', proposalDigest: d })).toBe(`pacto delivery ladder confirm --proposal ${d}`);
+  });
+});
+
+describe('memberStateLabel', () => {
+  it('names every state a member answers in plain words, and keeps one it does not know', () => {
+    expect(memberStateLabel('applied')).toBe('Applied');
+    expect(memberStateLabel('held')).toBe('Held for a person');
+    expect(memberStateLabel('no request')).toBe('No request yet');
+    expect(memberStateLabel('unknown')).toBe('Unknown: no answer in time');
+    expect(memberStateLabel('later')).toBe('later');
+  });
+});
+
+describe('placementSourceLabel', () => {
+  it('says whether a rule, the advertised environments or a person placed it', () => {
+    expect(placementSourceLabel({ source: 'policy' })).toBe('From a signed placement rule');
+    expect(placementSourceLabel({ source: 'unconfirmed' })).toBe('Proposed from advertised environments');
+    expect(placementSourceLabel({ source: 'advertised', confirmedBy: 'oidc:bob@acme.com' })).toBe('Confirmed by oidc:bob@acme.com');
+  });
+});
+
+describe('memberRefusalLine', () => {
+  it('says whether the member refused the request or its gates rejected the promote', () => {
+    expect(memberRefusalLine({ code: 'NotAllowedHere', reason: 'alice may not create operations in billing' })).toBe('The member refused the request (NotAllowedHere): alice may not create operations in billing.');
+    expect(memberRefusalLine({ code: 'Rejected', reason: 'pacto.published: no publisher signature' })).toBe("The member's gates rejected the promote: pacto.published: no publisher signature.");
+    expect(memberRefusalLine({ reason: 'x' })).toBe('The member refused the request: x.');
   });
 });
