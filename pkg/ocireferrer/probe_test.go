@@ -267,6 +267,20 @@ func TestProbeCachedPerHost(t *testing.T) {
 	}
 }
 
+// TestProbeFailureIsPerRepository: a probe that fails in one repository
+// (a subject the caller cannot read there) never fails a probe of another
+// repository on the host.
+func TestProbeFailureIsPerRepository(t *testing.T) {
+	ps := newProbeServer(t, testutil.ReferrersOptions{}, nil)
+	p := &Prober{}
+	if _, err := p.Probe(t.Context(), ps.open(t, "team/other"), "missing", false); err == nil {
+		t.Fatal("a missing subject probed")
+	}
+	if c, err := p.Probe(t.Context(), ps.repo, ps.subject, false); err != nil || c.Referrers != capabilities.ReferrersNative {
+		t.Fatalf("another repository's failure was reused: %+v %v", c, err)
+	}
+}
+
 func TestProbeErrorRetriedAfterAMinute(t *testing.T) {
 	ps := newProbeServer(t, testutil.ReferrersOptions{NameUnknown: true}, nil)
 	now := time.Unix(1000, 0)

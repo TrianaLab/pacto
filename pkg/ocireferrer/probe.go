@@ -31,7 +31,8 @@ const (
 	maxProbeBody = 1 << 20
 )
 
-// Prober probes registry hosts and remembers each answer per host.
+// Prober probes registry hosts and remembers each answer per host, and each
+// failure per repository.
 type Prober struct {
 	// Now is the clock; nil is time.Now.
 	Now  func() time.Time
@@ -60,13 +61,17 @@ var Probes = &Prober{}
 // ponytail: no TTL; a registry that gains Referrers is seen after a restart.
 // Add a TTL here if one ever flips in place.
 func (p *Prober) Probe(ctx context.Context, repo *remote.Repository, subject string, pushed bool) (capabilities.Capabilities, error) {
-	key := cacheKey(repo)
+	key, failKey := cacheKey(repo), failureKey(repo)
 	p.mu.Lock()
-	if e, ok := p.seen[key]; ok && (e.err == nil || p.now().Sub(e.at) < probeRetryAfter) {
-		if e.err == nil && pushed {
+	if e, ok := p.seen[key]; ok {
+		if pushed {
 			e.caps.ArtifactType = capabilities.ArtifactTypeAccepted
 			p.seen[key] = e
 		}
+		p.mu.Unlock()
+		return e.caps, nil
+	}
+	if e, ok := p.seen[failKey]; ok && p.now().Sub(e.at) < probeRetryAfter {
 		p.mu.Unlock()
 		return e.caps, e.err
 	}
@@ -86,6 +91,9 @@ func (p *Prober) Probe(ctx context.Context, repo *remote.Repository, subject str
 		if p.seen == nil {
 			p.seen = map[string]probed{}
 		}
+		if err != nil {
+			key = failKey
+		}
 		p.seen[key] = probed{caps: caps, err: err, at: at}
 		p.mu.Unlock()
 	}
@@ -102,6 +110,13 @@ func (p *Prober) now() time.Time {
 // cacheKey is one entry per host and scheme.
 func cacheKey(repo *remote.Repository) string {
 	return fmt.Sprintf("%s|%t", repo.Reference.Registry, repo.PlainHTTP)
+}
+
+// failureKey remembers a failed probe per repository: a credential that
+// cannot read one repository (another tenant's, say) says nothing about the
+// host, so it never fails a probe of a repository the caller can read.
+func failureKey(repo *remote.Repository) string {
+	return cacheKey(repo) + "|" + repo.Reference.Repository
 }
 
 func (p *Prober) probe(ctx context.Context, repo *remote.Repository, subject string) (capabilities.Capabilities, error) {
