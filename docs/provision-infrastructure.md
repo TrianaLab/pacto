@@ -107,7 +107,9 @@ digest in `pacto.lock`, which the fleet needs to resolve the reference.
 Publish the consumer contract. That published revision is the request: it
 names the provider version, the selected configuration and the values for each
 environment. An adapter in your platform reads it and provisions the resource.
-Pacto itself provisions nothing and keeps no provider-specific code.
+Pacto itself provisions nothing. The core holds no provider code: the
+Crossplane mapper behind [inferred offerings](inferred-offerings.md) is an
+optional first-party integration of the operator.
 
 The request takes three steps: edit the contract, publish it and promote it.
 `pacto_edit` with `add_configuration_refs` returns them before anything else
@@ -152,8 +154,8 @@ pacto evidence send envelope.json \
 `Deleting`. Use `--dependency` instead of `--configuration` when the resource
 answers a dependency. The subject defaults to the full repository path, the
 environment (or `default`), the kind and the name, such as
-`ghcr.io/acme/orders/production/configuration/database`. Keep one subject per resource so
-each resource keeps its own latest report.
+`ghcr.io/acme/orders/production/configuration/database`. Keep one subject per
+resource.
 
 Give the adapter its own key. A key may report `ResourceProvisioned` only when
 its trust entry lists it, so a team's runtime key cannot mark its own
@@ -208,7 +210,8 @@ it is neither failure nor success. The status is Unknown when:
 When no provider has reported, the status may carry one suggestion:
 
 - `Crossplane detected in <cluster>: accept its inferred offerings`, when a
-  cluster in your view runs Crossplane;
+  cluster in your view runs Crossplane (see
+  [Accept an inferred offering](inferred-offerings.md#accept-an-inferred-offering));
 - `no provisioner found: see Write an adapter`, when every cluster in your
   view runs no Crossplane and no adapter has reported;
 - nothing when Pacto cannot tell.
