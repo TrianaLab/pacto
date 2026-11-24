@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/runrecord"
+	"github.com/trianalab/pacto/v4/pkg/runrecord/stats"
 )
 
 const euID = "0e1f2a3b-0000-4000-8000-00000000e0e0"
@@ -40,8 +43,14 @@ func euCluster() *fakeDelivery {
 // startRemotes serves home with remotes read on every request.
 func startRemotes(t *testing.T, home *fakeDelivery, remotes ...RemoteDelivery) string {
 	t.Helper()
-	return startDeliveryWith(t, home, Options{Fleet: ownedFleet(t), Auth: (&authed{state: AuthState{SignedIn: true}}).auth(false, true),
-		DeliveryRemotes: func(*http.Request) (fleet.Cluster, []RemoteDelivery) { return homeCluster, remotes }}, true, nil)
+	return startRemotesWith(t, home, Options{Fleet: ownedFleet(t), Auth: (&authed{state: AuthState{SignedIn: true}}).auth(false, true)}, remotes...)
+}
+
+// startRemotesWith serves home over o with remotes read on every request.
+func startRemotesWith(t *testing.T, home *fakeDelivery, o Options, remotes ...RemoteDelivery) string {
+	t.Helper()
+	o.DeliveryRemotes = func(*http.Request) (fleet.Cluster, []RemoteDelivery) { return homeCluster, remotes }
+	return startDeliveryWith(t, home, o, true, nil)
 }
 
 func eu(api DeliveryAPI) RemoteDelivery {
@@ -106,10 +115,6 @@ func TestListsKeepSameNameInTwoClusters(t *testing.T) {
 	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
 	held := inbox["held"].([]any)
 	expect(t, strings.Join(clustersIn(held), ",") == ",,"+euID, "the eu change is its own item: %v", held)
-	last := held[2].(map[string]any)
-	expect(t, last["readOnly"] == true && last["next"] == "pacto delivery approve for-checkout -n prod --context eu-prod" &&
-		last["service"] == "payments", "a remote item only reads and says how to act there: %v", last)
-	expect(t, held[0].(map[string]any)["readOnly"] == nil, "a home item acts here: %v", held[0])
 	errored := inbox["errored"].([]any)
 	expect(t, strings.Join(clustersIn(errored), ",") == ","+euID && errored[1].(map[string]any)["readOnly"] == true,
 		"errored on the frozen eu Stage: %v", errored)
@@ -125,6 +130,46 @@ func TestListsKeepSameNameInTwoClusters(t *testing.T) {
 		}
 	}
 	expect(t, strings.Join(pays, ",") == ","+euID, "two histories: %v", hs)
+}
+
+func TestInboxRemoteItemReadOnlyWithNext(t *testing.T) {
+	base := startRemotes(t, sampleCluster("acme:team-checkout"), eu(euCluster()))
+	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	held := inbox["held"].([]any)
+	expect(t, strings.Join(clustersIn(held), ",") == ",,"+euID, "held %v", held)
+	last := held[2].(map[string]any)
+	expect(t, last["readOnly"] == true && last["next"] == "pacto delivery approve for-checkout -n prod --context eu-prod" &&
+		last["service"] == "payments", "a remote item only reads and says how to act there: %v", last)
+	for _, h := range held[:2] {
+		m := h.(map[string]any)
+		expect(t, m["readOnly"] == nil && m["next"] == nil, "a home item acts here: %v", m)
+	}
+}
+
+// 514 D9 holds with remotes: an operation record of a registered remote
+// cluster stays hidden from stats and counted, never named.
+func TestOperationRecordsOtherClusterStillHidden(t *testing.T) {
+	other := opRec("orders", "shop", "prod", "far-env", ago(8))
+	other.Stage.Cluster = euID
+	set := standardSet()
+	set.Entries = append(set.Entries, stats.Entry{Record: other, Digest: fmt.Sprintf("sha256:%064d", 99), Anchor: runrecord.AnchorTag("orders")})
+	o := restrictedOpts(t, shopAccess)
+	o.Stats = fixedSet(set)
+	o.Now = func() time.Time { return statsNowAt }
+	base := startRemotesWith(t, sampleCluster("acme:team-checkout"), o, eu(euCluster()))
+	resp, err := http.Get(base + "/api/stats")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close() //nolint:errcheck
+	rawb, _ := io.ReadAll(resp.Body)
+	var b statsBody
+	if err := json.Unmarshal(rawb, &b); err != nil {
+		t.Fatalf("%v: %s", err, rawb)
+	}
+	expect(t, b.Hidden.OtherClusters == 1 && len(b.Environments) == 1 && hasLimitation(b.Limitations, stats.LimitationOtherClusters),
+		"hidden %+v, environments %+v, limitations %v", b.Hidden, b.Environments, b.Limitations)
+	assertNotNamed(t, string(rawb), euID, "eu-prod", "far-env")
 }
 
 // A remote op whose Stage the reader cannot see in that cluster is judged
