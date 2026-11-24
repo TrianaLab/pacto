@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -43,30 +44,110 @@ type offeringProof struct {
 }
 
 // resourceContracts is every managed resource the answers name with its
-// contract state, by record key (see resourceContract).
+// contract state, by record key (see resourceContract). An object reference
+// two resources of different API groups share on one cluster is ambiguous
+// (the reference names a bare Kind), so it proves neither. Every read of one
+// complete identity is the same resource: one read through an offering puts
+// them all through it.
 func (q *Query) resourceContracts() map[ExternalKey][]ManagedResource {
 	proofs := q.offeringProofs()
-	out := map[ExternalKey][]ManagedResource{}
-	classify := func(rec *ExternalRecord) {
-		if len(rec.Resources) == 0 {
-			return
-		}
-		rs := slices.Clone(rec.Resources)
-		for i := range rs {
-			rs[i].Contract, rs[i].Offering, rs[i].Evidence = resourceContract(rec, rs[i], proofs)
-		}
-		out[rec.Key] = rs
-	}
-	for _, rec := range q.snap.Externals {
-		classify(rec)
-	}
+	recs := slices.Collect(maps.Values(q.snap.Externals))
 	// ponytail: other-egress classifies under its own key, so a folded
 	// resource matches by object or claim reference only; carry each
 	// resource's identity if real fleets fold managed resources.
 	if o := q.externals[OtherEgress]; o != nil {
-		classify(o)
+		recs = append(recs, o)
+	}
+	ambiguous := ambiguousObjectRefs(recs)
+	out := map[ExternalKey][]ManagedResource{}
+	for _, rec := range recs {
+		if len(rec.Resources) == 0 {
+			continue
+		}
+		rs := slices.Clone(rec.Resources)
+		for i := range rs {
+			rs[i].Contract, rs[i].Offering, rs[i].Evidence = resourceContract(rec, rs[i], proofs, ambiguous)
+		}
+		sameIdentity(rec, rs)
+		out[rec.Key] = rs
 	}
 	return out
+}
+
+// sameIdentity puts every complete read of rec's complete identity through
+// the offering one of them is through: a cluster object, a Terraform state
+// entry and an inventory item of one database are one resource.
+func sameIdentity(rec *ExternalRecord, rs []ManagedResource) {
+	if !completeIdentity(rec.Key) {
+		return
+	}
+	i := slices.IndexFunc(rs, func(r ManagedResource) bool { return len(r.Missing) == 0 && r.Contract == ContractOffering })
+	if i < 0 {
+		return
+	}
+	for j := range rs {
+		if len(rs[j].Missing) == 0 && rs[j].Contract != ContractOffering {
+			rs[j].Contract, rs[j].Offering, rs[j].Evidence = rs[i].Contract, rs[i].Offering, rs[i].Evidence
+		}
+	}
+}
+
+// completeIdentity reports whether key is a managed identity every part of
+// which was read.
+func completeIdentity(key ExternalKey) bool {
+	return len(strings.Split(string(key), "/")) == completeIdentitySegments
+}
+
+// objectRef is r's object reference, "" when r is no cluster object.
+func objectRef(r ManagedResource) string {
+	if r.Cluster == "" || !slices.Contains(clusterObjectSources, r.Source) {
+		return ""
+	}
+	_, kind, _ := strings.Cut(r.Type, "/")
+	return ManagedObjectRef(kind, r.Namespace, r.Name)
+}
+
+// ambiguousObjectRefs is the cluster and object reference pairs resources
+// of more than one type share, keyed cluster, NUL, reference.
+func ambiguousObjectRefs(recs []*ExternalRecord) map[string]bool {
+	types := map[string]string{}
+	out := map[string]bool{}
+	for _, rec := range recs {
+		for _, r := range rec.Resources {
+			ref := objectRef(r)
+			if ref == "" {
+				continue
+			}
+			k := r.Cluster + "\x00" + ref
+			if t, ok := types[k]; ok && t != r.Type {
+				out[k] = true
+			}
+			types[k] = r.Type
+		}
+	}
+	return out
+}
+
+// carryContracts keeps, on a restricted view's resources (own), the contract
+// state the unrestricted query gave the same resource (full): a proof the
+// view hides never reads outside, and then names no offering or evidence.
+// A resource full does not hold keeps its own state.
+func carryContracts(own, full map[ExternalKey][]ManagedResource) map[ExternalKey][]ManagedResource {
+	for key, rs := range own {
+		for i := range rs {
+			j := slices.IndexFunc(full[key], func(f ManagedResource) bool { return sameRead(f, rs[i]) })
+			if j < 0 || full[key][j].Contract == rs[i].Contract {
+				continue
+			}
+			rs[i].Contract, rs[i].Offering, rs[i].Evidence = full[key][j].Contract, nil, ""
+		}
+	}
+	return own
+}
+
+// sameRead reports whether a and b are the same read of a managed resource.
+func sameRead(a, b ManagedResource) bool {
+	return a.Source == b.Source && a.Type == b.Type && a.Cluster == b.Cluster && a.Namespace == b.Namespace && a.Name == b.Name && a.Location == b.Location
 }
 
 // managedResources is rec's managed resources with their contract state.
@@ -87,18 +168,16 @@ func (q *Query) outsideContract(rec *ExternalRecord) int {
 // and the record's producer and time, when a proof names r by its object
 // reference or its verified claim from a consumer target on r's cluster, or
 // by rec's identity when it is complete and nothing was missing; outside
-// otherwise. A partial identity never matches, so one record cannot put
+// otherwise; an ambiguous object reference proves nothing. A partial
+// identity never matches, so one record cannot put
 // every partially read resource through an offering.
-func resourceContract(rec *ExternalRecord, r ManagedResource, proofs map[string][]offeringProof) (string, *EntityRef, string) {
+func resourceContract(rec *ExternalRecord, r ManagedResource, proofs map[string][]offeringProof, ambiguous map[string]bool) (string, *EntityRef, string) {
 	var onCluster []string
-	if r.Cluster != "" {
-		if slices.Contains(clusterObjectSources, r.Source) {
-			_, kind, _ := strings.Cut(r.Type, "/")
-			onCluster = append(onCluster, ManagedObjectRef(kind, r.Namespace, r.Name))
-		}
-		if r.Claim != "" {
-			onCluster = append(onCluster, r.Claim)
-		}
+	if ref := objectRef(r); ref != "" && !ambiguous[r.Cluster+"\x00"+ref] {
+		onCluster = append(onCluster, ref)
+	}
+	if r.Cluster != "" && r.Claim != "" {
+		onCluster = append(onCluster, r.Claim)
 	}
 	for _, ref := range onCluster {
 		for _, p := range proofs[ref] {
@@ -107,8 +186,8 @@ func resourceContract(rec *ExternalRecord, r ManagedResource, proofs map[string]
 			}
 		}
 	}
-	if id := string(rec.Key); len(r.Missing) == 0 && len(strings.Split(id, "/")) == completeIdentitySegments {
-		if ps := proofs[id]; len(ps) > 0 {
+	if len(r.Missing) == 0 && completeIdentity(rec.Key) {
+		if ps := proofs[string(rec.Key)]; len(ps) > 0 {
 			return ContractOffering, &ps[0].offering, ps[0].evidence
 		}
 	}

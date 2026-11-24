@@ -986,6 +986,9 @@ func (q *Query) Overview() *Overview {
 	sum.Match = q.Match()
 	// The Overview's match tile says the managed-resource share under it.
 	sum.Match.Resources = q.resourceCoverage()
+	if sum.Match.Resources != nil && q.resourcesIncomplete() != nil {
+		sum.Match.Completeness = partialOf(sum.Match.Completeness)
+	}
 	// The lead tile and the attention preview read ONE collection, so the tile
 	// counts exactly the services of the list it opens. The preview carries the
 	// TRUE matched total (al.Total), not the 10-item page size.

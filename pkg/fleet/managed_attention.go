@@ -7,7 +7,7 @@ import (
 )
 
 // codeManagedGroupUnread is the attention code of a managed-resource
-// group that appeared after install, which the operator may not list.
+// group the operator may not list.
 const codeManagedGroupUnread = "MANAGED_GROUP_UNREAD"
 
 // unreadPrefix starts a managed-resources row detail that names a kind the
@@ -15,8 +15,10 @@ const codeManagedGroupUnread = "MANAGED_GROUP_UNREAD"
 const unreadPrefix = "unread "
 
 // managedGroupAttention reports one MANAGED_GROUP_UNREAD item per cluster
-// and group a partial managed-resources row names as unread: the chart
-// granted no read of it at install, so a person runs the row's helm upgrade.
+// and group a partial managed-resources row names as unread. Only what was
+// observed is said: a provider group served after install is granted by the
+// row's helm upgrade, while a claim or composite group of a helm template
+// install stays unread, since only helm install or upgrade looks it up.
 func (q *Query) managedGroupAttention() []AttentionItem {
 	type groupKey struct{ cluster, group string }
 	seen := map[groupKey]bool{}
@@ -52,9 +54,10 @@ func managedGroupItem(p Provider, group string) AttentionItem {
 	return AttentionItem{
 		Entity: EntityRef{Kind: KindSource, Key: p.Source, Label: p.Source}, Severity: severityInfo,
 		Code: codeManagedGroupUnread, Category: categoryKnowledge, Source: p.Source,
-		Label:    "CRD " + group + " detected after install: run helm upgrade to observe it",
-		Summary:  "Managed resources Pacto cannot read",
-		Reason:   "the operator may not list the managed resources of " + group + where + ": the group appeared after the chart was installed",
+		Label:   group + ": Pacto may not list it",
+		Summary: "Managed resources Pacto cannot read",
+		Reason: "the operator may not list the managed resources of " + group + where + ": helm upgrade grants a provider group served after the chart was installed; " +
+			"a claim or composite group stays unread on a helm template install, which cannot look it up",
 		NextStep: p.Hint,
 	}
 }

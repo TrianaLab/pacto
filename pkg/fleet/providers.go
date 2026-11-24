@@ -531,7 +531,7 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 		// reason to a hidden one: only the degraded limitation stays.
 		someHidden := slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return hiddenSvc[k] })
 		p.Limitations = restrictRowLimitations(p, func(l Limitation) bool {
-			return someHidden || hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message)
+			return someHidden || hiddenByScope(l, visibleIn, srcClusters) && !cappedVisible(l, visible) || mentionsHidden(l.Message)
 		})
 		out = append(out, p)
 	}
@@ -763,6 +763,13 @@ func countVisible(c ProviderCount, visible func(string) bool, workloadVisible fu
 
 // inCluster is visible and workloadVisible with their cluster fixed to
 // cluster. A nil workloadVisible stays nil.
+// cappedVisible reports whether l is a capped managed list the reader may
+// read cluster-wide in its row's cluster (visible): the row is read there,
+// whatever source cluster hiddenByScope found for it.
+func cappedVisible(l Limitation, visible func(string) bool) bool {
+	return l.Code == LimitationManagedResourcesCapped && visible("")
+}
+
 func inCluster(cluster string, visible func(cluster, namespace string) bool, workloadVisible func(cluster, namespace, kind string) bool) (func(string) bool, func(string, string) bool) {
 	vis := func(ns string) bool { return visible(cluster, ns) }
 	if workloadVisible == nil {

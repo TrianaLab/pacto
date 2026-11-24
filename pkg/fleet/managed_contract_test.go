@@ -2,6 +2,7 @@ package fleet
 
 import (
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -327,11 +328,11 @@ func TestManagedGroupUnreadAttention(t *testing.T) {
 		t.Fatalf("items = %+v", items)
 	}
 	it := items[0]
-	if it.Label != "CRD rds.services.k8s.aws detected after install: run helm upgrade to observe it" || it.Category != categoryKnowledge ||
+	if it.Label != "rds.services.k8s.aws: Pacto may not list it" || it.Category != categoryKnowledge ||
 		it.Severity != severityInfo || it.NextStep != helmHint || it.Entity.Kind != KindSource || !strings.Contains(it.Reason, "in cluster prod-a") {
 		t.Errorf("item = %+v", it)
 	}
-	if items[1].Label != "CRD sql.cnrm.cloud.google.com detected after install: run helm upgrade to observe it" {
+	if items[1].Label != "sql.cnrm.cloud.google.com: Pacto may not list it" || !strings.Contains(items[1].Reason, "helm template") {
 		t.Errorf("second = %+v", items[1])
 	}
 }
@@ -349,5 +350,136 @@ func TestManagedGroupUnreadCountsInKnowledge(t *testing.T) {
 	f.rows = []Provider{managedRow("uid-a", "prod-a", SourcePartial, helmHint, "unread rds.services.k8s.aws/dbinstances")}
 	if after := NewQuery(f.snap(t)).Overview().Summary.KnowledgeItems; after != before+1 {
 		t.Errorf("knowledge items %d -> %d", before, after)
+	}
+}
+
+// Two cluster-scoped objects of different API groups share the reference
+// "Cluster orders" on one cluster: the reference is ambiguous, so the record
+// naming it puts neither through the offering.
+func TestManagedAmbiguousObjectRefStaysOutside(t *testing.T) {
+	rds, cache := ordersDB("uid-a"), ordersDB("uid-a")
+	rds.Type, rds.Name = "rds.aws.upbound.io/Cluster", "orders"
+	cache.Type, cache.Name, cache.Identity, cache.Entry = "elasticache.aws.upbound.io/Cluster", "orders", "aws/elasticache/123456789012/eu-west-1/orders", "aws/elasticache"
+	f := throughOfferingFleet(provisioned("Cluster orders"))
+	f.res = []RawManagedResource{rds, cache}
+	q := NewQuery(f.snap(t))
+	wantContracts(t, contractOf(t, q, ordersDBID), ContractOutside)
+	wantContracts(t, contractOf(t, q, "aws/elasticache/123456789012/eu-west-1/orders"), ContractOutside)
+	// One object alone is unambiguous.
+	f.res = []RawManagedResource{rds}
+	wantContracts(t, contractOf(t, NewQuery(f.snap(t)), ordersDBID), ContractOffering)
+}
+
+// A cluster object and an inventory item of one complete identity are one
+// database: the object's proof puts the inventory read through it too.
+func TestManagedSameIdentityReadsShareContract(t *testing.T) {
+	inv := ordersDB("")
+	inv.Source, inv.Type, inv.ConnectionSecrets = "aws-resource-explorer", "rds:db", nil
+	partial := ordersDB("")
+	partial.Source, partial.Type, partial.Name, partial.Missing, partial.ConnectionSecrets = "terraform", "aws_db_instance", "aws_db_instance.orders", []string{"region"}, nil
+	f := throughOfferingFleet(provisioned("Instance orders-db"))
+	f.res = append(f.res, inv, partial)
+	q := NewQuery(f.snap(t))
+	rs := contractOf(t, q, ordersDBID)
+	got := map[string]string{}
+	for _, r := range rs {
+		got[r.Source] = r.Contract
+	}
+	// A read with a missing segment is no proof it is the same resource.
+	if got["crossplane"] != ContractOffering || got["aws-resource-explorer"] != ContractOffering || got["terraform"] != ContractOutside {
+		t.Fatalf("contracts = %v", got)
+	}
+}
+
+// A viewer who may read the cluster-scoped object but not the consumer
+// whose record proves it sees it through an offering they cannot see, never
+// outside.
+func TestManagedRestrictedHiddenProofStaysOffering(t *testing.T) {
+	q := NewQuery(throughOfferingFleet(provisioned("Instance orders-db")).snap(t))
+	rq := q.Restrict(func(c, ns string) bool { return c == "uid-a" && ns == "" }, nil)
+	rs := contractOf(t, rq, ordersDBID)
+	if len(rs) != 1 || rs[0].Contract != ContractOffering || rs[0].Offering != nil || rs[0].Evidence != "" {
+		t.Fatalf("resources = %+v", rs)
+	}
+	if rq.outsideContract(rq.snap.Externals[ordersDBID]) != 0 {
+		t.Error("counted outside")
+	}
+	// A cluster-access view over it keeps the carried state.
+	wq := rq.WithClusterAccess(q, map[string]string{"uid-b": ClusterNoAccess})
+	if rs := contractOf(t, wq, ordersDBID); len(rs) != 1 || rs[0].Contract != ContractOffering {
+		t.Fatalf("cluster access = %+v", rs)
+	}
+}
+
+// A managed-resources row that did not read everything makes the resource
+// tally and every external answer partial; an off row (with a hint) does
+// not.
+func TestManagedIncompleteRowLowersCompleteness(t *testing.T) {
+	f := throughOfferingFleet(provisioned("Instance orders-db"))
+	complete := NewQuery(f.snap(t))
+	m, _ := complete.Map(MapQuery{})
+	v, _ := complete.GetExternal(ordersDBID)
+	if m.Match.Completeness != CompletenessComplete || v.Meta.Completeness != CompletenessComplete {
+		t.Fatalf("baseline %s %s", m.Match.Completeness, v.Meta.Completeness)
+	}
+	f.rows = []Provider{managedRow("uid-a", "prod-a", SourceUnavailable, "helm upgrade --set controller.cloudInventory=aws")}
+	off := NewQuery(f.snap(t))
+	if v, _ := off.GetExternal(ordersDBID); v.Meta.Completeness != CompletenessComplete {
+		t.Fatalf("off row lowered %s", v.Meta.Completeness)
+	}
+	f.rows = []Provider{managedRow("uid-a", "prod-a", SourcePartial, helmHint, "unread rds.services.k8s.aws/dbinstances")}
+	q := NewQuery(f.snap(t))
+	m, _ = q.Map(MapQuery{})
+	v, _ = q.GetExternal(ordersDBID)
+	if m.Match.Completeness != CompletenessPartial || v.Meta.Completeness != CompletenessPartial ||
+		!slices.ContainsFunc(v.Meta.Limitations, func(l Limitation) bool { return l.Code == LimitationSourcePartial && strings.Contains(l.Message, "Managed resources is partial") }) {
+		t.Fatalf("map %s external %+v", m.Match.Completeness, v.Meta)
+	}
+	if o := q.Overview().Summary.Match; o.Completeness != CompletenessPartial {
+		t.Errorf("overview %s", o.Completeness)
+	}
+	d, err := q.EntityDetail(KindExternal, ordersDBID)
+	if err != nil || d.Meta.Completeness != CompletenessPartial {
+		t.Errorf("entity %+v %v", d, err)
+	}
+}
+
+// A namespaced managed resource's namespace is one a reader's permissions
+// decide.
+func TestNamespacesNameManagedResourceNamespace(t *testing.T) {
+	r := ordersDB("uid-a")
+	r.Source, r.Type, r.Namespace = "ack", "rds.services.k8s.aws/DBInstance", "payments-db"
+	f := throughOfferingFleet()
+	f.res = []RawManagedResource{r}
+	if !slices.Contains(NewQuery(f.snap(t)).Namespaces(), ClusterNamespace{"uid-a", "payments-db"}) {
+		t.Fatal("payments-db not reviewed")
+	}
+}
+
+// A capped managed list counts the whole cluster: a reader of only some of
+// its namespaces gets neither the row's nor the snapshot's count.
+func TestRestrictDropsManagedCappedForNamespaceReader(t *testing.T) {
+	capped := Limitation{Code: LimitationManagedResourcesCapped, Source: "detection-prod-a", Message: "120 of 620 managed resources past the bound of 500 were not kept"}
+	row := managedRow("uid-a", "prod-a", SourcePartial, "")
+	row.Source, row.Limitations = "detection-prod-a", []Limitation{capped}
+	f := throughOfferingFleet()
+	snap := f.snap(t)
+	snap.Limitations = append(snap.Limitations, capped)
+	snap.Providers = append(snap.Providers, row)
+	has := func(q *Query) (bool, bool) {
+		s := q.SnapshotForSerialization()
+		onRow := slices.ContainsFunc(s.Providers, func(p Provider) bool {
+			return slices.ContainsFunc(p.Limitations, func(l Limitation) bool { return l.Code == LimitationManagedResourcesCapped })
+		})
+		return onRow, slices.ContainsFunc(s.Limitations, func(l Limitation) bool { return l.Code == LimitationManagedResourcesCapped })
+	}
+	q := NewQuery(snap)
+	if r, s := has(q.Restrict(func(c, ns string) bool { return c == "uid-a" && ns == "shop" }, nil)); r || s {
+		t.Errorf("namespace reader keeps the count: row %v snapshot %v", r, s)
+	}
+	// A cluster-wide reader of the row's cluster keeps the row's count; the
+	// snapshot's names no cluster, so only a reader of every one keeps it.
+	if r, s := has(q.Restrict(func(c, _ string) bool { return c == "uid-a" }, nil)); !r || s {
+		t.Errorf("cluster reader: row %v snapshot %v", r, s)
 	}
 }

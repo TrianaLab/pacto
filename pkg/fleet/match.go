@@ -85,6 +85,24 @@ func (q *Query) resourceCoverage() *ResourceCoverage {
 	return &c
 }
 
+// resourcesIncomplete is one SOURCE_PARTIAL limitation per provider row
+// that reads managed resources and did not read them all: partial (unread
+// kinds, a capped list, a state that failed), stale, or unavailable with no
+// hint (a read that failed; a row with a hint is off until a person turns it
+// on). Nil when every reader read in full. An answer that counts or filters
+// managed resources is partial with them: what was not read is unknown.
+func (q *Query) resourcesIncomplete() []Limitation {
+	var out []Limitation
+	for _, p := range q.snap.Providers {
+		if !slices.Contains(p.UsedFor, UseManagedResources) || p.Status == SourceAvailable || p.Status == SourceUnavailable && p.Hint != "" {
+			continue
+		}
+		out = append(out, Limitation{Code: LimitationSourcePartial, Source: p.Source,
+			Message: p.Name + " is " + string(p.Status) + ", so the managed resources counted may be incomplete"})
+	}
+	return out
+}
+
 // serviceMatch is the match state of one service that is no golden path. A
 // stale or quarantined target is no proof it runs.
 func (q *Query) serviceMatch(s *ServiceRecord) string {

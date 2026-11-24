@@ -509,6 +509,9 @@ func (b *mapBuild) fleetTallies() (MatchTally, KnowledgeTally) {
 	}
 	m.finish(b.q.snap.Completeness)
 	m.Resources = b.q.resourceCoverage()
+	if m.Resources != nil && b.q.resourcesIncomplete() != nil {
+		m.Completeness = partialOf(m.Completeness)
+	}
 	k.finish()
 	return m, k
 }

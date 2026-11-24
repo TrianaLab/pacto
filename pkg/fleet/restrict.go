@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
@@ -26,7 +27,8 @@ type ClusterNamespace struct{ Cluster, Namespace string }
 // Namespaces lists, sorted by cluster then namespace, the (cluster, namespace)
 // pairs the snapshot's Kubernetes targets, inferred services and k8s
 // uncontracted callers run in, the namespaces declared revisions came from,
-// and the namespaces its Kubernetes sources were told to read: the ones a
+// the namespaces its Kubernetes sources were told to read and those of its
+// namespaced managed resources: the ones a
 // caller's permissions decide.
 func (q *Query) Namespaces() []ClusterNamespace {
 	seen := map[ClusterNamespace]bool{}
@@ -51,6 +53,15 @@ func (q *Query) Namespaces() []ClusterNamespace {
 	clusters := clusterOfSource(q.snap)
 	scopeNamespaces(q.snap, clusters, seen)
 	providerNamespaces(q.snap.Providers, clusters, seen)
+	// A namespaced managed resource (ACK, ASO, Config Connector, Crossplane
+	// v2) shows only to a reader of its namespace.
+	for _, rec := range q.snap.Externals {
+		for _, r := range rec.Resources {
+			if r.Namespace != "" {
+				seen[ClusterNamespace{r.Cluster, r.Namespace}] = true
+			}
+		}
+	}
 	return slices.SortedFunc(maps.Keys(seen), compareClusterNamespace)
 }
 
@@ -339,7 +350,7 @@ func (q *Query) Restrict(visible func(cluster, namespace string) bool, workloadV
 	out.Completeness = CompletenessPartial
 	out.workloadOnlyPartial = false
 	out.SnapshotID = computeSnapshotID(&out)
-	return NewQuery(&out)
+	return q.carried(&out)
 }
 
 // hiddenPairs is the pairs of q.Namespaces visible refuses, and the clusters
@@ -940,7 +951,16 @@ func (q *Query) WithClusterAccess(full *Query, access map[string]string) *Query 
 	sortSnapshotLimitations(&out)
 	out.Completeness = CompletenessPartial
 	out.SnapshotID = computeSnapshotID(&out)
-	return NewQuery(&out)
+	return q.carried(&out)
+}
+
+// carried is the query of out, a restricted view of q's snapshot, whose
+// managed resources keep the contract state q gives them (carryContracts):
+// a provisioning record the view hides never turns a resource outside.
+func (q *Query) carried(out *FleetSnapshot) *Query {
+	rq := NewQuery(out)
+	rq.contracts = sync.OnceValue(func() map[ExternalKey][]ManagedResource { return carryContracts(rq.resourceContracts(), q.contracts()) })
+	return rq
 }
 
 // inferredMismatchCounts is one INFERRED_IDENTITY_MISMATCH per source that
