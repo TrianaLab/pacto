@@ -297,7 +297,9 @@ type StageSpec struct {
 	// declares (environments[].name): a contract that declares environments
 	// must declare this one, with values that satisfy its configuration
 	// schemas, or the promote waits for a person (pacto.environment). It
-	// also places the Pactos and Stages a change's consumers run on.
+	// also places the Pactos and Stages a change's consumers run on, and
+	// selects the values the applier may apply: values-<environment>.yaml or
+	// overlays/<environment>. It is fixed at creation.
 	Environment string `json:"environment"`
 	// ApplyRef is the object the promoter points at a version: a Flux
 	// OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it

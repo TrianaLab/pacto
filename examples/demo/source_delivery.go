@@ -265,6 +265,7 @@ func adoptedApplier(s *delivery.StageObject, at time.Time) *delivery.ApplierStat
 	in := delivery.ApplierInput{Namespace: ns, Service: svc, Ref: s.Spec.ApplyRef, Now: at}
 	if s.Spec.ApplyRef.Kind == delivery.ApplierArgoCD {
 		o.Annotations = map[string]string{"argocd.argoproj.io/tracking-id": ns + "_" + s.Spec.ApplyRef.Name + ":apps/Deployment:" + ns + "/" + svc}
+		in.Values = selectedValues(s)
 	} else {
 		o.Labels = map[string]string{"kustomize.toolkit.fluxcd.io/name": svc, "kustomize.toolkit.fluxcd.io/namespace": ns}
 		var k delivery.KustomizationView
@@ -275,6 +276,15 @@ func adoptedApplier(s *delivery.StageObject, at time.Time) *delivery.ApplierStat
 	in.Targets = []delivery.ApplierTarget{{Workload: "Deployment " + svc, Manager: workloadmanager.Detect(o)}}
 	a := delivery.AdoptApplier(in)
 	return &a
+}
+
+// selectedValues is the values file the Argo CD Application of Stage s
+// selects, as SelectedValues reads it: its Helm source names the values file
+// of the Stage's environment.
+func selectedValues(s *delivery.StageObject) string {
+	env := s.Spec.Environment
+	app := map[string]any{"spec": map[string]any{"source": map[string]any{"helm": map[string]any{"valueFiles": []any{"values-" + env + ".yaml"}}}}}
+	return delivery.SelectedValues(s.Spec.ApplyRef, app, nil, s.Metadata.Namespace, env).File
 }
 
 // demoCorrelation is the change ticket B1's promote to prod carries, so the
@@ -718,23 +728,34 @@ func (d *demoDelivery) plan(req delivery.Request, actor story.Persona) (delivery
 	if up := st.Spec.Candidates.UpstreamStage; up != nil {
 		in.Upstream = &d.stage(up.Namespace, up.Name).Status
 	}
-	if stageKey(req.Namespace, req.Stage) == inspectedStage {
-		in.InspectManifests, in.Manifests = true, func(context.Context) delivery.ManifestInspection { return inspectedWorkload(req.Namespace, req.Stage) }
+	if inspectedStages[stageKey(req.Namespace, req.Stage)] {
+		in.InspectManifests, in.Manifests = true, func(context.Context) delivery.ManifestInspection { return inspectedWorkload(st) }
 	}
 	return delivery.PlanFor(context.Background(), in), spec, nil
 }
 
-// inspectedStage is the one Stage whose promotes the manifest inspector
+// inspectedStages are the Stages whose promotes the manifest inspector
 // judges in this demo.
-var inspectedStage = stageKey(story.Prod, "checkout")
+var inspectedStages = map[string]bool{stageKey(story.Prod, "checkout"): true, stageKey(story.Prod, "payments"): true}
 
 // inspectedWorkload stands in for the inspection of a version's deploy
 // artifact: the demo has no registry, so the objects are the service's
-// workload, its Deployment and Service. PlanFor judges it as it judges a real
-// inspection.
-func inspectedWorkload(ns, svc string) delivery.ManifestInspection {
-	return delivery.ManifestInspection{Artifact: "manifests (simulated: the demo has no registry, the objects come from the contract's workload)",
+// workload, its Deployment and Service. An Argo CD Stage takes a chart and
+// applies the values file its Application selects. PlanFor judges it as it
+// judges a real inspection.
+// ponytail: no values digest, since no bytes were read; a digest would make
+// pacto.environment compare chart values the published payments bundles
+// cannot match (they declare no values.schema.json configuration), holding
+// every promote to prod.
+func inspectedWorkload(s *delivery.StageObject) delivery.ManifestInspection {
+	ns, svc := s.Metadata.Namespace, s.Metadata.Name
+	in := delivery.ManifestInspection{Artifact: "manifests (simulated: the demo has no registry, the objects come from the contract's workload)",
 		Namespace: ns, Total: 2, Objects: []delivery.ManifestObject{{Kind: "Deployment", Namespace: ns, Name: svc}, {Kind: "Service", Namespace: ns, Name: svc}}}
+	if s.Spec.ApplyRef.Kind == delivery.ApplierArgoCD {
+		in.Artifact = "chart (simulated: the demo has no registry, the objects come from the contract's workload)"
+		in.ValuesFile = selectedValues(s)
+	}
+	return in
 }
 
 // surroundings fills b with what else runs in the Stage's environment and,

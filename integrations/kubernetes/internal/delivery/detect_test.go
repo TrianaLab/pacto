@@ -381,3 +381,110 @@ func TestNoFluxWatchesWithoutFlux(t *testing.T) {
 		}
 	}
 }
+
+// productionStage is s delivering environment production.
+func productionStage(s *dv1.Stage) *dv1.Stage {
+	s.Spec.Environment = "production"
+	return s
+}
+
+// TestDetectApplierRecordsValues: the values file the Application selects
+// rides on the applier status as observed, with its asOf.
+func TestDetectApplierRecordsValues(t *testing.T) {
+	e := newEnv(t, argoDeployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2),
+		argoValuesApp(map[string]any{"valueFiles": []any{"values-production.yaml"}}))
+	st := e.detect(productionStage(argoStage(dA)))
+	wantApplier(t, st, delivery.ApplierAdopted, "argocd", "complete", "applies Deployment payments")
+	if st.Values != "values-production.yaml" || st.AsOf == "" {
+		t.Fatalf("values: %+v", st)
+	}
+	// A Kustomization building an overlay of the Stage's OCIRepository.
+	k := kustomization("payments", "payments", "True", "", "", "")
+	k.Object["spec"].(map[string]any)["path"] = "overlays/production"
+	e = newEnv(t, deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2), ociRepo("payments", dA, "", false), k)
+	st = e.detect(productionStage(stageObj(dA)))
+	wantApplier(t, st, delivery.ApplierAdopted, "flux", "complete", "applies Deployment payments")
+	if st.Values != "overlays/production" {
+		t.Fatalf("overlay: %+v", st)
+	}
+	// A HelmRelease selects no values file, and is not read for one.
+	e = newEnv(t, helmDeployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+	if st = e.detect(productionStage(hrStage(dA))); st.Values != "" {
+		t.Fatalf("helm release: %+v", st)
+	}
+}
+
+// TestDetectApplierRecordsRefusedValues: a selection Mediated refuses is
+// recorded as the applier selects it.
+func TestDetectApplierRecordsRefusedValues(t *testing.T) {
+	app := argoValuesApp(map[string]any{"valueFiles": []any{"values-staging.yaml"}})
+	e := newEnv(t, productionStage(argoStage(dA)), app, argoDeployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2),
+		verifiedRepo("payments-candidates", "latest@"+dB))
+	must(t, e.reconcileStage("payments-prod"))
+	s := e.getStage()
+	if s.Status.Applier == nil || s.Status.Applier.Values != "values-staging.yaml" {
+		t.Fatalf("applier: %+v", s.Status.Applier)
+	}
+	wantMediated(t, conditionOf(s.Status.Conditions, ConditionMediated), statusFalse, "OtherEnvironmentValues", "selects values-staging.yaml")
+}
+
+// TestDetectApplierValuesUnreadKeepsState: a values read that fails leaves
+// the values empty and the applier state and completeness as they were.
+func TestDetectApplierValuesUnreadKeepsState(t *testing.T) {
+	// A missing applyRef object.
+	e := newEnv(t, argoDeployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2))
+	st := e.detect(productionStage(argoStage(dA)))
+	wantApplier(t, st, delivery.ApplierAdopted, "argocd", "complete", "applies Deployment payments")
+	if st.Values != "" {
+		t.Fatalf("values: %+v", st)
+	}
+	// A forbidden Kustomization list.
+	e = newEnv(t, deployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2), ociRepo("payments", dA, "", false),
+		kustomization("payments", "payments", "True", "", "", ""))
+	e.st.Cluster.Cache = interceptor.NewClient(e.c, interceptor.Funcs{List: func(context.Context, client.WithWatch, client.ObjectList, ...client.ListOption) error {
+		return apierrors.NewForbidden(schema.GroupResource{Resource: "kustomizations"}, "", errors.New("no RBAC"))
+	}})
+	st = e.detect(productionStage(stageObj(dA)))
+	wantApplier(t, st, delivery.ApplierAdopted, "flux", "complete", "applies Deployment payments")
+	if st.Values != "" {
+		t.Fatalf("values: %+v", st)
+	}
+	// A failed read keeps the values last observed: it reads neither as
+	// "selects none" nor as a change.
+	prev := productionStage(stageObj(dA))
+	prev.Status.Applier = &delivery.ApplierStatus{Values: "overlays/production"}
+	if st = e.detect(prev); st.Values != "overlays/production" {
+		t.Fatalf("a failed read keeps the last values: %+v", st)
+	}
+	e.st.Cluster.Cache = interceptor.NewClient(e.c, interceptor.Funcs{Get: func(context.Context, client.WithWatch, client.ObjectKey, client.Object, ...client.GetOption) error {
+		return apierrors.NewForbidden(schema.GroupResource{Resource: "ocirepositories"}, "", errors.New("no RBAC"))
+	}})
+	if st = e.detect(prev); st.Values != "overlays/production" {
+		t.Fatalf("a failed applyRef read keeps the last values: %+v", st)
+	}
+	// Flux turned off reads no values.
+	e.st.Cluster.NoFlux = true
+	if st = e.detect(productionStage(stageObj(dA))); st.Values != "" {
+		t.Fatalf("no flux: %+v", st)
+	}
+}
+
+// TestDetectApplierArgoWithoutFluxCRDs: an Argo CD Stage never lists the
+// Kustomizations, so a cluster without Flux reads its values.
+func TestDetectApplierArgoWithoutFluxCRDs(t *testing.T) {
+	e := newEnv(t, argoDeployment("payments", 2, 2), pactoObj("payments", "payments", c1, "Compliant", 2),
+		argoValuesApp(map[string]any{"valueFiles": []any{"values-production.yaml"}}))
+	noKs := func(_ context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
+		if kindOf(list) == "Kustomization" {
+			t.Fatal("an Argo CD Stage listed the Kustomizations")
+		}
+		return c.List(context.Background(), list, opts...)
+	}
+	e.st.Cluster.Client = interceptor.NewClient(e.c, interceptor.Funcs{List: noKs})
+	e.st.Cluster.Cache = interceptor.NewClient(e.c, interceptor.Funcs{List: noKs})
+	st := e.detect(productionStage(argoStage(dA)))
+	wantApplier(t, st, delivery.ApplierAdopted, "argocd", "complete", "applies Deployment payments")
+	if st.Values != "values-production.yaml" {
+		t.Fatalf("values: %+v", st)
+	}
+}

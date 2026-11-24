@@ -175,7 +175,8 @@ func printApplier(out io.Writer, rows []delivery.StageRow, now time.Time) {
 	}
 }
 
-// applierText is the manager and, when the Stage does not adopt it, why.
+// applierText is the manager, when the Stage does not adopt it why, and the
+// values file or overlay it selects.
 func applierText(a *delivery.ApplierStatus) string {
 	if a == nil {
 		return "not reported (the promoter predates applier detection)"
@@ -183,6 +184,9 @@ func applierText(a *delivery.ApplierStatus) string {
 	s := cmp.Or(a.Display, a.Manager, "not known")
 	if a.State == delivery.ApplierConflict || a.State == delivery.ApplierUnknown {
 		s += ", " + strings.ToLower(a.State) + ": " + a.Message
+	}
+	if a.Values != "" {
+		s += ", values " + a.Values
 	}
 	return s
 }

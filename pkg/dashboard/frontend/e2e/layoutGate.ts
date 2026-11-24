@@ -773,7 +773,7 @@ export function installScaleFixture(): void {
         r.applier = { manager: state === 'Unknown' ? 'unsupported' : 'argocd', owner: longName(`Application ${String(r.namespace)}/${String(r.service)}`),
           evidence: 'tracking annotation', display: longName(`Argo CD (Application ${String(r.service)}, tracking annotation)`), state,
           message: state === 'Adopted' ? '' : longName(`${state} manager owns Deployment ${String(r.service)}`), completeness: 'complete',
-          asOf: state === 'Unknown' ? '2026-11-08T08:00:00Z' : fresh };
+          asOf: state === 'Unknown' ? '2026-11-08T08:00:00Z' : fresh, values: `overlays/${longName('production-eu-west')}` };
         if (q.get('service') && longName(String(r.service)) === q.get('service')) r.service = q.get('service');
         if (flags.__pactoLongPropose) {
           for (const k of ['namespace', 'stage', 'candidateVersion']) if (typeof r[k] === 'string' && r[k]) r[k] = longName(r[k] as string);
@@ -2081,8 +2081,12 @@ export function installScaleFixture(): void {
     if (declared) clusterFacts(doc);
     if (flags.__pactoInspected && method === 'POST' && route === '/api/delivery/plan' && Array.isArray(doc.verdicts)) {
       const refused = [`ClusterRoleBinding ${longName('orders-admin')} is cluster-scoped`, `Deployment ${longName('orders')} is in ${longName('kube-system')}, outside prod`];
-      doc.verdicts.push({ gate: 'pacto.manifests', phase: 'pre', result: 'Fail', message: `the version reaches outside prod: ${refused.join('; ')}`,
-        citation: { artifact: 'manifests', objects: `${Array.from({ length: 50 }, (_, i) => `Deployment ${longName(`orders-${i}`)}`).join(', ')} and 12 more`, refused: refused.join('; ') } });
+      // The fixture's verdict stands in for the demo's own (an inspected Stage plans one).
+      const verdicts = (doc.verdicts as Record<string, unknown>[]).filter((v) => v.gate !== 'pacto.manifests');
+      doc.verdicts = verdicts;
+      verdicts.push({ gate: 'pacto.manifests', phase: 'pre', result: 'Fail', message: `the version reaches outside prod: ${refused.join('; ')}`,
+        citation: { artifact: 'manifests', objects: `${Array.from({ length: 50 }, (_, i) => `Deployment ${longName(`orders-${i}`)}`).join(', ')} and 12 more`, refused: refused.join('; '),
+          valuesFile: `${longName('values-production-eu-west')}/values_production_eu_west_1_settlement_reconciliation_ledger_export_partner_feed.yaml`, valuesDigest: 'sha256:' + 'e'.repeat(64) } });
     }
     if (flags.__pactoMultiCluster && method === 'GET' && route === '/api/fleet/entities' && doc.meta) {
       const n63 = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
@@ -3300,6 +3304,32 @@ export const ROUTES: Route[] = [
   },
   { name: 'delivery environments', list: true, hash: '#/delivery/environments' },
   { name: 'delivery environments of one service', hash: '#/delivery/environments?service=payments' },
+  {
+    // A warning applier line clamps to two lines; tabbing into its values mark lifts the
+    // clamp, and neither the mark nor its tip is clipped.
+    name: 'delivery environments, a warning applier keeps its values mark reachable',
+    open: async (page) => {
+      await page.goto('/#/delivery/environments?service=payments');
+      const line = page.locator('.ev-ready[data-testid="env-applier"]').first();
+      await expect(line).toBeVisible({ timeout: 30_000 });
+      await line.focus();
+      await page.keyboard.press('Tab');
+      const button = line.getByRole('button');
+      await expect(button).toBeFocused();
+      const tip = line.locator('.help-body');
+      await expect(tip).toBeVisible({ timeout: 30_000 });
+      for (const el of [button, tip]) {
+        expect(await el.evaluate((e) => {
+          e.scrollIntoView({ block: 'nearest' });
+          const r = e.getBoundingClientRect();
+          const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return !!at && (at === e || e.contains(at));
+        }), 'the values mark and its tip are not clipped').toBe(true);
+      }
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   { name: 'delivery history', list: true, hash: '#/delivery/history' },
   { name: 'delivery stage history', hash: '#/delivery/history?namespace=prod&stage=payments' },
   {
@@ -3517,6 +3547,20 @@ export const ROUTES: Route[] = [
       const verdict = panel.getByTestId('plan-verdicts').locator('li.vl-item').filter({ hasText: 'pacto.manifests' });
       await verdict.locator('summary').click();
       await expect(verdict.locator('.vl-cite dt', { hasText: 'objects' })).toBeVisible({ timeout: 30_000 });
+      // The values line wraps a path with no hyphen or space by its own style, wherever it
+      // renders (DeliveryChangeView's checks have no wrapping ancestor): a copy in a phone-wide
+      // box that wraps nothing stays inside it.
+      const values = verdict.getByTestId('verdict-values');
+      await expect(values).toBeVisible();
+      expect(await values.evaluate((e) => {
+        const box = document.createElement('div');
+        box.style.cssText = 'width: 300px; overflow-wrap: normal; word-break: normal';
+        box.append(e.cloneNode(true));
+        document.body.append(box);
+        const fits = box.scrollWidth <= 301;
+        box.remove();
+        return fits;
+      }), 'the values line wraps').toBe(true);
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },

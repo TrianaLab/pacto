@@ -1,0 +1,23 @@
+# A consumer of the tiered postgresql offering outside the published demo
+# bundles. Its environment files break each of the offering's rules, so
+# pacto validate refuses them with the four stable parameter codes.
+pactoVersion: "2.5"
+service:
+  name: orders-db-demo
+  version: 0.1.0
+  owner:
+    team: orders
+configurations:
+  - name: database
+    ref: oci://registry.example/platform/postgresql:16.2.0
+    configuration: provisioning
+    required: true
+    values:
+      class: small
+      storageGB: 20
+environments:
+  - name: staging
+    file: environments/staging.yaml
+  - name: production
+    file: environments/production.yaml
+workload: service

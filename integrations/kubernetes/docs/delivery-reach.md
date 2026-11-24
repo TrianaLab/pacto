@@ -136,9 +136,12 @@ The Application must:
   `sourceNamespaces`. An Application of the same name in the Argo CD
   namespace is a different object, so its workloads read `Conflict`.
 - have one OCI source (`spec.source.repoURL: oci://…`), not `spec.sources`, and
-  set no Kustomize images, patches or components, Helm parameters, values or
-  value files, or plugin. Otherwise the Stage's `Mediated` condition is
-  `False`: something besides the digest decides what runs.
+  set no Kustomize images, patches or components, Helm parameters or values,
+  or plugin. Its only value file may be `values-<environment>.yaml` for the
+  Stage's `spec.environment`; see
+  [Values per environment](delivery-environments.md#values-per-environment).
+  Otherwise the Stage's `Mediated` condition is `False`: something besides
+  the digest decides what runs.
 - sync on its own (`syncPolicy.automated`), because the promoter never runs a sync.
 - carry the `delivery.pacto.trianalab.io/apply-ref` label, set to the Stage's
   name. Without it the Stage has `Ready` `False` with the reason

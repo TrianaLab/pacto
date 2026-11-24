@@ -17,4 +17,22 @@ describe('VerdictList', () => {
     unmount(c);
     target.remove();
   });
+
+  it('TestVerdictListValuesLine: says which values file of this version a pacto.manifests verdict applies', () => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const digest = 'sha256:' + '5'.repeat(64);
+    const c = mount(VerdictList, { target, props: { verdicts: [{ gate: 'pacto.manifests', phase: 'pre', result: 'Pass', message: 'the objects stay in production',
+      citation: { artifact: 'chart', valuesFile: 'values-production.yaml', valuesDigest: digest } }, { gate: 'pacto.diff', phase: 'pre', result: 'Pass', citation: { valuesFile: 'x.yaml' } }] } });
+    const lines = target.querySelectorAll('[data-testid="verdict-values"]');
+    expect(lines).toHaveLength(1);
+    expect(lines[0].textContent?.replace(/\s+/g, ' ')).toContain('Applies values-production.yaml from this version, digest ');
+    expect(lines[0].querySelector('bdi')?.getAttribute('title')).toBe('values-production.yaml');
+    expect(lines[0].querySelector('button.dt-id')?.getAttribute('title')).toBe(`${digest} (click to copy)`);
+    // The line says them, so the proof does not repeat them.
+    const proof = [...target.querySelectorAll('.vl-cite dt')].map((dt) => dt.textContent);
+    expect(proof).toEqual(['artifact']);
+    unmount(c);
+    target.remove();
+  });
 });

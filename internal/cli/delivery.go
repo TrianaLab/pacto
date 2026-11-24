@@ -291,6 +291,7 @@ func printPlan(w io.Writer, p delivery.PlanAnswer) {
 	_, _ = fmt.Fprintf(w, "change:    %s %s -> %s\n", p.Type, orNone([]string{p.From}), orNone([]string{p.To}))
 	_, _ = fmt.Fprintf(w, "predicted: %s\n", p.Predicted)
 	printPlanApplier(w, p)
+	printPlanValues(w, p)
 	for _, v := range p.Verdicts {
 		printVerdict(w, "  ", v)
 	}
@@ -331,6 +332,33 @@ func printPlanApplier(w io.Writer, p delivery.PlanAnswer) {
 		observed += ", " + c["state"]
 	}
 	_, _ = fmt.Fprintf(w, "applier:   %s; declared %s\n", observed, c["declared"])
+}
+
+// printPlanValues names, from the pacto.manifests citation, the values file
+// or overlay the applier applies, read from the digest the promote ships;
+// the upstream Stage that verified that digest, from a passing
+// pacto.published; and, from pacto.environment, the contract environment
+// file holding the same values. Nothing when the inspector read none.
+func printPlanValues(w io.Writer, p delivery.PlanAnswer) {
+	citation := func(gate string) map[string]string {
+		if i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == gate }); i >= 0 {
+			return p.Verdicts[i].Citation
+		}
+		return nil
+	}
+	m := citation(delivery.GateManifests)
+	if m["valuesFile"] == "" {
+		return
+	}
+	line := strings.TrimSpace(m["valuesFile"]+" "+shortDigest(m["valuesDigest"])) + " in " + shortDigest(p.To)
+	if i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GatePublished }); i >= 0 &&
+		p.Verdicts[i].Result == delivery.Pass && p.Verdicts[i].Citation["upstream"] != "" {
+		line += " (the digest " + p.Verdicts[i].Citation["upstream"] + " verified)"
+	}
+	if f := citation(delivery.GateEnvironment)["checkedValues"]; f != "" {
+		line += "; Pacto checks the same values as " + f
+	}
+	_, _ = fmt.Fprintf(w, "values:    %s\n", line)
 }
 
 // printPlanManifests lists, from the pacto.manifests citation, the objects

@@ -250,10 +250,12 @@ Flux Kustomization applies the apply `OCIRepository`, both carry the
 cluster-admin in a default install, and the levels judge only the contract;
 in IDP mode Pacto creates a namespaced deployer account for each service. On
 Argo CD it is `True` when the Application carries the label, has one source and sets no
-Kustomize images, patches or components, Helm parameters, values or value
-files, or plugin. Otherwise it is `False` and the reason
+Kustomize images, patches or components, Helm parameters or values, plugin or
+value file other than the Stage's [own](delivery-environments.md#values-per-environment).
+Otherwise it is `False` and the reason
 (`ApplyRefUnguarded`, `NoApplier`, `SeveralAppliers`, `ApplierUnguarded`,
-`ApplierUnscoped`, `ApplierOverrides`, `SeveralSources`) names what else decides what runs.
+`ApplierUnscoped`, `ApplierOverrides`, `SeveralSources`, `OtherEnvironmentValues`)
+names what else decides what runs.
 
 ### What only break-glass may change
 

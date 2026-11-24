@@ -513,7 +513,7 @@ func (r *StageReconciler) readyConds(ctx context.Context, stage *dv1.Stage, want
 	}
 	conds := []delivery.Condition{}
 	if a != nil {
-		med, err := r.Cluster.mediated(ctx, stage.Namespace, a)
+		med, err := r.Cluster.mediated(ctx, stage.Namespace, stage.Spec.Environment, a)
 		if err != nil {
 			return nil, err
 		}

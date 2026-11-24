@@ -38,7 +38,13 @@ type Stage struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitzero"`
+	// Spec is one service in one environment. Its environment must be a DNS
+	// label when the Stage is created and is fixed afterwards; a Stage created
+	// before that rule keeps its environment. The rules sit on the Stage, never
+	// on StageSpec, which an Operation's status.policy also copies.
 	// +required
+	// +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || self.environment.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')",optionalOldSelf=true,fieldPath=".environment",reason="FieldValueInvalid",message="environment must be a DNS label, such as production"
+	// +kubebuilder:validation:XValidation:rule="self.environment == oldSelf.environment",fieldPath=".environment",message="environment is fixed at creation; create a new Stage"
 	Spec delivery.StageSpec `json:"spec"`
 	// +optional
 	Status delivery.StageStatus `json:"status,omitzero"`

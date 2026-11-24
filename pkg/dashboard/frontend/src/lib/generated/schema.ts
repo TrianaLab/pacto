@@ -2006,6 +2006,8 @@ export interface components {
              * @enum {string}
              */
             state: "Adopted" | "Unmanaged" | "Conflict" | "Unknown";
+            /** @description The values file or Kustomize overlay the applier selects, as observed on the applyRef object, such as values-production.yaml or overlays/production; the Mediated condition says whether Pacto accepts it; empty when it selects none */
+            values?: string;
             /** @description The workloads checked, such as Deployment payments */
             workloads?: string[] | null;
         };

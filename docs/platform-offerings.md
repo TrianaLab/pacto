@@ -19,8 +19,8 @@ those operators report different offerings, the service has none and the graph
 raises an `OFFERING_CONFLICT` limitation. Different summaries leave the summary
 empty with no limitation.
 
-Each distinct offering is an `offering` entity. The `offering` filter keeps the
-services that provide it. Only a query for the `offering` kind returns them.
+Each distinct offering is an `offering` entity, returned only by a query for
+the `offering` kind. The `offering` filter keeps the services that provide it.
 
 An offering's detail lists its providers and its consumers:
 
@@ -70,9 +70,9 @@ The `lifecycle` filter (`deprecated` or `sunset`) and the `failed` filter
 narrow the list; `--sort failed` (the most consumers with a failed request
 first) and `--sort consumers` order it. The
 aggregate tallies every matched offering's provisioning statuses by phase in
-`offeringPhases` and `offeringPhaseConsumers`, and names the three offerings
-with the most failures in `failedByOffering`, where `services` counts the
-consumers whose request failed. The dashboard draws it as the phase track.
+`offeringPhases` and `offeringPhaseConsumers`, the dashboard's phase track, and
+names the three offerings with the most failures in `failedByOffering`, where
+`services` counts the consumers whose request failed.
 Its **Inferred offerings** checkbox switches the list to the
 [inferred offerings](inferred-offerings.md).
 
@@ -119,7 +119,7 @@ carries `OFFERING_USES_UNRESOLVED` and is `partial`.
 ## Consume snippet
 
 Each provider carries a consume snippet to add to a contract, built from its
-newest readable revision, the one the offering page shows as current:
+newest readable revision:
 
 - a `dependencies` entry when the provider declares a workload or an interface,
   with `compatibility` set to the widest caret range that admits the newest
@@ -247,3 +247,10 @@ Adapters are `observed`, from visible consumers' reports only.
 A restricted view counts the providers and consumers the viewer cannot see,
 here and in the offerings you may consume, and never names them; see
 [Under a restricted view](offering-availability.md#under-a-restricted-view).
+
+## Environment values
+
+Under a tiered offering schema (`x-pacto-tier`), a consumer's environment
+files may change only `tunable` fields;
+[Offering parameters](contract-reference/environments.md#offering-parameters)
+lists the refusal codes.
