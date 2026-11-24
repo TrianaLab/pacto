@@ -23,6 +23,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/schemax"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -153,6 +154,31 @@ func TestMapperDropsKubernetesKeywords(t *testing.T) {
 	}
 	if !bytes.Contains(o.Files[ObjectFile], []byte("self == oldSelf")) {
 		t.Error("the source object lost the XRD spec it was read from")
+	}
+}
+
+// An immutable field (self == oldSelf) is contract: it cannot change after
+// creation, so never per environment.
+func TestMapperImmutableIsContract(t *testing.T) {
+	if tier := prop(params(t, mapped(t, "xrd-v1.yaml")), "region")[schemax.TierKeyword]; tier != schemax.TierContract {
+		t.Errorf("region tier = %v", tier)
+	}
+}
+
+// Every other field, nested ones and the class included, is written contract
+// (#452 D2): tunable is a person's choice in the declared offering.
+func TestMapperUntieredIsContract(t *testing.T) {
+	p := params(t, mapped(t, "xrd-v1.yaml"))
+	for _, path := range [][]string{{"storageGB"}, {"lifecycle"}, {"lifecycle", "days"}, {"class"}} {
+		if tier, declared := schemax.TierAt(p, path); tier != schemax.TierContract || !declared {
+			t.Errorf("%v: tier %q declared %v", path, tier, declared)
+		}
+	}
+	if tier := prop(p, "rules")["items"].(map[string]any)["properties"].(map[string]any)["prefix"].(map[string]any)[schemax.TierKeyword]; tier != schemax.TierContract {
+		t.Errorf("rules[].prefix tier = %v", tier)
+	}
+	if _, rooted := p[schemax.TierKeyword]; rooted {
+		t.Error("the schema root carries a tier")
 	}
 }
 

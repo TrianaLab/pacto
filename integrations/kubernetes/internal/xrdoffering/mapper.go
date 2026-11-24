@@ -98,7 +98,7 @@ func Map(xrd *unstructured.Unstructured, compositions []unstructured.Unstructure
 		}
 		// ponytail: an XRD that declares its own class field has it replaced;
 		// the class is how a Composition is selected.
-		props["class"] = map[string]any{"type": "string", "enum": names}
+		props["class"] = map[string]any{"type": "string", "enum": names, schemax.TierKeyword: schemax.TierContract}
 		req, _ := params["required"].([]any)
 		if !slices.Contains(req, any("class")) {
 			params["required"] = append(req, "class")
@@ -146,16 +146,22 @@ func pickVersion(xrd *unstructured.Unstructured) (map[string]any, error) {
 // mapSchema is a closed copy of the XRD's spec schema: every x-kubernetes-*
 // keyword is dropped once read (provider hints stay out of the contract), a
 // node that preserves unknown fields keeps no type, so acceptance names it
-// open, and every typed object is closed.
-//
-// ponytail: x-pacto-tier is not written yet; untiered reads as contract, the
-// tier every mapped field gets. The keyword lands with the shared tier reader.
+// open, every typed object is closed and every property is written
+// schemax.TierContract. An immutable field (self == oldSelf) is contract, and
+// so is every other one (#452 D2): tunable is a person's choice in the
+// declared offering, never the mapper's.
 func mapSchema(spec any) map[string]any {
 	params, _ := runtime.DeepCopyJSONValue(spec).(map[string]any)
 	if params == nil {
 		params = map[string]any{"type": "object"}
 	}
 	schemax.Walk(params, func(m map[string]any) {
+		props, _ := m["properties"].(map[string]any)
+		for _, p := range props {
+			if p, ok := p.(map[string]any); ok {
+				p[schemax.TierKeyword] = schemax.TierContract
+			}
+		}
 		if keep, _ := m["x-kubernetes-preserve-unknown-fields"].(bool); keep {
 			delete(m, "type")
 		}
