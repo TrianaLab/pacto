@@ -54,6 +54,8 @@ being named. `unreadable` names a namespace that refused the list, and without
 `--fleet` the inbox names `owners` there, since no owner is known and every
 Stage is shown as the caller's.
 
+### Delivery in other clusters
+
 When the server reads more than one kubeconfig context, the inbox and
 environments answers read every one of those clusters the caller may see.
 Each item carries its `cluster`, `listing.clusters` says how completely each
