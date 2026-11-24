@@ -95,7 +95,8 @@ Two paths lead into a contract, both through `pacto claim --offering` or the
 External page: join an offering that already has providers, or propose a new
 one. The claim records the offering as intent in
 `run.pacto.external.offering`, never as `service.offering`, and joining an
-offering another team provides writes a `draft-<n>` that team accepts. The
+offering another team provides, or one whose providers were not all read,
+writes a `draft-<n>` a member of that team accepts. The
 resource stays outside contract until the offering's adapter reports it.
 
 ## Contract completeness

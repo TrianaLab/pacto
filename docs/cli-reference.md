@@ -368,8 +368,8 @@ run.pacto.external.offering, never as service.offering, so the claim never
 lists the system as a provider of the offering. The plan says how many
 providers the offering has and who owns them, read from the offerings
 published under --registry; joining an offering another team provides writes
-a draft-&lt;n&gt; that a person of that team accepts with --from-draft. A claim
-changes no managed resource: it stays outside contract until a provisioning
+a draft-&lt;n&gt; that a person of that team accepts with --from-draft, and so
+does one whose providers were not all read. A claim changes no managed resource: it stays outside contract until a provisioning
 record from the offering's provider names it.
 
 ```
