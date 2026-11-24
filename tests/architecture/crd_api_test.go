@@ -285,8 +285,11 @@ var v1alpha1Allowed = map[string]string{
 	"integrations/kubernetes/charts/pacto-operator/tests/golden/":     "the default render carries the CRDs (deprecationWarning)",
 	"tests/architecture/testdata/crd-v1-drift/":                       "drift fixtures for compareVersions carry the deprecationWarning",
 	"integrations/kubernetes/internal/storagemigrate/migrate_test.go": "the storage hash discovery reports while a CRD still stores the deprecated version",
-	"MIGRATION.md":                          "release history",
-	"release/units/k8s-module/CHANGELOG.md": "release history",
+	"internal/cli/delivery_test.go":                                   "the CLI delivery clients fall back to a cluster that still serves only the deprecated version",
+	"internal/cli/dashboard_delivery_test.go":                         "the dashboard resolves each group on a cluster that still serves only the deprecated version",
+	"internal/cli/dashboard_shared_test.go":                           "the shared informers list and watch at the deprecated version when that is all the cluster serves",
+	"MIGRATION.md":                                                    "release history",
+	"release/units/k8s-module/CHANGELOG.md":                           "release history",
 }
 
 // TestNothingAddressesV1alpha1: no tracked file creates, reads or documents
