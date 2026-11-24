@@ -244,7 +244,7 @@ func TestUpstreamNotHostedGetsNoStage(t *testing.T) {
 	pe := twoRungs(t, nil)
 	pe.r.ClusterName = "eu-prod"
 	pe.pass(t)
-	if r := rowOf(t, pe.rows(t), "payments", "production"); r.Stage != "" || !strings.HasPrefix(r.Reason, "upstream staging is not in this cluster") {
+	if r := rowOf(t, pe.rows(t), "payments", "production"); r.Stage != "" || r.Reason != noPeer {
 		t.Fatalf("production %+v", r)
 	}
 	if err := pe.c.Get(t.Context(), client.ObjectKey{Namespace: "payments-production", Name: "payments-production"}, &dv1.Stage{}); err == nil {

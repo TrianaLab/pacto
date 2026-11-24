@@ -1334,27 +1334,28 @@ func (d *demoDelivery) Describe(_ context.Context, st *delivery.StageObject, dig
 	return r
 }
 
-// PublishRefusals is the one refused publish of the story (B4) and one
-// refused promote. payments 2.4.3 removes a field, so the version rule asks
+// PublishRefusals is the one refused publish of the story (B4), one
+// refused promote and one member's rejected promote (demoMemberRefusal). payments 2.4.3 removes a field, so the version rule asks
 // for a major; the classification is pkg/diff over the two story contracts,
 // and nothing here signed or checked that refusal. The refused promote shows
 // the row a cluster lists for a version the manifest inspector refused: it is
 // simulated, so it names no record (the tab keeps none for it) and says it is
-// not verified. Both are fixed data.
+// not verified. All three are fixed data.
 func (d *demoDelivery) PublishRefusals(context.Context, string) (*dashboard.PublishRefusals, error) {
 	base, _ := story.Bundle("payments", "2.4.2")
 	tried, _ := story.Bundle("payments", "2.4.3")
 	c := diff.Compare(context.Background(), base.Contract, tried.Contract, base.FS, tried.FS).Classification
 	bump := diff.RequiredBump(c, "2.4.2")
 	return &dashboard.PublishRefusals{Completeness: "complete",
-		Note: "Simulated: one fixed refused publish and one fixed refused promote from the payments story; a cluster reads refused publishes and promotes from each service's contract bundle repository and delivery record stream. " +
-			"The bump is computed by Pacto's diff; nothing here signed or checked the refused publish, and the refused promote is simulated with no record kept here.",
+		Note: "Simulated: one fixed refused publish, one fixed refused promote and one fixed promote a member rejected, from the payments story; a cluster reads refused publishes and promotes from each service's contract bundle repository and delivery record stream, and a hub reads what its members refused from their request streams. " +
+			"The bump is computed by Pacto's diff; nothing here signed or checked the refused publish or the member's answer, and the refused promote is simulated with no record kept here.",
 		Refusals: []dashboard.PublishRefusal{{Service: "payments", Version: "2.4.3", Check: "version", Baseline: "2.4.2",
 			RequiredBump: string(bump), Actor: story.PayAgent.User, At: stamp(d.now().Add(-3 * time.Hour)), Verified: false,
 			Reason: fmt.Sprintf("the change is %s, so it needs a %s bump from 2.4.2", c, bump)},
 			{Service: "pay-agent", Version: "1.1.0", Check: "manifests", Namespace: story.Prod, Stage: "pay-agent",
 				Digest: story.ArtifactDigest("pay-agent", "1.1.0"), At: stamp(d.now().Add(-2 * time.Hour)),
-				Reason: "the manifest inspector refuses what the version applies: ClusterRoleBinding pay-agent-admin is cluster-scoped"}}}, nil
+				Reason: "the manifest inspector refuses what the version applies: ClusterRoleBinding pay-agent-admin is cluster-scoped"},
+			demoMemberRefusal()}}, nil
 }
 
 // wire serves d from opts: the delivery views and the simulated signed-in
@@ -1447,6 +1448,11 @@ const demoLeaf = "preview"
 // of a delivered service runs. checkout's preview environment is refused,
 // and fraud's runs where Helm owns it, so Pacto adds no applier there.
 // Everyone here may read every row.
+// Members are the hub's member plans of service (source_clusters.go).
+func (d *demoDelivery) Members(_ context.Context, service string, envs []string) []delivery.MemberPlan {
+	return demoMemberPlans(service, envs)
+}
+
 func (d *demoDelivery) Environments(context.Context) (*delivery.EnvironmentsView, []delivery.PlacementRow, bool, error) {
 	now := d.now()
 	declared := []delivery.LadderRung{

@@ -46,7 +46,6 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/runstats"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
-	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
@@ -150,6 +149,10 @@ func runPromoter(args []string) error {
 			core.EnvironmentsConfigMap+" of the promoter's namespace.")
 	ladder := fs.String("environment-ladder", "staging,production",
 		"The installation ladder, comma-separated in promotion order: each rung takes what the one before verified.")
+	targetsRepo := fs.String("targets-repository", "",
+		"The members' target snapshot repository (<registry>/pacto-targets). A rung whose upstream rung runs on "+
+			"another member follows that member's Stage stream once this cluster's own approvers vouch for it. "+
+			"Empty follows none.")
 	ladderRepo := fs.String("ladder-repository", "",
 		"The approvals repository (host/path) people push signed installation ladder confirmations to. "+
 			"Empty reads none, so only the declared installation ladder holds.")
@@ -170,8 +173,8 @@ func runPromoter(args []string) error {
 	zopts.BindFlags(fs)
 	_ = fs.Parse(args)
 	ctrl.SetLogger(zap.New(zap.UseFlagOptions(&zopts)))
-	if *createAppliers && *deployerRole == "" {
-		return errors.New("--environment-create-appliers needs --environment-deployer-role")
+	if err := checkAppliers(*createAppliers, *deployerRole); err != nil {
+		return err
 	}
 
 	mgr, err := newManager(*metricsAddr, *probeAddr, *leaderElect, "pacto-delivery-promoter", float32(*qps), *burst)
@@ -190,11 +193,7 @@ func runPromoter(args []string) error {
 	clusterID := ident.ID
 	scope, keychain := writerScope(*registry, *statsRepository)
 	insecure := oci.EnvInsecureRegistries()
-	providers, err := core.ParseProviders(*gateProviders)
-	if err != nil {
-		return err
-	}
-	configured, err := core.NewGates(providers, &http.Client{Timeout: 30 * time.Second}, signing.OpenKey)
+	configured, err := configuredGates(*gateProviders)
 	if err != nil {
 		return err
 	}
@@ -202,22 +201,17 @@ func runPromoter(args []string) error {
 	if err != nil {
 		return err
 	}
-	// Discovery is cached for the life of the process; Infra invalidates it
-	// once on a kind it does not list, so a Crossplane kind served after
-	// start is read, and one still missing reads Unknown, never Pass.
-	dc, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
-	if err != nil {
-		return err
-	}
 	cluster := delivery.Cluster{Client: mgr.GetClient(), Cache: mgr.GetCache(), CacheApplications: *argocd,
-		NoFlux: !*flux, FluxHelm: *fluxHelm, Managers: managers, Infra: kubecluster.Infra(memory.NewMemCacheClient(dc)),
+		NoFlux: !*flux, FluxHelm: *fluxHelm, Managers: managers,
 		Registry: func(hosts ...string) core.Registry {
 			return oci.NewClient(keychain, oci.WithInsecureRegistries(slices.Concat(insecure, hosts)...))
 		}}
-	if *upstreamTrust != "" {
-		if cluster.Upstream, err = upstreamReader(*upstreamTrust, keychain); err != nil {
-			return err
-		}
+	if cluster.Infra, err = infra(mgr); err != nil {
+		return err
+	}
+	peers, err := followUpstream(&cluster, mgr, *targetsRepo, *upstreamTrust, clusterID, policy, keychain, insecure)
+	if err != nil {
+		return err
 	}
 	pubs, err := publishers(*pubRegistry, *pubBranch, *pubRoot, keychain, insecure, *resync)
 	if err != nil {
@@ -238,14 +232,11 @@ func runPromoter(args []string) error {
 		Ladder: delivery.SplitList(*ladder), Off: !*environments, Now: time.Now,
 		Resync: *resync, Policy: policy, LadderRepository: *ladderRepo,
 		RecordOptions: recordOpts, Registry: *registry, Cluster: cluster,
-		Accepted: pubs.NewestAccepted, Placement: pubs.VerifiedPlacement,
+		Accepted: pubs.NewestAccepted, Placement: pubs.VerifiedPlacement, Peers: peers,
 		CreateAppliers: *createAppliers, DeployerRole: *deployerRole, CreateNamespaces: *createNamespaces,
-		RetireAfter: *retireAfter,
+		RetireAfter: *retireAfter, CDEvents: cdevents(*sink, clusterID),
 		//nolint:staticcheck // TODO: migrate to mgr.GetEventRecorder(), as cmd/main.go
 		Events: mgr.GetEventRecorderFor("pacto-delivery")}
-	if *sink != "" {
-		envs.CDEvents = &delivery.Events{Sink: *sink, Source: "/pacto-delivery/" + clusterID}
-	}
 	if err := envs.SetupWithManager(mgr); err != nil {
 		return err
 	}
@@ -270,6 +261,66 @@ func runPromoter(args []string) error {
 		return err
 	}
 	return startPromoter(mgr, user)
+}
+
+// checkAppliers refuses --environment-create-appliers without
+// --environment-deployer-role.
+func checkAppliers(create bool, role string) error {
+	if create && role == "" {
+		return errors.New("--environment-create-appliers needs --environment-deployer-role")
+	}
+	return nil
+}
+
+// configuredGates are the health gate providers of the JSON in raw.
+func configuredGates(raw string) (map[string]core.Gate, error) {
+	providers, err := core.ParseProviders(raw)
+	if err != nil {
+		return nil, err
+	}
+	return core.NewGates(providers, &http.Client{Timeout: 30 * time.Second}, signing.OpenKey)
+}
+
+// infra reads the cluster's infrastructure objects. Discovery is cached for
+// the life of the process; Infra invalidates it once on a kind it does not
+// list, so a Crossplane kind served after start is read, and one still
+// missing reads Unknown, never Pass.
+func infra(mgr manager.Manager) (core.InfraFunc, error) {
+	dc, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
+	if err != nil {
+		return nil, err
+	}
+	return kubecluster.Infra(memory.NewMemCacheClient(dc)), nil
+}
+
+// followUpstream sets c.Upstream to read other clusters' Stage streams under
+// the trust config in trustFile and, with a targets repository, the recorder
+// keys of the members this cluster's approvers vouch for; the Peers that
+// vouch, nil without a targets repository.
+func followUpstream(c *delivery.Cluster, mgr manager.Manager, targets, trustFile, clusterID string,
+	policy core.ClassPolicy, keychain authn.Keychain, insecure []string) (*delivery.Peers, error) {
+	var peers *delivery.Peers
+	var memberKey func(string) *core.TrustedKey
+	readOpts := readOnlyOptions(keychain, insecure)
+	if targets != "" {
+		peers = &delivery.Peers{Client: mgr.GetClient(), Targets: targets, Options: readOpts,
+			ClusterID: clusterID, Policy: policy, Now: time.Now}
+		memberKey = peers.Key
+	}
+	static, err := upstreamTrustConfig(trustFile)
+	if err != nil {
+		return nil, err
+	}
+	c.Upstream, err = delivery.UpstreamReader(static, memberKey, readOpts)
+	return peers, err
+}
+
+// cdevents posts environment CDEvents to sink, nil when sink is empty.
+func cdevents(sink, clusterID string) *delivery.Events {
+	if sink == "" {
+		return nil
+	}
+	return &delivery.Events{Sink: sink, Source: "/pacto-delivery/" + clusterID}
 }
 
 // startPromoter adds the promoter's health checks and runs the manager.
@@ -556,35 +607,22 @@ func trustSources(p *delivery.Publishers, policy core.ClassPolicy, opts ocirefer
 	return nil
 }
 
-// upstreamReader reads what a Stage in another cluster verified from its
-// signed records, verified against the trust config in file, under a timeout.
-func upstreamReader(file string, keychain authn.Keychain) (
-	func(context.Context, core.RemoteStage, core.RecordMark, []string) (*core.StageStatus, string), error,
-) {
+// readOnlyOptions are the options of the promoter's opens that only read:
+// other clusters' records, join records and snapshots.
+func readOnlyOptions(kc authn.Keychain, insecure []string) ocireferrer.Options {
+	return ocireferrer.Options{Keychain: kc, Insecure: insecure}
+}
+
+// upstreamTrustConfig is the trust config (YAML) in file of other clusters'
+// recorder keys, nil when file is empty.
+func upstreamTrustConfig(file string) (*core.TrustConfig, error) {
+	if file == "" {
+		return nil, nil
+	}
 	raw, err := os.ReadFile(file)
 	if err != nil {
 		return nil, err
 	}
 	trust, err := core.ParseTrust(raw)
-	if err != nil {
-		return nil, err
-	}
-	verify, err := signing.TrustVerifier(trust)
-	if err != nil {
-		return nil, err
-	}
-	insecure := oci.EnvInsecureRegistries()
-	opts := ocireferrer.Options{Keychain: keychain, Insecure: insecure}
-	// One Reader for the process: every record it verified is fetched once.
-	reader := &deliveryrecord.Reader{Verify: verify}
-	return func(ctx context.Context, r core.RemoteStage, seen core.RecordMark,
-		acked []string) (*core.StageStatus, string) {
-		repo, err := ocireferrer.Open(r.Repository, opts)
-		if err != nil {
-			return nil, err.Error()
-		}
-		ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		defer cancel()
-		return reader.Upstream(ctx, repo, r.Stream, seen, acked)
-	}, nil
+	return &trust, err
 }

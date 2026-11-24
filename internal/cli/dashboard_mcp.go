@@ -102,6 +102,7 @@ func newDashboardMCP(v *viper.Viper, svc *app.Service, version string, repos []s
 	rm.delivery = deliveryClientsFor(id.trust, id.policyNS, d)
 	rm.reads = mcpDeliveryReads(id, rm.modes.Fleet, deliveryNarrowing(splitNamespaces(v.GetString("dashboard.namespace"))))
 	rm.installed, rm.installedAt = id.installedProbe(), id.installedAt()
+	rm.id = id
 	// ponytail: only a bundle can fail to register, and the dashboard serves
 	// none; check the error here once a mode that can fail is added.
 	mw, _ := rm.middleware()

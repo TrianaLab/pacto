@@ -9,7 +9,7 @@
   import { formatCount, countOf } from '../lib/format.ts';
   import Pager from '../components/Pager.svelte';
   import ListFilter from '../components/ListFilter.svelte';
-  import { shortDigest, sentence, timeLabel, lifecycleWords } from '../lib/delivery.ts';
+  import { shortDigest, sentence, timeLabel, lifecycleWords, memberRefusalLine } from '../lib/delivery.ts';
   import { publisherSourceLabel } from '../lib/publisherSource.ts';
   import ProvenanceMark from '../components/ProvenanceMark.svelte';
   import PageHeader from '../components/PageHeader.svelte';
@@ -57,7 +57,8 @@
 
   // Publishes and promotes Pacto refused, for whoever supervises: the check
   // that refused each, for the version rule the bump the change needs and,
-  // for a refused promote, its Stage and operation record. Its own read,
+  // for a refused promote, its Stage and operation record, and for a member's
+  // refusal, the member (514-S6). Its own read,
   // so a cluster that keeps no record of them never hides the versions.
   const refusalsLoader = createProductLoader(() => api.deliveryRefusals());
   $effect(() => { refusalsLoader.sync(String(refreshTick)); });
@@ -123,7 +124,7 @@
     paging={answer.paging}
   >
     {#if lead}<DeliveryLead head={lead.head} rest={lead.rest} tipLabel="Published versions"
-      tip="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes and promotes Pacto refused." />{/if}
+      tip="The versions your environments know about, whether their signature was checked and where each one runs, and the publishes and promotes Pacto or a member refused." />{/if}
   </PageHeader>
   <DeliveryNav current="delivery-publish" />
   <DeliveryServiceFilter {service} {domain} clear={deliveryPublishUrl({ q, signed })} />
@@ -162,12 +163,13 @@
                   <li class="pl-row pl-row--stack pv-row">
                     <div class="pv-rhead" data-testid="refused-head">
                       <strong>{r.service} {r.version}</strong>
-                      {#if r.stage}{@const where = r.namespace ? `${r.namespace}/${r.stage}` : r.stage}<span class="t-meta">on <bdi class="pv-stage" title={where}>{where}</bdi></span>{/if}
-                      {#if r.requiredBump}<span class="badge badge-err">Needs {BUMPS[r.requiredBump] ?? r.requiredBump}</span>{:else if r.check === 'manifests'}<span class="badge badge-err" title={[r.code, r.digest].filter(Boolean).join(', ') || undefined}>Refused promote</span>{:else}<span class="badge badge-err">Refused: {r.check}</span>{/if}
+                      {#if r.check === 'member'}{@const where = [r.cluster, r.namespace && r.stage ? `${r.namespace}/${r.stage}` : r.stage].filter(Boolean).join(', ')}<span class="t-meta" title={where}>on <bdi class="pv-member">{r.cluster}</bdi></span>
+                      {:else if r.stage}{@const where = r.namespace ? `${r.namespace}/${r.stage}` : r.stage}<span class="t-meta">on <bdi class="pv-stage" title={where}>{where}</bdi></span>{/if}
+                      {#if r.check === 'member'}<span class="badge badge-err" title={[r.code, r.digest].filter(Boolean).join(', ') || undefined}>Refused on a member</span>{:else if r.requiredBump}<span class="badge badge-err">Needs {BUMPS[r.requiredBump] ?? r.requiredBump}</span>{:else if r.check === 'manifests'}<span class="badge badge-err" title={[r.code, r.digest].filter(Boolean).join(', ') || undefined}>Refused promote</span>{:else}<span class="badge badge-err">Refused: {r.check}</span>{/if}
                       {#if r.verified}<span class="badge badge-ok">Signed record</span>{/if}
                       {#if r.record}<CopyableIdentifier value={r.record} label="operation record id" iconOnly={true} />{/if}
                     </div>
-                    <p class="t-body-2">{sentence(r.reason)}{#if r.baseline}{' '}Compared with {r.baseline}.{/if}</p>
+                    <p class="t-body-2">{r.check === 'member' ? memberRefusalLine(r) : sentence(r.reason)}{#if r.baseline}{' '}Compared with {r.baseline}.{/if}</p>
                     <p class="t-meta">{#if r.actor}By <Person user={r.actor} />,{' '}{/if}<time datetime={r.at}>{timeLabel(r.at)}</time></p>
                   </li>
                 {/each}
@@ -262,7 +264,8 @@
   .pv-svc { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pv-svc h2 a { color: var(--c-accent); }
   .pv-row { gap: var(--sp-1); padding: var(--sp-1) var(--sp-3); min-width: 0; overflow-wrap: break-word; }
-  .pv-stage, .pv-head > strong, .pv-rhead > strong { min-width: 0; overflow-wrap: anywhere; }
+  .pv-stage, .pv-member, .pv-head > strong, .pv-rhead > strong { min-width: 0; overflow-wrap: anywhere; }
+  .pv-rhead > .t-meta { min-width: 0; overflow-wrap: anywhere; }
   /* A refusal's head stays one wrapping line at every width: the versions grid
      below would stretch its badge across a column and push its record mark
      onto a second row. */

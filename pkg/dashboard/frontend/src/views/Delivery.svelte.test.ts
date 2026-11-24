@@ -741,6 +741,29 @@ describe('installation ladder (511-S5)', () => {
   });
 });
 
+describe('members block (514-S6)', () => {
+  const members = [{ service: { name: 'payments' }, environment: 'prod', hidden: 0, completeness: 'complete', asOf: listing.asOf,
+    placement: { source: 'unconfirmed', clusters: [{ uid: '9f1c4e2a-0000-4000-8000-000000000001', name: 'eu-prod', evidence: 'takes requests for prod' }] },
+    members: [{ uid: '9f1c4e2a-0000-4000-8000-000000000001', name: 'eu-prod', state: 'refused', reason: 'no Stage of payments in prod' }] }];
+
+  it('DeliveryEnvironmentsView mounts the block from the environments answer', async () => {
+    // A hub with no Stage of its own for the service still shows where members run it.
+    fns.environments.mockResolvedValue({ ...listing, environments: [], members });
+    const { target, destroy } = render(DeliveryEnvironmentsView, { service: 'payments' });
+    await settle();
+    const block = target.querySelectorAll('[data-testid="member-placement"]');
+    expect(block).toHaveLength(1);
+    expect((block[0] as HTMLDetailsElement).open).toBe(true);
+    expect(text(block[0] as HTMLElement)).toContain('eu-prod: Refused: no Stage of payments in prod.');
+    destroy();
+    // Only with one service: the board of every service never mounts it.
+    const all = render(DeliveryEnvironmentsView);
+    await settle();
+    expect(all.target.querySelector('[data-testid="member-placement"]')).toBeNull();
+    all.destroy();
+  });
+});
+
 describe('board offers and links (B2)', () => {
   const base = { namespace: 'prod', stage: 'pay', service: 'payments', environment: 'prod', pointer: D1, version: '1.0.0', verified: true, failed: false,
     frozen: false, autoHold: false, held: 0, candidate: D2, candidateVersion: '2.0.0', ready: 'True', actions: [], state: 'verified' };
@@ -2475,6 +2498,26 @@ describe('refused publishes', () => {
     // The record is a discreet mark: its id in the tooltip, copyable, never a line of its own.
     expect(row.querySelector('.copyable')?.getAttribute('title')).toBe('sha256:rec');
     expect(row.querySelector('.copyable-value')).toBeNull();
+    destroy();
+  });
+
+  it('lists a member refusal on its member with the reason', async () => {
+    fns.published.mockResolvedValue(pub);
+    fns.refusals.mockResolvedValue({ asOf: listing.asOf, recorded: true, completeness: 'complete',
+      refusals: [
+        { service: 'billing', version: '', check: 'member', cluster: 'us-prod', code: 'NotAllowedHere', digest: 'sha256:dig', reason: 'alice may not create operations in billing',
+          actor: 'oidc:alice@acme.com', at: '2026-11-24T09:00:00Z', verified: true },
+        { service: 'billing', version: '', check: 'member', cluster: 'eu-prod', namespace: 'billing', stage: 'billing-prod', code: 'Rejected', reason: 'pacto.published: no publisher signature for billing', at: '2026-11-24T08:00:00Z', verified: true },
+      ] });
+    const { target, destroy } = render(DeliveryPublishView);
+    await settle();
+    const rows = [...target.querySelectorAll('[data-testid="refused-publishes"] li.pv-row')] as HTMLElement[];
+    expect(text(rows[0]).trim()).toContain('billing on us-prod Refused on a member Signed record');
+    expect(text(rows[0])).toContain('The member refused the request (NotAllowedHere): alice may not create operations in billing.');
+    expect(rows[0].querySelector('.pv-member')?.tagName).toBe('BDI');
+    expect(text(rows[1])).toContain("The member's gates rejected the promote: pacto.published: no publisher signature for billing.");
+    // The member's Stage is in the tooltip, the member's name on the line.
+    expect(rows[1].querySelector('.pv-member')?.parentElement?.getAttribute('title')).toBe('eu-prod, billing/billing-prod');
     destroy();
   });
 

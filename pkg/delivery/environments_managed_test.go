@@ -75,10 +75,14 @@ func TestPromotionOrderFromManagedLinks(t *testing.T) {
 
 // TestNoGateReadsLadderOrPlacement keeps the installation ladder, placement
 // and the managed label out of every gate: only the three files that build
-// them may name them, so nothing inferred reaches a promote decision.
+// them may name them, so nothing inferred reaches a promote decision. A
+// member request (memberrequest.go) carries the placement a person signed
+// as provenance only: the member raises a plain promote from it; the hub
+// places a member request over its members (memberplacement.go), which no
+// gate reads either.
 func TestNoGateReadsLadderOrPlacement(t *testing.T) {
 	files, _ := filepath.Glob("*.go")
-	allowed := []string{"environments.go", "placement.go", "ladderrecord.go"}
+	allowed := []string{"environments.go", "placement.go", "ladderrecord.go", "memberrequest.go", "memberplacement.go"}
 	words := []string{"Placement", "LadderRung", "ManagedLabel", "delivery.pacto.trianalab.io/managed-by"}
 	scanned := 0
 	for _, f := range files {

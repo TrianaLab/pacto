@@ -120,7 +120,13 @@ func (e *clusterEnv) hub() *dynamicfake.FakeDynamicClient {
 			"metadata": map[string]any{"namespace": delivery.PolicyNamespace, "name": delivery.PolicyConfigMap},
 			"data":     map[string]any{delivery.PolicyKey: string(policy)}}})
 	}
-	c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), objs...)
+	// Its kinds, and the delivery lists, so a delivery read lists nothing.
+	scheme := runtime.NewScheme()
+	for _, o := range objs {
+		gvk := o.GetObjectKind().GroupVersionKind()
+		scheme.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
+	}
+	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, map[schema.GroupVersionResource]string{gvrTestStages: "StageList", gvrTestOps: "OperationList"}, objs...)
 	c.PrependReactor("create", "selfsubjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": e.mayApprove}}}, nil
 	})

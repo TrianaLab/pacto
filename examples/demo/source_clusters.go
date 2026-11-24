@@ -8,9 +8,12 @@ import (
 	_ "embed"
 	"encoding/base64"
 	"encoding/hex"
+	"slices"
 	"strings"
 	"time"
 
+	"github.com/trianalab/pacto/v4/examples/story"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -33,6 +36,7 @@ type demoMember struct {
 	snapshotAge           time.Duration
 	digest                string // the snapshot manifest the hub read
 	targets               []fleet.RawTarget
+	allow                 []string // its delivery.remote.allow.environments
 }
 
 // demoApprover is the person who approved both members.
@@ -53,7 +57,8 @@ func demoMembers() []demoMember {
 			targets: []fleet.RawTarget{{Scope: "us-ledger", Kind: "Deployment", Name: "campaign-service", Service: "campaign-service",
 				ResolvedRef: demoRegistry + "campaign-service:1.1.0", Compliance: fleet.StatusUnknown, Coverage: &fleet.Coverage{Evaluated: 3, Required: 5},
 				EvidenceAt: at(9 * time.Minute), ReconciledAt: at(9 * time.Minute),
-				Labels: map[string]string{"env": "production", "region": "us-west-2", "app.kubernetes.io/name": "campaign-service"}}}},
+				Labels: map[string]string{"env": "production", "region": "us-west-2", "app.kubernetes.io/name": "campaign-service"}}},
+			allow: []string{"test", "prod"}},
 		{uid: "e7b3d915-4a2c-4f8e-b6d1-0c9a5f3e2b17", name: "ap-dev", nameSource: fleet.ClusterNameFromContext, state: delivery.JoinPending,
 			snapshotAge: 5 * time.Minute, digest: "a1c4e7f0b3d6a9c2e5f8b1d4a7c0e3f6b9d2a5c8e1f4b7d0a3c6e9f2b5d8a1c4"},
 	}
@@ -166,10 +171,114 @@ func demoClusterJoins() delivery.ClusterJoinList {
 			st.Approver, st.ApprovedAt = demoApprover, demoNow().Add(-72*time.Hour).Format(time.RFC3339)
 			st.Record = demoTargetsRepository + "@sha256:" + hex.EncodeToString(rec[:])
 			st.ApprovedKeyID, st.ApprovedPublicKey = keyID, pub
+			// Its intake takes requests for what its name hosts (eu-prod: prod),
+			// kept to its allow list, or that list when the name hosts none.
+			hosted := delivery.RequestAllowlist{Environments: m.allow}.Hosted(delivery.AdvertisedEnvironments(nil, m.name, m.nameSource))
+			st.Requests = &delivery.JoinRequests{Issuers: []string{demoIssuer}, Environments: hosted}
 		} else {
 			st.Reason = "no approval yet"
 		}
 		l.Clusters = append(l.Clusters, st)
 	}
 	return delivery.MatchCandidates(l, demoCandidates(), demoNow())
+}
+
+// demoMemberRequest is one request alice signed on the hub for a member, and
+// the member's furthest signed answer to it. Fixed data: nothing here signed
+// or verified either record.
+type demoMemberRequest struct {
+	member  string
+	request delivery.VerifiedRequest
+	outcome delivery.RequestOutcome
+}
+
+// demoMemberRequests: alice asked both production members to promote
+// payments in prod. eu-prod applied it; us-west's promoter rejected the
+// digest she named, a copy pushed with plain oras that no trusted publisher
+// signed, at its pacto.published gate.
+func demoMemberRequests() []demoMemberRequest {
+	sum := sha256.Sum256([]byte("oras copy payments@2.4.2"))
+	unsigned := "sha256:" + hex.EncodeToString(sum[:])
+	at := demoNow().Add(-40 * time.Minute)
+	ask := func(member, uid, digest string) demoMemberRequest {
+		rec := sha256.Sum256([]byte("request " + uid + " " + digest))
+		manifest := "sha256:" + hex.EncodeToString(rec[:])
+		op := &delivery.RequestedOperation{Namespace: story.Prod, Name: "payments-req-" + manifest[7:17], Stage: "payments"}
+		return demoMemberRequest{member: member,
+			request: delivery.VerifiedRequest{Manifest: manifest, SignedAt: at, Request: delivery.OperationRequest{Cluster: uid, Hub: prodClusterID,
+				Service: delivery.ServiceRef{Name: "payments"}, Environment: story.Prod, Version: "2.4.2", Digest: digest, Requester: story.Alice.User,
+				Placement: delivery.RequestPlacement{Source: delivery.RequestPlacedAdvertised, ConfirmedBy: story.Alice.User}}},
+			outcome: delivery.RequestOutcome{Request: manifest, Cluster: uid, State: delivery.RequestConcluded, Operation: op, Digest: digest,
+				Outcome: delivery.Succeeded, At: at.Add(6 * time.Minute).Format(time.RFC3339)}}
+	}
+	eu, us := ask("eu-prod", "9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34", story.ArtifactDigest("payments", "2.4.2")),
+		ask("us-west", "c2d8a6f0-5e1b-4a73-9c4d-8b2f6e0a1d95", unsigned)
+	// One propose signed both, each naming the placement it confirmed.
+	both := []string{eu.request.Request.Cluster, us.request.Request.Cluster}
+	eu.request.Request.Placement.Members, us.request.Request.Placement.Members = both, both
+	us.outcome.Outcome = delivery.Rejected
+	us.outcome.Published = "Fail: no publisher check accepted " + unsigned[:19] + " on " + strings.TrimPrefix(demoRegistry, "oci://") + "payments: see pacto delivery trust payments"
+	return []demoMemberRequest{eu, us}
+}
+
+// demoMemberPlans are the hub's member plans for service in envs and the
+// environments its members take requests for: placed by Pacto's own
+// MemberPlacement over the join list (the demo has no placement rule), each
+// placed member in the state its newest request's answer reads as on a hub.
+// payments is the only service a person asked members for.
+func demoMemberPlans(service string, envs []string) []delivery.MemberPlan {
+	list, svc := demoClusterJoins(), delivery.ServiceRef{Name: service}
+	var verified []delivery.VerifiedRequest
+	asked := map[string]demoMemberRequest{}
+	for _, r := range demoMemberRequests() {
+		if r.request.Request.Service == svc {
+			verified = append(verified, r.request)
+			asked[r.request.Request.Cluster+"/"+r.request.Request.Environment] = r
+		}
+	}
+	asOf := map[string]string{}
+	for _, c := range list.Clusters {
+		asOf[c.UID] = c.SnapshotAsOf
+	}
+	var out []delivery.MemberPlan
+	for _, env := range delivery.MemberEnvironments(envs, list.Clusters) {
+		p := delivery.MemberPlan{Service: svc, Environment: env, Placement: delivery.MemberPlacement(nil, list.Clusters, svc, env, verified),
+			Members: []delivery.MemberState{}, Completeness: fleet.CompletenessComplete, AsOf: list.AsOf,
+			OrderUnknown: !slices.ContainsFunc(envs, func(e string) bool { return delivery.SameEnvironment(e, env) }),
+			Next:         delivery.ConfirmCommand(delivery.Request{Service: service, Environment: env}, demoTargetsRepository)}
+		if len(p.Placement.Placed) == 0 {
+			continue
+		}
+		for _, m := range p.Placement.Placed {
+			st := delivery.MemberState{UID: m.UID, Name: m.Name, State: delivery.MemberNoRequest, AsOf: asOf[m.UID], Stale: m.Stale}
+			if r, ok := asked[m.UID+"/"+env]; ok {
+				st = demoMemberState(st, r.outcome)
+			}
+			p.Members = append(p.Members, st)
+		}
+		out = append(out, p)
+	}
+	return out
+}
+
+// demoMemberState is st as a hub reads a concluded outcome o: applied on
+// success, refused with the pacto.published verdict when the gates
+// rejected it.
+func demoMemberState(st delivery.MemberState, o delivery.RequestOutcome) delivery.MemberState {
+	st.State, st.Digest, st.Reason = delivery.MemberApplied, o.Digest, string(o.Outcome)
+	if o.Outcome == delivery.Rejected {
+		st.State, st.Reason = delivery.MemberRefused, string(o.Outcome)+": "+o.Published
+	}
+	st.Operation = o.Operation.Namespace + "/" + o.Operation.Name
+	return st
+}
+
+// demoMemberRefusal is us-west's rejected promote as a refused-list row, the
+// way a hub lists a member's refusal: check member, the member's name.
+func demoMemberRefusal() dashboard.PublishRefusal {
+	r := demoMemberRequests()[1]
+	o := r.outcome
+	return dashboard.PublishRefusal{Service: r.request.Request.Service.Name, Version: r.request.Request.Version, Check: "member", Cluster: r.member,
+		Namespace: o.Operation.Namespace, Stage: o.Operation.Stage, Digest: o.Digest, Code: string(o.Outcome), Reason: o.Published,
+		Actor: r.request.Request.Requester, At: o.At}
 }

@@ -279,7 +279,8 @@ nav:
           - Status, progress and lifecycle: integrations/kubernetes/delivery-status.md
           - Health checks: integrations/kubernetes/delivery-health.md
           - Eval providers: integrations/kubernetes/delivery-evals.md
-          - Appliers and several clusters: integrations/kubernetes/delivery-reach.md
+          - Appliers: integrations/kubernetes/delivery-reach.md
+          - Several clusters: integrations/kubernetes/delivery-members.md
           - Security model: integrations/kubernetes/delivery-security.md
       - Contract reference:
           - contract-reference/index.md

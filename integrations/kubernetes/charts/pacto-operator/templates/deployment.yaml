@@ -44,7 +44,8 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- $hubCA := and (include "pacto-operator.member" .) .Values.hub.caConfigMap }}
-          {{- if or (include "pacto-operator.ownerPolicy.mounted" .) $hubCA }}
+          {{- $recorderKey := include "pacto-operator.delivery.pinSigner" . }}
+          {{- if or (include "pacto-operator.ownerPolicy.mounted" .) $hubCA $recorderKey }}
           volumeMounts:
             {{- if include "pacto-operator.ownerPolicy.mounted" . }}
             - name: owner-policy
@@ -56,8 +57,13 @@ spec:
               mountPath: /etc/pacto/hub-ca
               readOnly: true
             {{- end }}
+            {{- if $recorderKey }}
+            - name: member-recorder-key
+              mountPath: /etc/pacto/member-recorder
+              readOnly: true
+            {{- end }}
           {{- end }}
-      {{- if or (include "pacto-operator.ownerPolicy.mounted" .) $hubCA }}
+      {{- if or (include "pacto-operator.ownerPolicy.mounted" .) $hubCA $recorderKey }}
       volumes:
         {{- if include "pacto-operator.ownerPolicy.mounted" . }}
         - name: owner-policy
@@ -68,6 +74,11 @@ spec:
         - name: hub-ca
           configMap:
             name: {{ .Values.hub.caConfigMap }}
+        {{- end }}
+        {{- if $recorderKey }}
+        - name: member-recorder-key
+          configMap:
+            name: {{ include "pacto-operator.fullname" . }}-member-recorder-key
         {{- end }}
       {{- end }}
       {{- with include "pacto-operator.scheduling" .Values | trim }}

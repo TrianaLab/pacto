@@ -64,8 +64,8 @@ const GROUPS = [
 const FONTS = FULL ? ['verdana', 'default'] as const : ['verdana'] as const;
 // Routes whose owner value carries the owner-provenance mark under the scale fixture.
 const OWNER_MARK_ROUTES = new Set(['service entity', 'service page, resources', 'offering entity']);
-// Routes whose 511-S5 block must render, by the block's testid.
-const BLOCK_ROUTES = new Map([['delivery inbox, ladder proposal', 'inbox-ladder'], ['delivery environments, unplaced open', 'environments-unplaced']]);
+// Routes whose 511-S5 or 514-S6 block must render, by the block's testid.
+const BLOCK_ROUTES = new Map([['delivery inbox, ladder proposal', 'inbox-ladder'], ['delivery environments, unplaced open', 'environments-unplaced'], ['delivery environments of one service', 'member-placement']]);
 // G1's fixed widths, at 900px high.
 const G1_WIDTHS = [390, 760, 1024, 1280, 1600, 1920, 2560];
 

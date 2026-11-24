@@ -64,9 +64,11 @@ type joinEnv struct {
 	// deny answers the tag listing with 403; failReferrers answers
 	// referrer listings with 500; tagPage forces one tag per page.
 	deny, failReferrers, tagPage atomic.Bool
-	mu                           sync.Mutex
-	allow                        map[string]bool
-	reviewErr                    error
+	// fail answers the requests it matches with 500.
+	fail      atomic.Pointer[func(*http.Request) bool]
+	mu        sync.Mutex
+	allow     map[string]bool
+	reviewErr error
 	// errFor fails the reviews of one user.
 	errFor  map[string]error
 	reviews int
@@ -79,7 +81,10 @@ func newJoinEnv(t *testing.T, mode capabilities.ReferrersMode) *joinEnv {
 	e := &joinEnv{mode: mode, ss: sigtest.New(t), clock: snapNow, allow: map[string]bool{"oidc:alice@acme.com": true}}
 	inner := testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: mode == capabilities.ReferrersWriteOnceTags, TagsLink: true})
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch {
+		switch f := e.fail.Load(); {
+		case f != nil && (*f)(r):
+			http.Error(w, "down", http.StatusInternalServerError)
+			return
 		case e.deny.Load() && strings.HasSuffix(r.URL.Path, "/tags/list"):
 			http.Error(w, `{"errors":[{"code":"DENIED"}]}`, http.StatusForbidden)
 			return

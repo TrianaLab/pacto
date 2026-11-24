@@ -76,7 +76,7 @@ var deliveryReadTools = []deliveryRead{
 			"domain": {Type: "string", Description: readDomainDoc},
 		}},
 	{route: "environments", description: "Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. " +
-		"With service it also says, per Stage, which actions the caller may take and why, including freeze and undo. " +
+		"With service it also says, per Stage, which actions the caller may take and why, including freeze and undo, and, on a hub, which members a promote is placed on and what each did with the newest request. " +
 		"Where the promoter publishes the installation ladder, each Stage also says where its environment comes from (declared, ladder, inferred-confirmed or hand-written) " +
 		"and its placement (namespace, provenance, evidence and who confirmed it), read from the Stage's annotations, which anyone who may edit the Stage can write. " +
 		"The environments with no Stage are listed with the reason; those the caller may not read are only counted, and with unplacedUnreadable that count is " +
@@ -111,7 +111,7 @@ var deliveryReadTools = []deliveryRead{
 				"and a version whose signature Pacto cannot tell, and only those versions"},
 		})},
 	{route: "refusals", description: "Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs " +
-		"and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing."},
+		"and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). On a hub, the requests its members refused or whose promote their gates rejected (check member, with the member in cluster). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing."},
 	{route: "trust", description: "Per service with a Stage that watches the registry and the caller can see: the installation's publisher rule or signed policy, " +
 		"the identities a person pinned, the CI signers waiting for a person to confirm them and the newest verdicts, each saying which source decided. " +
 		"Pins or a policy that could not be read mark the answer partial.",

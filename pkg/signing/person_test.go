@@ -2,6 +2,10 @@ package signing
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
+	"crypto/x509"
+	"encoding/base64"
 	"strings"
 	"testing"
 	"time"
@@ -155,4 +159,84 @@ func TestWorkloadIdentitySignedApprovalIsProposal(t *testing.T) {
 // signersFor accepts any subject issuer's certificates under ss.
 func signersFor(ss *testutil.Sigstore, issuer string) delivery.ClassPolicy {
 	return delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: issuer, TrustedRoot: string(ss.RootJSON), UsernamePrefix: "oidc:", Subjects: `.+`}}}
+}
+
+// openWith is a VerifyPersonRecord open func that verifies b and names named.
+func openWith(b []byte, named string) func(func([]byte) error) (string, error) {
+	return func(verify func([]byte) error) (string, error) { return named, verify(b) }
+}
+
+// TestVerifyPersonRecordRefusesUnlistedIssuer: a certificate from an issuer
+// no signer lists never verifies and has no class; a signer with no subjects
+// vouches for nobody; a subject outside the signer's is refused.
+func TestVerifyPersonRecordRefusesUnlistedIssuer(t *testing.T) {
+	ss := testutil.New(t)
+	b := personBundle(t, ss, "alice@acme.com", "https://other.example", true)
+	user, at, class, why := VerifyPersonRecord(signersFor(ss, personIssuer), "member request", openWith(b, "oidc:alice@acme.com"))
+	if user != "" || !at.IsZero() || class != "" || !strings.Contains(why, "a member request was not counted") {
+		t.Fatalf("%q %v %q %q", user, at, class, why)
+	}
+	good := personBundle(t, ss, "alice@acme.com", personIssuer, true)
+	p := signersFor(ss, personIssuer)
+	p.Signers[0].Subjects = ""
+	if _, _, _, why := VerifyPersonRecord(p, "member request", openWith(good, "oidc:alice@acme.com")); !strings.Contains(why, "vouches for nobody") {
+		t.Fatal(why)
+	}
+	p.Signers[0].Subjects = `.+@other\.com`
+	if _, at, class, why := VerifyPersonRecord(p, "member request", openWith(good, "oidc:alice@acme.com")); at.IsZero() || class != delivery.ClassHuman ||
+		!strings.Contains(why, "agents cannot approve") {
+		t.Fatalf("%v %q %q", at, class, why)
+	}
+}
+
+// TestVerifyPersonRecordClassifiesSigner: a person's email certificate is a
+// person's and verifies as the user it names; a CI workflow's certificate
+// is CI; a record naming another user than its certificate is refused.
+func TestVerifyPersonRecordClassifiesSigner(t *testing.T) {
+	ss := testutil.New(t)
+	b := personBundle(t, ss, "alice@acme.com", personIssuer, true)
+	user, at, class, why := VerifyPersonRecord(signersFor(ss, personIssuer), "member request", openWith(b, "oidc:alice@acme.com"))
+	if user != "oidc:alice@acme.com" || at.IsZero() || class != delivery.ClassHuman || why != "" {
+		t.Fatalf("%q %v %q %q", user, at, class, why)
+	}
+	if _, _, _, why := VerifyPersonRecord(signersFor(ss, personIssuer), "member request", openWith(b, "oidc:bob@acme.com")); !strings.Contains(why, "claiming approver oidc:bob@acme.com is signed as oidc:alice@acme.com") {
+		t.Fatal(why)
+	}
+	const gha = "https://token.actions.githubusercontent.com"
+	tok := testutil.CIToken("https://github.com/acme/app/.github/workflows/ship.yml@refs/heads/main", gha, "https://github.com/acme/app", "refs/heads/main")
+	s, err := Keyless(ss.Fulcio, ss.TSA, "", func(context.Context) (string, error) { return tok, nil }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ci, err := s.Sign(t.Context(), "application/vnd.in-toto+json", []byte(statement))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, at, class, why := VerifyPersonRecord(signersFor(ss, gha), "member request", openWith(ci, "x")); at.IsZero() || class != delivery.ClassCI || why == "" {
+		t.Fatalf("%v %q %q", at, class, why)
+	}
+}
+
+// TestVerifyJoinRecord: a join record alice signed verifies as hers under
+// her issuer's signer and not at all with no signer.
+func TestVerifyJoinRecord(t *testing.T) {
+	ss := testutil.New(t)
+	s, err := Keyless(ss.Fulcio, ss.TSA, "", func(context.Context) (string, error) { return testutil.Token("alice@acme.com", personIssuer), nil }, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	der, _ := x509.MarshalPKIXPublicKey(pub)
+	j := delivery.ClusterJoin{Cluster: "c-1", Hub: "hub-1", KeyID: Hint(pub), PublicKey: base64.StdEncoding.EncodeToString(der),
+		Decision: delivery.JoinApprove, Approver: "oidc:alice@acme.com", At: "2026-11-23T10:00:00Z"}
+	b, err := delivery.SignClusterJoin(t.Context(), s, delivery.NewClusterJoinStatement(j))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v := VerifyJoinRecord(signersFor(ss, personIssuer), b); !v.Verified || v.User != "oidc:alice@acme.com" || v.Record.Hub != "hub-1" || v.SignedAt.IsZero() {
+		t.Fatalf("%+v", v)
+	}
+	if v := VerifyJoinRecord(delivery.ClassPolicy{}, b); v.Verified || v.Why == "" {
+		t.Fatalf("%+v", v)
+	}
 }

@@ -88,6 +88,9 @@ type EnvironmentReconciler struct {
 	// Placement is the verified placement policy and why it could not be
 	// read (Publishers.VerifiedPlacement); nil reads none.
 	Placement func(ctx context.Context) (*delivery.PlacementPolicy, string)
+	// Peers finds the member that runs an upstream rung this cluster does
+	// not host; nil follows none.
+	Peers *Peers
 	// CreateAppliers (profile idp) creates, for a service no applier runs
 	// yet, the suspended Flux objects of each placed environment and its
 	// deployer identity, bound to the ClusterRole DeployerRole.
@@ -385,11 +388,17 @@ var environmentLadderResource = authorizationv1.ResourceAttributes{
 // ponytail: one review per counted record per pass, at most
 // MaxLadderRecords; cache by user for a minute if reviews load the apiserver.
 func (r *EnvironmentReconciler) environmentLadderReview(ctx context.Context, user string) (bool, error) {
-	res := environmentLadderResource
+	return reviewUser(ctx, r.Client, user, environmentLadderResource)
+}
+
+// reviewUser asks the apiserver c reaches whether user, with no groups, may
+// do res. A review the authorizers could not evaluate is an error, never a
+// refusal or a grant.
+func reviewUser(ctx context.Context, c client.Client, user string, res authorizationv1.ResourceAttributes) (bool, error) {
 	sar := &authorizationv1.SubjectAccessReview{Spec: authorizationv1.SubjectAccessReviewSpec{User: user, ResourceAttributes: &res}}
 	ctx, cancel := context.WithTimeout(ctx, accessTimeout)
 	defer cancel()
-	if err := r.Client.Create(ctx, sar); err != nil {
+	if err := c.Create(ctx, sar); err != nil {
 		return false, err
 	}
 	if !sar.Status.Allowed && sar.Status.EvaluationError != "" {
@@ -604,7 +613,7 @@ func (r *EnvironmentReconciler) placeService(ctx context.Context, st *placementS
 	if c.Publish == nil || c.Publish.Deploy == "" {
 		return nil // Pacto delivers only what publishes a deploy artifact
 	}
-	in := delivery.PlacementInput{Service: svc, Owner: c.Service.Owner.Team, HostedRungs: st.hosted, Policy: st.policy,
+	in := delivery.PlacementInput{Service: svc, Owner: c.Service.Owner.Team, HostedRungs: st.hosted, ClusterUID: r.ClusterID, Policy: st.policy,
 		Pactos: st.pactos, Stages: st.stages, BundleRepository: bundleRepo, GitOps: st.gitops, Namespaces: st.namespaces,
 		SystemNamespaces: []string{r.Namespace, "flux-system", "argocd"}, Taken: map[string]string{}, CreateNamespaces: r.CreateNamespaces,
 		Unread: st.unreadSteps}
@@ -645,17 +654,24 @@ func (r *EnvironmentReconciler) placeEnvironment(ctx context.Context, st *placem
 	case d.Upstream != "" && !slices.ContainsFunc(desired, func(o delivery.DesiredEnvironment) bool { return o.Name == d.Upstream }):
 		row.Reason = "the contract opts out of " + d.Upstream + ", which feeds " + d.Name + ": add " + d.Upstream + " to its environments[], since Pacto never skips an upstream gate"
 	case d.Upstream != "" && !slices.Contains(st.hosted, d.Upstream):
-		row.Reason = "upstream " + d.Upstream + " is not in this cluster: remote delivery is not available yet"
-	default:
-		in.Rung = d.Name
-		var p delivery.Placement
-		p, e.manager, e.workload = r.resolve(ctx, st, *in)
-		row.Placement = &p
-		if p.Placed() {
-			in.Taken[p.Namespace] = d.Name
+		if e.remote, row.Reason = r.Peers.upstream(ctx, in.Service, d.Upstream, st.policy); e.remote != nil {
+			r.placeIn(ctx, st, in, d.Name, &e)
 		}
+	default:
+		r.placeIn(ctx, st, in, d.Name, &e)
 	}
 	return e
+}
+
+// placeIn places e in rung.
+func (r *EnvironmentReconciler) placeIn(ctx context.Context, st *placementState, in *delivery.PlacementInput, rung string, e *placedEnv) {
+	in.Rung = rung
+	var p delivery.Placement
+	p, e.manager, e.workload = r.resolve(ctx, st, *in)
+	e.row.Placement = &p
+	if p.Placed() {
+		in.Taken[p.Namespace] = rung
+	}
 }
 
 // hosts reports whether this cluster hosts environment name: a ladder rung

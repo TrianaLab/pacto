@@ -279,6 +279,42 @@ test.describe('Browser demo: the delivery story', () => {
     await expect(row).toContainText('ClusterRoleBinding pay-agent-admin is cluster-scoped');
   });
 
+  test('member placement shows the proposed-from-advertised mark and a refused member', async ({ page }) => {
+    await ready(page, '#/delivery/environments?service=payments');
+    const block = page.getByTestId('member-placement');
+    // us-west refused, so the block opens on its own.
+    await expect(block).toHaveAttribute('open', '', { timeout: T });
+    const test_ = block.locator('[data-environment="test"]');
+    await test_.getByRole('button', { name: 'Where payments runs in test across members' }).focus();
+    await expect(test_.locator('.help-body')).toContainText('Proposed from advertised environments');
+    await page.keyboard.press('Escape');
+    const prod = block.locator('[data-environment="prod"]');
+    await prod.getByRole('button', { name: 'Where payments runs in prod across members' }).focus();
+    await expect(prod.locator('.help-body')).toContainText('Confirmed by alice@example.com');
+    await page.keyboard.press('Escape');
+    await expect(prod.locator('[data-testid="member"][data-state="applied"]')).toContainText('eu-prod');
+    await expect(prod.locator('[data-testid="member"][data-state="refused"]')).toContainText('us-west');
+    await expect(prod.getByTestId('member-detail')).toContainText('no publisher check accepted');
+    // The hub offers the command a person confirms the placement with.
+    await prod.getByRole('button', { name: 'Confirm placement' }).click();
+    await expect(prod.locator('.mp-panel')).toContainText('pacto delivery propose --service payments --environment prod');
+    await audit(page, 'environments of payments with members');
+    await page.goto('/#/delivery/publish');
+    const row = page.getByTestId('refused-publishes').locator('li.pv-row').filter({ hasText: 'Refused on a member' });
+    await expect(row).toContainText('on us-west', { timeout: T });
+    await expect(row).toContainText("The member's gates rejected the promote");
+  });
+
+  test('member placement shows no uid in a visible label', async ({ page }) => {
+    await ready(page, '#/delivery/environments?service=payments');
+    const block = page.getByTestId('member-placement');
+    await expect(block.getByTestId('member').first()).toBeVisible({ timeout: T });
+    const uid = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/;
+    expect(await block.innerText()).not.toMatch(uid);
+    // The uid is in the member's tooltip, never its label.
+    await expect(block.getByTestId('member').first()).toHaveAttribute('title', uid);
+  });
+
   test('the propose panel lists what an inspected promote applies', async ({ page }) => {
     await ready(page, '#/delivery/environments');
     await page.getByRole('button', { name: 'Promote checkout in prod to 1.9.0' }).click({ timeout: T });

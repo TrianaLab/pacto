@@ -827,6 +827,7 @@ pacto delivery approve [<operation>] [flags]
       --oidc-extra-scopes strings   scopes to ask for beyond openid, profile and groups
       --oidc-issuer-url string      OpenID Connect issuer the cluster trusts, to log in again with (also PACTO_DELIVERY_OIDC_ISSUER_URL)
       --oidc-redirect-port int      loopback port the identity provider sends the browser back to (default: a free port)
+      --registry string             with --intent and no --trust: the registry the hub's members publish to; the intent then verifies under the recorder key its member advertises, on that member's Stage streams only, and the hub's approver signers sign the decision unless --signers names others
       --signers string              the installation's identity policy (JSON or YAML, the pacto-delivery-identities ConfigMap's policy) whose signers verify an approval a person signed; used with a record reference
       --timestamp-url string        timestamp authority to date the signature with, when the installation's signer names none
 ```
@@ -931,7 +932,7 @@ pacto delivery describe <type> [flags]
 
 ### `pacto delivery environments`
 
-Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo. Where the promoter publishes the installation ladder, each Stage also says where its environment comes from (declared, ladder, inferred-confirmed or hand-written) and its placement (namespace, provenance, evidence and who confirmed it), read from the Stage's annotations, which anyone who may edit the Stage can write. The environments with no Stage are listed with the reason; those the caller may not read are only counted, and with unplacedUnreadable that count is installation-wide, never narrowed by the filters.
+Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo, and, on a hub, which members a promote is placed on and what each did with the newest request. Where the promoter publishes the installation ladder, each Stage also says where its environment comes from (declared, ladder, inferred-confirmed or hand-written) and its placement (namespace, provenance, evidence and who confirmed it), read from the Stage's annotations, which anyone who may edit the Stage can write. The environments with no Stage are listed with the reason; those the caller may not read are only counted, and with unplacedUnreadable that count is installation-wide, never narrowed by the filters.
 
 It runs the dashboard's own environments view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -949,6 +950,7 @@ pacto delivery environments [flags]
       --limit int            How many per page; 0 means the list's default
       --offset int           Where the page starts. Past the end answers the last page
       --q string             Keep only what contains this text, ignoring case
+      --registry string      on a hub, with --service: also read which members a promote is placed on and what each did with the newest request, from the members that publish to this registry
       --service string       Keep only the Stages of the service with exactly this name; with service, each row also offers freeze and undo
       --state string         Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages (failed, frozen, autohold, waiting, unverified, empty, verified)
       --tier string          Keep only the services with a Stage in an environment whose name says this tier (inferred from the name, never an order), and only those Stages (dev, test, prod)
@@ -1102,12 +1104,16 @@ pacto delivery plan [flags]
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
       --correlation-id string                                       an id that ties this change to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
+      --environment string                                          member mode: the environment to promote it in
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
   -h, --help[=true|false]                                           help for plan
+      --member stringArray                                          member mode: a member to request on, by its uid or an 8-character prefix (repeatable; default every placed member)
       --on-behalf-of string                                         the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
-      --stage string                                                the Stage to change (required)
+      --registry string                                             member mode: the registry the members publish to, or its pacto-targets repository
+      --service string                                              member mode: the service to promote on the members of this hub, with --environment and a sha256: --to
+      --stage string                                                the Stage to change; or name --service and --environment to request a promote on the hub's members
       --to string                                                   where to move: for a pointer type a version (3.0.0), a tag or an artifact digest (sha256:...), where a version or tag must name exactly one version pacto publish published that the Stage may take (list them with pacto delivery candidates); for delivery.pacto.trianalab.io/autonomy a level (observe, advise, auto-nonbreaking or autonomous)
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
@@ -1115,7 +1121,7 @@ pacto delivery plan [flags]
 
 ### `pacto delivery propose`
 
-Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan or the reason or on-behalf-of differs
+Propose an operation on a Stage of this cluster. In member mode (--service, --environment, a sha256: --to and --registry) it plans the promote over the hub's members and, with --confirm, logs you in again in your browser and signs one request per placed member (or per --member) keyless as you, pushed to that member's request stream; without --confirm it prints the plan and signs nothing. Each member verifies the request, checks your grant there and raises the promote as a proposal its own gates and approvals decide.
 
 ```
 pacto delivery propose [flags]
@@ -1125,15 +1131,23 @@ pacto delivery propose [flags]
 
 ```
       --cause-verdict pacto delivery explain --output-format json   a verdict (JSON, as pacto delivery explain --output-format json prints it) you cite as the cause; the promoter runs it again and refuses a cause that does not hold
+      --confirm[=true|false]                                        member mode: sign one request per member as you, after a fresh login in your browser
       --correlation-id string                                       an id that ties this change to an incident or another change, such as a ticket; kept with the change and its record, filtered by pacto delivery history --correlation-id
+      --environment string                                          member mode: the environment to promote it in
       --from string                                                 where the Stage is now: a digest, or a level for delivery.pacto.trianalab.io/autonomy (defaults to its pointer, or to its current level)
+      --fulcio-url string                                           member mode: Fulcio to get the signing certificate from, when the hub's signer names none
   -h, --help[=true|false]                                           help for propose
       --intent-digest string                                        the intent digest from your plan; propose refuses if it no longer matches, so pass the same --to, --reason and --on-behalf-of
+      --issuer string                                               member mode: the approver signer's OIDC issuer, when the hub lists several
+      --member stringArray                                          member mode: a member to request on, by its uid or an 8-character prefix (repeatable; default every placed member)
       --name string                                                 the Operation name (generated when empty)
       --on-behalf-of string                                         the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change
       --reason string                                               why, for the record
       --record string                                               for delivery.pacto.trianalab.io/acknowledge: the record id (sha256:...) of the upstream stand-in, as the Stage's Ready message names it
-      --stage string                                                the Stage to change (required)
+      --registry string                                             member mode: the registry the members publish to, or its pacto-targets repository
+      --service string                                              member mode: the service to promote on the members of this hub, with --environment and a sha256: --to
+      --stage string                                                the Stage to change; or name --service and --environment to request a promote on the hub's members
+      --timestamp-url string                                        member mode: timestamp authority to date the signature with, when the hub's signer names none
       --to string                                                   where to move: for a pointer type a version (3.0.0), a tag or an artifact digest (sha256:...), where a version or tag must name exactly one version pacto publish published that the Stage may take (list them with pacto delivery candidates); for delivery.pacto.trianalab.io/autonomy a level (observe, advise, auto-nonbreaking or autonomous)
       --type string                                                 operation type (default "delivery.pacto.trianalab.io/promote")
       --undoes string                                               for a rollback: the name of the operation it undoes
@@ -1210,7 +1224,7 @@ pacto delivery record verify [<ref>] [flags]
 
 ### `pacto delivery refusals`
 
-Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing.
+Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). On a hub, the requests its members refused or whose promote their gates rejected (check member, with the member in cluster). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing.
 
 It runs the dashboard's own refusals view with your kubeconfig identity, so the apiserver decides what you see. Without -n it reads the namespaces you may list Stages in and leaves out, without naming them, those outside your permissions; a namespace that refuses the list makes the answer partial and is named in unreadable. The answer is the dashboard's JSON in every output format.
 
@@ -1222,6 +1236,7 @@ pacto delivery refusals [flags]
 
 ```
   -h, --help[=true|false]   help for refusals
+      --registry string     on a hub: also read the requests its members refused, from the request streams of the members that publish to this registry
 ```
 
 ### `pacto delivery status`

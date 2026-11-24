@@ -75,6 +75,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-token-login` | `bool` |  | chart value | Let people sign in to the dashboard with a Kubernetes token; a ServiceAccount token minted for the pacto-dashboard audience reads the fleet only, and a person's own token acts as them. |
 | `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input; the dashboard also receives OTLP/HTTP JSON in the cluster. |
 | `-dashboard-trusted-root-configmap` | `string` |  | chart value | Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore. |
+| `-delivery-policy-configmap` | `string` |  | chart value | namespace/name of the ConfigMap holding the delivery identity policy (policy.json), whose approver signers verify member requests. |
 | `-egress-gateway-logs` | `=mode` |  | chart value | Istio egress gateway access logs, written =mode: auto, on or off. on reads the access log tail of the pods labelled istio=egressgateway in istio-system to name the calls that left through them (the chart then grants pods/log get there); auto reads nothing and proposes on in the detected providers; off reads nothing and proposes nothing. auto by default. |
 | `-enable-dashboard` | `bool` |  | chart value | Enable the managed Pacto dashboard deployment. Disabled by default. |
 | `-enable-evidence-server` | `bool` |  | chart value | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
@@ -102,6 +103,11 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-kernel-evidence-staleness` | `duration` |  | chart value | How old a node's heartbeat (its Lease renewal, or the observation's lastPublished without a Lease) may be before its evidence reads stale. 0 uses three times the publish interval the node agent reports. |
 | `-kubeconfig` | `string` |  | no | Paths to a kubeconfig. Only required if out-of-cluster. |
 | `-leader-elect` | `bool` |  | chart value | Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager. |
+| `-member-allow-environments` | `string` |  | chart value | Comma-separated environments member requests are taken for, among those the cluster name hosts; empty takes them all. |
+| `-member-allow-namespaces` | `string` |  | chart value | Comma-separated namespaces member requests are taken for, among the watched ones; empty takes every watched namespace. |
+| `-member-allow-services` | `string` |  | chart value | Comma-separated service name patterns member requests are taken for; empty takes every service. |
+| `-member-requests` | `bool` |  | chart value | Take member requests: the elected leader reads this cluster's request stream in &lt;registry&gt;/pacto-targets and raises one promote, as an agent on the person's behalf, for each request a person signed that this cluster's approver signers verify, its RBAC allows and its allowlist takes. Needs --registry and --delivery-policy-configmap. |
+| `-member-streams-repository` | `string` |  | chart value | The delivery recorder's streams repository: the join block names it and lists the Stages that record a stream. Empty lists no Stage. |
 | `-metrics-bind-address` | `string` | `:8080` | chart value | The address the metrics endpoint binds to. Use :8443 for HTTPS or :8080 for HTTP, or set to 0 to disable the metrics service. |
 | `-metrics-cert-key` | `string` | `tls.key` | no | The name of the metrics server key file. |
 | `-metrics-cert-name` | `string` | `tls.crt` | no | The name of the metrics server certificate file. |
@@ -121,6 +127,8 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-publishers-policy` | `string` |  | chart value | The signed delivery policy's tag reference (delivery.publishers.policy): once verified, its publisher rules replace the derived rule and its signer class rules classify who signed an owner change, as the fleet does. |
 | `-publishers-policy-signers` | `string` |  | chart value | A trust config (YAML) whose role: policy keys sign the delivery policy. Required with --publishers-policy. |
 | `-publishers-registry` | `string` |  | chart value | The registry (host/org) the installation's services publish to: its derived publisher rule (the organization's CI on the default branch) is the only CI identity whose signed CODEOWNERS or catalog-info.yaml owner counts as attested when an owner change is judged. Empty: no owner is attested. |
+| `-recorded-ttl` | `duration` |  | chart value | How long the delivery recorder keeps a concluded Operation: no member request outlives it. 0 adds no bound. |
+| `-recorder-trust-file` | `string` |  | chart value | File holding a one-key trust config: the key the delivery recorder signs Stage records with, named in the join block so other members can follow them. A file that does not parse stops the operator. |
 | `-registry` | `string` |  | chart value | The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it and pushes nowhere else; empty turns those features off. |
 | `-registry-pull-secret` | `string` |  | chart value | namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes. |
 | `-registry-push-prefix` | `value` |  | chart value | Repeatable: a repository prefix a Pacto component may push under; the chart renders every one. |

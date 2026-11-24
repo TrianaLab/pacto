@@ -439,7 +439,7 @@ About these two events:
   its changes to conclude first.
 - A follower in another cluster notices records removed from a stream's tail
   only against the newest record it already read
-  ([details](delivery-reach.md#when-the-records-cannot-be-trusted)).
+  ([details](delivery-members.md#when-the-records-cannot-be-trusted)).
 - No record goes to a transparency log such as Rekor. A keyless record's signed time comes
   from the timestamp authority the recorder must name, and the certificate is
   checked at that time.

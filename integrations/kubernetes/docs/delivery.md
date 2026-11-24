@@ -4,7 +4,7 @@ Pacto delivery decides which version of each service runs in each
 environment, such as test and prod. It uses your contracts to tell a safe
 change from a risky one, asks a person only when it must and rolls back a
 version that fails its checks. [Flux](../../glossary.md#flux) does the actual switch from one
-version to the next (Argo CD can do it instead, as an experimental option).
+version to the next, or Argo CD does it instead.
 Words in links are defined in the [glossary](../../glossary.md).
 
 Delivery is opt-in. It is a separate install, and only with it does Pacto
@@ -152,7 +152,8 @@ None of these is required reading:
 - [Signed records and history](delivery-records.md): records, blame, undo and
   verification
 - [Record keys](delivery-record-keys.md): trust, key rotation and revocation
-- [Appliers and several clusters](delivery-reach.md): Argo CD, Flux HelmRelease and Stages in other clusters
+- [Appliers](delivery-reach.md): Argo CD and Flux HelmRelease
+- [Several clusters](delivery-members.md): deliver through a member and follow Stages in other clusters
 - [Ladder reference](../../autonomy-reference.md): levels, proposals and blockers
 - [Publishing details](../../publishing.md) and the contract's
   [`publish` section](../../contract-reference/publish.md)

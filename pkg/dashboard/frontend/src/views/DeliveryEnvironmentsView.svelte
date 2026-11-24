@@ -27,6 +27,7 @@
   import { cap } from '../lib/cap.svelte.ts';
   import EnvFleetFigure from '../components/figure/EnvFleetFigure.svelte';
   import PromotionFigure from '../components/figure/PromotionFigure.svelte';
+  import MemberPlacement from '../components/MemberPlacement.svelte';
   import { ENV_STATES, servicePath, sourceProblem, MAX_PATH_MARKS } from '../lib/envFigure.ts';
 
   // Every service in every environment: the version it runs and whether that
@@ -268,6 +269,8 @@
     {:else if !service && data.counts?.byEnvironment?.length}
       <EnvFleetFigure byEnvironment={data.counts.byEnvironment} href={stateHref} partial={data.completeness === 'partial'} asOf={timeLabel(data.asOf)} />
     {/if}
+    <!-- One service on a hub with members: where it runs across them and what each answered (514-S6). -->
+    {#if service && data.members?.length}<MemberPlacement plans={data.members} {service} />{/if}
     {#if rows.length === 0 && filtered}
       <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{service ? ` named ${service}` : ''}{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{exceptEnvs.length ? ` has a Stage outside ${andList(exceptEnvs, 3)}` : ''}{tier ? ` has a Stage in an environment named like ${tier}` : ''}{stateFilter ? ` has a Stage that is ${ENV_STATES.find((x) => x.key === stateFilter)?.word ?? stateFilter}` : ''}.</p></div>
     {:else if rows.length === 0}

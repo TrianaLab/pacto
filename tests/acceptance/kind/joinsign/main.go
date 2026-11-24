@@ -6,6 +6,10 @@
 //	    -approver oidc:alice@acme.test -email alice@acme.test -key sha256:HEX \
 //	    -public-key BASE64 [-issuer URL] [-remove] [-name NAME]
 //
+// The request and approve-intent subcommands (member.go) sign a member
+// request and a decision on a member's held Operation for the
+// delivery-member scenario.
+//
 // With -map-issuer it writes the group mapping `pacto cluster map-groups`
 // writes instead (the member-review scenario): one -map HUB=MEMBER per rule,
 // none to clear, and no -key or -public-key.
@@ -59,6 +63,16 @@ type request struct {
 }
 
 func main() {
+	if len(os.Args) > 1 && (os.Args[1] == cmdRequest || os.Args[1] == cmdApproveIntent) {
+		m, err := parseMember(os.Args[1], os.Args[2:])
+		if err == nil {
+			err = runMember(context.Background(), testutil.New(tb{}), os.Args[1], m, kubeHub(m.kubeContext), os.Stdout)
+		}
+		if err != nil {
+			log.Fatal(err)
+		}
+		return
+	}
 	var r request
 	flag.StringVar(&r.root, "root", "", "where to write the private Sigstore's trusted_root.json")
 	flag.StringVar(&r.registry, "registry", "", "the registry the members publish to (host:port/path)")

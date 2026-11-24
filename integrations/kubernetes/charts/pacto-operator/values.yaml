@@ -983,6 +983,26 @@ delivery:
   # `auto` is on wherever delivery is enabled; `false` opts out.
   manifestInspector: auto
 
+  # Member requests: a person on the hub asks this member to promote a version by signing one
+  # request in this cluster's request stream in `<registry>/pacto-targets`. The operator verifies
+  # it with this installation's approver signers, checks that person may create Operations here,
+  # and raises one promote on their behalf, which this cluster's gates, approvals and applier decide.
+  # Every refusal and conclusion is a record signed with the installation key.
+  remote:
+    # -- (bool or `auto`) Take member requests. `auto` and `true` take them wherever delivery renders
+    # with a `registry` and a profile other than hardened; `false` turns them off
+    enabled: auto
+    allow:
+      # -- Service name patterns (globs) member requests are taken for. Empty takes every service;
+      # the `pacto.published` gate still rejects a version no trusted publisher signed
+      services: []
+      # -- Namespaces member requests are taken for. Empty takes every namespace the operator
+      # watches; a listed namespace the operator does not watch stays refused
+      namespaces: []
+      # -- Environments member requests are taken for. Empty takes every environment the cluster
+      # name hosts; a listed environment the cluster name does not host stays refused
+      environments: []
+
   # -- Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An
   # OCIRepository with `spec.insecure: true` is read over HTTP anyway.
   insecureRegistries: []

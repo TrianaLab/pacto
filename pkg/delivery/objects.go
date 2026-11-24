@@ -31,7 +31,16 @@ type OperationObject struct {
 // the name of the operation it undoes).
 type Request struct {
 	Namespace string `json:"namespace"`
-	Stage     string `json:"stage"`
+	// Stage is the Stage to change. A request with no Stage that names
+	// Service and Environment is a member request (MemberMode): planned over
+	// the members of a hub, proposed as one signed request per member.
+	Stage string `json:"stage,omitempty"`
+	// Service and Environment name what a member request promotes.
+	Service     string `json:"service,omitempty" doc:"member mode: the service to promote on the members"`
+	Environment string `json:"environment,omitempty" doc:"member mode: the environment to promote it in"`
+	// Members are the member uids a member request goes to; empty is every
+	// placed member.
+	Members []string `json:"members,omitempty" doc:"member mode: the member uids to request on; empty is every placed member"`
 	// Type is a Tier 0 type id; empty means delivery.pacto.trianalab.io/promote.
 	Type string `json:"type,omitempty"`
 	To   string `json:"to,omitempty"`
@@ -54,6 +63,12 @@ type Request struct {
 	IntentDigest string `json:"intentDigest,omitempty"`
 	// Name of the Operation to create; empty generates one.
 	Name string `json:"name,omitempty"`
+}
+
+// MemberMode reports whether r is a member request: no Stage, and a
+// service and environment.
+func (r Request) MemberMode() bool {
+	return r.Stage == "" && r.Service != "" && r.Environment != ""
 }
 
 // Explanation is a live operation in plain terms: what was asked, where it

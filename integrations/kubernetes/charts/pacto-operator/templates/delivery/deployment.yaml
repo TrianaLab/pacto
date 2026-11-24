@@ -130,6 +130,7 @@ spec:
             {{- end }}
             {{- with .Values.registry }}
             - --registry={{ . }}
+            - --targets-repository={{ . }}/pacto-targets
             {{- end }}
             {{- with $stats.repository }}
             - --stats-repository={{ . }}

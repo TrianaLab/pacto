@@ -20,6 +20,7 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/inferredpublish"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/member"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/offeringpublish"
+	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 )
@@ -60,7 +61,7 @@ func TestAddTargetSnapshotReturnsKey(t *testing.T) {
 	m := newFakeManager()
 	inst := &detect.Installation{}
 	o := &options{registry: "registry.example/acme"}
-	key, _, err := addTargetSnapshot(m, o, "pacto", testIdent, nil, nil, inst, nil)
+	key, _, err := addTargetSnapshot(m, o, "pacto", testIdent, nil, nil, inst, nil, nil)
 	if err != nil || len(key) != ed25519.PrivateKeySize {
 		t.Fatalf("addTargetSnapshot = %d-byte key, %v; want the installation key", len(key), err)
 	}
@@ -69,7 +70,7 @@ func TestAddTargetSnapshotReturnsKey(t *testing.T) {
 	}
 	o = &options{crossplaneOfferings: true}
 	inst = &detect.Installation{}
-	key, offerings, err := addTargetSnapshot(newFakeManager(), o, "pacto", testIdent, nil, nil, inst, nil)
+	key, offerings, err := addTargetSnapshot(newFakeManager(), o, "pacto", testIdent, nil, nil, inst, nil, nil)
 	if key != nil || offerings != nil || err != nil {
 		t.Fatalf("addTargetSnapshot without --registry = %v, %v; want no key", key, err)
 	}
@@ -183,12 +184,37 @@ func TestAddTargetSnapshotRunsOfferings(t *testing.T) {
 		{"scoped", options{registry: testReg, crossplaneOfferings: true, namespaces: []string{"team-a"}}, false},
 	} {
 		m := newFakeManager()
-		_, offerings, err := addTargetSnapshot(m, &tc.o, "pacto", testIdent, nil, nil, &detect.Installation{}, nil)
+		_, offerings, err := addTargetSnapshot(m, &tc.o, "pacto", testIdent, nil, nil, &detect.Installation{}, nil, nil)
 		if err != nil || m.has(isOfferings) != tc.want || (offerings != nil) != tc.want {
 			t.Fatalf("%s: offerings = %v, added %T, err %v", tc.name, offerings != nil, m.added, err)
 		}
 		if tc.want && offerings().Repository != "registry.example/acme/pacto-inferred/crossplane-uid-1/services" {
 			t.Fatalf("%s: advertisement = %+v", tc.name, offerings())
+		}
+	}
+}
+
+// TestPublisherJoinRequestsFollowIntake: the target publisher asks the
+// running intake what its join block says about requests, and nothing runs
+// or answers while --member-requests is off.
+func TestPublisherJoinRequestsFollowIntake(t *testing.T) {
+	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
+	for _, on := range []bool{false, true} {
+		m := newFakeManager()
+		o := &options{registry: "registry.example/acme", profile: "default", memberRequests: on,
+			deliveryPolicyConfigMap: "pacto-delivery/pacto-delivery-identities"}
+		if _, _, err := addPublishers(m, o, "pacto", testIdent, nil, nil, nil, &controller.PactoReconciler{}); err != nil {
+			t.Fatal(err)
+		}
+		i := slices.IndexFunc(m.added, func(r manager.Runnable) bool {
+			_, ok := r.(*targetsnapshot.TargetPublisher)
+			return ok
+		})
+		if i < 0 || m.has(isIntake) != on {
+			t.Fatalf("member requests %v: want the publisher and an intake only when on, got %T", on, m.added)
+		}
+		if pub := m.added[i].(*targetsnapshot.TargetPublisher); pub.Requests == nil || pub.Requests() != nil {
+			t.Fatalf("member requests %v: the publisher asks the intake, which answers nothing before it read a policy", on)
 		}
 	}
 }
@@ -202,11 +228,40 @@ func TestInferredReadsDetectorInProcess(t *testing.T) {
 	t.Cleanup(func() { lastDetected = nil })
 	m := newFakeManager()
 	o := &options{registry: "registry.example/acme"}
-	if _, _, err := addTargetSnapshot(m, o, "pacto", testIdent, nil, nil, &detect.Installation{}, nil); err != nil {
+	if _, _, err := addTargetSnapshot(m, o, "pacto", testIdent, nil, nil, &detect.Installation{}, nil, nil); err != nil {
 		t.Fatal(err)
 	}
 	i := slices.IndexFunc(m.added, isInferred)
 	if p := m.added[i].(*inferredpublish.InferredPublisher); p.Detected == nil || p.Detected() != res {
 		t.Fatal("the inferred publisher does not read the detector's last Result")
+	}
+}
+
+func isIntake(r manager.Runnable) bool { _, ok := r.(*member.Intake); return ok }
+
+func TestAddIntakeRefusals(t *testing.T) {
+	_, key, _ := ed25519.GenerateKey(nil)
+	cases := map[string]struct {
+		o    options
+		key  ed25519.PrivateKey
+		want string
+	}{
+		"no registry key": {options{memberRequests: true}, nil, "needs --registry"},
+		"no policy map": {options{memberRequests: true, registry: "registry.example/acme"}, key,
+			"--delivery-policy-configmap"},
+		"bad registry name": {options{memberRequests: true, registry: "Not A Registry", deliveryPolicyConfigMap: "a/b"}, key,
+			"member request repository"},
+	}
+	for name, tc := range cases {
+		in, err := addIntake(newFakeManager(), &tc.o, testIdent, tc.key, nil)
+		if in != nil || err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s: addIntake = %v, %v; want an error naming %q", name, in, err, tc.want)
+		}
+	}
+	t.Setenv("OPERATOR_DEPLOYMENT_NAME", "pacto-operator")
+	o := &options{registry: "registry.example/acme", profile: "default", memberRequests: true}
+	_, _, err := addPublishers(newFakeManager(), o, "pacto", testIdent, nil, nil, nil, &controller.PactoReconciler{})
+	if err == nil {
+		t.Fatal("an intake that cannot start stops the operator")
 	}
 }

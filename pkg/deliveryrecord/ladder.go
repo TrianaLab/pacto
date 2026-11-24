@@ -14,6 +14,6 @@ import (
 // unverified. forks names the write-once tags that vanished or do not name
 // the manifest they point at: a tag someone moved is never read as a record.
 func (r *Reader) ListLadder(ctx context.Context, repo *remote.Repository, uid string) (recs []Fetched, cut bool, forks []string, err error) {
-	recs, cut, err = r.listPredicate(ctx, repo, delivery.LadderStream(uid), delivery.PredicateEnvironmentLadder, "", delivery.MaxLadderRecords, &forks)
+	recs, cut, err = r.listPredicate(ctx, repo, delivery.LadderStream(uid), delivery.PredicateEnvironmentLadder, "", delivery.MaxLadderRecords, &forks, nil)
 	return recs, cut, forks, err
 }

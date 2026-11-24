@@ -755,6 +755,26 @@ func (v *Viewer) MayUpdatePactos(ctx context.Context, p Person, namespace string
 	return v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, reviewer(p), namespace, res)
 }
 
+// Reviewable reports whether a reviewer decides cluster's items for p: a
+// member with no live channel has none, so a signed-in reader never sees it.
+func (v *Viewer) Reviewable(ctx context.Context, p Person, cluster string) bool {
+	_, ok := v.router(ctx, v.reviews(ctx), p)(cluster)
+	return ok
+}
+
+// Sees asks the reviewer of cluster whether p may read namespace there, the
+// pair test Query restricts items by (list Pactos in it); false when no
+// reviewer decides cluster for p or the review fails.
+func (v *Viewer) Sees(ctx context.Context, p Person, cluster, namespace string) bool {
+	m := v.reviews(ctx)
+	key, ok := v.router(ctx, m, p)(cluster)
+	if !ok {
+		return false
+	}
+	allowed, err := v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, reviewer(p), namespace, PactoResource)
+	return err == nil && allowed
+}
+
 // ask is one cached review in w's cluster. Failures are not cached.
 func (v *Viewer) ask(ctx context.Context, w *clusterWork, p Person, who, ns string, res ResourceAttributes) (bool, error) {
 	key := w.key + "\x01" + who + "\x01" + res.Resource + "." + res.Group + "\x01" + cmp.Or(res.Verb, "list") + "\x01" + res.Name + "\x01" + ns

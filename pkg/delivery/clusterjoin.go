@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"regexp"
 	"slices"
 	"strings"
@@ -43,6 +44,40 @@ type SnapshotJoin struct {
 	PublicKey string `json:"publicKey"`
 	// Environments are the environments the cluster seems to host, inferred.
 	Environments []AdvertisedEnvironment `json:"environments,omitempty"`
+	// RecorderKey is the key, or keyless identity, this member's delivery
+	// recorder signs its Stage records with. Its streams are ignored: a reader
+	// scopes it to Streams.
+	RecorderKey *TrustedKey `json:"recorderKey,omitempty"`
+	// StreamsRepository is the repository the recorded Stage streams are in.
+	StreamsRepository string `json:"streamsRepository,omitempty"`
+	// Streams are the member's Stages that record a stream, sorted, at most
+	// 200; StreamsCut says more exist or the Stage list could not be read.
+	Streams    []JoinStream `json:"streams,omitempty"`
+	StreamsCut bool         `json:"streamsCut,omitempty"`
+	// Requests is present only while the cluster takes member requests.
+	Requests *JoinRequests `json:"requests,omitempty"`
+}
+
+// MaxJoinStreams bounds the Stage streams a join block names.
+const MaxJoinStreams = 200
+
+// JoinStream is one Stage of a member that records a stream: the service
+// and environment it delivers and its stream id, <uid>/<namespace>/<name>.
+type JoinStream struct {
+	Service     ServiceRef `json:"service"`
+	Environment string     `json:"environment"`
+	Stream      string     `json:"stream"`
+}
+
+// MaxJoinRequestEntries bounds the issuers and, apart, the environments a
+// join block's requests name.
+const MaxJoinRequestEntries = 64
+
+// JoinRequests says a member takes requests: the issuers of the approver
+// signers it verifies them under and the environments it takes them for.
+type JoinRequests struct {
+	Issuers      []string `json:"issuers"`
+	Environments []string `json:"environments"`
 }
 
 // AdvertisedEnvironment is one environment a cluster seems to host and
@@ -55,11 +90,13 @@ type AdvertisedEnvironment struct {
 // snapshotNameSources are the name sources a join block may claim.
 var snapshotNameSources = []string{fleet.ClusterNameFromNodeLabel, fleet.ClusterNameFromContext, fleet.ClusterNameFromFile, fleet.ClusterNameFromUID}
 
-// checkJoin refuses a join block whose key id is not the fingerprint of its
-// Ed25519 key, whose name or an environment name is not a DNS label, whose
-// name source is unknown or approval, with over 16 environments or a source
-// that is empty, over 200 bytes or not printable ASCII.
-func checkJoin(j SnapshotJoin) error {
+// checkJoin refuses a join block of cluster uid whose key id is not the
+// fingerprint of its Ed25519 key, whose name or an environment name is not a
+// DNS label, whose name source is unknown or approval, with over 16
+// environments or a source that is empty, over 200 bytes or not printable
+// ASCII, a recorder key or a stream checkJoinStreams refuses, and requests
+// JoinRequests.Check refuses.
+func checkJoin(uid string, j SnapshotJoin) error {
 	if err := checkKeyID(j.PublicKey, j.KeyID); err != nil {
 		return err
 	}
@@ -78,6 +115,75 @@ func checkJoin(j SnapshotJoin) error {
 		}
 		if e.Source == "" || len(e.Source) > maxEnvironmentSource || strings.ContainsFunc(e.Source, func(r rune) bool { return r < ' ' || r > '~' }) {
 			return fmt.Errorf("environment %s: source must be 1 to %d printable ASCII characters", e.Name, maxEnvironmentSource)
+		}
+	}
+	if err := checkJoinStreams(uid, j); err != nil {
+		return err
+	}
+	return j.Requests.Check()
+}
+
+// stageNamePattern is a Kubernetes object name, an RFC 1123 subdomain.
+var stageNamePattern = regexp.MustCompile(`^[a-z0-9]([-a-z0-9.]*[a-z0-9])?$`)
+
+// checkJoinStreams refuses a recorder key that names neither a PEM public
+// key nor a keyless identity, issuer and trusted root, more than
+// MaxJoinStreams streams, streams with no repository, and a stream its Check
+// refuses.
+func checkJoinStreams(uid string, j SnapshotJoin) error {
+	if j.RecorderKey != nil {
+		if _, err := check(*j.RecorderKey); err != nil {
+			return fmt.Errorf("recorder key: %w", err)
+		}
+	}
+	if len(j.Streams) > MaxJoinStreams {
+		return fmt.Errorf("%d streams, over the %d bound", len(j.Streams), MaxJoinStreams)
+	}
+	if len(j.Streams) > 0 && j.StreamsRepository == "" {
+		return errors.New("streams name no streams repository")
+	}
+	for _, s := range j.Streams {
+		if err := s.Check(uid); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Check refuses a stream of cluster uid that is not <uid>/<namespace>/<name>,
+// sits under TargetSnapshotRepository, names no service or an environment
+// that is not a DNS label.
+func (s JoinStream) Check(uid string) error {
+	parts := strings.Split(s.Stream, "/")
+	if len(parts) != 3 || parts[0] != uid || !dnsLabel(parts[1]) || parts[1] == TargetSnapshotRepository ||
+		len(parts[2]) > 253 || !stageNamePattern.MatchString(parts[2]) {
+		return fmt.Errorf("stream %q is not %s/<namespace>/<name> outside %s", s.Stream, uid, TargetSnapshotRepository)
+	}
+	if s.Service.Name == "" || !dnsLabel(s.Environment) {
+		return fmt.Errorf("stream %s: needs a service and an environment that is a DNS label", s.Stream)
+	}
+	return nil
+}
+
+// Check refuses requests naming more than MaxJoinRequestEntries issuers or
+// environments, an issuer that is not a URL or an environment that is not
+// a DNS label; nil checks. A hub refuses a whole join block whose requests
+// Check refuses, so a member checks them before it advertises them.
+func (r *JoinRequests) Check() error {
+	if r == nil {
+		return nil
+	}
+	if len(r.Issuers) > MaxJoinRequestEntries || len(r.Environments) > MaxJoinRequestEntries {
+		return fmt.Errorf("requests name %d issuers and %d environments, over the %d bound", len(r.Issuers), len(r.Environments), MaxJoinRequestEntries)
+	}
+	for _, iss := range r.Issuers {
+		if u, err := url.Parse(iss); err != nil || u.Scheme == "" || u.Host == "" {
+			return fmt.Errorf("requests issuer %q is not a URL", iss)
+		}
+	}
+	for _, e := range r.Environments {
+		if !dnsLabel(e) {
+			return fmt.Errorf("requests environment %q is not a DNS label", e)
 		}
 	}
 	return nil
@@ -320,6 +426,13 @@ type ClusterJoinState struct {
 	Reason    string    `json:"reason,omitempty"`
 	// Environments are the environments the member seems to host: inferred.
 	Environments []AdvertisedEnvironment `json:"environments,omitempty"`
+	// RecorderKey, StreamsRepository, Streams, StreamsCut and Requests are
+	// the join block's, from a snapshot its own key signed.
+	RecorderKey       *TrustedKey   `json:"recorderKey,omitempty"`
+	StreamsRepository string        `json:"streamsRepository,omitempty"`
+	Streams           []JoinStream  `json:"streams,omitempty"`
+	StreamsCut        bool          `json:"streamsCut,omitempty"`
+	Requests          *JoinRequests `json:"requests,omitempty"`
 	// Approver, ApprovedAt and Record name the record that decided.
 	Approver   string `json:"approver,omitempty"`
 	ApprovedAt string `json:"approvedAt,omitempty"`
@@ -400,6 +513,7 @@ func decide(hub string, c JoinCandidate, rs JoinRecords) (ClusterJoinState, int)
 		st.Name, st.NameSource, st.Environments = j.Name, j.NameSource, j.Environments
 		if c.SelfSigned {
 			st.KeyID, st.PublicKey = j.KeyID, j.PublicKey
+			st.RecorderKey, st.StreamsRepository, st.Streams, st.StreamsCut, st.Requests = j.RecorderKey, j.StreamsRepository, j.Streams, j.StreamsCut, j.Requests
 		}
 	}
 	n := counted(hub, c.UID, rs.Verified)
@@ -519,6 +633,28 @@ func JoinTrust(states []ClusterJoinState) *TrustConfig {
 		der, _ := base64.StdEncoding.DecodeString(s.PublicKey) // checked with the snapshot
 		t.Keys = append(t.Keys, TrustedKey{Name: "member:" + s.Name, Streams: []string{s.UID + "/*/*"},
 			PublicKey: string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))})
+	}
+	return t
+}
+
+// MemberRecordTrust is the trust config approved members' Stage records
+// verify with: each member's recorder key, named member-recorder:<name> and
+// scoped to exactly the Stage streams its join block lists, whatever the key
+// itself claims. A member with no recorder key or no stream adds none, so
+// the key never verifies a snapshot, a request outcome or another member's
+// stream.
+func MemberRecordTrust(states []ClusterJoinState) *TrustConfig {
+	t := &TrustConfig{}
+	for _, s := range states {
+		if s.State != JoinApproved || s.RecorderKey == nil || len(s.Streams) == 0 {
+			continue
+		}
+		k := *s.RecorderKey
+		k.Name, k.Role, k.Streams, k.UntilSeq, k.UntilRecord = "member-recorder:"+s.Name, "", nil, 0, ""
+		for _, st := range s.Streams {
+			k.Streams = append(k.Streams, st.Stream)
+		}
+		t.Keys = append(t.Keys, k)
 	}
 	return t
 }

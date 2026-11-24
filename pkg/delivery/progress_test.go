@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"context"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -367,7 +368,7 @@ func TestProgressOfRBACDenied(t *testing.T) {
 
 func TestProgressPlanRequest(t *testing.T) {
 	req, ok := ProgressPlanRequest(progStage(LevelAdvise, nil))
-	if !ok || req != (Request{Namespace: "prod", Stage: "payments", Type: TypePromote, To: rowNext, Reason: "what would promoting the candidate do"}) {
+	if !ok || !reflect.DeepEqual(req, Request{Namespace: "prod", Stage: "payments", Type: TypePromote, To: rowNext, Reason: "what would promoting the candidate do"}) {
 		t.Fatalf("request %+v %v", req, ok)
 	}
 	for name, st := range map[string]StageObject{

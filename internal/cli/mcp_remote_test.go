@@ -634,7 +634,7 @@ func TestNoMCPServerListsApproveTool(t *testing.T) {
 		cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 		cmd.SetContext(context.Background())
 		_ = cmd.Flags().Set("delivery", "true")
-		mode, err := buildDeliveryMode(cmd, d, nil)
+		mode, err := buildDeliveryMode(cmd, app.NewService(nil, nil), d, nil)
 		expect(t, err == nil, "%s: %v", name, err)
 		expect(t, mode.Writes == (name == "stdio agent"), "%s writes: %v", name, mode.Writes)
 		server, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil, d)

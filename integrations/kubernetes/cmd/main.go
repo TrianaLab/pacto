@@ -32,6 +32,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
@@ -46,6 +47,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
 	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
@@ -65,11 +67,13 @@ import (
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
 	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/managedres"
 	"github.com/trianalab/pacto/v4/pkg/managedres/cloud"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	// +kubebuilder:scaffold:imports
@@ -96,6 +100,7 @@ func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
 	utilruntime.Must(pactov1alpha1.AddToScheme(scheme))
+	utilruntime.Must(dv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -170,6 +175,15 @@ type options struct {
 	crossplaneOfferings  bool
 	registryPullSecret   string
 	registryPushPrefixes []string
+
+	memberRequests          bool
+	memberAllowServices     string
+	memberAllowNamespaces   string
+	memberAllowEnvironments string
+	deliveryPolicyConfigMap string
+	recordedTTL             time.Duration
+	recorderTrustFile       string
+	memberStreamsRepository string
 
 	ownerPolicy        string
 	trustedRoot        string
@@ -505,6 +519,30 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 	fs.BoolVar(&o.crossplaneOfferings, "crossplane-offerings", true,
 		"Push each Crossplane XRD as an inferred offering to <registry>/pacto-inferred/crossplane-<clusterID>/services. "+
 			"Needs --registry and a cluster-wide operator; the operator only reads XRDs and Compositions.")
+	fs.BoolVar(&o.memberRequests, "member-requests", false,
+		"Take member requests: the elected leader reads this cluster's request stream in <registry>/pacto-targets and "+
+			"raises one promote, as an agent on the person's behalf, for each request a person signed that this cluster's "+
+			"approver signers verify, its RBAC allows and its allowlist takes. "+
+			"Needs --registry and --delivery-policy-configmap.")
+	fs.StringVar(&o.memberAllowServices, "member-allow-services", "",
+		"Comma-separated service name patterns member requests are taken for; empty takes every service.")
+	fs.StringVar(&o.memberAllowNamespaces, "member-allow-namespaces", "",
+		"Comma-separated namespaces member requests are taken for, among the watched ones; "+
+			"empty takes every watched namespace.")
+	fs.StringVar(&o.memberAllowEnvironments, "member-allow-environments", "",
+		"Comma-separated environments member requests are taken for, among those the cluster name hosts; "+
+			"empty takes them all.")
+	fs.StringVar(&o.deliveryPolicyConfigMap, "delivery-policy-configmap", "",
+		"namespace/name of the ConfigMap holding the delivery identity policy (policy.json), whose approver "+
+			"signers verify member requests.")
+	fs.DurationVar(&o.recordedTTL, "recorded-ttl", 0,
+		"How long the delivery recorder keeps a concluded Operation: no member request outlives it. 0 adds no bound.")
+	fs.StringVar(&o.recorderTrustFile, "recorder-trust-file", "",
+		"File holding a one-key trust config: the key the delivery recorder signs Stage records with, named in the "+
+			"join block so other members can follow them. A file that does not parse stops the operator.")
+	fs.StringVar(&o.memberStreamsRepository, "member-streams-repository", "",
+		"The delivery recorder's streams repository: the join block names it and lists the Stages that record a "+
+			"stream. Empty lists no Stage.")
 	fs.StringVar(&o.hubCAFile, "hub-ca-file", "",
 		"File holding the PEM CAs the hub's certificate may chain to, beside the system pool.")
 	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
@@ -1054,11 +1092,57 @@ func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubeclu
 		return nil, nil, err
 	}
 	inst := &detect.Installation{Profile: profiles, ChartVersion: o.chartVersion}
-	key, offerings, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked)
+	// The publisher starts after setup, so it reads intake as addIntake left it: nil while requests are off.
+	var intake *member.Intake
+	key, offerings, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked,
+		func() *core.JoinRequests { return intake.JoinRequests() })
 	if err != nil {
 		return nil, nil, err
 	}
+	if intake, err = addIntake(mgr, o, ident, key, kc); err != nil {
+		return nil, nil, err
+	}
 	return inst, offerings, addMember(mgr, o, ident, key)
+}
+
+// addIntake takes member requests when --member-requests is set: it opens <registry>/pacto-targets through
+// the push scope and signs its outcomes with the installation key the hub already trusts. It returns the
+// intake, nil while requests are off.
+func addIntake(mgr ctrl.Manager, o *options, ident kubecluster.Identity, key ed25519.PrivateKey,
+	kc authn.Keychain) (*member.Intake, error) {
+	if !o.memberRequests {
+		return nil, nil
+	}
+	if key == nil {
+		return nil, errors.New("--member-requests needs --registry: " +
+			"requests and their outcomes sit in <registry>/pacto-targets")
+	}
+	ns, name, ok := strings.Cut(o.deliveryPolicyConfigMap, "/")
+	if !ok {
+		return nil, errors.New("--member-requests needs --delivery-policy-configmap as namespace/name")
+	}
+	repo, err := ocireferrer.Open(oci.InstallationRepository(o.registry, oci.TargetsRepository), ocireferrer.Options{
+		Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Scope: oci.NewPushScope(o.registry)})
+	if err != nil {
+		return nil, fmt.Errorf("the member request repository: %w", err)
+	}
+	kp, _ := signing.FromPrivateKey(key) // a full-size Ed25519 key always loads
+	setupLog.Info("Member requests are on", "cluster", ident.ID)
+	in := &member.Intake{Reader: mgr.GetAPIReader(), Writer: mgr.GetClient(), Records: &deliveryrecord.Reader{},
+		Repo: repo, Signer: signing.Keyed(kp, ""), Key: key,
+		ClusterID: ident.ID, ClusterName: ident.Name, NameSource: ident.NameSource,
+		WhoAmI: member.SelfActor(mgr.GetClient()), Review: member.MayPropose(mgr.GetClient()),
+		Policy: member.ClassPolicyFrom(mgr.GetAPIReader(), types.NamespacedName{Namespace: ns, Name: name}),
+		Allow: core.RequestAllowlist{Services: commaList(o.memberAllowServices),
+			Namespaces: commaList(o.memberAllowNamespaces), Environments: commaList(o.memberAllowEnvironments)},
+		Observed: o.namespaces, RecordedTTL: o.recordedTTL, Now: time.Now, Interval: 30 * time.Second,
+		Log: ctrl.Log.WithName("member-requests")}
+	return in, mgr.Add(in)
+}
+
+// commaList splits a comma-separated flag value, dropping empty items.
+func commaList(v string) []string {
+	return slices.DeleteFunc(strings.Split(v, ","), func(s string) bool { return strings.TrimSpace(s) == "" })
 }
 
 // addMember makes this cluster a member when --hub-url is set: the elected leader dials the hub and answers
@@ -1138,7 +1222,7 @@ var firstPush, closeFirstPush = func() (<-chan struct{}, func()) {
 // the operator at start with its reason.
 func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
 	evidenceURL func() string, kc authn.Keychain, inst *detect.Installation,
-	linked func() core.LinkedTargets) (ed25519.PrivateKey, func() *detect.OfferingsAd, error) {
+	linked func() core.LinkedTargets, requests func() *core.JoinRequests) (ed25519.PrivateKey, func() *detect.OfferingsAd, error) {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
 		return nil, nil, nil
@@ -1153,13 +1237,17 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kub
 	if err != nil {
 		return nil, nil, err
 	}
+	recorderKey, err := readRecorderKey(o.recorderTrustFile)
+	if err != nil {
+		return nil, nil, err
+	}
 	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: ident.ID,
 		ClusterName: ident.Name, ClusterNameSource: ident.NameSource,
 		Namespace: namespace, ServiceAccount: os.Getenv("OPERATOR_SERVICE_ACCOUNT"), EvidenceURL: evidenceURL,
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
 		OnPush:      func(r detect.PushResult) { recordPush(r); closeFirstPush() },
 		OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
-		Linked:      linked})
+		Linked:      linked, Requests: requests, RecorderKey: recorderKey, StreamsRepository: o.memberStreamsRepository})
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1218,6 +1306,29 @@ func addInferred(mgr ctrl.Manager, o *options, key ed25519.PrivateKey, kc authn.
 		return err
 	}
 	return mgr.Add(inferred)
+}
+
+// readRecorderKey reads the recorder's one-key trust config once at start (--recorder-trust-file, the chart's
+// pin signer): the join block names that key and a reader scopes it to the listed streams, so its own streams
+// are dropped. Empty names none; a file that does not read, parse or hold exactly one key stops the operator.
+func readRecorderKey(path string) (*core.TrustedKey, error) {
+	if path == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("--recorder-trust-file: %w", err)
+	}
+	t, err := core.ParseTrust(raw)
+	if err != nil {
+		return nil, fmt.Errorf("--recorder-trust-file: %w", err)
+	}
+	if len(t.Keys) != 1 {
+		return nil, fmt.Errorf("--recorder-trust-file: %d keys, want the recorder's one", len(t.Keys))
+	}
+	k := t.Keys[0]
+	k.Streams = nil
+	return &k, nil
 }
 
 // readOwnerPolicy reads the mounted owner policy once at start: the ConfigMap

@@ -336,6 +336,10 @@ Registry: {{ . }}
   target, provisioning and usage record (cost included) the Evidence Server
   accepted, so give it its own read ACL.
   Delivery is {{ if (include "pacto-operator.deliveryEnabled" $) }}on{{ else if (include "pacto-operator.hardened" $) }}off: profile hardened renders no Pacto delivery{{ else }}off: turn it on with delivery.enabled=true{{ end }}.
+{{- if and (include "pacto-operator.deliveryEnabled" $) (not (include "pacto-operator.delivery.pinSigner" $)) }}
+  This member advertises no recorder key: set delivery.recorder.signing.publicKey
+  (and delivery.publishers) so other members can follow its Stages.
+{{- end }}
 {{- /* The key comes from the installation key Secret, which only the
 operator writes; the ConfigMap's snapshotKey is forgeable by any ConfigMap
 writer. */}}

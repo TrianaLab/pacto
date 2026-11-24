@@ -145,7 +145,7 @@ func runDelivery(t *testing.T, d deps, format string, args ...string) (string, e
 	t.Helper()
 	v := viper.New()
 	v.Set(outputFormatKey, format)
-	cmd := newDeliveryCommand(v, d)
+	cmd := newDeliveryCommand(app.NewService(nil, nil), v, d)
 	out := &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(&strings.Builder{})
@@ -503,7 +503,7 @@ func TestDeliveryApproveFreshLogin(t *testing.T) {
 	v.SetEnvPrefix("PACTO")
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	v.AutomaticEnv()
-	cmd := newDeliveryCommand(v, d)
+	cmd := newDeliveryCommand(app.NewService(nil, nil), v, d)
 	out, errOut := &strings.Builder{}, &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
@@ -596,7 +596,7 @@ func TestMCPDeliveryMode(t *testing.T) {
 		t.Fatalf("modes: %v", err)
 	}
 	c, _, _ := deliveryClient(cmd, deliveryDeps("alice", nil))
-	if p, err := (mcpDelivery{c}).Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: cliB}); err != nil || p.IntentDigest == "" {
+	if p, err := (mcpDelivery{Delivery: c}).Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: cliB}); err != nil || p.IntentDigest == "" {
 		t.Fatalf("adapter: %+v %v", p, err)
 	}
 	if newDeliveryRegistry("h") == nil {
@@ -659,6 +659,7 @@ func TestRequestFromCorrelationID(t *testing.T) {
 	cmd := &cobra.Command{}
 	addRequestFlags(cmd)
 	_ = cmd.Flags().Set("correlation-id", "CHG-2041")
+	_ = cmd.Flags().Set("stage", "payments-prod")
 	req, err := requestFrom(cmd, "prod")
 	if err != nil || req.CorrelationID != "CHG-2041" {
 		t.Fatalf("request %+v, err %v", req, err)

@@ -292,7 +292,7 @@ func storyProblems(t *testing.T, d *demoDelivery) {
 
 	// The refused publish (B4).
 	r, _ := d.PublishRefusals(t.Context(), "")
-	if len(r.Refusals) != 2 || r.Refusals[0].RequiredBump != "major" || r.Refusals[0].Verified {
+	if len(r.Refusals) != 3 || r.Refusals[0].RequiredBump != "major" || r.Refusals[0].Verified {
 		t.Fatalf("refusals: %+v", r)
 	}
 }
@@ -887,14 +887,15 @@ func TestDemoStagesRecordRegistryMode(t *testing.T) {
 }
 
 // TestDemoRefusalsListAPromote: the refused list holds one refused promote
-// beside the refused publish, on a Stage and version of the story.
+// beside the refused publish and the member row, on a Stage and version of
+// the story.
 func TestDemoRefusalsListAPromote(t *testing.T) {
 	_, h := demoServer(t)
 	var out struct {
 		Total    int                        `json:"total"`
 		Refusals []dashboard.PublishRefusal `json:"refusals"`
 	}
-	if code := call(t, h, "GET", "/api/delivery/refusals", "", &out); code != 200 || out.Total != 2 {
+	if code := call(t, h, "GET", "/api/delivery/refusals", "", &out); code != 200 || out.Total != 3 {
 		t.Fatalf("refusals %d %+v", code, out)
 	}
 	i := slices.IndexFunc(out.Refusals, func(r dashboard.PublishRefusal) bool { return r.Check == "manifests" })

@@ -165,7 +165,7 @@ func upstreamCutRewrittenReset(t *testing.T, e *env, up *[]delivery.StoredRecord
 		t.Fatalf("extended: %+v %+v", c, e.getStage().Status.UpstreamSeen)
 	}
 	// A deliberate reset of the upstream stream blocks the follower until a
-	// person clears the mark, as delivery-reach.md tells them to.
+	// person clears the mark, as delivery-members.md tells them to.
 	*up = upstreamView([]string{"n1"}, dC)
 	e.now = e.now.Add(UpstreamPoll)
 	if c := ready(); c.Reason != "UpstreamUnreadable" {

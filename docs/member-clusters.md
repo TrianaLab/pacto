@@ -68,6 +68,9 @@ grant turns their approvals pending. A dashboard installed with a namespace
 list cannot review `clusterjoins`, so its approvals stay pending. The CLI
 reviews approvers as you: grant `create subjectaccessreviews`.
 
+To ship a version to approved members from the hub, see
+[Deliver through a member](integrations/kubernetes/delivery-members.md#deliver-through-a-member).
+
 ## Remove, rebuild and rotate
 
 - `pacto cluster remove 9f1c4e2a --registry ghcr.io/acme` records a signed

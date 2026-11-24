@@ -847,3 +847,30 @@ export function placementTip(r: Pick<EnvironmentRowOf, 'source' | 'placement'>):
 export function ladderCommand(l: Pick<InboxLadder, 'command' | 'proposalDigest'>): string {
   return l.command || `pacto delivery ladder confirm --proposal ${l.proposalDigest}`;
 }
+
+type MemberPlanOf = NonNullable<DeliveryEnvironments['members']>[number];
+
+const MEMBER_STATES: Record<string, string> = {
+  'no request': 'No request yet', waiting: 'Waiting for the member', unknown: 'Unknown: no answer in time',
+  refused: 'Refused', raised: 'Raised', held: 'Held for a person', applied: 'Applied', failed: 'Failed', concluded: 'Ended without applying',
+};
+
+/** memberStateLabel names what a member answered to the newest request (514-S6). */
+export function memberStateLabel(state: string): string {
+  return MEMBER_STATES[state] ?? state;
+}
+
+/** placementSourceLabel says where a placement over members came from: a signed rule,
+ *  the environments members advertise (unconfirmed) or a person who signed a request. */
+export function placementSourceLabel(p: Pick<MemberPlanOf['placement'], 'source' | 'confirmedBy'>): string {
+  if (p.source === 'policy') return 'From a signed placement rule';
+  if (p.source === 'advertised') return `Confirmed by ${p.confirmedBy}`;
+  return 'Proposed from advertised environments';
+}
+
+/** memberRefusalLine is one refused-list row from a member: its intake refused the
+ *  request, or its gates rejected the promote it raised (code Rejected). */
+export function memberRefusalLine(r: { code?: string; reason: string }): string {
+  if (r.code === 'Rejected') return `The member's gates rejected the promote: ${r.reason}.`.replace(/\.\.$/, '.');
+  return `The member refused the request${r.code ? ` (${r.code})` : ''}: ${r.reason}.`.replace(/\.\.$/, '.');
+}

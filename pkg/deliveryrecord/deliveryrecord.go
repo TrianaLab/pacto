@@ -109,6 +109,10 @@ const (
 	// KindLadder is an installation ladder record, on its cluster's ladder
 	// stream.
 	KindLadder = "ladder"
+	// KindRequest is a member request and KindOutcome its outcome, on the
+	// member's request stream.
+	KindRequest = "request"
+	KindOutcome = "outcome"
 )
 
 // KindTag is the write-once tag of an approval or intent record (kind) of
@@ -163,12 +167,13 @@ type Fetched struct {
 // bundle under different manifests are one record: only the first listed
 // counts, before the bound, and rejecting one copy rejects them all.
 func (r *Reader) ListPredicate(ctx context.Context, repo *remote.Repository, stream, predicate, uid string, max int) ([]Fetched, bool, error) {
-	return r.listPredicate(ctx, repo, stream, predicate, uid, max, new([]string))
+	return r.listPredicate(ctx, repo, stream, predicate, uid, max, new([]string), nil)
 }
 
 // listPredicate is [Reader.ListPredicate], adding to unreadable the tags
-// that vanished or do not name the manifest they point at.
-func (r *Reader) listPredicate(ctx context.Context, repo *remote.Repository, stream, predicate, uid string, max int, unreadable *[]string) ([]Fetched, bool, error) {
+// that vanished or do not name the manifest they point at and leaving out,
+// as if rejected for this call only, the manifests in skip.
+func (r *Reader) listPredicate(ctx context.Context, repo *remote.Repository, stream, predicate, uid string, max int, unreadable *[]string, skip map[string]bool) ([]Fetched, bool, error) {
 	anchor := Anchor(stream).ManifestDesc
 	key, kind := headsKey(stream, predicate)
 	descs, tags, err := ocireferrer.Attached(ctx, repo, anchor, AnchorTag(stream)+"-"+kind+"-")
@@ -184,7 +189,7 @@ func (r *Reader) listPredicate(ctx context.Context, repo *remote.Repository, str
 	for _, k := range order {
 		if h := heads[k]; h.layer != nil && h.predicate == predicate && h.subject == anchor.Digest.String() && (uid == "" || h.uid == uid) {
 			candidates = append(candidates, k)
-			bundles[h.layer.Digest] = bundles[h.layer.Digest] || h.rejected
+			bundles[h.layer.Digest] = bundles[h.layer.Digest] || h.rejected || skip[k]
 		}
 	}
 	var matched []string
@@ -229,6 +234,10 @@ func kindOf(predicate string) string {
 		return KindApplyRefusal
 	case delivery.PredicateEnvironmentLadder:
 		return KindLadder
+	case delivery.PredicateOperationRequest:
+		return KindRequest
+	case delivery.PredicateRequestOutcome:
+		return KindOutcome
 	}
 	return KindIntent
 }

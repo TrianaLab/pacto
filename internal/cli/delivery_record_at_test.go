@@ -13,6 +13,7 @@ import (
 	"github.com/spf13/viper"
 	"k8s.io/client-go/dynamic"
 
+	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
@@ -71,7 +72,7 @@ func (e *refEnv) run(t *testing.T, format string, args ...string) (string, strin
 	t.Helper()
 	v := viper.New()
 	v.Set(outputFormatKey, format)
-	cmd := newDeliveryCommand(v, e.d)
+	cmd := newDeliveryCommand(app.NewService(nil, nil), v, e.d)
 	out, errOut := &strings.Builder{}, &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
