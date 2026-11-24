@@ -62,7 +62,8 @@ pull_pinned "$PAUSE_IMG"
 PACTO_BIN="$(build_pacto)"
 CHART="$(package_chart "$PACTO_CHART")"
 ensure_cluster
-load_images "$OP_IMG" "${PAUSE_IMG%@*}"
+# The Evidence Server runs the dashboard image.
+load_images "$OP_IMG" "$DASH_IMG" "${PAUSE_IMG%@*}"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 install_registry
 

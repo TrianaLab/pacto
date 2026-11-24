@@ -164,7 +164,7 @@ PUSH_CFG="$(docker_config pusher "$PUSH_PW")"
 PULL_CFG="$(docker_config puller "$PULL_PW")"
 export PACTO_INSECURE_REGISTRIES="$REG"
 export HELM_REGISTRY_CONFIG="$WORK/helm-registry.json"
-helm registry login "$REG" --insecure -u pusher --password-stdin <<<"$PUSH_PW" >/dev/null
+helm registry login "$REG" --plain-http -u pusher --password-stdin <<<"$PUSH_PW" >/dev/null
 helm push "$TGZ" "oci://$REG/charts" --plain-http >/dev/null || fail "helm could not push the chart to $REG/charts"
 CHART="oci://$REG/charts/pacto-operator"
 [ "$(curl -s -o /dev/null -w '%{http_code}' "http://$REG/v2/charts/pacto-operator/tags/list")" = 200 ] ||
