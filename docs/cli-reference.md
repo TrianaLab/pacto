@@ -298,6 +298,7 @@ pacto ci [root] [flags]
       --stats-registry string              publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --target-snapshot stringArray        signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray           offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --tf-state stringArray               a local Terraform or OpenTofu state file to read managed resources from (type, id and region only; repeatable)
       --traces stringArray                 OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
@@ -361,6 +362,16 @@ pushed. The owner policy is read from the signed target snapshots in
 unclaimed external system to the default approvers for routing only: routing
 grants no right.
 
+--offering names the platform offering the system is meant to join, such as
+postgresql. It is written as the display-only metadata
+run.pacto.external.offering, never as service.offering, so the claim never
+lists the system as a provider of the offering. The plan says how many
+providers the offering has and who owns them, read from the offerings
+published under --registry; joining an offering another team provides writes
+a draft-&lt;n&gt; that a person of that team accepts with --from-draft, and so
+does one whose providers were not all read. A claim changes no managed resource: it stays outside contract until a provisioning
+record from the offering's provider names it.
+
 ```
 pacto claim <identity> [flags]
 ```
@@ -373,6 +384,9 @@ pacto claim <identity> [flags]
 
   # Claim it, signed by you
   pacto claim stripe --owner team-platform --registry ghcr.io/acme --yes
+
+  # Claim an RDS instance and name the offering it is meant to join
+  pacto claim aws/rds/123456789012/eu-west-1/orders-db --owner team-shop --offering postgresql --registry ghcr.io/acme
 
   # Accept a claim an agent wrote as a draft
   pacto claim stripe --registry ghcr.io/acme --from-draft draft-1 --yes
@@ -389,6 +403,7 @@ pacto claim <identity> [flags]
   -h, --help[=true|false]        help for claim
       --intent string            the intent digest of the plan you reviewed: a different plan is refused
       --name string              the service name the claim is published under (default: the identity's last segment)
+      --offering string          the platform offering the system is meant to join, written as display-only metadata (taken from the draft with --from-draft)
       --oidc-client-id string    OpenID Connect client of the Sigstore login (default "sigstore")
       --oidc-issuer-url string   OpenID Connect issuer of the Sigstore login (default "https://oauth2.sigstore.dev/auth")
       --owner string             the team that owns the external system (taken from the draft with --from-draft)
@@ -1654,6 +1669,7 @@ pacto export backstage [flags]
       --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --tf-state stringArray          a local Terraform or OpenTofu state file to read managed resources from (type, id and region only; repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
@@ -1690,6 +1706,7 @@ pacto fleet [flags]
       --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --tf-state stringArray          a local Terraform or OpenTofu state file to read managed resources from (type, id and region only; repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 
@@ -1750,6 +1767,7 @@ pacto fleet entities [text] [flags]
       --limit int                        maximum results (0 = 100, capped at 500)
       --offering string                  services that provide this platform offering, and the offering itself
       --offset int                       result offset for paging
+      --outside-contract[=true|false]    external systems with a managed resource no offering produced (lists kind external)
       --owner string                     free-text owner search over team, DRI and contacts
       --owner-key string                 exact owner key, such as team:platform or dri:alice
       --ownership string                 how ownership is declared on a service (consistent, conflicting, unowned, unknown or unidentified; conflicting means owners disagree: targets run different owners, or one version declares two; unknown is a service whose contract Pacto cannot read, unidentified every service with no single canonical owner)
@@ -2206,6 +2224,7 @@ pacto impact <old> <new> | --running <new> | --unavailable <service> | --removed
       --stats-registry string           publish an unsigned run record (statistics, never evidence) to this repository, for example ghcr.io/acme/pacto-stats; default $PACTO_STATS_REGISTRY
       --target-snapshot stringArray     signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray        offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --tf-state stringArray            a local Terraform or OpenTofu state file to read managed resources from (type, id and region only; repeatable)
       --traces string                   OTLP/JSON trace file; its observed edges corroborate and surface consumers (implies --include-observed); refused with external:<identity>
       --unavailable string              what happens if this service (a fleet service key, or a name only one domain holds) becomes unavailable; offering:<name> asks it of every provider of an offering and external:<identity> of an external system
 ```
@@ -2555,6 +2574,7 @@ pacto mcp [bundle-ref] [flags]
       --stats-read-registry string       with --fleet: the stats repository pacto_stats reads; it reads and never records. Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats
       --target-snapshot stringArray      signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray         offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --tf-state stringArray             a local Terraform or OpenTofu state file to read managed resources from (type, id and region only; repeatable)
       --traces stringArray               OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
   -t, --transport string                 transport type: stdio or http (default "stdio")
 ```
@@ -2928,6 +2948,7 @@ pacto stats [flags]
       --since string                  start of the window: 30d, 12h, a date or RFC 3339 (default 30d)
       --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --tf-state stringArray          a local Terraform or OpenTofu state file to read managed resources from (type, id and region only; repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
       --until string                  end of the window, exclusive: 30d, 12h, a date or RFC 3339 (default now)
 ```
@@ -2994,6 +3015,7 @@ pacto tui [flags]
       --root stringArray              contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)
       --target-snapshot stringArray   signed target snapshot(s) to read targets from: an oci:// pacto-targets repository, or :cluster-<uid> tags or digests to pin the clusters CI expects (repeatable); pacto impact, pacto ci and pacto_impact on a stdio pacto mcp also take auto (the default: derived from the provider ref) and off
       --target-state stringArray      offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)
+      --tf-state stringArray          a local Terraform or OpenTofu state file to read managed resources from (type, id and region only; repeatable)
       --traces stringArray            OTLP/JSON trace file supplying runtime-observed dependency edges, folded into the snapshot as observed relationships (repeatable)
 ```
 

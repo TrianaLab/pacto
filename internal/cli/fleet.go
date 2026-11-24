@@ -70,6 +70,7 @@ func addFleetSourceFlags(f *pflag.FlagSet) {
 	shared.StringArray("local", []string{"."}, "local bundle root(s) to scan (repeatable)")
 	shared.StringArray("root", nil, "contract root whose whole dependency closure joins the snapshot: a local bundle path or an oci:// reference (repeatable)")
 	shared.StringArray("target-state", nil, "offline target-state fixture file(s) supplying targets, for demos and tests; production targets arrive as signed EvidenceSets (repeatable)")
+	shared.StringArray("tf-state", nil, "a local Terraform or OpenTofu state file to read managed resources from (type, id and region only; repeatable)")
 	shared.StringArray("evidence-url", nil, "base URL of an Evidence Server to consume its read-only operational-graph contribution over HTTP (repeatable)")
 	shared.StringArray("mira-source", nil, "base URL of a Mira node whose service map supplies observed calls between services (repeatable)")
 	shared.String("backstage-url", "", "base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values and whose software templates are listed as inferred golden paths a person can accept; the reader token comes from "+backstageTokenEnv)
@@ -103,7 +104,7 @@ const backstageTokenEnv = "PACTO_BACKSTAGE_TOKEN"
 // command copies from when it wants the same source surface.
 func fleetFlagNames() []string {
 	return []string{
-		"local", "root", "target-state", "evidence-url", "mira-source", "backstage-url", "traces", "oci",
+		"local", "root", "target-state", "tf-state", "evidence-url", "mira-source", "backstage-url", "traces", "oci",
 		"cache", "k8s", "context", "namespace", "freshness", "external-catalog", "detected", "fingerprints",
 		"target-snapshot", "delivery-trust", "index", "discover",
 	}
@@ -204,6 +205,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 	// fleet path could have set.
 	roots, _ := cmd.Flags().GetStringArray("root")
 	targetState, _ := cmd.Flags().GetStringArray("target-state")
+	tfStates, _ := cmd.Flags().GetStringArray("tf-state")
 	evidenceURLs, _ := cmd.Flags().GetStringArray("evidence-url")
 	miraURLs, _ := cmd.Flags().GetStringArray("mira-source")
 	backstageURL, _ := cmd.Flags().GetString("backstage-url")
@@ -231,6 +233,7 @@ func fleetOptions(cmd *cobra.Command) app.FleetOptions {
 		LocalRoots:         local,
 		CatalogRoots:       roots,
 		TargetStateFiles:   targetState,
+		TerraformStates:    tfStates,
 		EvidenceURLs:       evidenceURLs,
 		MiraURLs:           miraURLs,
 		BackstageURL:       backstageURL,

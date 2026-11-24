@@ -7,10 +7,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, unmount, flushSync } from 'svelte';
 
-const { planFn, acceptFn } = vi.hoisted(() => ({ planFn: vi.fn(), acceptFn: vi.fn() }));
+const { planFn, acceptFn, entitiesFn } = vi.hoisted(() => ({ planFn: vi.fn(), acceptFn: vi.fn(), entitiesFn: vi.fn() }));
 vi.mock('../lib/api.ts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../lib/api.ts')>();
-  return { ...actual, api: { fleetDeclare: (...a: unknown[]) => planFn(...a), fleetDeclareAccept: (...a: unknown[]) => acceptFn(...a) } };
+  return { ...actual, api: { fleetDeclare: (...a: unknown[]) => planFn(...a), fleetDeclareAccept: (...a: unknown[]) => acceptFn(...a), fleetEntities: (...a: unknown[]) => entitiesFn(...a) } };
 });
 // @ts-expect-error — Svelte component has no declaration file
 import DeclarePanel from './DeclarePanel.svelte';
@@ -40,7 +40,7 @@ const FRESH = { signing: { mode: 'fresh-login', identity: LONG_ID }, signTicket:
 
 let target: HTMLElement;
 let comp: ReturnType<typeof mount> | null = null;
-beforeEach(() => { planFn.mockReset(); acceptFn.mockReset(); sessionStorage.clear(); target = document.createElement('div'); document.body.appendChild(target); });
+beforeEach(() => { planFn.mockReset(); acceptFn.mockReset(); entitiesFn.mockReset(); entitiesFn.mockResolvedValue({ entities: [] }); sessionStorage.clear(); target = document.createElement('div'); document.body.appendChild(target); });
 afterEach(() => { if (comp) { unmount(comp); comp = null; } target.remove(); });
 
 const text = (el: Element | null) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
@@ -443,6 +443,37 @@ describe('DeclarePanel claim', () => {
     await vi.waitFor(() => expect(sessionStorage.getItem('pacto-claim:sha256:i1')).toBeNull());
   });
 
+  it('external claim shows Offering field', async () => {
+    entitiesFn.mockResolvedValue({ entities: [{ kind: 'offering', key: 'postgresql', label: 'postgresql', owner: 'team-platform' }, { kind: 'offering', key: 'kafka', label: 'kafka' }] });
+    planFn.mockResolvedValue(claimAnswer());
+    await open();
+    const field = q('[data-testid="claim-offering"]') as HTMLInputElement;
+    expect(field).toBeTruthy();
+    // A combobox of the fleet's offerings that also takes a new name.
+    await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['offering'] })));
+    await vi.waitFor(() => expect([...target.querySelectorAll(`#${field.getAttribute('list')} option`)].map((o) => (o as HTMLOptionElement).value)).toEqual(['postgresql', 'kafka']));
+    type('claim-owner', 'team-shop');
+    type('claim-offering', 'Bad Slug');
+    submit();
+    expect(planFn).not.toHaveBeenCalled();
+    expect(text(q('#dp-claim-error'))).toMatch(/^An offering uses/);
+    expect(field.getAttribute('aria-invalid')).toBe('true');
+    // Another team's offering: the claim becomes a draft for that team's approver.
+    type('claim-offering', 'postgresql');
+    expect(text(q('[data-testid="claim-offering-draft"]'))).toBe('team-platform provides postgresql, so the claim is saved as a draft that a person of team-platform accepts.');
+    type('claim-owner', 'team-platform');
+    expect(q('[data-testid="claim-offering-draft"]')).toBeNull();
+    submit();
+    await vi.waitFor(() => expect(planFn).toHaveBeenCalledWith(expect.objectContaining({ serviceKey: CLAIM, owner: 'team-platform', offering: 'postgresql' })));
+  });
+
+  it('service declare panel shows no Offering field', async () => {
+    planFn.mockResolvedValue(answer());
+    await render();
+    expect(q('[data-testid="claim-offering"]')).toBeNull();
+    expect(entitiesFn).not.toHaveBeenCalled();
+  });
+
   it('renders a ClaimRepositoryInferred refusal with its command', async () => {
     planFn.mockResolvedValue({ signing: { mode: 'none' }, write: { available: true }, command: 'pacto claim stripe --owner team-platform --name pacto-inferred --registry ghcr.io/acme',
       refusal: { code: 'ClaimRepositoryInferred', message: 'ghcr.io/acme/pacto-inferred is where Pacto publishes inferred contracts', command: 'pacto claim stripe --owner team-platform --registry ghcr.io/acme' } });
@@ -494,7 +525,7 @@ describe('DeclarePanel offering', () => {
     type('offering-owner', 'team-storage');
     type('offering-registry', 'ghcr.io/acme/offerings');
     submit();
-    await vi.waitFor(() => expect(planFn).toHaveBeenCalledWith({ serviceKey: OKEY, offering: { version: '1.0.0', owner: 'team-storage', registry: 'ghcr.io/acme/offerings' }, fromDraft: undefined }));
+    await vi.waitFor(() => expect(planFn).toHaveBeenCalledWith({ serviceKey: OKEY, offeringAcceptance: { version: '1.0.0', owner: 'team-storage', registry: 'ghcr.io/acme/offerings' }, fromDraft: undefined }));
     await vi.waitFor(() => expect(q('[data-testid="declare-signer"]')).toBeTruthy());
     expect(text(q('[data-testid="declare"] dl'))).toContain('1.0.0');
   });
@@ -554,9 +585,9 @@ describe('DeclarePanel offering', () => {
     planFn.mockResolvedValue(offeringAnswer({ ...FRESH, signedIn: true }));
     acceptFn.mockResolvedValue({ tag: '1.0.0', signed: true });
     await open({ signed: 'sha256:i1' });
-    await vi.waitFor(() => expect(planFn).toHaveBeenCalledWith({ serviceKey: OKEY, offering: { version: '1.0.0', owner: 'team-storage', registry: undefined }, intentDigest: 'sha256:i1', fromDraft: undefined }));
+    await vi.waitFor(() => expect(planFn).toHaveBeenCalledWith({ serviceKey: OKEY, offeringAcceptance: { version: '1.0.0', owner: 'team-storage', registry: undefined }, intentDigest: 'sha256:i1', fromDraft: undefined }));
     await vi.waitFor(() => expect(button('Publish 1.0.0')).toBeTruthy());
     button('Publish 1.0.0').click();
-    await vi.waitFor(() => expect(acceptFn).toHaveBeenCalledWith(expect.objectContaining({ serviceKey: OKEY, offering: { version: '1.0.0', owner: 'team-storage', registry: undefined }, mode: 'sign' })));
+    await vi.waitFor(() => expect(acceptFn).toHaveBeenCalledWith(expect.objectContaining({ serviceKey: OKEY, offeringAcceptance: { version: '1.0.0', owner: 'team-storage', registry: undefined }, mode: 'sign' })));
   });
 });

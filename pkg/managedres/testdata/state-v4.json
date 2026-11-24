@@ -1,0 +1,96 @@
+{
+  "version": 4,
+  "terraform_version": "1.9.5",
+  "serial": 12,
+  "lineage": "6b1c0d9e-3f0a-4c5e-9d7a-2f1e8b4c6a10",
+  "outputs": {
+    "db_password": {"value": "out-hunter2-secret", "type": "string", "sensitive": true}
+  },
+  "resources": [
+    {
+      "mode": "managed",
+      "type": "aws_db_instance",
+      "name": "orders",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "schema_version": 2,
+          "attributes": {
+            "identifier": "orders-db",
+            "arn": "arn:aws:rds:eu-west-1:123456789012:db:orders-db",
+            "engine": "postgres",
+            "engine_version": "16.3",
+            "password": "tf-hunter2-password",
+            "username": "orders",
+            "endpoint": "orders-db.abc.eu-west-1.rds.amazonaws.com:5432"
+          },
+          "sensitive_attributes": [[{"type": "get_attr", "value": "password"}]]
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "aws_sqs_queue",
+      "name": "events",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {
+          "index_key": 0,
+          "attributes": {
+            "name": "orders-events",
+            "arn": "arn:aws:sqs:eu-west-1:123456789012:orders-events",
+            "policy": "{\"Statement\":[]}"
+          }
+        },
+        {
+          "index_key": "dlq",
+          "attributes": {
+            "name": "orders-events-dlq",
+            "arn": "arn:aws:sqs:eu-west-1:123456789012:orders-events-dlq"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "google_sql_database_instance",
+      "name": "billing",
+      "provider": "provider[\"registry.terraform.io/hashicorp/google\"]",
+      "instances": [
+        {
+          "attributes": {
+            "name": "billing-db",
+            "project": "acme-prod",
+            "region": "europe-west1",
+            "database_version": "POSTGRES_15",
+            "connection_string": "postgresql://billing:pg-conn-secret@10.0.0.3:5432/billing",
+            "root_password": "gcp-root-secret"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "managed",
+      "type": "tls_private_key",
+      "name": "deploy",
+      "provider": "provider[\"registry.terraform.io/hashicorp/tls\"]",
+      "instances": [
+        {
+          "attributes": {
+            "algorithm": "ED25519",
+            "private_key": "-----BEGIN PRIVATE KEY-----MC4CAQAwBQYDK2VwBCIEIprivate-key-secret-----END PRIVATE KEY-----"
+          }
+        }
+      ]
+    },
+    {
+      "mode": "data",
+      "type": "aws_db_instance",
+      "name": "legacy",
+      "provider": "provider[\"registry.terraform.io/hashicorp/aws\"]",
+      "instances": [
+        {"attributes": {"identifier": "legacy-db", "arn": "arn:aws:rds:eu-west-1:123456789012:db:legacy-db"}}
+      ]
+    }
+  ]
+}

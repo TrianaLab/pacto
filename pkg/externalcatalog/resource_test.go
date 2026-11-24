@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -132,6 +133,43 @@ func TestMatchCrossplane(t *testing.T) {
 	}
 }
 
+func TestMatchInventory(t *testing.T) {
+	c := Default()
+	for _, tc := range []struct {
+		typ, want string
+	}{
+		{"rds:db", "aws/rds"},
+		{"sqs:queue", "aws/sqs"},
+		{"sqladmin.googleapis.com/Instance", "gcp/cloudsql"},
+		{"microsoft.sql/servers/databases", "azure/sql"},
+		{"Microsoft.Sql/servers/databases", "azure/sql"},
+		{"sqladmin.googleapis.com/instance", ""},
+		{"RDS:db", ""},
+		{"ec2:instance", ""},
+	} {
+		m, ok := c.MatchInventory(tc.typ)
+		if string(m.Identity) != tc.want || ok != (tc.want != "") {
+			t.Errorf("MatchInventory(%q) = %+v %v", tc.typ, m, ok)
+		}
+		if ok && (m.Kind != KindResource || m.Confidence != ConfidencePossible) {
+			t.Errorf("MatchInventory(%q) = %+v", tc.typ, m)
+		}
+	}
+}
+
+func TestInventoryTypes(t *testing.T) {
+	c := Default()
+	if got := c.InventoryTypes("gcp"); !slices.Equal(got, []string{"pubsub.googleapis.com/Topic", "sqladmin.googleapis.com/Instance", "storage.googleapis.com/Bucket"}) {
+		t.Errorf("gcp = %q", got)
+	}
+	if got := c.InventoryTypes("aws"); !slices.Contains(got, "rds:db") || !slices.IsSorted(got) {
+		t.Errorf("aws = %q", got)
+	}
+	if got := c.InventoryTypes("stripe"); got != nil {
+		t.Errorf("stripe = %q", got)
+	}
+}
+
 func TestMatchOriginNamesCatalog(t *testing.T) {
 	c := orgCatalog(t)
 	if m, ok := matchHost(t, c, "https://erp.corp.example"); !ok || m.Origin != OriginOrganization {
@@ -146,7 +184,7 @@ func TestMatchOriginNamesCatalog(t *testing.T) {
 }
 
 // rowKeyRE is a key whose values each need a cited source.
-var rowKeyRE = regexp.MustCompile(`^\s+(sdkModules|terraform|crossplane):(.*)$`)
+var rowKeyRE = regexp.MustCompile(`^\s+(sdkModules|terraform|crossplane|inventory):(.*)$`)
 
 func TestDefaultCatalogValidates(t *testing.T) {
 	if err := mustParse(t, string(DefaultBytes())).Validate(); err != nil {
@@ -171,7 +209,7 @@ func TestDefaultCatalogValidates(t *testing.T) {
 		}
 		inRows = false
 	}
-	for _, want := range []string{"pypi:stripe", "aws_sqs_queue:name", "sqs.aws.upbound.io/Queue"} {
+	for _, want := range []string{"pypi:stripe", "aws_sqs_queue:name", "sqs.aws.upbound.io/Queue", "rds:db", "sqladmin.googleapis.com/Instance"} {
 		if !bytes.Contains(DefaultBytes(), []byte(want)) {
 			t.Errorf("default catalog lacks %s", want)
 		}

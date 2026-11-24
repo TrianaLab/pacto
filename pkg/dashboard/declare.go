@@ -85,7 +85,7 @@ type DeclareInput struct {
 	// IntentDigest names the plan a signing login was started for.
 	IntentDigest string `json:"intentDigest,omitempty" doc:"The intent a signing login was started for: back from that login, the accepted ranges are the ones it was started with, whatever accept says"`
 	ClaimInput
-	Offering *OfferingInput `json:"offering,omitempty" doc:"Set to accept the inferred offering serviceKey names as a declared offering; the server takes the record it is accepted from from your view of the fleet"`
+	Offering *OfferingInput `json:"offeringAcceptance,omitempty" doc:"Set to accept the inferred offering serviceKey names as a declared offering; the server takes the record it is accepted from from your view of the fleet"`
 }
 
 // OfferingInput is how a person accepts an inferred offering: the version
@@ -102,6 +102,9 @@ type OfferingInput struct {
 type ClaimInput struct {
 	Owner string `json:"owner,omitempty" maxLength:"253" pattern:"^[a-zA-Z0-9._/-]+$" doc:"The team that owns the external system; set only when serviceKey is external:<identity>"`
 	Name  string `json:"name,omitempty" maxLength:"63" pattern:"^[a-z0-9]([a-z0-9-]*[a-z0-9])?$" doc:"The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment"`
+	// Offering has no pattern: an invalid slug is the OfferingInvalid
+	// refusal the CLI and MCP give, never a bare 422.
+	Offering string `json:"offering,omitempty" maxLength:"253" doc:"The platform offering the external system is meant to join, written as display-only metadata on the claimed contract and never as service.offering; joining an offering another team provides writes a draft for that team. Invalid slugs are refused with OfferingInvalid"`
 }
 
 // DeclareAcceptInput carries out a plan the person reviewed.
@@ -112,7 +115,7 @@ type DeclareAcceptInput struct {
 	Mode         string    `json:"mode" enum:"sign,draft" doc:"sign: publish the declared version signed by the person's fresh login; draft: save a draft-<n> a person accepts later"`
 	FromDraft    *DraftRef `json:"fromDraft,omitempty" doc:"Accept this draft: its tag must still name the digest the plan showed"`
 	ClaimInput
-	Offering *OfferingInput `json:"offering,omitempty" doc:"The offering acceptance the plan was made for"`
+	Offering *OfferingInput `json:"offeringAcceptance,omitempty" doc:"The offering acceptance the plan was made for"`
 }
 
 // DeclareText is one file of a declaration, at most MaxDeclareText bytes.
@@ -230,7 +233,7 @@ type DeclareWrite struct {
 // DeclareRefusal is a declaration that was refused, with the command a person
 // runs about it.
 type DeclareRefusal struct {
-	Code    string `json:"code" enum:"PlanStale,IntentRequired,WorkloadNotFound,WorkloadAmbiguous,AlreadyDeclared,RangeNotProposed,NoRegistry,RegistryUnreadable,VersionConflict,SignerNotAllowed,SignerUnverified,DraftNotFound,ExecuteNeedsStdio,BaselineNeedsMigration,BundleRepoMismatch,AcceptNothingProposed,FieldNotAcceptable,BreakNotAnnounced,NotPublished,PersonSigningUnavailable,OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED,IdentityRequired,SignInLinkReadsFleet,ReviewFailed,ClusterNotReviewable,NotAllowed,OwnerRequired,ExternalMismatch,ExternalUnknown,ClaimRepositoryInferred,OfferingSchemaOpen,OfferingSourceInvalid,OfferingSourceUnverified,OfferingMismatch,VersionRequired,DraftNotOffered,TemplateNotFound,TemplateCatalogUnset,TemplateCatalogUnavailable,TemplateNameInvalid,TemplateNameTaken,TemplateSourceUnverified" doc:"The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed, DraftNotOffered (a shared dashboard claims only with the person's own signature) and TemplateSourceUnverified (a golden path is accepted only from the catalog the installation configured)"`
+	Code    string `json:"code" enum:"PlanStale,IntentRequired,WorkloadNotFound,WorkloadAmbiguous,AlreadyDeclared,RangeNotProposed,NoRegistry,RegistryUnreadable,VersionConflict,SignerNotAllowed,SignerUnverified,DraftNotFound,ExecuteNeedsStdio,BaselineNeedsMigration,BundleRepoMismatch,AcceptNothingProposed,FieldNotAcceptable,BreakNotAnnounced,NotPublished,PersonSigningUnavailable,OWNER_SIGNER_NOT_PERSON,OWNER_SIGNER_NOT_ALLOWED,OWNER_POLICY_UNVERIFIED,OWNER_SIGNER_UNVERIFIED,IdentityRequired,SignInLinkReadsFleet,ReviewFailed,ClusterNotReviewable,NotAllowed,OwnerRequired,ExternalMismatch,ExternalUnknown,ClaimRepositoryInferred,OfferingInvalid,OfferingSchemaOpen,OfferingSourceInvalid,OfferingSourceUnverified,OfferingMismatch,VersionRequired,DraftNotOffered,TemplateNotFound,TemplateCatalogUnset,TemplateCatalogUnavailable,TemplateNameInvalid,TemplateNameTaken,TemplateSourceUnverified" doc:"The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed, DraftNotOffered (a shared dashboard claims only with the person's own signature) and TemplateSourceUnverified (a golden path is accepted only from the catalog the installation configured)"`
 	Message string `json:"message"`
 	Command string `json:"command,omitempty" doc:"The command a person runs about it"`
 }

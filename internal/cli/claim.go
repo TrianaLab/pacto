@@ -42,12 +42,25 @@ current owner or a default approver. Anyone else is refused before anything is
 pushed. The owner policy is read from the signed target snapshots in
 <registry>/pacto-targets, verified with --delivery-trust. The fleet routes an
 unclaimed external system to the default approvers for routing only: routing
-grants no right.`,
+grants no right.
+
+--offering names the platform offering the system is meant to join, such as
+postgresql. It is written as the display-only metadata
+run.pacto.external.offering, never as service.offering, so the claim never
+lists the system as a provider of the offering. The plan says how many
+providers the offering has and who owns them, read from the offerings
+published under --registry; joining an offering another team provides writes
+a draft-<n> that a person of that team accepts with --from-draft, and so
+does one whose providers were not all read. A claim changes no managed resource: it stays outside contract until a provisioning
+record from the offering's provider names it.`,
 		Example: `  # What claiming stripe for team-platform would publish
   pacto claim stripe --owner team-platform --registry ghcr.io/acme
 
   # Claim it, signed by you
   pacto claim stripe --owner team-platform --registry ghcr.io/acme --yes
+
+  # Claim an RDS instance and name the offering it is meant to join
+  pacto claim aws/rds/123456789012/eu-west-1/orders-db --owner team-shop --offering postgresql --registry ghcr.io/acme
 
   # Accept a claim an agent wrote as a draft
   pacto claim stripe --registry ghcr.io/acme --from-draft draft-1 --yes`,
@@ -70,6 +83,7 @@ grants no right.`,
 	f := cmd.Flags()
 	f.StringVar(&req.Owner, "owner", "", "the team that owns the external system (taken from the draft with --from-draft)")
 	f.StringVar(&req.Name, "name", "", "the service name the claim is published under (default: the identity's last segment)")
+	f.StringVar(&req.Offering, "offering", "", "the platform offering the system is meant to join, written as display-only metadata (taken from the draft with --from-draft)")
 	declareFlags(f, &req, &yes)
 	return cmd
 }

@@ -106,6 +106,9 @@ describe('claims', () => {
     expect(claimFieldError('team-platform', 'a'.repeat(64)).field).toBe('name');
     expect(claimFieldError('org/team-platform', 'payments-stripe')).toEqual({ field: '', message: '' });
     expect(claimFieldError('team-platform', '').message).toBe('');
+    expect(claimFieldError('team-platform', '', 'Postgres SQL')).toEqual({ field: 'offering', message: expect.stringMatching(/^An offering uses/) });
+    expect(claimFieldError('team-platform', '', 'a'.repeat(64)).field).toBe('offering');
+    expect(claimFieldError('team-platform', '', 'postgresql')).toEqual({ field: '', message: '' });
   });
 });
 

@@ -71,9 +71,16 @@ type Entry struct {
 	// a sensitive name.
 	Terraform []string `yaml:"terraform,omitempty"`
 	// Crossplane lists the managed-resource kinds that provision the
-	// service, "<api group>/<Kind>" ("rds.aws.upbound.io/Instance"). Only a
-	// managed-cloud entry carries them.
+	// service, "<api group>/<Kind>": a Crossplane, ACK, Config Connector or
+	// ASO kind ("rds.aws.upbound.io/Instance", "rds.services.k8s.aws/DBInstance").
+	// Only a managed-cloud entry carries them.
 	Crossplane []string `yaml:"crossplane,omitempty"`
+	// Inventory lists the cloud inventory resource types of the service: an
+	// AWS Resource Explorer type ("rds:db", lower case), a GCP Cloud Asset
+	// type ("sqladmin.googleapis.com/Instance", case kept) or an Azure
+	// Resource Graph type ("microsoft.sql/servers/databases", lower case).
+	// Only a managed-cloud entry carries them.
+	Inventory []string `yaml:"inventory,omitempty"`
 	// OpenAPI links the vendor's published OpenAPI document, pinned by
 	// digest: "<oci:// or https:// reference>@sha256:<64 hex>". Pacto never
 	// fetches it; the digest is the change signal.
@@ -148,7 +155,27 @@ var (
 	// into the WASM demo, where a large one overflows the WebKit worker stack;
 	// maxOpenAPIBytes bounds the length instead.
 	openAPIRE = regexp.MustCompile(`^(oci|https)://[A-Za-z0-9._~/:@%-]+@sha256:[0-9a-f]{64}$`)
+	// inventoryRE is one inventory value; maxInventoryBytes bounds its length
+	// for the same WASM reason as openAPIRE.
+	inventoryRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.:/_-]*$`)
 )
+
+// maxInventoryBytes bounds an inventory value.
+const maxInventoryBytes = 200
+
+// validInventory checks an inventory value. An Azure type ("microsoft.")
+// and an AWS "<service>:<type>" are lower case; a GCP asset type keeps its
+// case, since GCP compares it exactly.
+func validInventory(v string) bool {
+	if len(v) > maxInventoryBytes || !inventoryRE.MatchString(v) {
+		return false
+	}
+	aws := strings.Contains(v, ":") && !strings.Contains(v, "/")
+	if aws || strings.HasPrefix(strings.ToLower(v), "microsoft.") {
+		return v == strings.ToLower(v)
+	}
+	return true
+}
 
 // maxOpenAPIBytes bounds an openapi value: it is copied into every
 // published inferred contract and every viewer's answer.
@@ -181,7 +208,7 @@ func (f *File) Validate() error {
 	}
 	ids := map[externalid.ID]int{}
 	aliases, hosts, keys := claims{}, claims{}, claims{}
-	sdks, tfTypes, xpKinds := claims{}, claims{}, claims{}
+	sdks, tfTypes, xpKinds, invTypes := claims{}, claims{}, claims{}, claims{}
 	for i, e := range f.Entries {
 		for _, m := range e.SDKModules {
 			sdks.claim(&errs, "sdkModules", m, i)
@@ -191,6 +218,9 @@ func (f *File) Validate() error {
 		}
 		for _, k := range e.Crossplane {
 			xpKinds.claim(&errs, "crossplane", k, i)
+		}
+		for _, v := range e.Inventory {
+			invTypes.claim(&errs, "inventory", v, i)
 		}
 		errs = append(errs, validateEntry(i, e)...)
 		if j, ok := ids[e.Identity]; ok {
@@ -241,7 +271,8 @@ func validateEntry(i int, e Entry) []error {
 	return append(errs, validateRows(i, e)...)
 }
 
-// validateRows checks an entry's sdkModules, terraform and crossplane values.
+// validateRows checks an entry's sdkModules, terraform, crossplane and
+// inventory values.
 func validateRows(i int, e Entry) []error {
 	var errs []error
 	for _, m := range e.SDKModules {
@@ -263,8 +294,13 @@ func validateRows(i int, e Entry) []error {
 			errs = append(errs, fmt.Errorf("entries[%d].crossplane: %q must be <api group>/<Kind>", i, k))
 		}
 	}
-	if e.Class != ClassManagedCloud && len(e.Terraform)+len(e.Crossplane) > 0 {
-		errs = append(errs, fmt.Errorf("entries[%d]: only a managed-cloud entry lists terraform or crossplane rows", i))
+	for _, v := range e.Inventory {
+		if !validInventory(v) {
+			errs = append(errs, fmt.Errorf("entries[%d].inventory: %q must be a cloud inventory type of at most %d bytes, lower case for AWS and Azure", i, v, maxInventoryBytes))
+		}
+	}
+	if e.Class != ClassManagedCloud && len(e.Terraform)+len(e.Crossplane)+len(e.Inventory) > 0 {
+		errs = append(errs, fmt.Errorf("entries[%d]: only a managed-cloud entry lists terraform, crossplane or inventory rows", i))
 	}
 	if e.OpenAPI != "" && !validOpenAPI(e.OpenAPI) {
 		errs = append(errs, fmt.Errorf("entries[%d].openapi: %q must be an oci:// or https:// reference pinned with @sha256:<64 hex>, with no credentials, query or fragment", i, e.OpenAPI))
@@ -290,12 +326,12 @@ func validOpenAPI(v string) bool {
 // Merge builds the catalog from the default file and an optional organization
 // extension. An organization entry replaces the default entry with the same
 // identity, and an alias, host, key pattern, SDK module, Terraform resource
-// type or Crossplane kind the organization claims is taken away from every
+// type, Crossplane kind or inventory type the organization claims is taken away from every
 // default entry that also claims it.
 func Merge(def *File, defRef Ref, org *File, orgRef *Ref) *Catalog {
 	c := &Catalog{entries: map[externalid.ID]sourced{}, refs: []Ref{defRef}, aliases: map[string]externalid.ID{}}
-	taken := struct{ aliases, hosts, keys, sdks, tfTypes, xpKinds map[string]bool }{
-		map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{},
+	taken := struct{ aliases, hosts, keys, sdks, tfTypes, xpKinds, invTypes map[string]bool }{
+		map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{}, map[string]bool{},
 	}
 	if org != nil {
 		c.refs = append(c.refs, *orgRef)
@@ -307,6 +343,7 @@ func Merge(def *File, defRef Ref, org *File, orgRef *Ref) *Catalog {
 			mark(taken.sdks, e.SDKModules, foldKey)
 			mark(taken.tfTypes, e.Terraform, tfKey)
 			mark(taken.xpKinds, e.Crossplane, foldKey)
+			mark(taken.invTypes, e.Inventory, foldKey)
 		}
 	}
 	for _, e := range def.Entries {
@@ -319,6 +356,7 @@ func Merge(def *File, defRef Ref, org *File, orgRef *Ref) *Catalog {
 		e.SDKModules = without(e.SDKModules, taken.sdks, foldKey)
 		e.Terraform = without(e.Terraform, taken.tfTypes, tfKey)
 		e.Crossplane = without(e.Crossplane, taken.xpKinds, foldKey)
+		e.Inventory = without(e.Inventory, taken.invTypes, foldKey)
 		c.add(e, 0)
 	}
 	return c
@@ -372,6 +410,20 @@ func (c *Catalog) Entry(id externalid.ID) (Entry, Ref, bool) {
 		}
 	}
 	return s.entry, c.refs[s.ref], true
+}
+
+// InventoryTypes returns the sorted cloud inventory types the entries of
+// provider ("aws", "gcp" or "azure") list: what a cloud inventory read asks
+// for.
+func (c *Catalog) InventoryTypes(provider string) []string {
+	var out []string
+	for id, s := range c.entries {
+		if p, _, _ := strings.Cut(string(id), "/"); p == provider {
+			out = append(out, s.entry.Inventory...)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 // Len returns the number of entries.

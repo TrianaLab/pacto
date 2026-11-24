@@ -99,7 +99,7 @@ func fleetRows() []surfaceRow {
 	return slices.Concat(
 		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment", "cluster",
 			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
-			"declaration", "group", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
+			"declaration", "group", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class", "outside-contract"),
 		[]surfaceRow{
 			{"fleet entities --kind", "pacto_fleet_entities.kind", "GET /api/fleet/entities?kinds", "the route takes several kinds, the CLI and MCP one"},
 			{"fleet entities [text]", "pacto_fleet_entities.text", "GET /api/fleet/entities?text", ""},
@@ -427,6 +427,8 @@ func claimRows() []surfaceRow {
 			{"claim --owner", "pacto_declare.owner", plan + " body.owner", ""},
 			{"", "", accept + " body.owner", "the accept route carries out the plan with the owner it named"},
 			{"claim --name", "pacto_declare.name", plan + " body.name", ""},
+			{"claim --offering", "pacto_declare.offering", plan + " body.offering", ""},
+			{"", "", accept + " body.offering", "the accept route carries out the plan with the offering it named"},
 			{"", "", accept + " body.name", "the accept route carries out the plan with the name it named"},
 		},
 		alike("claim", "", "", why, "registry", "yes", "intent", "draft", "from-draft", "delivery-trust"),

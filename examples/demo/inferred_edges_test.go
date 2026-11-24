@@ -34,7 +34,9 @@ func TestDemoInferredEdges(t *testing.T) {
 		t.Errorf("missing inferred edges %v in %+v", want, snap.InferredRelationships)
 	}
 	for _, r := range snap.Relationships {
-		if r.FromService == export || r.FromService == billing || r.ToService == billing {
+		// legacy-billing's use of orders-db's connection Secret is an external
+		// edge, TestDemoManagedConsumersJoined's.
+		if r.ToExternal == "" && (r.FromService == export || r.FromService == billing || r.ToService == billing) {
 			t.Errorf("an edge of an inferred service is in Relationships: %+v", r)
 		}
 	}

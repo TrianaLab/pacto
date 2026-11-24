@@ -80,7 +80,7 @@ func TestMCPDeclareOfferingVerbAndCommand(t *testing.T) {
 		"pacto declare offering:xbucket --from <contribution> --detected k8s:<namespace>/<configmap> --registry <registry> --version <version>" {
 		t.Fatal(got)
 	}
-	if name, ok := a.Offering(); !ok || name != "xbucket" || a.Verb() != "pacto declare" {
+	if name, ok := a.AcceptedOffering(); !ok || name != "xbucket" || a.Verb() != "pacto declare" {
 		t.Fatal(name, ok, a.Verb())
 	}
 }

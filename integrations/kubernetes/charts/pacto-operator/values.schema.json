@@ -534,6 +534,16 @@
           "enum": ["auto", "on", "off", true, false],
           "description": "Istio egress gateway access logs: auto (find gateways and propose on), on (read their access log tail; adds pods/log get in istio-system) or \"off\" (quoted: a bare off is YAML false); true means on and false keeps meaning auto."
         },
+        "terraformStates": {
+          "type": "array",
+          "maxItems": 16,
+          "items": {"type": "string", "pattern": "^(s3|gs|azurerm)://[A-Za-z0-9._/?=-]+$"},
+          "description": "Remote Terraform or OpenTofu states the operator reads managed resources from through its workload identity: s3://<bucket>/<key>?region=<region>, gs://<bucket>/<object> or azurerm://<account>/<container>/<key>."
+        },
+        "cloudInventory": {
+          "enum": ["off", "aws", "gcp", "azure", false],
+          "description": "The cloud whose inventory the operator reads through its workload identity: aws, gcp, azure or \"off\" (quoted: a bare off is YAML false, which also means off)."
+        },
         "kernelEvidence": {
           "type": "object",
           "additionalProperties": false,

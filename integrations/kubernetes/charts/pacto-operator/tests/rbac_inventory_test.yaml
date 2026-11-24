@@ -7668,3 +7668,158 @@ tests:
         value:
         - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
       documentIndex: 1
+
+  # Managed resources (517-S7): list only, on the plurals of the default
+  # catalog's kinds whose group the cluster serves. A served group the catalog
+  # does not name, including the key-bearing Config Connector IAM and Secret
+  # Manager groups and a non-ASO .azure.com group, renders nothing.
+  - it: catalog groups served render list on their catalog plurals only
+    template: templates/clusterrole.yaml
+    set:
+      crossplane.offerings.enabled: false
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - rds.aws.upbound.io/v1beta1
+        - rds.services.k8s.aws/v1alpha1
+        - sql.cnrm.cloud.google.com/v1beta1
+        - sql.azure.com/v1api20211101
+        - iam.cnrm.cloud.google.com/v1beta1
+        - secretmanager.cnrm.cloud.google.com/v1beta1
+        - clusterconfig.azure.com/v1beta1
+        - example.org/v1
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [rds.aws.upbound.io], resources: [clusters, instances], verbs: [list]}
+      - contains:
+          path: rules
+          content: {apiGroups: [rds.services.k8s.aws], resources: [dbclusters, dbinstances], verbs: [list]}
+      - contains:
+          path: rules
+          content: {apiGroups: [sql.cnrm.cloud.google.com], resources: [sqlinstances], verbs: [list]}
+      - contains:
+          path: rules
+          content: {apiGroups: [sql.azure.com], resources: [servers], verbs: [list]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [iam.cnrm.cloud.google.com]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [secretmanager.cnrm.cloud.google.com]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [clusterconfig.azure.com]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [example.org]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [apiextensions.crossplane.io]}
+          any: true
+
+  - it: claim groups from XRDs render list on their composite and claim plurals
+    template: templates/clusterrole.yaml
+    set:
+      crossplane.offerings.enabled: false
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - apiextensions.crossplane.io/v1
+    kubernetesProvider:
+      scheme:
+        "apiextensions.crossplane.io/v1/CompositeResourceDefinition":
+          gvr: {group: apiextensions.crossplane.io, version: v1, resource: compositeresourcedefinitions}
+          namespaced: false
+      objects:
+        - apiVersion: apiextensions.crossplane.io/v1
+          kind: CompositeResourceDefinition
+          metadata: {name: xpostgresqlinstances.platform.example.org}
+          spec:
+            group: platform.example.org
+            names: {kind: XPostgreSQLInstance, plural: xpostgresqlinstances}
+            claimNames: {kind: PostgreSQLInstance, plural: postgresqlinstances}
+        - apiVersion: apiextensions.crossplane.io/v1
+          kind: CompositeResourceDefinition
+          metadata: {name: xthings.apps.k8s.io}
+          spec:
+            group: apps.k8s.io
+            names: {kind: XThing, plural: xthings}
+        - apiVersion: apiextensions.crossplane.io/v1
+          kind: CompositeResourceDefinition
+          metadata: {name: forged.example.org}
+          spec:
+            group: example.org
+            names: {kind: Forged, plural: "x], verbs: [create]"}
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [apiextensions.crossplane.io], resources: [compositeresourcedefinitions], verbs: [list]}
+      - contains:
+          path: rules
+          content: {apiGroups: [platform.example.org], resources: [xpostgresqlinstances, postgresqlinstances], verbs: [list]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [apps.k8s.io]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [example.org]}
+          any: true
+
+  # One XRD rule: with inferred offerings on (the default) their rule already
+  # lists XRDs, so the managed rules add only the claim groups.
+  - it: inferred offerings on keep one XRD rule beside the claim groups
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - apiextensions.crossplane.io/v1
+    kubernetesProvider:
+      scheme:
+        "apiextensions.crossplane.io/v1/CompositeResourceDefinition":
+          gvr: {group: apiextensions.crossplane.io, version: v1, resource: compositeresourcedefinitions}
+          namespaced: false
+      objects:
+        - apiVersion: apiextensions.crossplane.io/v1
+          kind: CompositeResourceDefinition
+          metadata: {name: xpostgresqlinstances.platform.example.org}
+          spec:
+            group: platform.example.org
+            names: {kind: XPostgreSQLInstance, plural: xpostgresqlinstances}
+            claimNames: {kind: PostgreSQLInstance, plural: postgresqlinstances}
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [apiextensions.crossplane.io], resources: [compositeresourcedefinitions, compositions], verbs: [get, list, watch]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [apiextensions.crossplane.io], resources: [compositeresourcedefinitions], verbs: [list]}
+      - contains:
+          path: rules
+          content: {apiGroups: [platform.example.org], resources: [xpostgresqlinstances, postgresqlinstances], verbs: [list]}
+
+  - it: watchNamespaces renders no managed rule
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - rds.aws.upbound.io/v1beta1
+        - apiextensions.crossplane.io/v1
+    set:
+      controller.watchNamespaces: [payments]
+      dashboard.enabled: true
+      delivery.enabled: true
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [rds.aws.upbound.io]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [apiextensions.crossplane.io]}
+          any: true

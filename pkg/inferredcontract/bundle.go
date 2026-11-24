@@ -35,14 +35,21 @@ func ServiceName(key fleet.ExternalKey) string {
 }
 
 // Bundle is key's inferred contract at version: pacto.yaml names the
-// service, its version, the external it describes and, when openapi is set,
-// the vendor OpenAPI document under metadata; pacto.inferred.yaml holds s and
-// the inputs in. Both are written deterministically, and the bundle is
-// validated before it is returned.
-func Bundle(key fleet.ExternalKey, s contract.InferredSurface, version string, in contract.InferredInputs, openapi string) (*contract.Bundle, error) {
+// service, its version, the external it describes and, under metadata, the
+// vendor OpenAPI document when openapi is set and the observed engines when
+// engine is set; pacto.inferred.yaml holds s and the inputs in. Both are
+// written deterministically, and the bundle is validated before it is
+// returned.
+func Bundle(key fleet.ExternalKey, s contract.InferredSurface, version string, in contract.InferredInputs, openapi, engine string) (*contract.Bundle, error) {
 	raw := fmt.Sprintf("pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n  external: %s\n", pactoVersion, ServiceName(key), version, key)
+	if openapi != "" || engine != "" {
+		raw += "metadata:\n"
+	}
 	if openapi != "" {
-		raw += fmt.Sprintf("metadata:\n  %s: %q\n", fleet.ExternalOpenAPIMetadataKey, openapi)
+		raw += fmt.Sprintf("  %s: %q\n", fleet.ExternalOpenAPIMetadataKey, openapi)
+	}
+	if engine != "" {
+		raw += fmt.Sprintf("  %s: %q\n", fleet.ExternalEngineMetadataKey, engine)
 	}
 	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: in, Fields: []contract.Inferred{}, Surface: &s}
 	fsys := fstest.MapFS{"pacto.yaml": {Data: []byte(raw)}, contract.InferredRecordFile: {Data: rec.Marshal()}}
@@ -59,11 +66,12 @@ func Bundle(key fleet.ExternalKey, s contract.InferredSurface, version string, i
 
 // Changed reports whether cur differs from old by anything diff.Compare
 // sees, at old's version, or by the digest of its linked vendor OpenAPI
-// document: a version bump alone is no change, and the surface's sources,
-// times, asOf and completeness emit nothing, so only a value added or
-// removed is. A document re-hosted under the same digest is no change.
+// document, or by its observed engines: a version bump alone is no change,
+// and the surface's sources, times, asOf and completeness emit nothing, so
+// only a value added or removed is. A document re-hosted under the same
+// digest is no change.
 func Changed(ctx context.Context, old, cur *contract.Bundle) bool {
-	if fleet.ExternalOpenAPIDigest(openAPILink(old)) != fleet.ExternalOpenAPIDigest(openAPILink(cur)) {
+	if fleet.ExternalOpenAPIDigest(openAPILink(old)) != fleet.ExternalOpenAPIDigest(openAPILink(cur)) || engineOf(old) != engineOf(cur) {
 		return true
 	}
 	c := *cur.Contract
@@ -73,7 +81,15 @@ func Changed(ctx context.Context, old, cur *contract.Bundle) bool {
 
 // openAPILink is the vendor OpenAPI document b records, or "".
 func openAPILink(b *contract.Bundle) string {
-	v, _ := b.Contract.Metadata[fleet.ExternalOpenAPIMetadataKey].(string)
+	return metadataString(b, fleet.ExternalOpenAPIMetadataKey)
+}
+
+// engineOf is the observed engines b records, or "".
+func engineOf(b *contract.Bundle) string { return metadataString(b, fleet.ExternalEngineMetadataKey) }
+
+// metadataString is b's string metadata value under key, or "".
+func metadataString(b *contract.Bundle, key string) string {
+	v, _ := b.Contract.Metadata[key].(string)
 	return v
 }
 

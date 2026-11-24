@@ -111,6 +111,14 @@ type DeclareRequest struct {
 	// from.
 	Template                      *fleet.InferredTemplate
 	TemplateSubject, BackstageURL string
+	// Offering is set only on a claim: the platform offering the external
+	// system is meant to join, written as the display-only metadata
+	// run.pacto.external.offering and never as the service's own offering, so a claim
+	// never lists the system as a provider of the offering.
+	Offering string
+	// Fleet is the fleet the offering's providers are read from; nil reads
+	// the offerings published under Registry.
+	Fleet *fleet.FleetSnapshot
 }
 
 // DeclareObserved is a workload as the caller's restricted fleet view shows
@@ -316,6 +324,7 @@ const (
 	codeOfferingSourceUnverified = "OfferingSourceUnverified"
 	codeOfferingMismatch         = "OfferingMismatch"
 	codeVersionRequired          = "VersionRequired"
+	codeOfferingInvalid         = "OfferingInvalid"
 	// The pacto accept codes.
 	codeAcceptNothingProposed    = "AcceptNothingProposed"
 	codeFieldNotAcceptable       = "FieldNotAcceptable"
@@ -351,6 +360,8 @@ type declaration struct {
 	// owner is the owner change a person's signature must have the right
 	// to make; nil when the owner does not change.
 	owner *ownerCheck
+	// joins is the offering an accepted claim draft joins; nil for none.
+	joins *offeringJoin
 	// reg is the registry the plan read and the run writes through.
 	reg publish.Registry
 }
@@ -426,6 +437,7 @@ type declarePlanner struct {
 	baseSigner *delivery.PublisherIdentity
 	judged     map[string]bool
 	owned      *ownerCheck
+	joins      *offeringJoin
 	// tags and root are the bundle repository's tags and the trusted root
 	// findBaseline read them with (root only when it holds a version).
 	tags []string
@@ -481,7 +493,7 @@ func (pl *declarePlanner) source(ctx context.Context) error {
 	case pl.req.Template != nil:
 		err = pl.fromTemplate(ctx)
 	case pl.claiming:
-		err = pl.externalSource()
+		err = pl.externalSource(ctx)
 	case pl.offering:
 		err = pl.offeringSource(ctx)
 	case pl.req.Dir != "":
@@ -513,11 +525,15 @@ func (pl *declarePlanner) source(ctx context.Context) error {
 // and its owner, and a record that infers nothing. With req.Dir (the draft folder an accepted
 // draft was written to) the name and owner are the draft's, and a different
 // --owner is refused. Nothing is read from a cluster.
-func (pl *declarePlanner) externalSource() error {
+func (pl *declarePlanner) externalSource(ctx context.Context) error {
 	if _, err := externalid.Parse(string(pl.claim)); err != nil {
 		return &DeclareError{Code: codeExternalUnknown, Message: "no external system can be claimed as " + string(pl.claim) + ": " + err.Error()}
 	}
-	name, owner, err := pl.claimNameOwner()
+	name, owner, drafted, err := pl.claimNameOwner()
+	if err != nil {
+		return err
+	}
+	offering, err := pl.claimOffering(ctx, owner, drafted)
 	if err != nil {
 		return err
 	}
@@ -528,6 +544,9 @@ func (pl *declarePlanner) externalSource() error {
 	pl.dir = filepath.Join(pl.scratch, name)
 	raw := fmt.Sprintf("pactoVersion: %q\nservice:\n  name: %s\n  version: %s\n  external: %s\n  owner:\n    team: %s\n",
 		contract.Current(), discover.Quote(name), firstDeclaration, discover.Quote(string(pl.claim)), discover.Quote(owner))
+	if offering != "" {
+		raw += "metadata:\n  " + fleet.ExternalOfferingMetadataKey + ": " + discover.Quote(offering) + "\n"
+	}
 	pl.rec = &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: pl.s.buildVersion()}, Fields: []contract.Inferred{}}
 	return pl.writeFile(DefaultContractPath, []byte(raw))
 }
@@ -538,32 +557,33 @@ func inferredRepo(repo string) bool {
 	return ok
 }
 
-// claimNameOwner is the name and owner team a claim publishes: the
-// request's, or with req.Dir the draft folder's, which a different --owner
-// may not change. A claim with no owner is refused: a claim exists to name
-// one.
-func (pl *declarePlanner) claimNameOwner() (string, string, error) {
-	name, owner := pl.req.claimName(), pl.req.Owner
+// claimNameOwner is the name and owner team a claim publishes and the
+// offering a draft folder names: the request's, or with req.Dir the draft
+// folder's, which a different --owner may not change. A claim with no owner
+// is refused: a claim exists to name one.
+func (pl *declarePlanner) claimNameOwner() (name, owner, offering string, err error) {
+	name, owner = pl.req.claimName(), pl.req.Owner
 	if pl.req.Dir != "" {
 		b, err := readLocalBundle(pl.req.Dir)
 		if err != nil {
-			return "", "", err
+			return "", "", "", err
 		}
 		team := b.Contract.Service.Owner.Team
 		if owner != "" && owner != team {
-			return "", "", &DeclareError{Code: codeOwnerRequired, Message: "the draft names owner " + cmp.Or(team, "none") + ", not " + owner +
+			return "", "", "", &DeclareError{Code: codeOwnerRequired, Message: "the draft names owner " + cmp.Or(team, "none") + ", not " + owner +
 				": accept it without --owner, or claim again with the owner you want"}
 		}
 		name, owner = b.Contract.Service.Name, team
+		offering, _ = b.Contract.Metadata[fleet.ExternalOfferingMetadataKey].(string)
 	}
 	if owner == "" {
-		return "", "", &DeclareError{Code: codeOwnerRequired, Message: "claiming " + string(pl.claim) + " names its owner: pass --owner <team>", CLI: pl.req.command("")}
+		return "", "", "", &DeclareError{Code: codeOwnerRequired, Message: "claiming " + string(pl.claim) + " names its owner: pass --owner <team>", CLI: pl.req.command("")}
 	}
 	if !contract.ValidServiceName(name) {
-		return "", "", &DeclareError{Code: codeFieldNotAcceptable, CLI: pl.req.command(""),
+		return "", "", "", &DeclareError{Code: codeFieldNotAcceptable, CLI: pl.req.command(""),
 			Message: fmt.Sprintf("%q is not a service name: use lower-case letters, digits and dashes, at most 63, with --name", name)}
 	}
-	return name, owner, nil
+	return name, owner, offering, nil
 }
 
 // draft runs the cluster read for workload into the scratch folder.
@@ -1100,7 +1120,7 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	if err != nil {
 		return nil, err
 	}
-	d.owner = pl.owned
+	d.owner, d.joins = pl.owned, pl.joins
 	p.Version, p.Ranges = version, ranges(d.bundle.Contract, rec, accepted)
 	p.IntentDigest = intentDigest(p, raw, accepted, "")
 	d.input = publish.Input{Bundle: d.bundle, Revision: "declare:" + p.IntentDigest, ContractOnly: true, BaselineDeploy: strings.TrimSuffix(p.Deploy, "none"),
@@ -1372,6 +1392,9 @@ func (s *Service) Declare(ctx context.Context, req DeclareRequest) (*DeclareResu
 // who logged in has no right to: before anything is built or pushed. An
 // agent's on_behalf_of is never an input.
 func (s *Service) ownerRight(req DeclareRequest, plan *DeclarePlan, d *declaration, c signerChoice) error {
+	if err := d.joins.refusal(plan.Service, c.Identity, s.env().now()); err != nil {
+		return err
+	}
 	if d.owner == nil {
 		return nil
 	}
@@ -1477,6 +1500,9 @@ func (req DeclareRequest) command(intent string) string {
 			add("--owner", cmp.Or(req.Owner, "<team>"))
 		}
 		add("--name", req.Name)
+		if req.FromDraft == "" {
+			add("--offering", req.Offering)
+		}
 		add("--registry", cmp.Or(req.Registry, "<registry>"))
 		add("--from-draft", req.FromDraft)
 		add("--intent", intent)

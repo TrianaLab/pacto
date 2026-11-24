@@ -16,6 +16,7 @@ import (
 	"crypto/ed25519"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -29,6 +30,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/inferredcontract"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -61,6 +63,9 @@ type Config struct {
 	Watched []string
 	// Pacto is the operator version the records name.
 	Pacto string
+	// Detected is the detector's last Result (Detector.Last), read in
+	// process; nil when no detector runs.
+	Detected func() *detect.Result
 }
 
 // ForOperator is the operator's inferred contract publisher, or nil when no
@@ -77,7 +82,7 @@ func ForOperator(cfg Config) (manager.Runnable, error) {
 	kp, _ := signing.FromPrivateKey(cfg.Key) // a full-size Ed25519 key always loads
 	reg := publish.NewScopedClient(cfg.Keychain, oci.NewPushScope(cfg.Registry), remote.DefaultTransport, cfg.Insecure...)
 	return &InferredPublisher{Reader: cfg.Reader, Root: oci.InstallationRepository(cfg.Registry, oci.InferredRepository),
-		Namespaces: cfg.Watched, Interval: InferredInterval, Log: ctrl.Log.WithName("inferred"),
+		Namespaces: cfg.Watched, Interval: InferredInterval, Log: ctrl.Log.WithName("inferred"), Detected: cfg.Detected,
 		Deps: inferredcontract.Deps{Registry: reg, Signer: signing.Keyed(kp, ""),
 			Verify: publish.PolicyVerifier(signing.Policy{Key: cfg.Key.Public()}), Pacto: cfg.Pacto, Now: time.Now}}, nil
 }
@@ -94,6 +99,9 @@ type InferredPublisher struct {
 	// Tick, when set, replaces the ticker (tests).
 	Tick func(time.Duration) <-chan time.Time
 	Log  logr.Logger
+	// Detected, when set, is the detector's last Result: its managed
+	// resources and Secret refs join the snapshot.
+	Detected func() *detect.Result
 }
 
 // Start publishes at once, then on every tick until ctx ends. The manager runs
@@ -123,12 +131,16 @@ func (p *InferredPublisher) Start(ctx context.Context) error {
 // partial.
 func (p *InferredPublisher) run(ctx context.Context) {
 	pactos, listErr := p.pactos(ctx)
-	snap, err := delivery.Snapshot(ctx, pactos, listErr, nil, p.Deps.Now())
+	extra, undetected := p.detected()
+	snap, err := delivery.Snapshot(ctx, pactos, listErr, nil, p.Deps.Now(), extra...)
 	var rep inferredcontract.Report
 	if err == nil && len(p.Namespaces) > 0 {
-		snap.Completeness = fleet.CompletenessPartial
-		snap.Limitations = append(snap.Limitations, fleet.Limitation{Code: fleet.LimitationTargetSnapshotScoped,
+		partial(snap, fleet.Limitation{Code: fleet.LimitationTargetSnapshotScoped,
 			Message: "read only namespaces " + strings.Join(p.Namespaces, ", ")})
+	}
+	if err == nil && undetected {
+		partial(snap, fleet.Limitation{Code: fleet.LimitationSourceUnavailable, Source: detectionSource,
+			Message: "the detector has not run yet, so the managed resources are unknown"})
 	}
 	if err == nil {
 		rep, err = inferredcontract.Publish(ctx, p.Deps, p.Root, snap)
@@ -145,6 +157,41 @@ func (p *InferredPublisher) run(ctx context.Context) {
 	}
 	p.Log.Info("inferred contracts", "repository", p.Root, "published", len(rep.Published), "repaired", len(rep.Repaired),
 		"unchanged", rep.Unchanged, "errors", len(rep.Errors), "capped", rep.Capped, "listError", listErr != nil)
+}
+
+// detectionSource is the id of the source the detector's Result is read as.
+const detectionSource = "detection"
+
+// detected is the source of the detector's last Result, none when no
+// detector runs. undetected says a detector runs but has not finished a run:
+// the snapshot is then partial, so no observed engine is dropped. The
+// snapshot's targets carry no cluster (one cluster, the operator's), so the
+// resources and refs drop theirs to join them.
+func (p *InferredPublisher) detected() (extra []fleet.Source, undetected bool) {
+	if p.Detected == nil {
+		return nil, false
+	}
+	res := p.Detected()
+	if res == nil {
+		return nil, true
+	}
+	col := &fleet.Collection{ManagedResources: slices.Clone(res.ManagedResources), SecretRefs: slices.Clone(res.SecretRefs)}
+	for i := range col.ManagedResources {
+		col.ManagedResources[i].Cluster, col.ManagedResources[i].ClusterName = "", ""
+	}
+	for i := range col.SecretRefs {
+		col.SecretRefs[i].Cluster, col.SecretRefs[i].ClusterName = "", ""
+	}
+	// A capped list or a read that failed makes the snapshot partial, so
+	// no published engine is dropped or narrowed on a transient failure.
+	col.Limitations = append(detect.CappedLimitations(*res, detectionSource), detect.ReadsPartial(*res, detectionSource)...)
+	return []fleet.Source{fleet.NewMemorySource(detectionSource, fleet.SourceKindDetection, col)}, false
+}
+
+// partial marks snap partial with lim.
+func partial(snap *fleet.FleetSnapshot, lim fleet.Limitation) {
+	snap.Completeness = fleet.CompletenessPartial
+	snap.Limitations = append(snap.Limitations, lim)
 }
 
 // pactos reads every Pacto, cluster-wide or in each of Namespaces, in pages.

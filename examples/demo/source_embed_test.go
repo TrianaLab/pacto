@@ -11,6 +11,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/discover"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 )
 
 // bundlesFS loads the same bundles the wasm binary embeds. Bundles live in
@@ -161,12 +162,21 @@ func TestDemoInferredRecordMatchesCompletion(t *testing.T) {
 		t.Fatalf("committed record = %v, %v", committed, err)
 	}
 	if !reflect.DeepEqual(committed.Fields, got.Fields) || !reflect.DeepEqual(committed.Findings, got.Findings) ||
-		!reflect.DeepEqual(committed.Inputs.Catalog, got.Inputs.Catalog) {
+		!slices.Equal(organizationCatalogs(committed), organizationCatalogs(got)) {
 		t.Errorf("committed record differs from completion; regenerate it:\n%s", got.Marshal())
 	}
 	if err := contract.VerifyInferredRecord(os.DirFS(src), committed); err != nil {
 		t.Errorf("committed record does not match the bundle: %v", err)
 	}
+}
+
+// organizationCatalogs drops the default catalog from a record's catalog
+// inputs: the published record keeps the digest it was classified with, and a
+// later default catalog changes it (TestDemoNewsletterCatalogMismatch).
+func organizationCatalogs(r *contract.InferredRecord) []string {
+	return slices.DeleteFunc(slices.Clone(r.Inputs.Catalog), func(c string) bool {
+		return strings.HasPrefix(c, externalcatalog.OriginDefault+" ")
+	})
 }
 
 // TestDemoNewsletterDiscovery pins what the demo shows of a folder Pacto

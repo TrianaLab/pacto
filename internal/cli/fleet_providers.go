@@ -63,10 +63,10 @@ func printFleetProviders(cmd *cobra.Command, res *fleet.ProvidersResult, format 
 func providerUsedFor(p fleet.Provider) string {
 	used := p.UsedFor
 	// A detected row's UsedFor is a sentence ("sign-in" keeps its hyphen);
-	// a reported row's are tokens. A detected egress row carries the
-	// external-egress token after its sentence as a selection key only.
+	// a reported row's are tokens. A detected egress or managed-resource
+	// row carries its token after its sentence as a selection key only.
 	if p.Provenance == fleet.ProvenanceInferred && len(used) > 1 {
-		used = slices.DeleteFunc(slices.Clone(used), func(u string) bool { return u == fleet.UseExternalEgress })
+		used = slices.DeleteFunc(slices.Clone(used), func(u string) bool { return u == fleet.UseExternalEgress || u == fleet.UseManagedResources })
 	}
 	out := strings.Join(used, ", ")
 	if p.Provenance != fleet.ProvenanceInferred {

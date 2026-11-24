@@ -94,7 +94,7 @@ func TestDashboardDeclareResolvesOffering(t *testing.T) {
 	d := &fakeDeclarer{write: true}
 	base := inferredOfferingServer(t, nil, d)
 	var out DeclareAnswer
-	postJSON(t, base+"/api/fleet/declare", map[string]any{"serviceKey": xbucketKey, "offering": map[string]any{"version": "1.0.0", "owner": "team-storage"}}, http.StatusOK, &out)
+	postJSON(t, base+"/api/fleet/declare", map[string]any{"serviceKey": xbucketKey, "offeringAcceptance": map[string]any{"version": "1.0.0", "owner": "team-storage"}}, http.StatusOK, &out)
 	w := d.plans[0]
 	if w.Key != xbucketKey || w.Name != "xbucket" || w.Offering != "xbucket" || w.Cluster != offCluster || !strings.HasPrefix(w.From, offRepo+"@sha256:") ||
 		w.Source == nil || w.Source.Kind != "SourceKind" || w.Source.Name != "xbuckets.example.io" || w.SourceUnread != "" {

@@ -21,25 +21,28 @@
   // that declare it and the catalog entry that joined them (or "name only", which joins
   // only consumers that spell it the same). External systems only hidden services
   // declare are counted under the list, never named.
-  let { text = '', klass = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  // outsideContract (1) keeps the external systems with a managed resource no offering
+  // produced (517-S7).
+  let { text = '', klass = '', outsideContract = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const DEFAULT_SORT = 'consumers';
   const pageOffset = $derived(urlInt(offset));
   const pageLimit = $derived(urlInt(limit) || PAGE_SIZE);
   const order = $derived(sort || DEFAULT_SORT);
-  const anyFilter = $derived(!!(text || klass));
+  const outside = $derived(!!outsideContract);
+  const anyFilter = $derived(!!(text || klass || outside));
 
   let textDraft = $state(untrack(() => text));
   let submittedText = null;
   $effect(() => { if (text !== submittedText) textDraft = text; submittedText = null; });
 
   const loader = createProductLoader(() => api.fleetEntities({
-    kinds: ['external'], text: text || undefined, class: klass || undefined,
+    kinds: ['external'], text: text || undefined, class: klass || undefined, outsideContract: outside || undefined,
     offset: pageOffset || undefined, limit: pageLimit, sort: order,
   }));
-  const queryIdentity = $derived(`${text}@@${klass}@@${pageOffset}@@${pageLimit}@@${order}`);
-  const listIdentity = $derived(`${text}@@${klass}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${klass}@@${outside}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const listIdentity = $derived(`${text}@@${klass}@@${outside}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -55,15 +58,18 @@
   const noneDeclared = $derived(state.kind === 'empty-fleet');
 
   const urlWith = (patch, off = 0, lim = pageLimit) => fleetExternalsUrl({
-    text: (patch.text ?? text) || undefined, class: (patch.klass ?? klass) || undefined,
+    text: (patch.text ?? text) || undefined, class: (patch.klass ?? klass) || undefined, outsideContract: patch.outside ?? outside,
     offset: off, limit: limitParam(lim, limit, PAGE_SIZE), sort: (patch.sort ?? sort) || undefined,
   });
   const pageHref = (off, lim) => urlWith({}, off, lim);
   const sortHref = (v) => urlWith({ sort: v === DEFAULT_SORT ? '' : v });
   function submitSearch(e) { e.preventDefault(); submittedText = textDraft; location.hash = urlWith({ text: textDraft }); }
   function clearAll() { location.hash = fleetExternalsUrl(); }
-  const chips = $derived([text ? { key: 'text', label: 'Search', value: text } : null].filter(Boolean));
-  function removeChip() { location.hash = urlWith({ text: '' }); }
+  const chips = $derived([
+    text ? { key: 'text', label: 'Search', value: text } : null,
+    outside ? { key: 'outside', label: 'Contract', value: 'Outside contract' } : null,
+  ].filter(Boolean));
+  function removeChip(key) { location.hash = key === 'outside' ? urlWith({ outside: false }) : urlWith({ text: '' }); }
   const plural = (n, one, many) => `${formatCount(n)} ${n === 1 ? one : many}`;
 </script>
 
@@ -85,11 +91,18 @@
     </form>
     <ListSort value={order} options={[['consumers', 'Most consumers first'], ['name', 'Name']]} href={sortHref} testid="external-sort" />
   </div>
-  <nav class="xv-classes" aria-label="Filter by class" data-testid="external-class-filter">
-    {#each EXTERNAL_CLASSES as c (c)}
-      <a class="chip" class:active={klass === c} aria-current={klass === c ? 'true' : undefined} href={urlWith({ klass: c })} data-class={c || 'all'}>{c ? externalClassLabel(c) : 'All'}</a>
-    {/each}
-  </nav>
+  <!-- Outside contract is no class: its own navigation, in the same row, so the class
+       navigation announces one current item at most. -->
+  <div class="xv-chiprow">
+    <nav class="xv-classes" aria-label="Filter by class" data-testid="external-class-filter">
+      {#each EXTERNAL_CLASSES as c (c)}
+        <a class="chip" class:active={klass === c} aria-current={klass === c ? 'true' : undefined} href={urlWith({ klass: c })} data-class={c || 'all'}>{c ? externalClassLabel(c) : 'All'}</a>
+      {/each}
+    </nav>
+    <nav class="xv-classes" aria-label="Filter by contract" data-testid="external-contract-filter">
+      <a class="chip" class:active={outside} aria-current={outside ? 'true' : undefined} href={urlWith({ outside: !outside })} title="External systems with a managed resource no offering produced" data-testid="external-outside-contract">Outside contract</a>
+    </nav>
+  </div>
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
@@ -154,6 +167,7 @@
   .lv-search { display: flex; gap: var(--sp-2); max-width: 420px; flex: 1; min-width: 220px; }
   .lv-search .input { flex: 1; min-width: 0; }
   .xv-classes { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
+  .xv-chiprow { display: flex; flex-wrap: wrap; gap: var(--sp-2); }
   @media (pointer: coarse) { .xv-classes .chip { min-height: 44px; display: inline-flex; align-items: center; } }
   .xv-empty { padding: var(--sp-6) var(--sp-4); text-align: center; color: var(--c-text-2); }
   .xv-empty h2, .xv-empty p { margin: 0 0 var(--sp-2); }

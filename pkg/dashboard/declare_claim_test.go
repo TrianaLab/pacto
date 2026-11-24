@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -109,5 +110,23 @@ func TestDeclareRefusalEnumCarriesClaimCodes(t *testing.T) {
 		if c != "RepositoryUnknown" && c != "RepositoryUnconfirmed" && !slices.Contains(enum, c) {
 			t.Errorf("DeclareRefusal.code has no %s", c)
 		}
+	}
+}
+
+// TestDeclareInputKeepsClaimOfferingApartFromAcceptance: a claim's offering
+// (a string) and an offering acceptance (an object) decode under their own
+// keys on the plan and accept bodies: neither shadows the other.
+func TestDeclareInputKeepsClaimOfferingApartFromAcceptance(t *testing.T) {
+	body := `{"serviceKey":"external:stripe","owner":"team-pay","offering":"postgresql","offeringAcceptance":{"version":"1.0.0"}}`
+	var plan DeclareInput
+	var accept DeclareAcceptInput
+	for _, v := range []any{&plan, &accept} {
+		if err := json.Unmarshal([]byte(body), v); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if plan.ClaimInput.Offering != "postgresql" || plan.Offering == nil || plan.Offering.Version != "1.0.0" ||
+		accept.ClaimInput.Offering != "postgresql" || accept.Offering == nil || accept.Offering.Version != "1.0.0" {
+		t.Fatalf("plan %+v, accept %+v", plan, accept)
 	}
 }

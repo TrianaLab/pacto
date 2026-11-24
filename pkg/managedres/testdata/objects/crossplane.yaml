@@ -1,0 +1,33 @@
+# A Crossplane v1 RDS Instance a claim produced: the ARN in status names
+# account, region and id; the composite xr-uid owns it.
+apiVersion: rds.aws.upbound.io/v1beta1
+kind: Instance
+metadata:
+  name: orders-db-x7k2p
+  labels:
+    crossplane.io/claim-name: orders-db
+    crossplane.io/claim-namespace: shop
+  annotations:
+    crossplane.io/external-name: orders-db
+  ownerReferences:
+    - apiVersion: platform.example.org/v1alpha1
+      kind: XPostgreSQLInstance
+      name: orders-db-x7k2p
+      uid: xr-uid
+spec:
+  forProvider:
+    region: eu-west-1
+    engine: postgres
+    engineVersion: "16"
+    passwordSecretRef:
+      namespace: crossplane-system
+      name: orders-db-password
+      key: password
+  writeConnectionSecretToRef:
+    namespace: crossplane-system
+    name: orders-db-conn-x7k2p
+status:
+  atProvider:
+    arn: arn:aws:rds:eu-west-1:123456789012:db:orders-db
+    engine: postgres
+    engineVersion: "15.4"

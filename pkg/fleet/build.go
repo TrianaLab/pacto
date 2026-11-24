@@ -128,7 +128,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 
 	seenSourceIDs := map[string]bool{}
 	var observed []observedInput
-	var uses []sourcedUse
+	var ext externalInputs
 	var facts []sourcedFact
 	var templates []sourcedTemplate
 	var inferred []inferredInput
@@ -160,9 +160,7 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 		if r.col != nil {
 			undeclaredOnly[src.ID()] = r.col.ObservedUndeclaredOnly
 			observed = append(observed, observedEdgesOf(src.ID(), r.col, clusters)...)
-			for _, u := range r.col.ExternalUses {
-				uses = append(uses, sourcedUse{use: u, source: src.ID()})
-			}
+			ext.add(src.ID(), r.col)
 			facts = append(facts, sourcedFacts(src.ID(), r.col)...)
 			ingestOfferingObservations(snap, r.col.Offerings)
 			templates = append(templates, sourcedTemplates(snap, src.ID(), r.col)...)
@@ -190,8 +188,9 @@ func Build(ctx context.Context, opts BuildOptions, sources ...Source) (*FleetSna
 	snap.ExternalCatalogs = externalCatalogRefs(cat.Refs())
 	snap.Limitations = append(snap.Limitations, opts.ExternalCatalogLimitations...)
 	buildRelationships(snap, cat)
+	managedUses := ingestManagedResources(snap, cat, ext.resources, ext.refs)
 	foldObservedRelationships(snap, observed)
-	foldExternalUses(snap, append(uses, recordExternalUses(snap)...))
+	foldExternalUses(snap, append(append(ext.uses, managedUses...), recordExternalUses(snap)...))
 	foldServiceFacts(snap, facts)
 	foldInferredTemplates(snap, templates)
 	attachInferredProviders(snap, cat)
@@ -3411,6 +3410,9 @@ func finalizeExternal(rec *ExternalRecord) {
 	if i := slices.IndexFunc(rec.Sources, func(s ExternalSource) bool { return s.Dependency != "" }); rec.Label == "" && i >= 0 {
 		rec.Label = rec.Sources[i].Dependency
 	}
+	if segs := externalid.ID(rec.Key).Segments(); rec.Label == "" && len(segs) == 5 {
+		rec.Label = segs[4] // a managed resource reads by its id; the identity stays in Key
+	}
 	if rec.Label == "" {
 		rec.Label = string(rec.Key) // only observed or inferred sources: they name no dependency
 	}
@@ -3425,6 +3427,8 @@ func finalizeExternal(rec *ExternalRecord) {
 		}
 	}
 	rec.HiddenConsumers = len(rec.hidden)
+	sortResources(rec.Resources)
+	rec.ResourcesTotal = len(rec.Resources)
 }
 
 // externalCatalogRefs projects the catalogs a build classified with.

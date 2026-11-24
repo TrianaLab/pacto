@@ -158,7 +158,14 @@ func (d *dashboardDeclarer) request(r *http.Request, w dashboard.DeclareWorkload
 		return req, nil
 	}
 	if id, ok := claimOf(w); ok {
-		req.Service, req.Owner, req.Name = fleet.ExternalSubjectPrefix+id, claim.Owner, cmp.Or(claim.Name, claimerName(w.View, id))
+		req.Service, req.Owner, req.Name, req.Offering = fleet.ExternalSubjectPrefix+id, claim.Owner, cmp.Or(claim.Name, claimerName(w.View, id)), claim.Offering
+		// An offering's providers are read from the viewer's own view, never
+		// with the dashboard's registry credentials; with none they are
+		// unknown.
+		req.Fleet = &fleet.FleetSnapshot{Completeness: fleet.CompletenessPartial}
+		if w.View != nil {
+			req.Fleet = w.View.SnapshotForSerialization()
+		}
 		// No workload is read: the one cluster, when there is one, gives
 		// the installation signer policy a baseline is judged by.
 		if cfg != nil {
@@ -292,6 +299,11 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 	if refusal, err := dashRefusal(err); err != nil || refusal != nil {
 		ans.Refusal = refusal
 		return ans, err
+	}
+	if fresh {
+		if ans.Refusal = d.claimDraft(w, req, p); ans.Refusal != nil {
+			return ans, nil
+		}
 	}
 	listed := len(p.Drafts)
 	if ans.Refusal = ownView(p, w, in.FromDraft); ans.Refusal != nil {
@@ -427,6 +439,9 @@ func declareCommand(req app.DeclareRequest, intent string) string {
 		if req.Name != "" {
 			cmd += " --name " + req.Name
 		}
+		if req.Offering != "" && req.FromDraft == "" {
+			cmd += " --offering " + req.Offering
+		}
 		cmd += " --registry " + req.Registry
 	}
 	if req.FromDraft != "" {
@@ -528,7 +543,7 @@ func (d *dashboardDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload,
 	if req.Draft {
 		return writeServerDraft(ctx, d.svc, req, p, decl, who, "dashboard")
 	}
-	if refusal := ownedBy(p); refusal != nil {
+	if refusal := cmp.Or(d.claimDraft(w, req, p), ownedBy(p)); refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
 	}
 	if refusal := d.login(r, &req); refusal != nil {
@@ -674,6 +689,17 @@ func (d *dashboardDeclarer) mayDeclareTemplate(ctx context.Context) error {
 // MayDeclareTemplate implements dashboard.Declarer.
 func (d *dashboardDeclarer) MayDeclareTemplate(ctx context.Context) bool {
 	return d.mayDeclareTemplate(ctx) == nil
+}
+
+// claimDraft refuses, on a shared host, a claim to be signed whose plan is a
+// draft all the same (it joins an offering other teams provide): the draft
+// would go with the dashboard's own push credential for any signed-in
+// viewer. Nil for a workload, a local host or a declared plan.
+func (d *dashboardDeclarer) claimDraft(w dashboard.DeclareWorkload, req app.DeclareRequest, p *app.DeclarePlan) *dashboard.DeclareRefusal {
+	if _, ok := claimOf(w); !ok || d.id.auth.Local() || p.State == contract.DeclarationDeclared {
+		return nil
+	}
+	return refused("DraftNotOffered", noClaimDraft+": this claim is written as a draft another team accepts, so run it in a terminal", declareCommand(req, ""))
 }
 
 // mayUpdate asks, on a shared host, whether the person may update the

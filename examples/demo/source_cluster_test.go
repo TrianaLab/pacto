@@ -136,8 +136,10 @@ func TestDemoClusterListMatchesSources(t *testing.T) {
 	}
 	checkDemoJoinList(t, demoClusterJoins(), clusters)
 	checkDemoMembersInFleet(t, snap)
-	// Pinned from feat/452-adoption-w1, before any source reported a cluster.
-	want := []string{"OWNER_CONFLICT fleet", "SOURCE_PARTIAL registry-mirror", "SOURCE_PARTIAL registry-mirror"}
+	// Pinned from feat/452-adoption-w1, before any source reported a cluster;
+	// the catalog mismatch is newsletter-service's immutable record
+	// (TestDemoNewsletterCatalogMismatch).
+	want := []string{"EXTERNAL_CATALOG_MISMATCH local", "OWNER_CONFLICT fleet", "SOURCE_PARTIAL registry-mirror", "SOURCE_PARTIAL registry-mirror"}
 	var got []string
 	for _, lim := range snap.Limitations {
 		got = append(got, lim.Code+" "+lim.Source)

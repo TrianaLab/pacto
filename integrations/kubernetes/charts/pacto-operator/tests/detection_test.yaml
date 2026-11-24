@@ -442,3 +442,79 @@ tests:
     asserts:
       - failedTemplate:
           errorPattern: "secretNamespaces"
+
+  # controller.terraformStates and controller.cloudInventory (517-S7): each
+  # renders its flag only when set, so the default render is unchanged.
+  - it: listed Terraform states render one flag each
+    template: templates/deployment.yaml
+    set:
+      controller.terraformStates: ["s3://acme-tf/prod/app.tfstate?region=eu-west-1", "gs://acme-tf/env/prod.tfstate"]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --terraform-state=s3://acme-tf/prod/app.tfstate?region=eu-west-1
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --terraform-state=gs://acme-tf/env/prod.tfstate
+
+  - it: a named cloud renders the inventory flag, and the identity flag from the annotation
+    template: templates/deployment.yaml
+    set:
+      controller.cloudInventory: gcp
+      serviceAccount.annotations:
+        iam.gke.io/gcp-service-account: pacto@acme-prod.iam.gserviceaccount.com
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cloud-inventory=gcp
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --workload-identity=gcp=pacto@acme-prod.iam.gserviceaccount.com
+
+  - it: an identity annotation alone renders the identity flag and no inventory flag
+    template: templates/deployment.yaml
+    set:
+      serviceAccount.annotations:
+        eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/pacto
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --workload-identity=aws=arn:aws:iam::123456789012:role/pacto
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--cloud-inventory
+
+  - it: the default renders no state, inventory or identity flag, and cloudInventory defaults to off
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(terraform-state|cloud-inventory|workload-identity)
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--enable-probing=auto","--enable-metrics-observation=auto","--egress-gateway-logs=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-token-login","--dashboard-mcp","--dashboard-fingerprints-configmap=pacto-operator-fingerprints","--dashboard-index=auto"]
+
+  - it: cloudInventory off, quoted or bare, renders no inventory flag
+    template: templates/deployment.yaml
+    set:
+      controller.cloudInventory: false
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--cloud-inventory
+
+  - it: a state location that is not s3, gs or azurerm fails the schema
+    template: templates/deployment.yaml
+    set:
+      controller.terraformStates: ["https://acme.example/app.tfstate"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "terraformStates"
+
+  - it: a cloud other than aws, gcp, azure or off fails the schema
+    template: templates/deployment.yaml
+    set:
+      controller.cloudInventory: oci
+    asserts:
+      - failedTemplate:
+          errorPattern: "cloudInventory"

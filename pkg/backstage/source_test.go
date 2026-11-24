@@ -118,18 +118,25 @@ func TestDeclaredServiceHasNoSourceAnnotation(t *testing.T) {
 
 func TestResourceSourceKinds(t *testing.T) {
 	for _, tc := range []struct {
-		kinds []string
-		want  string
+		kinds   []string
+		readers []string
+		want    string
 	}{
-		{nil, ""},
-		{[]string{"pod-spec", "repository", "pod-spec"}, "pod-spec,repository"},
-		{[]string{"observed", "contract"}, "contract,observed"},
+		{nil, nil, ""},
+		{[]string{"pod-spec", "repository", "pod-spec"}, nil, "pod-spec,repository"},
+		{[]string{"observed", "contract"}, nil, "contract,observed"},
+		{nil, []string{"terraform", "crossplane", "terraform"}, "crossplane,terraform"},
+		{[]string{"pod-spec"}, []string{"crossplane"}, "crossplane,pod-spec"},
 	} {
 		var sources []fleet.ExternalSource
 		for _, k := range tc.kinds {
 			sources = append(sources, fleet.ExternalSource{Kind: k})
 		}
-		if got := sourceKinds(sources); got != tc.want {
+		var resources []fleet.ManagedResource
+		for _, r := range tc.readers {
+			resources = append(resources, fleet.ManagedResource{Source: r})
+		}
+		if got := sourceKinds(sources, resources); got != tc.want {
 			t.Errorf("sourceKinds(%q) = %q, want %q", tc.kinds, got, tc.want)
 		}
 	}

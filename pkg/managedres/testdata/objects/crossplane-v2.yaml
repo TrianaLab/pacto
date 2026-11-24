@@ -1,0 +1,16 @@
+# A Crossplane v2 namespaced resource: its connection Secret is in its own
+# namespace, and the external name gives the id.
+apiVersion: rds.aws.upbound.io/v1beta1
+kind: Instance
+metadata:
+  namespace: shop
+  name: invoices-db
+  annotations:
+    crossplane.io/external-name: invoices-db
+spec:
+  forProvider:
+    region: eu-west-1
+    engine: postgres
+    engineVersion: "16"
+  writeConnectionSecretToRef:
+    name: invoices-db-conn

@@ -141,6 +141,18 @@ func TestProviderChangeComparesDigestOnly(t *testing.T) {
 // 0.0.2, whose 0.0.2 surface is age old, and the consumers svcs.
 func changeFleet(t *testing.T, signed bool, age time.Duration, links [2]string, clients, hosts [2][]string, svcs ...func() (RawRevision, RawTarget)) *Query {
 	t.Helper()
+	var meta [2]map[string]any
+	for i, l := range links {
+		if l != "" {
+			meta[i] = map[string]any{ExternalOpenAPIMetadataKey: l}
+		}
+	}
+	return changeFleetMeta(t, signed, age, meta, clients, hosts, svcs...)
+}
+
+// changeFleetMeta is changeFleet with the metadata of each revision.
+func changeFleetMeta(t *testing.T, signed bool, age time.Duration, meta [2]map[string]any, clients, hosts [2][]string, svcs ...func() (RawRevision, RawTarget)) *Query {
+	t.Helper()
 	var revs []RawRevision
 	for i, v := range []string{"0.0.1", "0.0.2"} {
 		s := infSurface()
@@ -157,9 +169,7 @@ func changeFleet(t *testing.T, signed bool, age time.Duration, links [2]string, 
 			prov = operatorSig()
 		}
 		r := infRev("stripe", v, infRepo, "stripe", prov, s)
-		if links[i] != "" {
-			r.Bundle.Contract.Metadata = map[string]any{ExternalOpenAPIMetadataKey: links[i]}
-		}
+		r.Bundle.Contract.Metadata = meta[i]
 		revs = append(revs, r)
 	}
 	return infFleet(t, revs, svcs...)
@@ -262,7 +272,10 @@ func TestExternalChangedNeedsCheckedChange(t *testing.T) {
 func TestExternalChangedCountMatchesImpact(t *testing.T) {
 	q := changeFleet(t, true, time.Hour, digestMove, sameClients, [2][]string{},
 		svc("checkout", "shop", pinStripe("")), svc("billing", "shop", pinStripe("")), svc("vault", "secret", pinStripe("")))
-	for _, v := range []*Query{q, q.Restrict(anyCluster(shopView), anyClusterKind(nil))} {
+	// An engine-only change counts the same consumers; a restricted view
+	// raises nothing for it (TestRestrictDropsEngineChangeValues).
+	e := engineFleet(t, true, engineMove, svc("checkout", "shop", pinStripe("")), svc("billing", "shop", pinStripe("")), svc("vault", "secret", pinStripe("")))
+	for _, v := range []*Query{q, q.Restrict(anyCluster(shopView), anyClusterKind(nil)), e} {
 		rec := v.snap.Externals["stripe"]
 		items := changedItems(t, v)
 		if want := strconv.Itoa(rec.ConsumersTotal+rec.HiddenConsumers) + " consumers to review"; len(items) != 1 || !strings.HasSuffix(items[0].Label, want) {
@@ -348,5 +361,107 @@ func TestExternalRef(t *testing.T) {
 	}
 	if got := ExternalRef(snap, "adyen"); got != (EntityRef{Kind: KindExternal, Key: "adyen", Label: "adyen", Status: StatusUnknown}) {
 		t.Errorf("bare ref %+v", got)
+	}
+}
+
+// engineFleet is changeFleet whose two revisions record the observed engines
+// engines and the same clients, signed when signed.
+func engineFleet(t *testing.T, signed bool, engines [2]string, svcs ...func() (RawRevision, RawTarget)) *Query {
+	t.Helper()
+	var meta [2]map[string]any
+	for i, e := range engines {
+		if e != "" {
+			meta[i] = map[string]any{ExternalEngineMetadataKey: e}
+		}
+	}
+	return changeFleetMeta(t, signed, time.Hour, meta, sameClients, [2][]string{}, svcs...)
+}
+
+var engineMove = [2]string{"postgres 15", "postgres 16"}
+
+func TestExternalEngineOfSortedUnique(t *testing.T) {
+	rec := &ExternalRecord{Resources: []ManagedResource{{Engine: "postgres 16"}, {}, {Engine: "mysql 8.0"}, {Engine: "postgres 16"}, {EngineRequested: "postgres 17"}}}
+	if got := ExternalEngineOf(rec); got != "mysql 8.0, postgres 16" {
+		t.Errorf("engine = %q", got)
+	}
+	if ExternalEngineOf(nil) != "" || ExternalEngineOf(&ExternalRecord{}) != "" {
+		t.Error("no resource has no engine")
+	}
+}
+
+func TestEngineDesiredNeverRaisesChange(t *testing.T) {
+	rec := &ExternalRecord{Resources: []ManagedResource{{EngineRequested: "postgres 16"}}}
+	if got := ExternalEngineOf(rec); got != "" {
+		t.Fatalf("a desired-only engine is published: %q", got)
+	}
+	// What a publisher records for it: no engine on either side.
+	if items := changedItems(t, engineFleet(t, true, [2]string{ExternalEngineOf(rec), ExternalEngineOf(rec)}, svc("checkout", "shop", pinStripe("")))); len(items) != 0 {
+		t.Errorf("a desired-only engine raised %+v", items)
+	}
+}
+
+func TestProviderChangeEngine(t *testing.T) {
+	older, newer := changeRev("0.0.1", "", true, fixedNow(), nil, nil), changeRev("0.0.2", "", true, fixedNow(), nil, nil)
+	older.Contract.Metadata = map[string]any{ExternalEngineMetadataKey: "postgres 15"}
+	newer.Contract.Metadata = map[string]any{ExternalEngineMetadataKey: "postgres 16"}
+	c := providerChange(newer, older)
+	if c == nil || c.EngineFrom != "postgres 15" || c.EngineTo != "postgres 16" || len(c.Added)+len(c.Removed) != 0 || c.OpenAPIFrom+c.OpenAPITo != "" {
+		t.Errorf("change = %+v", c)
+	}
+	newer.Contract.Metadata = older.Contract.Metadata
+	if c := providerChange(newer, older); c != nil {
+		t.Errorf("the same engines are no change: %+v", c)
+	}
+}
+
+func TestExternalChangedEngineWarning(t *testing.T) {
+	items := changedItems(t, engineFleet(t, true, engineMove, svc("checkout", "shop", pinStripe("")), svc("billing", "shop", pinStripe(""))))
+	if len(items) != 1 {
+		t.Fatalf("items = %+v", items)
+	}
+	it := items[0]
+	if it.Severity != severityWarning || it.Label != "stripe engine postgres 15 -> postgres 16: 2 consumers to review" ||
+		it.Reason != "the observed engine of stripe moved from postgres 15 to postgres 16 between 0.0.1 and 0.0.2" ||
+		it.NextStep != "pacto impact --changed external:stripe" {
+		t.Errorf("engine item = %+v", it)
+	}
+	// An engine read for the first time or no longer read is no move.
+	for _, e := range [][2]string{{"", "postgres 16"}, {"postgres 16", ""}} {
+		q := engineFleet(t, true, e, svc("checkout", "shop", pinStripe("")))
+		if c := q.snap.Externals["stripe"].Provider.Change; c == nil || c.EngineFrom != e[0] || c.EngineTo != e[1] {
+			t.Errorf("%v: change = %+v", e, c)
+		}
+		if items := changedItems(t, q); len(items) != 0 {
+			t.Errorf("%v: items = %+v", e, items)
+		}
+	}
+}
+
+func TestExternalChangedEngineNeedsChecked(t *testing.T) {
+	q := engineFleet(t, false, engineMove, svc("checkout", "shop", pinStripe("")))
+	if c := q.snap.Externals["stripe"].Provider.Change; c == nil || c.Checked || c.EngineTo != "postgres 16" {
+		t.Fatalf("change = %+v, want an unchecked engine move", c)
+	}
+	if items := changedItems(t, q); len(items) != 0 {
+		t.Errorf("an unsigned pair raises nothing: %+v", items)
+	}
+}
+
+func TestRestrictDropsEngineChangeValues(t *testing.T) {
+	q := engineFleet(t, true, engineMove, svc("checkout", "shop", pinStripe("")), svc("vault", "secret", pinStripe("")))
+	r := q.Restrict(anyCluster(shopView), anyClusterKind(nil))
+	v, err := r.GetExternal("external:stripe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := v.External.Provider
+	if c := p.Change; c == nil || c.EngineFrom+c.EngineTo != "" || c.From != "0.0.1" || c.To != "0.0.2" || !p.SurfaceHidden {
+		t.Errorf("restricted change = %+v (surfaceHidden %v)", c, p.SurfaceHidden)
+	}
+	if items := changedItems(t, r); len(items) != 0 {
+		t.Errorf("an engine-only change raises nothing in a restricted view: %+v", items)
+	}
+	if c := q.snap.Externals["stripe"].Provider.Change; c.EngineTo != "postgres 16" {
+		t.Error("restriction must never mutate the base snapshot")
 	}
 }

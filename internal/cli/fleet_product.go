@@ -48,6 +48,7 @@ func newFleetEntitiesCommand(svc *app.Service, v *viper.Viper) *cobra.Command {
 	f := cmd.Flags()
 	f.String("kind", "", "entity kind (service, revision, target, owner, source, domain, offering, external; empty lists services, owners, domains and offerings)")
 	f.String("class", "", "with --kind external, external systems of this class ("+strings.Join(fleet.ExternalClasses(), ", ")+")")
+	f.Bool("outside-contract", false, "external systems with a managed resource no offering produced (lists kind external)")
 	f.String("owner", "", "free-text owner search over team, DRI and contacts")
 	f.String("owner-key", "", "exact owner key, such as team:platform or dri:alice")
 	f.String("business-domain", "", "exact business domain, "+fleet.NoBusinessDomain+" for none or "+fleet.UnknownBusinessDomain+" for unknown")
@@ -140,13 +141,14 @@ func entityFilterFromCmd(cmd *cobra.Command, text string) fleet.EntityFilter {
 	offset, _ := cmd.Flags().GetInt("offset")
 	nc, _ := cmd.Flags().GetBool("has-non-compliant")
 	failed, _ := cmd.Flags().GetBool("failed")
+	outside, _ := cmd.Flags().GetBool("outside-contract")
 	f := fleet.EntityFilter{
 		Text: text, Owner: get("owner"), OwnerKey: get("owner-key"), BusinessDomain: get("business-domain"),
 		Offering: get("offering"), Consumes: get("consumes"), Phase: get("phase"), Environment: get("environment"), Cluster: get("cluster"), Ownership: get("ownership"), Gap: get("gap"), Status: get("status"), Sort: get("sort"),
 		Template: get("template"), Declaration: get("declaration"), Group: get("group"), CreatedFrom: get("created-from"),
 		HasNonCompliant: nc, SourceKind: get("source-kind"), Lifecycle: get("lifecycle"), Failed: failed, Limit: limit, Offset: offset,
 		Capability: get("capability"), Domain: get("domain"), Service: get("service"), Source: get("source"),
-		Scope: get("scope"), Readiness: get("readiness"), SourceHealth: get("source-health"), Class: get("class"),
+		Scope: get("scope"), Readiness: get("readiness"), SourceHealth: get("source-health"), Class: get("class"), OutsideContract: outside,
 	}
 	f.Kinds = fleet.ListKinds(get("kind"), f)
 	return f

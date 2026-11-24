@@ -121,6 +121,7 @@ type fleetEntitiesInput struct {
 	Lifecycle       string   `query:"lifecycle" enum:"deprecated,sunset" doc:"Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by the worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), service entities by their newest revision"`
 	Failed          bool     `query:"failed" doc:"Keeps the offerings with at least one failed provisioning request (offering entities)"`
 	Class           string   `query:"class" enum:"vendor-api,managed-cloud,legacy,unclassified,other-egress" doc:"Keeps the external systems of this class (external entities)"`
+	OutsideContract bool     `query:"outsideContract" doc:"Keeps the external systems with a managed resource no offering produced (external entities)"`
 	Sort            string   `query:"sort" enum:"name,health,services,nonCompliant,rate,created,failed,consumers,gaps" doc:"Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings and external systems with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key"`
 	Limit           int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
 	Offset          int      `query:"offset" minimum:"0"`
@@ -138,15 +139,15 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	case len(kinds) > 0:
 	case in.Template == fleet.TemplateOnly || in.Declaration == fleet.DeclarationInferred || in.Group != "":
 		kinds = []string{string(fleet.KindService)}
-	case in.Class != "":
-		// class applies only to external systems, as on the CLI and MCP.
+	case in.Class != "" || in.OutsideContract:
+		// class and outsideContract apply only to external systems, as on the CLI and MCP.
 		kinds = []string{string(fleet.KindExternal)}
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
 		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Cluster: in.Cluster, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes, Phase: in.Phase,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, SourceKind: in.SourceKind, Source: in.Source,
-		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed, Class: in.Class,
+		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed, Class: in.Class, OutsideContract: in.OutsideContract,
 		Ownership: in.Ownership, Gap: in.Gap, Readiness: in.Readiness,
 		Service: in.Service, Template: in.Template, Declaration: in.Declaration, Group: in.Group, CreatedFrom: in.CreatedFrom, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
 	})

@@ -543,10 +543,35 @@ func TestDeclareArgsTemplate(t *testing.T) {
 	if a.ArgsRefused() != nil || a.Command("sha256:i") != "pacto declare template:default/springboot-service --backstage-url <backstage-url> --registry ghcr.io/acme/paths --intent sha256:i" {
 		t.Fatalf("%+v %q", a.ArgsRefused(), a.Command("sha256:i"))
 	}
-	for _, bad := range []DeclareArgs{{Namespace: "x"}, {Dir: "x"}, {Accept: []string{"x"}}, {MaxItems: 3}, {CallWindow: "1h"}, {PR: true}, {Repository: "x"}, {Folder: "x"}, {RepoMap: "x"}, {Owner: "x"}, {Name: "x"}} {
+	for _, bad := range []DeclareArgs{{Namespace: "x"}, {Dir: "x"}, {Accept: []string{"x"}}, {MaxItems: 3}, {CallWindow: "1h"}, {PR: true}, {Repository: "x"}, {Folder: "x"}, {RepoMap: "x"}, {Owner: "x"}, {Name: "x"}, {Offering: "x"}} {
 		bad.Service = a.Service
 		if r := bad.ArgsRefused(); r == nil || r.Code != RefusalFieldNotAcceptable {
 			t.Errorf("%+v: %+v", bad, r)
 		}
+	}
+}
+
+// TestMCPDeclareClaimOffering: a claim's offering reaches the Declarer and
+// its command; a workload takes none, and OfferingInvalid is in the
+// refusal enum the Declarer's refusal maps to.
+func TestMCPDeclareClaimOffering(t *testing.T) {
+	var plans []DeclareArgs
+	out, _ := callDeclare(t, stubDeclarer{plans: &plans, service: "stripe"}, map[string]any{"service": "external:stripe", "owner": "team-platform", "offering": "postgresql",
+		"registry": "ghcr.io/acme", "dry_run": false, "on_behalf_of": "ana"})
+	if len(plans) != 1 || plans[0].Offering != "postgresql" || out.Refusal == nil ||
+		out.Refusal.CLI != "pacto claim stripe --owner team-platform --offering postgresql --registry ghcr.io/acme" {
+		t.Fatalf("%+v %+v", plans, out)
+	}
+	plans = nil
+	out, _ = callDeclare(t, stubDeclarer{plans: &plans}, map[string]any{"service": "invoices", "offering": "postgresql"})
+	if len(plans) != 0 || out.Refusal == nil || out.Refusal.Code != RefusalFieldNotAcceptable {
+		t.Fatalf("%+v", out)
+	}
+	if !slices.Contains(writeRefusals, RefusalOfferingInvalid) {
+		t.Fatal("OfferingInvalid is not in the refusal enum")
+	}
+	tool := listTools(t, mustNew("test", Authoring{Declare: stubDeclarer{}}, Modes{}))["pacto_declare"]
+	if schema, _ := json.Marshal(tool.InputSchema); !strings.Contains(string(schema), `"offering"`) {
+		t.Fatalf("%s", schema)
 	}
 }

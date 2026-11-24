@@ -1,0 +1,10 @@
+# A claim a person applied by hand: no offering provider reported it, so its
+# resource reads outside the contract.
+apiVersion: platform.example.org/v1alpha1
+kind: PostgreSQLInstance
+metadata:
+  namespace: shop
+  name: legacy-db
+spec:
+  writeConnectionSecretToRef:
+    name: legacy-db-conn

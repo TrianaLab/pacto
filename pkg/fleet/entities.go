@@ -137,6 +137,9 @@ type EntityFilter struct {
 	Failed bool
 	// Class keeps the EXTERNAL systems of this class (see [ExternalClasses]).
 	Class string
+	// OutsideContract keeps the EXTERNAL systems with at least one managed
+	// resource no offering produced (see resourceContract).
+	OutsideContract bool
 	// Sort orders the answer: "" by kind then key, SortName by label in natural
 	// order (target-2 before target-10), SortHealth least healthy first, then by
 	// name. Paging walks the sorted answer, so every page agrees with the order.
@@ -707,6 +710,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"readiness", f.Readiness, []EntityKind{KindRevision}},
 		{"lifecycle", f.Lifecycle, []EntityKind{KindService, KindOffering}},
 		{"class", f.Class, []EntityKind{KindExternal}},
+		{"outsideContract", boolValue(f.OutsideContract), []EntityKind{KindExternal}},
 	} {
 		if err := appliesTo(c.field, c.value, c.kinds...); err != nil {
 			return err
@@ -986,13 +990,15 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 }
 
 // matchEntityTextOrClass applies the text filter: an external system also matches by a
-// catalog alias. The class filter keeps the external systems of that class.
+// catalog alias. The class filter keeps the external systems of that class,
+// the outside-contract filter those with a resource no offering produced.
 func (q *Query) matchEntityTextOrClass(r EntityRef, f EntityFilter) bool {
 	if r.Kind != KindExternal {
-		return f.Class == "" && matchEntityText(r, f.Text)
+		return f.Class == "" && !f.OutsideContract && matchEntityText(r, f.Text)
 	}
-	return (f.Text == "" || externalTextMatches(q.externals[ExternalKey(r.Key)], f.Text)) &&
-		(f.Class == "" || r.Secondary == f.Class)
+	rec := q.externals[ExternalKey(r.Key)]
+	return (f.Text == "" || externalTextMatches(rec, f.Text)) &&
+		(f.Class == "" || r.Secondary == f.Class) && (!f.OutsideContract || q.outsideContract(rec) > 0)
 }
 
 // matchGoldenPath applies the template and created-from filters.

@@ -258,3 +258,138 @@ describe('ExternalEntity owner', () => {
     expect(t.querySelector('[data-testid="claim-fields"]')).toBeTruthy();
   });
 });
+
+describe('ExternalEntity resources (517-S7)', () => {
+  const ID = 'aws/rds/123456789012/eu-west-1/orders-db';
+  const xp = (over: Record<string, unknown> = {}) => ({
+    source: 'crossplane', type: 'rds.aws.upbound.io/Instance', name: 'orders-db', cluster: '3f9a1c2e-uid-prod', clusterName: 'prod',
+    engine: 'postgres 16', provenance: 'inferred', contract: 'outside', observedAt: '2026-11-23T09:00:00Z', claim: 'PostgreSQLInstance shop/orders-db', ...over,
+  });
+  const tf = (over: Record<string, unknown> = {}) => ({
+    source: 'terraform', type: 'aws_db_instance', name: 'aws_db_instance.orders', location: 's3://acme-tf/prod.tfstate', cluster: '3f9a1c2e-uid-prod', clusterName: 'prod',
+    provenance: 'inferred', contract: 'offering', offering: { kind: 'offering', key: 'postgresql', label: 'postgresql' }, evidence: 'crossplane-adapter, 2026-11-23T08:00:00Z', ...over,
+  });
+  const render = (ext: Record<string, unknown>, props: Record<string, unknown> = {}) => {
+    const target = document.createElement('div');
+    document.body.appendChild(target);
+    const detail = { external: { external: { key: ID, label: 'orders-db', class: 'managed-cloud', consumers: [], consumersTotal: 0, ...ext }, consumers: [] } };
+    const c = mount(ExternalEntity, { target, props: { detail, ...props } });
+    flushSync();
+    cleanup = () => { unmount(c); target.remove(); };
+    return target;
+  };
+  const cards = (t: HTMLElement) => [...t.querySelectorAll('[data-testid="external-resource"]')] as HTMLElement[];
+  const words = (el: Element | null | undefined) => (el?.textContent ?? '').replace(/\s+/g, ' ').trim();
+
+  it('renders resources with contract state', () => {
+    const t = render({ resources: [xp(), tf()], resourcesTotal: 2 });
+    const sec = t.querySelector('#sec-resources') as HTMLElement;
+    expect(sec.dataset.toc).toBe('Resources');
+    // Between Consumers and the inferred contract, before Provenance.
+    const order = [...t.querySelectorAll('section[id], details[id]')].map((e) => e.id);
+    expect(order.indexOf('sec-resources')).toBe(order.indexOf('sec-consumers') + 1);
+    // Grouped by the reader, one visual card per resource, no table.
+    expect(sec.querySelector('table')).toBeNull();
+    expect([...sec.querySelectorAll('[data-testid="external-resource-group"] h3')].map((h) => h.textContent)).toEqual(['Crossplane', 'Terraform']);
+    const [obj, state] = cards(t);
+    expect(words(obj)).toContain('orders-db');
+    expect(words(obj)).toContain('postgres 16');
+    expect(words(obj.querySelector('[data-testid="external-resource-contract"]'))).toBe('Outside contract');
+    expect(obj.querySelector('[data-testid="external-resource-contract"]')?.classList.contains('t-meta')).toBe(true);
+    expect(words(state)).toContain('aws_db_instance.orders');
+    const through = state.querySelector('[data-testid="external-resource-contract"]')!;
+    expect(words(through)).toBe('Through offering postgresql');
+    expect(through.querySelector('a')?.getAttribute('href')).toBe('#/fleet/offerings/postgresql');
+    // A discreet inferred mark carries the source, the location and when it was read.
+    expect(state.innerHTML).toContain('Inferred from Terraform state s3://acme-tf/prod.tfstate');
+    expect(obj.innerHTML).toContain('Inferred from a Crossplane object');
+    expect(t.querySelector('[data-testid="external-resources-caption"]')?.textContent).toContain('2 managed resources');
+    expect(t.querySelector('[data-testid="external-resources-caption"]')?.textContent).toContain('1 outside the contract');
+  });
+
+  it('outside resource offers both claim paths', () => {
+    const t = render({ resources: [xp(), tf()], resourcesTotal: 2 }, { canDeclare: true });
+    const [obj, state] = cards(t);
+    expect(state.querySelector('[data-testid="resource-claim-join"]')).toBeNull();
+    const join = obj.querySelector('[data-testid="resource-claim-join"]') as HTMLButtonElement;
+    const propose = obj.querySelector('[data-testid="resource-claim-propose"]') as HTMLButtonElement;
+    expect(join.textContent).toBe('Claim into an offering');
+    expect(propose.textContent).toBe('Propose an offering');
+    // They name the panel they control only once it exists (axe aria-valid-attr-value).
+    expect(join.hasAttribute('aria-controls')).toBe(false);
+    propose.click();
+    flushSync();
+    expect(join.getAttribute('aria-controls')).toBe('xe-claim-panel');
+    // The existing claim panel opens, with its Offering field focused.
+    const field = t.querySelector('[data-testid="claim-offering"]') as HTMLInputElement;
+    expect(field).toBeTruthy();
+    expect(document.activeElement).toBe(field);
+    // Without the right to declare there are no actions.
+    cleanup?.();
+    const r = render({ resources: [xp()], resourcesTotal: 1 });
+    expect(r.querySelector('[data-testid="resource-claim-join"]')).toBeNull();
+  });
+
+  it('resource label shows cluster display name not uid', () => {
+    const t = render({ resources: [xp()], resourcesTotal: 1 });
+    const [obj] = cards(t);
+    expect(words(obj)).toContain('prod');
+    expect(obj.textContent).not.toContain('3f9a1c2e-uid-prod');
+    // A resource whose cluster has no display name names none.
+    cleanup?.();
+    const u = render({ resources: [xp({ clusterName: '' })], resourcesTotal: 1 });
+    expect(u.textContent).not.toContain('3f9a1c2e-uid-prod');
+  });
+
+  it('hidden resources counted not named', () => {
+    const many = Array.from({ length: 20 }, (_, i) => xp({ name: `db-${i}` }));
+    const t = render({ resources: many, resourcesTotal: 26, hiddenResources: 3 });
+    expect(cards(t)).toHaveLength(20);
+    expect(words(t.querySelector('[data-testid="external-resources-more"]'))).toBe('and 6 more');
+    expect(words(t.querySelector('[data-testid="external-resources-hidden"]'))).toBe('3 more resources you cannot see.');
+    expect(t.querySelector('[data-testid="external-resources-hidden"]')?.querySelector('bdi')).toBeNull();
+  });
+
+  it('every resource hidden says how many, never zero then more', () => {
+    const t = render({ hiddenResources: 7 });
+    expect(cards(t)).toHaveLength(0);
+    const caption = words(t.querySelector('[data-testid="external-resources-caption"]'));
+    expect(caption).toBe('7 managed resources read for it, none of which you can see.');
+    expect(caption).not.toContain('0 managed');
+    expect(caption).not.toContain('more');
+  });
+
+  it('an offering the viewer cannot see is named as such', () => {
+    const t = render({ resources: [tf({ offering: undefined, evidence: '' })], resourcesTotal: 1 });
+    expect(words(t.querySelector('[data-testid="external-resource-contract"]'))).toBe('Through an offering you cannot see');
+  });
+
+  it('the Claim toggle reopens the panel without the card\'s focus request', () => {
+    const t = render({ resources: [xp()], resourcesTotal: 1 }, { canDeclare: true });
+    (t.querySelector('[data-testid="resource-claim-propose"]') as HTMLButtonElement).click();
+    flushSync();
+    const toggle = t.querySelector('[data-testid="external-claim"]') as HTMLButtonElement;
+    toggle.click();
+    flushSync();
+    expect(t.querySelector('[data-testid="claim-offering"]')).toBeNull();
+    toggle.focus();
+    toggle.click();
+    flushSync();
+    const field = t.querySelector('[data-testid="claim-offering"]') as HTMLInputElement;
+    expect(field).toBeTruthy();
+    expect(document.activeElement).toBe(toggle);
+    expect(field.placeholder).not.toBe('A new offering name');
+  });
+
+  it('requested engine is muted', () => {
+    const t = render({ resources: [xp({ engine: '', engineRequested: 'postgres 16' })], resourcesTotal: 1 });
+    const eng = t.querySelector('[data-testid="external-resource-engine"]')!;
+    expect(words(eng)).toBe('requested postgres 16');
+    expect(eng.classList.contains('t-meta')).toBe(true);
+  });
+
+  it('is absent when no resource was read', () => {
+    const t = render({});
+    expect(t.querySelector('#sec-resources')).toBeNull();
+  });
+});

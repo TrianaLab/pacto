@@ -505,7 +505,7 @@
       inferred={route.params.inferred || ''} sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-externals'}
     <LazyView load={loadFleetExternalsView} text={route.params.text || ''} klass={route.params.class || ''}
-      offset={route.params.offset || ''} limit={route.params.limit || ''}
+      outsideContract={route.params.outsideContract || ''} offset={route.params.offset || ''} limit={route.params.limit || ''}
       sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-golden-paths'}
     <LazyView load={loadFleetGoldenPathsView} text={route.params.text || ''} offset={route.params.offset || ''}

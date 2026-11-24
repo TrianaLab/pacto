@@ -609,8 +609,8 @@ func TestMCPDeclareExternalRequiresOwner(t *testing.T) {
 }
 
 func TestMCPDeclareExternalBypassesWorkloadSubject(t *testing.T) {
-	req, err := newMCPDeclarer(nil, "", "", "").request(pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Name: "payments-stripe"})
-	if err != nil || req.Service != "external:stripe" || req.Owner != "team-platform" || req.Name != "payments-stripe" || !req.Agent {
+	req, err := newMCPDeclarer(nil, "", "", "").request(pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Name: "payments-stripe", Offering: "postgresql"})
+	if err != nil || req.Service != "external:stripe" || req.Owner != "team-platform" || req.Name != "payments-stripe" || req.Offering != "postgresql" || !req.Agent {
 		t.Fatalf("%+v %v", req, err)
 	}
 	if _, err := newMCPDeclarer(nil, "", "", "").request(pactomcp.DeclareArgs{Service: "service:x"}); err == nil || !strings.Contains(err.Error(), "service:") {
@@ -773,5 +773,19 @@ func TestRemoteDeclareExternalReclaimUsesClaimedName(t *testing.T) {
 	_ = json.Unmarshal(raw, &p)
 	if p.BundleRepo != w.host+"/acme/stripe" {
 		t.Fatalf("%s", raw)
+	}
+}
+
+// TestRemoteDeclareClaimOfferingReadsCallerView: over HTTP an offering's
+// providers come from the caller's fleet view, never from the registry with
+// this server's credentials (which this server could not read: unknown).
+func TestRemoteDeclareClaimOfferingReadsCallerView(t *testing.T) {
+	w := newDeclareWorld(t)
+	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://" + w.host + "/acme"}, claimFleet(t, []string{"ledger"}, map[fleet.ExternalKey]*fleet.ExternalClaim{"stripe": nil}))
+	raw, refused, err := rd.Plan(remoteCtx(declareCluster()), pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Offering: "postgresql", Registry: w.host + "/acme"})
+	var p app.DeclarePlan
+	_ = json.Unmarshal(raw, &p)
+	if err != nil || refused != nil || !slices.Contains(p.Notes, "proposes offering postgresql (no provider yet)") {
+		t.Fatalf("%s %+v %v", raw, refused, err)
 	}
 }

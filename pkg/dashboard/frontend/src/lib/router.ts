@@ -248,7 +248,7 @@ function parseFleet(path: string, query: string): Route {
   }
 
   // The external-system list narrows by class.
-  if (rest === 'externals') return { view: 'fleet-externals', params: pick(query, ['text', 'class', 'offset', 'limit', 'sort']) };
+  if (rest === 'externals') return { view: 'fleet-externals', params: pick(query, ['text', 'class', 'outsideContract', 'offset', 'limit', 'sort']) };
 
   // Bare /fleet/owners and /fleet/sources are the product owner/source LISTS. They
   // must be matched before the entity-detail regex (which needs a trailing key).
@@ -562,11 +562,13 @@ export function fleetOfferingsUrl(opts: { text?: string; lifecycle?: string; fai
   return str ? `#/fleet/offerings?${str}` : '#/fleet/offerings';
 }
 
-// fleetExternalsUrl builds the external-system list route, narrowed by class.
-export function fleetExternalsUrl(opts: { text?: string; class?: string } & ListPaging = {}): string {
+// fleetExternalsUrl builds the external-system list route, narrowed by class and to
+// the systems with a managed resource outside the contract.
+export function fleetExternalsUrl(opts: { text?: string; class?: string; outsideContract?: boolean } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.class) qs.set('class', opts.class);
+  if (opts.outsideContract) qs.set('outsideContract', '1');
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/externals?${str}` : '#/fleet/externals';

@@ -554,6 +554,35 @@ export function installScaleFixture(): void {
       // 517-S5: a claim by a service the viewer cannot see.
       rec.claim = { hidden: true };
     }
+    // 'external entity resources at scale, hidden and truncated' (517-S7): the Resources
+    // block at its longest, 20 cards (the answer's cap) of 500, 7 hidden, every one outside
+    // the contract with both claim actions, names, addresses, clusters and engines at 200
+    // characters, across the three reader groups.
+    // 'external entity resources, every one hidden': a declared source keeps the record while
+    // every resource sits where the viewer cannot read, so the answer carries none and only
+    // the hidden count (resourcesTotal counts the visible ones, so it is omitted).
+    const managed = (window as unknown as { __managedResources?: boolean | 'hidden' }).__managedResources;
+    if (route === '/api/fleet/entities/external' && managed === 'hidden') {
+      const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
+      delete rec.resources; delete rec.resourcesTotal;
+      rec.hiddenResources = 7;
+    } else if (route === '/api/fleet/entities/external' && managed) {
+      const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
+      const long = (seed: string) => `${seed}-${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+      const sources = ['crossplane', 'terraform', 'aws-resource-explorer'];
+      rec.resources = Array.from({ length: 20 }, (_, i) => {
+        const source = sources[i % 3];
+        return {
+          source, provenance: 'inferred', contract: 'outside', observedAt: '2026-07-29T12:00:00Z',
+          type: source === 'crossplane' ? 'rds.aws.upbound.io/Instance' : source === 'terraform' ? 'aws_db_instance' : 'rds:db',
+          name: source === 'terraform' ? `aws_db_instance.${long(`r${i}`).replace(/-/g, '_')}` : long(`r${i}`),
+          cluster: `5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a${String(i).padStart(2, '0')}`, clusterName: long(`cluster-${i}`),
+          ...(source === 'terraform' ? { location: `s3://${long('acme-tf')}/prod.tfstate?region=eu-west-1` } : {}),
+          ...(i % 2 ? { engineRequested: `postgres ${long('16')}`.slice(0, 200) } : { engine: `postgres ${long('16')}`.slice(0, 200) }),
+        };
+      });
+      Object.assign(rec, { resourcesTotal: 500, hiddenResources: 7 });
+    }
     // 'external entity, claimed' (517-S5): the Owner block at its longest, a 63-character
     // owner and claiming service.
     // 'external entity, claimed, no verified owner': the same claim with no owner.
@@ -3295,6 +3324,35 @@ export const ROUTES: Route[] = [
       expect(await tip.evaluate((el) => { const r = el.getBoundingClientRect(); return r.left >= 0 && r.right <= document.documentElement.clientWidth; })).toBe(true);
       await page.keyboard.press('Escape');
       await expect(tip).toBeHidden();
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  // 517-S7: orders-db's Resources block (examples/demo/source_managed.go), the externals
+  // list narrowed to the systems with a resource outside the contract, and the block at
+  // scale behind the __managedResources fixture above.
+  { name: 'external entity with resources', open: async (page) => { await page.goto('/#/fleet/externals/aws/rds/123456789012/eu-west-1/orders-db'); await expect(page.getByTestId('external-resource').first()).toBeVisible({ timeout: 30_000 }); await page.evaluate(() => window.scrollTo(0, 0)); } },
+  { name: 'externals outside contract', list: true, hash: '#/fleet/externals?outsideContract=1' },
+  {
+    name: 'external entity resources at scale, hidden and truncated',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __managedResources?: boolean }).__managedResources = true; });
+      await page.goto('/#/fleet/externals/aws/rds/123456789012/eu-west-1/orders-db');
+      await page.reload(); // the init script only runs on a new document
+      await expect(page.getByTestId('external-resource')).toHaveCount(20, { timeout: 30_000 });
+      await expect(page.getByTestId('external-resources-more')).toHaveText('and 480 more');
+      await expect(page.getByTestId('resource-claim-join')).toHaveCount(20);
+      await expect(page.getByTestId('resource-claim-propose')).toHaveCount(20);
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  {
+    name: 'external entity resources, every one hidden',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __managedResources?: boolean | 'hidden' }).__managedResources = 'hidden'; });
+      await page.goto('/#/fleet/externals/aws/rds/123456789012/eu-west-1/orders-db');
+      await page.reload(); // the init script only runs on a new document
+      await expect(page.getByTestId('external-resources-caption')).toHaveText('7 managed resources read for it, none of which you can see.', { timeout: 30_000 });
+      await expect(page.getByTestId('external-resource')).toHaveCount(0);
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },

@@ -65,6 +65,7 @@ type MapNode struct {
 	PercentComplete *int     `json:"percentComplete,omitempty"`
 	Missing         []string `json:"missing,omitempty" doc:"Contract sections it leaves out"`
 	InEnvironment   *bool    `json:"inEnvironment,omitempty" doc:"Whether it runs in the requested environment; absent without one and when Pacto cannot tell"`
+	OutsideContract int      `json:"outsideContract,omitempty" doc:"Managed resources of this external system no offering produced"`
 }
 
 // MapEdge is one dependency between two nodes of a group. From and To are
@@ -184,7 +185,7 @@ func (f *nodeFacts) node(key string) MapNode {
 		return f.serviceNode(s, func(AttentionItem) bool { return true })
 	}
 	e := q.snap.Externals[ExternalKey(key)]
-	return MapNode{Key: key, Name: key, Label: cmp.Or(e.Label, key), External: true, In: len(e.Consumers)}
+	return MapNode{Key: key, Name: key, Label: cmp.Or(e.Label, key), External: true, In: len(e.Consumers), OutsideContract: q.outsideContract(e)}
 }
 
 // serviceNode is s as a node; counts says which attention items about s

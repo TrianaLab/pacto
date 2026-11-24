@@ -31,8 +31,8 @@ func TestDemoProviderRows(t *testing.T) {
 	snap := demoFleet(t)
 	reported, reporting := splitReporting(snap.Providers)
 	reported = slices.DeleteFunc(reported, provedElsewhere)
-	if len(reported) != 6 || len(reporting) != 5 {
-		t.Fatalf("providers = %+v, reporting = %+v, want 6 and 5 rows", reported, reporting)
+	if len(reported) != 6 || len(reporting) != 6 {
+		t.Fatalf("providers = %+v, reporting = %+v, want 6 and 6 rows", reported, reporting)
 	}
 	rows := map[string]fleet.Provider{}
 	for _, p := range reported {

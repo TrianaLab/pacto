@@ -1,0 +1,13 @@
+apiVersion: sql.azure.com/v1api20211101
+kind: Server
+metadata:
+  namespace: billing
+  name: billing-sql
+spec:
+  location: westeurope
+  version: "12.0"
+  administratorLoginPassword:
+    name: billing-sql-admin
+    key: password
+status:
+  id: /subscriptions/0a1b2c3d-0000-4000-8000-000000000001/resourceGroups/billing/providers/Microsoft.Sql/servers/billing-sql

@@ -20,10 +20,13 @@
   // A serviceKey external:<identity> claims an external system: the person names
   // the owning team (and optionally the service name, claimedName on a claim
   // again) first, and the plan is asked for with them. A host that saves no claim
-  // draft (noDraft) offers only signing.
+  // draft (noDraft) offers only signing. A claim may name the platform offering the
+  // system is meant to join (517-S7): one of the fleet's offerings or a new name,
+  // written as display-only metadata. offeringFocus (join#<n> or propose#<n>, a new
+  // value each time) focuses that field.
   // `offering` set accepts the inferred offering serviceKey contributes (515-S4): the
   // person sets the version, and optionally the owner and registry path, first.
-  let { serviceKey = '', open = false, signed = '', claimedName = '', offering = '' } = $props();
+  let { serviceKey = '', open = false, signed = '', claimedName = '', offering = '', offeringFocus = '' } = $props();
   const claim = $derived(claimId(serviceKey));
   // A serviceKey template:<namespace>/<name> accepts a golden path a catalog holds: a
   // contract-only plan that reads no cluster, so it has no deploy artifact.
@@ -36,8 +39,20 @@
   let name = $state('');
   let version = $state('');
   let registry = $state('');
+  // The offering a claim intends to join (517-S7), apart from the inferred offering
+  // an acceptance names (the offering prop).
+  let claimOffering = $state('');
   let claimTouched = $state(false);
-  const claimError = $derived(asks === 'offering' ? offeringFieldError(version.trim(), owner.trim()) : claimFieldError(owner.trim(), name.trim()));
+  const claimError = $derived(asks === 'offering' ? offeringFieldError(version.trim(), owner.trim()) : claimFieldError(owner.trim(), name.trim(), claimOffering.trim()));
+  // The fleet's offerings for the combobox, asked for once a claim panel opens; a list
+  // that cannot be read leaves free text.
+  let offerings = $state([]);
+  let offeringEl = $state(null);
+  const bare = (o) => (o ?? '').replace(/^team:/, '');
+  // Joining an offering another team provides is that team's call: the server writes a draft.
+  const offeringOwner = $derived(bare(offerings.find((o) => o.key === claimOffering.trim())?.owner));
+  const otherTeam = $derived(!!offeringOwner && !!owner.trim() && offeringOwner !== bare(owner.trim()) ? offeringOwner : '');
+  $effect(() => { if (offeringFocus && offeringEl) offeringEl.focus(); });
 
   // A draft being accepted rides across the signing login here, keyed by the intent
   // digest that covers its digest, so a changed draft never matches.
@@ -80,11 +95,12 @@
     accept = (a?.plan?.ranges ?? []).filter((r) => r.accepted).map((r) => r.dependency);
   }
 
-  // claimBody is what a claim (its owner and name) or an offering acceptance (its
-  // version, owner and registry) adds to every request.
-  const claimBody = () => (claim ? { owner: owner.trim(), name: name.trim() || undefined }
-    : offering ? { offering: { version: version.trim(), owner: owner.trim() || undefined, registry: registry.trim() || undefined } } : {});
-  const keptFields = () => (claim ? { owner: owner.trim(), name: name.trim() } : { version: version.trim(), owner: owner.trim(), registry: registry.trim() });
+  // claimBody is what a claim (its owner, name and offering) or an offering acceptance
+  // (its version, owner and registry) adds to every request.
+  const claimBody = () => (claim ? { owner: owner.trim(), name: name.trim() || undefined, offering: claimOffering.trim() || undefined }
+    : offering ? { offeringAcceptance: { version: version.trim(), owner: owner.trim() || undefined, registry: registry.trim() || undefined } } : {});
+  const keptFields = () => (claim ? { owner: owner.trim(), name: name.trim(), ...(claimOffering.trim() ? { offering: claimOffering.trim() } : {}) }
+    : { version: version.trim(), owner: owner.trim(), registry: registry.trim() });
 
   async function load(body = {}) {
     loading = true;
@@ -105,6 +121,10 @@
       try { from = JSON.parse(sessionStorage.getItem(draftKey(signed)) || 'null'); } catch { from = null; }
     }
     draft = from;
+    if (claim) {
+      // ponytail: the first 100 offerings by name; free text names any other.
+      Promise.resolve().then(() => api.fleetEntities({ kinds: ['offering'], limit: 100, sort: 'name' })).then((l) => { offerings = l?.entities ?? []; }, () => {});
+    }
     if (asks) {
       let kept = null;
       if (signed) {
@@ -114,6 +134,7 @@
       name = kept?.name ?? claimedName;
       version = kept?.version ?? '';
       registry = kept?.registry ?? '';
+      claimOffering = (claim && kept?.offering) || '';
       // A claim is planned once the person names its owner, an offering once they set its version.
       if (!kept) return;
     }
@@ -217,8 +238,11 @@
     <form class="dp-claim" onsubmit={planClaim} novalidate data-testid="claim-fields">
       <label class="dp-field"><span>Owner team</span><input class="input" bind:value={owner} required maxlength="253" autocomplete="off" aria-invalid={claimTouched && claimError.field === 'owner' ? 'true' : undefined} aria-describedby="dp-claim-error" data-testid="claim-owner" /></label>
       <label class="dp-field"><span>Service name <span class="t-meta">(optional)</span></span><input class="input" bind:value={name} maxlength="63" autocomplete="off" placeholder={claimedName || claim.split('/').pop()} aria-invalid={claimTouched && claimError.field === 'name' ? 'true' : undefined} aria-describedby="dp-claim-error" data-testid="claim-name" /></label>
+      <label class="dp-field"><span>Offering <span class="t-meta">(optional)</span></span><input class="input" bind:this={offeringEl} bind:value={claimOffering} maxlength="63" autocomplete="off" list="dp-offerings" placeholder={offeringFocus.startsWith('propose') ? 'A new offering name' : 'An offering of the fleet'} aria-invalid={claimTouched && claimError.field === 'offering' ? 'true' : undefined} aria-describedby="dp-claim-error" data-testid="claim-offering" /></label>
+      <datalist id="dp-offerings">{#each offerings as o (o.key)}<option value={o.key}>{o.label && o.label !== o.key ? o.label : ''}</option>{/each}</datalist>
       <button type="submit" class="btn btn-sm" aria-disabled={loading ? 'true' : undefined} data-testid="claim-plan">Show the plan</button>
       <p class="t-meta dp-p" id="dp-claim-error" role={claimTouched && claimError.message ? 'alert' : undefined}>{claimTouched ? claimError.message : ''}</p>
+      {#if otherTeam}<p class="t-meta dp-p" data-testid="claim-offering-draft"><bdi>{otherTeam}</bdi> provides <bdi>{claimOffering.trim()}</bdi>, so the claim is saved as a draft that a person of <bdi>{otherTeam}</bdi> accepts.</p>{/if}
     </form>
   {/if}
   {#if offering}

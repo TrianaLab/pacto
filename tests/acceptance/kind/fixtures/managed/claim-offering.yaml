@@ -1,0 +1,12 @@
+# The claim the platform adapter provisioned through the postgresql offering:
+# its signed ResourceProvisioned record names this claim, so its resource reads
+# through the offering. The orders Deployment references its connection Secret
+# by name, which is how orders joins the database.
+apiVersion: platform.example.org/v1alpha1
+kind: PostgreSQLInstance
+metadata:
+  namespace: shop
+  name: orders-db
+spec:
+  writeConnectionSecretToRef:
+    name: orders-db-conn

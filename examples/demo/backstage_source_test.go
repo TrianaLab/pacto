@@ -83,7 +83,7 @@ func TestDemoBackstageEdge(t *testing.T) {
 	if len(facts) != 1 || facts[0].FromService != demoBilling || facts[0].ToService != "invoices" || facts[0].Provenance != fleet.ProvenanceInferred {
 		t.Fatalf("service fact edges = %+v", facts)
 	}
-	if slices.ContainsFunc(snap.Relationships, func(r fleet.Relationship) bool { return r.FromService == demoBilling }) {
+	if slices.ContainsFunc(snap.Relationships, func(r fleet.Relationship) bool { return r.FromService == demoBilling && r.ToExternal == "" }) {
 		t.Error("the catalog edge reached the declared relationships")
 	}
 }

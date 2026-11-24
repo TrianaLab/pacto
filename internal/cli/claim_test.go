@@ -246,3 +246,12 @@ func TestExplainDeclarationExternalFrom(t *testing.T) {
 		}
 	}
 }
+
+func TestClaimCommandOffering(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	if _, _, err := runRoot(t, declareDeps(t, &got, claimPlanFixture(), nil, nil), nil, "claim", "stripe", "--owner", "team-platform",
+		"--offering", "postgresql", "--registry", "ghcr.io/acme"); err != nil || got.Offering != "postgresql" {
+		t.Fatalf("%v %+v", err, got)
+	}
+}

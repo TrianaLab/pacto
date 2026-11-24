@@ -28,7 +28,7 @@ func (e *exporter) resourceEntities() []Entity {
 			r.Metadata.Tags = []string{TagInferred}
 		}
 		r.Metadata.Annotations[AnnotationExternalKey] = string(x.Key)
-		if k := sourceKinds(x.Sources); k != "" {
+		if k := sourceKinds(x.Sources, x.Resources); k != "" {
 			r.Metadata.Annotations[AnnotationSource] = k
 		}
 		if x.Provider != nil {
@@ -60,11 +60,16 @@ func externalProvenance(sources []fleet.ExternalSource) string {
 	return provenanceInferred
 }
 
-// sourceKinds is the sorted, distinct kinds of sources joined with commas.
-func sourceKinds(sources []fleet.ExternalSource) string {
-	kinds := make([]string, 0, len(sources))
+// sourceKinds is the sorted, distinct kinds of sources and readers of
+// resources (crossplane, terraform, ...) joined with commas, so a system
+// known only from its managed resources still says where it was read.
+func sourceKinds(sources []fleet.ExternalSource, resources []fleet.ManagedResource) string {
+	kinds := make([]string, 0, len(sources)+len(resources))
 	for _, s := range sources {
 		kinds = append(kinds, s.Kind)
+	}
+	for _, r := range resources {
+		kinds = append(kinds, r.Source)
 	}
 	slices.Sort(kinds)
 	return strings.Join(slices.Compact(kinds), ",")

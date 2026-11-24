@@ -144,7 +144,7 @@ first:
 ```yaml
 inputs:
   catalog:
-    - default sha256:62a3fd52...
+    - default sha256:385565ae...
 fields:
   - field: dependencies[stripe]
     value: stripe

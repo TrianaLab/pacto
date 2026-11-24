@@ -256,6 +256,23 @@ func (c *Catalog) MatchCrossplane(group, kind string) (Match, bool) {
 	return entryMatch(e, origin, ConfidencePossible, KindResource), true
 }
 
+// MatchInventory names the managed service a cloud inventory resource type
+// belongs to: exact for AWS and GCP types (GCP asset types are
+// case-sensitive), case-insensitive for Azure types, which Resource Graph
+// reports in any case. The match is only possible: an account holding a
+// resource does not prove a service calls it.
+func (c *Catalog) MatchInventory(resourceType string) (Match, bool) {
+	e, origin, ok := c.bestEntry(func(e Entry) int {
+		return boolScore(slices.ContainsFunc(e.Inventory, func(r string) bool {
+			return r == resourceType || (strings.HasPrefix(r, "microsoft.") && strings.EqualFold(r, resourceType))
+		}))
+	})
+	if !ok {
+		return Match{}, false
+	}
+	return entryMatch(e, origin, ConfidencePossible, KindResource), true
+}
+
 // entryMatch is the match of catalog entry e, supplied by origin.
 func entryMatch(e Entry, origin, confidence, kind string) Match {
 	return Match{Identity: e.Identity, Class: e.Class, Confidence: confidence, Kind: kind, Entry: string(e.Identity), Origin: origin}

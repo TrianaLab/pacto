@@ -89,11 +89,16 @@ func TestDetectorReadsOnlyAllowlistedEnv(t *testing.T) {
 	p.Spec.Containers[0].EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "from-envfrom"}}}}
 	c := newClient(routesInterceptor(), operatorDeployment(), p)
 	_ = newDetector(c, servedAll).Sync(context.Background())
-	cm, _ := readResult(t, c)
-	for _, s := range []string{"x-secret-value", "literal", "DB_PASSWORD", "from-envfrom"} {
+	cm, res := readResult(t, c)
+	for _, s := range []string{"x-secret-value", "literal", "DB_PASSWORD"} {
 		if strings.Contains(cm.Data[detect.ConfigMapKey], s) {
 			t.Errorf("the ConfigMap holds %q: %s", s, cm.Data[detect.ConfigMapKey])
 		}
+	}
+	// The envFrom Secret's name is kept only as a Secret ref, for the
+	// connection-secret join; nothing it holds is read.
+	if strings.Count(cm.Data[detect.ConfigMapKey], "from-envfrom") != 1 || len(res.SecretRefs) != 1 || res.SecretRefs[0].Secret != "from-envfrom" {
+		t.Errorf("secret refs = %+v", res.SecretRefs)
 	}
 	if got := envFacts(p.Spec.Containers[0].Env); got != nil {
 		t.Errorf("env facts = %+v", got)

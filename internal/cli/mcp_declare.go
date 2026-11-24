@@ -105,11 +105,11 @@ func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error)
 	// would send it to pacto claim, which is this request. It takes none of
 	// a workload's arguments (ArgsRefused), and never an agent's folder.
 	if _, ok := a.Claim(); ok {
-		req.Service, req.Owner, req.Name = a.Service, a.Owner, a.Name
+		req.Service, req.Owner, req.Name, req.Offering = a.Service, a.Owner, a.Name, a.Offering
 		return req, nil
 	}
 	// An offering acceptance reads its contribution, never a workload.
-	if _, ok := a.Offering(); ok {
+	if _, ok := a.AcceptedOffering(); ok {
 		req.Service, req.Owner, req.Version, req.From = a.Service, a.Owner, a.Version, a.From
 		return req, nil
 	}
@@ -221,10 +221,15 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	}
 	req.Dynamic, req.Observed = who.own.Dynamic, r.observed(ctx, req)
 	r.offering(&req)
+	if _, claim := a.Claim(); claim {
+		// An offering's providers are read from the caller's own view, never
+		// with this server's registry credentials.
+		req.Fleet = r.view(ctx).SnapshotForSerialization()
+	}
 	p, _, err := r.svc.PlanDeclare(ctx, req)
 	if p != nil {
 		_, claim := a.Claim()
-		_, offer := a.Offering()
+		_, offer := a.AcceptedOffering()
 		if claim || offer || !r.writes() || a.Registry != r.registry {
 			// This server signs nothing and writes no draft here: who would sign
 			// is the person who runs the plan's command, whose login decides the state.
@@ -251,7 +256,7 @@ func (r remoteDeclarer) offering(req *app.DeclareRequest) {
 // contribution the caller's fleet view lists, with one refusal that names
 // nothing of it.
 func (r remoteDeclarer) offeringArgs(ctx context.Context, a pactomcp.DeclareArgs) *pactomcp.Refused {
-	if _, ok := a.Offering(); !ok || listsContribution(r.view(ctx), a.From) {
+	if _, ok := a.AcceptedOffering(); !ok || listsContribution(r.view(ctx), a.From) {
 		return nil
 	}
 	return &pactomcp.Refused{Code: pactomcp.RefusalNotAllowed, Message: "your view of the fleet lists no inferred offering at " + a.From +
@@ -306,7 +311,7 @@ func (r remoteDeclarer) redact(ctx context.Context, a pactomcp.DeclareArgs, p *a
 	if id, ok := a.Claim(); ok && claimHidden(r.view(ctx), id, cmp.Or(a.Name, inferredcontract.ServiceName(fleet.ExternalKey(id))), p, err) {
 		return nil, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), CLI: a.Command(""), Message: claimHiddenMessage}
 	}
-	if offer, ok := a.Offering(); ok && offeringHidden(r.view(ctx), a.Registry, offer, p, err) {
+	if offer, ok := a.AcceptedOffering(); ok && offeringHidden(r.view(ctx), a.Registry, offer, p, err) {
 		return nil, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), CLI: a.Command(""), Message: offeringHiddenMessage}
 	}
 	return r.hide(ctx, p, err)
@@ -495,7 +500,7 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans a claim: a draft would go with its own push " +
 			"credential for any caller; run the command on your machine, where adding --yes publishes the claim signed by you", CLI: a.Command(a.IntentDigest)}, nil
 	}
-	if _, offer := a.Offering(); offer {
+	if _, offer := a.AcceptedOffering(); offer {
 		if refused := r.offeringArgs(ctx, a); refused != nil {
 			return nil, refused, nil
 		}

@@ -80,7 +80,7 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 		return []EntityKind{KindTarget}
 	case f.SourceKind != "" || f.SourceHealth != "":
 		return []EntityKind{KindSource}
-	case f.Class != "":
+	case f.externalOnly():
 		return []EntityKind{KindExternal}
 	case f.Service != "" || f.Domain != "" || f.Source != "" || f.Cluster != "":
 		return nil
@@ -91,6 +91,10 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 	}
 	return out
 }
+
+// externalOnly reports whether f filters on a field only external systems
+// carry: their class or a managed resource outside contract.
+func (f EntityFilter) externalOnly() bool { return f.Class != "" || f.OutsideContract }
 
 // EntityKinds are every entity kind, in the order an entity detail lists them.
 func EntityKinds() []string {
@@ -935,7 +939,7 @@ func (q *Query) Overview() *Overview {
 		sum.Knowledge.addService(q, s)
 	}
 	sum.Knowledge.finish()
-	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention()) + len(q.externalChangedAttention())
+	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention()) + len(q.externalChangedAttention()) + len(q.managedGroupAttention())
 	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
 	sum.UnownedExternals = len(q.unownedExternalAttention())
 
@@ -983,6 +987,11 @@ func (q *Query) Overview() *Overview {
 
 	sum.LifecycleConsumers, sum.lifecycleSeverity = q.lifecycleTally()
 	sum.Match = q.Match()
+	// The Overview's match tile says the managed-resource share under it.
+	sum.Match.Resources = q.resourceCoverage()
+	if sum.Match.Resources != nil && q.resourcesIncomplete() != nil {
+		sum.Match.Completeness = partialOf(sum.Match.Completeness)
+	}
 	// The lead tile and the attention preview read ONE collection, so the tile
 	// counts exactly the services of the list it opens. The preview carries the
 	// TRUE matched total (al.Total), not the 10-item page size.
@@ -1464,6 +1473,7 @@ func (q *Query) gatherAttention() []AttentionItem {
 	items = append(items, q.knowledgeAttention()...)
 	items = append(items, q.inferredProviderAttention()...)
 	items = append(items, q.externalChangedAttention()...)
+	items = append(items, q.managedGroupAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.unownedExternalAttention()...)
 	items = append(items, q.undeclaredAttention()...)

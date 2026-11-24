@@ -65,7 +65,8 @@ func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 			"It never publishes a declared version. A refusal carries a stable code and the pacto declare command a person runs. " +
 			"With service external:<identity> and owner it claims an external system the fleet lists for that team instead: no workload is read, " +
 			"and the draft is accepted by a person with pacto claim <identity> --from-draft draft-<n> --yes, the command its refusals name. " +
-			"A claim takes only owner, name, registry, draft and intent; over HTTP a claim is only planned. " +
+			"With offering it names the platform offering the system intends to join, as display-only metadata that never lists it as a provider; " +
+			"joining an offering another team provides writes a draft that team accepts. A claim takes only owner, name, offering, registry, draft and intent; over HTTP a claim is only planned. " +
 			"With service offering:<name>, from (an inferred offering's contribution ref: inferredOffering.ref on a pacto_fleet_entities row with kind offering and declaration inferred), " +
 			"version and owner it plans accepting that inferred offering as a declared offering; a person accepts the draft with the exact command its result names " +
 			"in acceptCLI (pacto declare offering:<name> --from <ref> --detected <detection> --registry <registry> --version <version> --from-draft draft-<n> --yes). " +
@@ -78,6 +79,7 @@ func registerDeclare(server *mcpsdk.Server, d Declarer, remote bool) {
 			"version":       {Type: "string", Description: "With service offering:<name>: the version the declared offering publishes, MAJOR.MINOR.PATCH above the newest declared", Pattern: versionPattern},
 			"from":          {Type: "string", Description: "With service offering:<name>: the inferred offering's contribution ref (oci://<registry>/pacto-inferred/<producer>/services:<tag> or @<digest>), inferredOffering.ref on its pacto_fleet_entities row"},
 			"name":          {Type: "string", Description: "The claimed contract's service name, lower case; defaults to the last identity segment", Pattern: serviceNamePattern},
+			"offering":      {Type: "string", Description: "With service external:<identity>: the platform offering the system intends to join, such as postgresql; written as display-only metadata, never as service.offering; a value that is not a lower-case slug of at most 63 characters is refused with OfferingInvalid"},
 			"namespace":     {Type: "string", Description: "The namespace of the workload (default: every namespace the name is found in)"},
 			"dir":           {Type: "string", Description: dir},
 			"registry":      {Type: "string", Description: "The registry the contract is published to, as host/path"},

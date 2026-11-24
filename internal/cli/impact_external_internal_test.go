@@ -85,3 +85,13 @@ func TestImpactExternalTextNoPin(t *testing.T) {
 		t.Errorf("no pin still prints one:\n%s", got)
 	}
 }
+
+func TestImpactChangedExternalPrintsEngine(t *testing.T) {
+	res := externalChangedResult()
+	res.External.Change = &fleet.ExternalProviderChange{From: "0.0.4", To: "0.0.5", Checked: true, EngineFrom: "postgres 15", EngineTo: "postgres 16"}
+	got := textOf(t, func(cmd *cobra.Command) error { return printImpactResult(cmd, res, "text") })
+	wantLines(t, got, "changed: 0.0.4 -> 0.0.5  engine postgres 15 -> postgres 16\n")
+	res.External.Change.EngineFrom = ""
+	got = textOf(t, func(cmd *cobra.Command) error { return printImpactResult(cmd, res, "text") })
+	wantLines(t, got, "changed: 0.0.4 -> 0.0.5  engine none -> postgres 16\n")
+}

@@ -96,7 +96,7 @@ func (q *Query) GetExternal(key string) (*ExternalView, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := boundExternal(rec)
+	b := q.boundExternal(rec)
 	return jsonClone(&ExternalView{Meta: q.externalMeta(), External: b, Catalog: q.externalCatalogRef(rec), FoldedInto: into,
 		ExternalEvidence: q.externalEvidence(rec.Key, b.Consumers)}), nil
 }
@@ -130,10 +130,11 @@ func (q *Query) unreportedTargets() int {
 }
 
 // externalMeta is meta for an external answer: partial, citing
-// externalsUnreported, when a visible target does not report its externals.
+// externalsUnreported, when a visible target does not report its externals,
+// and resourcesIncomplete, when a managed-resource reader did not read all.
 func (q *Query) externalMeta() Meta {
 	m := q.meta()
-	if derived := q.externalsUnreported(); derived != nil {
+	if derived := append(q.externalsUnreported(), q.resourcesIncomplete()...); derived != nil {
 		m.Limitations, m.LimitationsTruncated = BoundLimitations(append(derived, cloneLimitations(q.snap.Limitations)...))
 		m.Completeness = partialOf(m.Completeness)
 	}
@@ -157,7 +158,7 @@ func (q *Query) explainExternal(key string) (*ExplainResult, error) {
 		return nil, err
 	}
 	res := &ExplainResult{Meta: q.externalMeta(), Subject: ExternalSubjectPrefix + string(rec.Key), Kind: string(KindExternal), Status: StatusUnknown, Reasons: []Reason{}}
-	b := boundExternal(rec)
+	b := q.boundExternal(rec)
 	for _, src := range b.Sources {
 		if src.Provenance != ProvenanceInferred {
 			res.Reasons = append(res.Reasons, externalSourceReason(src))
@@ -363,7 +364,7 @@ func (q *Query) externalDetail(key string) (*EntityDetail, error) {
 	if err != nil {
 		return nil, err
 	}
-	b := boundExternal(rec)
+	b := q.boundExternal(rec)
 	data := &ExternalDetailData{External: b, Consumers: []ExternalConsumer{}, Catalog: q.externalCatalogRef(rec), FoldedInto: into,
 		ExternalEvidence: q.externalEvidence(rec.Key, b.Consumers)}
 	for _, c := range b.Consumers {
@@ -392,10 +393,10 @@ func (q *Query) externalDetail(key string) (*EntityDetail, error) {
 }
 
 // externalProductMeta is productMetaWith(derived) for an answer that lists
-// external systems or their consumers: partial, citing externalsUnreported,
-// when a visible target does not report its externals.
+// external systems or their consumers: partial, citing externalsUnreported
+// and resourcesIncomplete (see externalMeta).
 func (q *Query) externalProductMeta(derived []Limitation) ProductMeta {
-	unreported := q.externalsUnreported()
+	unreported := append(q.externalsUnreported(), q.resourcesIncomplete()...)
 	meta := q.productMetaWith(append(unreported, derived...))
 	if unreported != nil {
 		meta.Completeness = partialOf(meta.Completeness)

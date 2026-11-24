@@ -121,7 +121,7 @@ func TestPublishNeverSignsForeignTag(t *testing.T) {
 	d, root := deps(t, reg), host+"/demo/pacto-inferred"
 	repo := root + "/stripe"
 	snap := stripeFleet(t, []string{"api.stripe.com"})
-	foreign, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"evil.example"}), "stripe", now), "0.0.9", inputs(d, snap), "")
+	foreign, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"evil.example"}), "stripe", now), "0.0.9", inputs(d, snap), "", "")
 	digest := pushUnsigned(t, reg, repo, "0.0.9", foreign)
 	rep := publishOK(t, d, root, snap)
 	if len(rep.Errors) != 1 || rep.Errors[0].Version != "0.0.9" || !strings.Contains(rep.Errors[0].Error, "never used") {
@@ -143,7 +143,7 @@ func TestPublishMergeIgnoresUnverifiedPrev(t *testing.T) {
 	d, root := deps(t, reg), host+"/demo/pacto-inferred"
 	repo := root + "/stripe"
 	publishOK(t, d, root, stripeFleet(t, []string{"a.stripe.com"}))
-	injected, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"a.stripe.com", "evil.example"}), "stripe", now), "0.0.2", contract.InferredInputs{Pacto: "x", Discovery: "1"}, "")
+	injected, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"a.stripe.com", "evil.example"}), "stripe", now), "0.0.2", contract.InferredInputs{Pacto: "x", Discovery: "1"}, "", "")
 	pushUnsigned(t, reg, repo, "0.0.2", injected)
 	partial := stripeFleet(t, []string{"b.stripe.com"})
 	partial.Completeness = fleet.CompletenessPartial
@@ -326,7 +326,7 @@ func TestPublishReadsOnlyTheNewestTags(t *testing.T) {
 	d, root := deps(t, reg), host+"/demo/pacto-inferred"
 	repo := root + "/stripe"
 	snap := stripeFleet(t, []string{"a.stripe.com"})
-	foreign, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"evil.example"}), "stripe", now), "0.0.1", inputs(d, snap), "")
+	foreign, _ := Bundle("stripe", Surface(stripeFleet(t, []string{"evil.example"}), "stripe", now), "0.0.1", inputs(d, snap), "", "")
 	for i := 1; i <= maxTagsVerified+1; i++ {
 		pushUnsigned(t, reg, repo, fmt.Sprintf("0.0.%d", i), foreign)
 	}
@@ -385,7 +385,7 @@ func TestInferredRepairAcceptsLegacyDigest(t *testing.T) {
 	d, root := deps(t, reg), host+"/demo/pacto-inferred"
 	repo := root + "/stripe"
 	snap := stripeFleet(t, []string{"api.stripe.com"})
-	b, err := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", inputs(d, snap), "")
+	b, err := Bundle("stripe", Surface(snap, "stripe", now), "0.0.1", inputs(d, snap), "", "")
 	if err != nil {
 		t.Fatal(err)
 	}

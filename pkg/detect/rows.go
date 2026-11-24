@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -22,7 +23,8 @@ var rowNames = map[string]string{
 	"jaeger": "Jaeger", "datadog": "Datadog", "traces": "Traces",
 	"istio-egress": "Istio egress", "cilium-fqdn": "Cilium FQDN", "egress-gateway": "Egress gateway",
 	"crossplane": "Crossplane", "evidence": "Evidence", "recorder": "Recorder", fleet.ProviderApplier: "Applier",
-	"backstage": "Backstage catalog", inventoryKind: "Cluster inventory",
+	"backstage": "Backstage catalog", inventoryKind: "Cluster inventory", fleet.ProviderManagedResources: "Managed resources",
+	"terraform": "Terraform state", "cloud-inventory": "Cloud inventory",
 }
 
 // usedFor says, per kind, what a person may do with the proposal. Nothing is
@@ -36,6 +38,7 @@ var usedFor = map[string]string{
 	"nodes":    "proposal for runtime conformance; nothing is turned on",
 	"pull-secret": "proposal for registryPullSecret: it needs push on <registry>/pacto-*; " +
 		"a pod pull Secret usually grants pull only",
+	"managed-resources": managedSentence, "terraform": managedSentence, "cloud-inventory": managedSentence,
 	"otel-collector":      observedEdges,
 	"tempo":               observedEdges,
 	"jaeger":              observedEdges,
@@ -51,6 +54,13 @@ var usedFor = map[string]string{
 	"backstage":           "inferred owners, domains, dependencies and golden paths, read by the dashboard; nothing is turned on",
 	inventoryKind:         "candidate clusters for pacto cluster install; nothing joins on its own",
 }
+
+// managedSentence is what a managed-resource reader's row is used for.
+const managedSentence = "reads managed cloud resources and the services that use them; nothing is turned on"
+
+// ManagedKinds are the kinds whose rows read managed cloud resources: their
+// UsedFor carries [fleet.UseManagedResources] after the sentence.
+var ManagedKinds = []string{fleet.ProviderManagedResources, "terraform", "cloud-inventory"}
 
 // egressSentence is what an egress reader's row is used for.
 const egressSentence = "reads calls leaving the cluster; nothing is turned on"
@@ -79,6 +89,7 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 		rows = append(rows, installationRow(res, source, now))
 	}
 	for _, e := range res.Entries {
+		e, capped := managedCap(res, e)
 		asOf, cluster := res.AsOf, cmp.Or(res.ClusterName, res.Cluster)
 		p := fleet.Provider{
 			ID: e.Kind, Name: rowName(e.Kind), Evidence: evidence(e, source, cluster),
@@ -103,6 +114,9 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 			code := "DETECTION_" + strings.ToUpper(strings.ReplaceAll(e.Kind, "-", "_")) + "_" + strings.ToUpper(e.Completeness)
 			p.Limitations = []fleet.Limitation{{Code: code, Source: source, Message: e.Reason}}
 		}
+		if capped {
+			p.Limitations = append(p.Limitations, CappedLimitations(res, source)...)
+		}
 		rows = append(rows, p)
 	}
 	return rows
@@ -113,7 +127,8 @@ func ProviderRows(res Result, source string, now time.Time) []fleet.Provider {
 const backstageNotDetectedUse = "set dashboard.backstage.url to read its owners and golden paths; nothing is read"
 
 // rowUsedFor is the UsedFor of entry e's row: its kind's sentence, then
-// [fleet.UseExternalEgress] for an egress kind. A Backstage catalog that
+// [fleet.UseExternalEgress] for an egress kind or
+// [fleet.UseManagedResources] for a managed kind. A Backstage catalog that
 // was not detected reads nothing, so its row says how to read one.
 func rowUsedFor(e Entry) []string {
 	kind := e.Kind
@@ -121,8 +136,53 @@ func rowUsedFor(e Entry) []string {
 		return []string{backstageNotDetectedUse}
 	}
 	out := []string{cmp.Or(usedFor[kind], "proposal; nothing is turned on")}
-	if slices.Contains(EgressKinds, kind) {
+	switch {
+	case slices.Contains(EgressKinds, kind):
 		out = append(out, fleet.UseExternalEgress)
+	case slices.Contains(ManagedKinds, kind):
+		out = append(out, fleet.UseManagedResources)
+	}
+	return out
+}
+
+// managedCap lowers a complete managed entry of a capped res to partial and
+// says whether it did: what lies past the cap is unknown. Capped Secret refs
+// lower the managed-resources entry, whose consumers they join.
+func managedCap(res Result, e Entry) (Entry, bool) {
+	refs := res.SecretRefsCapped() && e.Kind == fleet.ProviderManagedResources
+	if !res.ManagedCapped() && !refs || !slices.Contains(ManagedKinds, e.Kind) || e.Completeness != Complete {
+		return e, false
+	}
+	e.Completeness = Partial
+	return e, true
+}
+
+// CappedLimitations are the limitations of res's capped lists read by
+// source: MANAGED_RESOURCES_CAPPED and SECRET_REFS_CAPPED.
+func CappedLimitations(res Result, source string) []fleet.Limitation {
+	var out []fleet.Limitation
+	if res.ManagedCapped() {
+		out = append(out, fleet.Limitation{Code: fleet.LimitationManagedResourcesCapped, Source: source,
+			Message: strconv.Itoa(res.ManagedResourcesTotal-len(res.ManagedResources)) + " of " + strconv.Itoa(res.ManagedResourcesTotal) +
+				" managed resources past the bound of " + strconv.Itoa(MaxManagedResources) + " were not kept; raise MaxManagedResources if a real cluster hits it"})
+	}
+	if res.SecretRefsCapped() {
+		out = append(out, fleet.Limitation{Code: fleet.LimitationSecretRefsCapped, Source: source,
+			Message: "the Secret names the running pods reference were not all kept or read, so a service that uses a managed resource through its connection Secret may be missing"})
+	}
+	return out
+}
+
+// ReadsPartial is one SOURCE_PARTIAL limitation of source per managed-kind
+// entry of res that did not read everything: partial, or unknown with no
+// hint (a read that failed; an entry with a hint is off until a person turns
+// it on).
+func ReadsPartial(res Result, source string) []fleet.Limitation {
+	var out []fleet.Limitation
+	for _, e := range res.Entries {
+		if slices.Contains(ManagedKinds, e.Kind) && (e.Completeness == Partial || e.Completeness == Unknown && e.Hint == "") {
+			out = append(out, fleet.Limitation{Code: fleet.LimitationSourcePartial, Source: source, Message: e.Kind + " did not read everything: " + cmp.Or(e.Reason, e.Completeness)})
+		}
 	}
 	return out
 }

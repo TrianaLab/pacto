@@ -13,8 +13,10 @@ import (
 // package that call the owner rule: one rule for every surface, never a
 // re-implemented membership check. A story that adds a caller adds its row.
 var ownerRightCallers = map[string][]string{
-	// The declare-time check (pacto declare, pacto_declare, the dashboard).
-	"delivery.DecideOwnerRight(": {"internal/app/declare.go"},
+	// The declare-time check (pacto declare, pacto_declare, the dashboard),
+	// and who may accept a claim draft joining another team's offering: a
+	// member of that team under the same rule (517-S7).
+	"delivery.DecideOwnerRight(": {"internal/app/declare.go", "internal/app/declare_offering.go"},
 	// The fleet's owner pass over published bundles, and the operator's
 	// OwnerVerified condition over running ones.
 	"publish.VerifyOwnerRight(": {"integrations/kubernetes/internal/controller/owner.go", "internal/app/ownerright.go"},

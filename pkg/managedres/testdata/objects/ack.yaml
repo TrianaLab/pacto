@@ -1,0 +1,18 @@
+apiVersion: rds.services.k8s.aws/v1alpha1
+kind: DBInstance
+metadata:
+  namespace: payments
+  name: ledger
+spec:
+  dbInstanceIdentifier: ledger
+  engine: postgres
+  engineVersion: "14.9"
+  masterUserPassword:
+    namespace: payments
+    name: ledger-master
+    key: password
+status:
+  ackResourceMetadata:
+    arn: arn:aws:rds:us-east-1:210987654321:db:ledger
+    ownerAccountID: "210987654321"
+    region: us-east-1

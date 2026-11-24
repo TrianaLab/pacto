@@ -148,6 +148,9 @@ func TestFleetProvidersEgressDetectedRowCell(t *testing.T) {
 	row := detect.ProviderRows(detect.Result{AsOf: at, Entries: []detect.Entry{detect.IstioEgress(true, nil)}}, "detected", at)[0]
 	got := providerUsedFor(row)
 	expect(t, got == "reads calls leaving the cluster; nothing is turned on", "the istio-egress cell prints the sentence alone: %s", got)
+	managed := detect.ProviderRows(detect.Result{AsOf: at, Entries: []detect.Entry{{Kind: fleet.ProviderManagedResources, Completeness: detect.Complete}}}, "detected", at)[0]
+	got = providerUsedFor(managed)
+	expect(t, got == "reads managed cloud resources and the services that use them; nothing is turned on", "the managed-resources cell prints the sentence alone: %s", got)
 }
 
 func TestFleetProvidersListsEgressRows(t *testing.T) {

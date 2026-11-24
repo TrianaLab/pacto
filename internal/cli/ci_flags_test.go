@@ -16,7 +16,7 @@ import (
 // Backstage catalog, whose dependencies are inferred and never name a
 // consumer a gate reads, and registry discovery, which pacto impact and
 // pacto ci ignore: a golden path never consumes anything.
-var nonConsumerFlags = []string{"local", "backstage-url", "namespace", "freshness", "external-catalog", "fingerprints", "delivery-trust", "index", "discover"}
+var nonConsumerFlags = []string{"local", "tf-state", "backstage-url", "namespace", "freshness", "external-catalog", "fingerprints", "delivery-trust", "index", "discover"}
 
 func TestConsumerSourcesClassifiesEveryFleetFlag(t *testing.T) {
 	value := map[string]string{"cache": "true", "k8s": "true", "freshness": "1m", "index": "r/pacto-index"}

@@ -239,8 +239,9 @@ const SnapshotSourceID = "delivery"
 
 // Snapshot builds the operational graph plan() projects a change onto: the
 // Pactos' [PactoCollection] under [SnapshotSourceID], plus the revisions on
-// both sides of the change.
-func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Revision, now time.Time) (*fleet.FleetSnapshot, error) {
+// both sides of the change. extra are more sources read beside it, such as
+// what the operator's detector read in process.
+func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Revision, now time.Time, extra ...fleet.Source) (*fleet.FleetSnapshot, error) {
 	col := PactoCollection(SnapshotSourceID, pactos, listErr, now)
 	var revs []fleet.RawRevision
 	for _, side := range sides {
@@ -259,7 +260,7 @@ func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Re
 	// No ExternalCatalog: Build classifies with externalcatalog.Default(), the
 	// catalog the operator compiles in, so its digest is the snapshot's catalog
 	// ref that EXTERNAL_CATALOG_MISMATCH compares each status against.
-	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, src)
+	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, append([]fleet.Source{src}, extra...)...)
 }
 
 // PactoCollection is the collection of the Pactos as source reads them: one
