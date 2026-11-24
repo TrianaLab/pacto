@@ -28,5 +28,6 @@
     color: var(--c-warn); background: var(--c-warn-bg); border: 1px solid var(--c-warn-border);
     padding: 1px 6px; border-radius: var(--radius-xs); flex-shrink: 0;
   }
-  .lim-msg { color: var(--c-text-2); font-size: var(--text-sm); }
+  /* A message can name a digest or a long key: it breaks anywhere rather than push the page wider. */
+  .lim-msg { color: var(--c-text-2); font-size: var(--text-sm); min-width: 0; overflow-wrap: anywhere; }
 </style>

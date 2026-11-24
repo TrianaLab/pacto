@@ -214,7 +214,7 @@
               <th scope="row">
                 <span class="ot-inferred-name"><EntityLink {ref} showStatus={false} showKind={false} /><span data-testid="offering-inferred"><ProvenanceMark label={`Inferred offering: from ${f.producer}`} text={inferredTip(f)} /></span></span>
               </th>
-              <td colspan="6" data-label="Inferred"><span class="ot-note" title={inferredLine(f) + (f.acceptedAs ? ` ${f.acceptedAs.label}` : '')}><bdi>{inferredLine(f)}</bdi>{#if f.acceptedAs}{' '}<span data-testid="offering-inferred-accepted"><EntityLink ref={f.acceptedAs} showStatus={false} showKind={false} /></span>{/if}</span></td>
+              <td colspan="6" data-label="Inferred"><span class="ot-note" title={inferredLine(f) + (f.acceptedAs ? ` ${f.acceptedAs.label}` : '')}><bdi>{inferredLine(f)}</bdi>{#if f.acceptedAs}{' '}<span class="ot-accepted" data-testid="offering-inferred-accepted"><EntityLink ref={f.acceptedAs} showStatus={false} showKind={false} /></span>{/if}</span></td>
               {:else}
               <th scope="row">
                 <span class="cell-stack"><EntityLink {ref} showStatus={false} showKind={false} /><span class="t-meta">{plural(ref.services ?? 0, 'provider', 'providers')}</span>{#if hiddenP}<span class="t-meta" data-testid="offering-hidden-providers">+{plural(hiddenP, 'provider', 'providers')} you may not see</span>{/if}</span>
@@ -255,6 +255,9 @@
   .ot-sort:hover, .ot-sort:focus-visible { text-decoration: underline; }
   /* The words beside a hidden count stay visible: a title is unreachable on touch. */
   .ot-note { display: block; overflow-wrap: anywhere; }
+  /* The accepted offering's link takes its own line: beside the note's last word it
+     would sit one word space, not a clear gap, from another text box. */
+  .ot-accepted { display: block; }
   /* An inferred row is muted through the AA-safe text token, never a fade (axe fails faded text). */
   .ot-inferred, .ot-inferred :global(.ei-label), .ot-inferred :global(.ei-context) { color: var(--c-text-3); }
   .ot-inferred-name { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; overflow-wrap: anywhere; }
