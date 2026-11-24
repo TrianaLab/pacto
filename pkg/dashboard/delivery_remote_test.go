@@ -54,7 +54,7 @@ func startRemotesWith(t *testing.T, home *fakeDelivery, o Options, remotes ...Re
 }
 
 func eu(api DeliveryAPI) RemoteDelivery {
-	return RemoteDelivery{Cluster: fleet.Cluster{ID: euID, Name: "eu-prod"}, API: api}
+	return RemoteDelivery{Cluster: fleet.Cluster{ID: euID, Name: "eu-prod"}, API: api, Context: "arn:eu"}
 }
 
 func clusterOf(v any) string {
@@ -138,7 +138,7 @@ func TestInboxRemoteItemReadOnlyWithNext(t *testing.T) {
 	held := inbox["held"].([]any)
 	expect(t, strings.Join(clustersIn(held), ",") == ",,"+euID, "held %v", held)
 	last := held[2].(map[string]any)
-	expect(t, last["readOnly"] == true && last["next"] == "pacto delivery approve for-checkout -n prod --context eu-prod" &&
+	expect(t, last["readOnly"] == true && last["next"] == "kubectl config use-context arn:eu && pacto delivery approve for-checkout -n prod" &&
 		last["service"] == "payments", "a remote item only reads and says how to act there: %v", last)
 	for _, h := range held[:2] {
 		m := h.(map[string]any)
@@ -266,26 +266,69 @@ func TestUnknownClusterIs404(t *testing.T) {
 }
 
 func TestRemoteWritesRefuse(t *testing.T) {
-	member := RemoteDelivery{Cluster: fleet.Cluster{ID: "m-uid", Name: "us-prod"}, API: euCluster(),
-		Next: func(ns, name string) string { return "pacto delivery approve --intent r:" + ns + "-" + name }}
 	home := sampleCluster("acme:team-checkout")
-	base := startRemotes(t, home, eu(euCluster()), member, RemoteDelivery{Cluster: fleet.Cluster{ID: "h-uid", Name: "hidden"}, Hidden: true})
+	base := startRemotes(t, home, eu(euCluster()), RemoteDelivery{Cluster: fleet.Cluster{ID: "h-uid", Name: "hidden"}, Hidden: true})
+	use := "kubectl config use-context arn:eu && "
 	for _, c := range []struct{ method, path, next string }{
-		{http.MethodPost, "plan?cluster=" + euID, "--context eu-prod"},
-		{http.MethodPost, "operations?cluster=" + euID, "--context eu-prod"},
-		{http.MethodPost, "operations/prod/for-checkout/decision?cluster=m-uid", "--intent r:prod-for-checkout"},
-		{http.MethodDelete, "operations/prod/for-checkout?cluster=" + euID, "pacto delivery approve for-checkout -n prod --context eu-prod"},
-		{http.MethodDelete, "operations/prod/op?cluster=h-uid", "--context h-uid"},
+		{http.MethodPost, "plan?cluster=" + euID, use + "pacto delivery plan --stage payments -n prod"},
+		{http.MethodPost, "operations?cluster=" + euID, use + "pacto delivery propose --stage payments -n prod"},
+		{http.MethodPost, "operations/prod/for-checkout/decision?cluster=" + euID, use + "pacto delivery approve for-checkout -n prod"},
+		{http.MethodDelete, "operations/prod/for-checkout?cluster=" + euID, use + "pacto delivery cancel for-checkout -n prod"},
+		{http.MethodDelete, "operations/prod/op?cluster=h-uid", "pacto delivery cancel op -n prod (in cluster h-uid)"},
 	} {
 		var body any = delivery.Request{Type: delivery.TypePromote, Namespace: "prod", Stage: "payments", To: dNext}
 		if strings.Contains(c.path, "decision") {
 			body = map[string]any{"decision": "approve"}
 		}
 		code, out := call(t, c.method, base+"/api/delivery/"+c.path, body)
-		expect(t, code == http.StatusConflict && out["code"] == "RemoteClusterReadOnly" && strings.Contains(out["detail"].(string), c.next),
+		expect(t, code == http.StatusConflict && out["code"] == "RemoteClusterReadOnly" && strings.HasSuffix(out["detail"].(string), c.next),
 			"%s %s: %d %v", c.method, c.path, code, out)
 	}
 	expect(t, len(home.planned)+len(home.proposed)+len(home.approved)+len(home.cancelled) == 0, "nothing acted at home")
+}
+
+// The dashboard's own cluster, by the id its listings name, is "": reads
+// answer there and writes act there.
+func TestHomeClusterIDIsHome(t *testing.T) {
+	home := sampleCluster("acme:team-checkout")
+	home.blame = &delivery.Blame{Digest: dRun}
+	base := startRemotes(t, home, eu(euCluster()))
+	code, body := call(t, http.MethodGet, base+"/api/delivery/blame?namespace=prod&stage=payments&cluster="+homeCluster.ID, nil)
+	expect(t, code == http.StatusOK, "blame at home by id: %d %v", code, body)
+	_, hist := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&cluster="+homeCluster.ID, nil)
+	h := hist["histories"].([]any)[0].(map[string]any)
+	expect(t, clusterOf(h) == "" && hist["clusters"] == nil, "home by id reads as home: %v", hist)
+	code, body = call(t, http.MethodPost, base+"/api/delivery/plan?cluster="+homeCluster.ID,
+		delivery.Request{Type: delivery.TypePromote, Namespace: "prod", Stage: "payments", To: dNext})
+	expect(t, code == http.StatusOK && len(home.planned) == 1, "plan at home by id: %d %v", code, body)
+}
+
+// A remote held change whose decider cannot be reviewed from here still
+// shows, read-only: who may decide is answered in that cluster.
+func TestInboxRemoteUnverifiedStaysReadOnly(t *testing.T) {
+	remote := euCluster()
+	remote.accessErr = "this dashboard only reads cluster eu-prod"
+	base := startRemotes(t, sampleCluster("acme:team-checkout"), eu(remote))
+	_, inbox := call(t, http.MethodGet, base+"/api/delivery/inbox", nil)
+	held := inbox["held"].([]any)
+	expect(t, strings.Join(clustersIn(held), ",") == ",,"+euID, "held %v", held)
+	expect(t, held[2].(map[string]any)["readOnly"] == true, "read-only: %v", held[2])
+	expect(t, !strings.Contains(fmt.Sprint(inbox["unreadable"]), euID), "no uid in the notes: %v", inbox)
+}
+
+// A one-Stage history of a remote names its cluster in the listing; cluster
+// without a Stage is refused, never dropped.
+func TestOneStageRemoteHistoryNamesCluster(t *testing.T) {
+	remote := euCluster()
+	remote.history = &delivery.History{Completeness: "complete"}
+	base := startRemotes(t, sampleCluster(), eu(remote))
+	_, hist := call(t, http.MethodGet, base+"/api/delivery/history?namespace=prod&stage=payments&cluster="+euID, nil)
+	cls, _ := hist["clusters"].([]any)
+	expect(t, len(cls) == 1 && cls[0].(map[string]any)["name"] == "eu-prod", "clusters %v", hist)
+	for _, q := range []string{"stage=payments&cluster=" + euID, "cluster=" + euID} {
+		code, body := call(t, http.MethodGet, base+"/api/delivery/history?"+q, nil)
+		expect(t, code == http.StatusBadRequest && body["code"] == "ClusterNeedsStage", "%s: %d %v", q, code, body)
+	}
 }
 
 // Answers that stay home-cluster answers are the same with remotes.
@@ -324,7 +367,7 @@ func rawGet(t *testing.T, url string) string {
 	return asOfField.ReplaceAllString(string(b), `"asOf":""`)
 }
 
-func TestRemoteNextFallsBackToTheID(t *testing.T) {
+func TestRemoteNextWithoutContextNamesTheCluster(t *testing.T) {
 	r := RemoteDelivery{Cluster: fleet.Cluster{ID: "uid-1"}}
-	expect(t, r.next("prod", "op") == "pacto delivery approve op -n prod --context uid-1", "next %q", r.next("prod", "op"))
+	expect(t, r.next("pacto delivery cancel op -n prod") == "pacto delivery cancel op -n prod (in cluster uid-1)", "next %q", r.next("x"))
 }

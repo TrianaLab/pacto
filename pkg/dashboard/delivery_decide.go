@@ -28,7 +28,7 @@ func (s *Server) deliveryPlan(ctx context.Context, in *planInput) (*planOutput, 
 	if err != nil {
 		return nil, err
 	}
-	if err := s.refuseRemote(ctx, in.Cluster, in.Body.Namespace, ""); err != nil {
+	if err := s.refuseRemote(ctx, in.Cluster, "pacto delivery plan --stage "+in.Body.Stage+" -n "+in.Body.Namespace); err != nil {
 		return nil, err
 	}
 	p, err := api.Plan(ctx, in.Body)
@@ -56,7 +56,7 @@ func (s *Server) deliveryPropose(ctx context.Context, in *planInput) (*proposeOu
 	if err != nil {
 		return nil, err
 	}
-	if err := s.refuseRemote(ctx, in.Cluster, in.Body.Namespace, ""); err != nil {
+	if err := s.refuseRemote(ctx, in.Cluster, "pacto delivery propose --stage "+in.Body.Stage+" -n "+in.Body.Namespace); err != nil {
 		return nil, err
 	}
 	op, p, err := api.Propose(ctx, in.Body)
@@ -124,7 +124,7 @@ func (s *Server) deliveryDecide(ctx context.Context, in *decideInput) (*decideOu
 	if err != nil {
 		return nil, err
 	}
-	if err := s.refuseRemote(ctx, in.Cluster, in.Namespace, in.Name); err != nil {
+	if err := s.refuseRemote(ctx, in.Cluster, approveCommand(in.Namespace, in.Name)); err != nil {
 		return nil, err
 	}
 	caller, err := api.WhoAmI(ctx)
@@ -217,7 +217,7 @@ func (s *Server) deliveryCancel(ctx context.Context, in *operationInput) (*cance
 	if err != nil {
 		return nil, err
 	}
-	if err := s.refuseRemote(ctx, in.Cluster, in.Namespace, in.Name); err != nil {
+	if err := s.refuseRemote(ctx, in.Cluster, "pacto delivery cancel "+in.Name+" -n "+in.Namespace); err != nil {
 		return nil, err
 	}
 	if err := api.Cancel(ctx, in.Namespace, in.Name); err != nil {

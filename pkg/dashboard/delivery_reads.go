@@ -394,7 +394,9 @@ func inboxQueues(ctx context.Context, ops []delivery.OperationObject, q string, 
 		switch {
 		case it.Phase == delivery.PhaseHeld:
 			waits, why := waitsOn(ctx, &o, it, caller, access(it.Cluster))
-			if waits {
+			// Who may decide in another cluster is answered there: its held
+			// change shows read-only, with the command that acts there.
+			if waits || it.Cluster != "" && why != "" {
 				held = append(held, it)
 			} else if note := it.key() + ": could not check update rights (" + why + ")"; why != "" && !slices.Contains(unchecked, note) {
 				unchecked = append(unchecked, note)
@@ -1270,7 +1272,11 @@ func (s *Server) historyTargets(ctx context.Context, in *historyInput, out *hist
 		if err != nil {
 			return nil, false, nil, err
 		}
+		if home, _ := s.remotes(ctx); in.Cluster == home.ID {
+			in.Cluster = ""
+		}
 		out.Body.Page = Page{Total: 1, Limit: 1}
+		out.Body.Listing.Clusters = s.namedCluster(ctx, in.Cluster)
 		st, err := api.Stage(ctx, in.Namespace, in.Stage)
 		if err != nil {
 			st = &delivery.StageObject{Metadata: delivery.ObjectMeta{Namespace: in.Namespace, Name: in.Stage}}
@@ -1278,6 +1284,9 @@ func (s *Server) historyTargets(ctx context.Context, in *historyInput, out *hist
 		t := *st
 		t.Metadata.Cluster = in.Cluster
 		return []delivery.StageObject{t}, err == nil, api, nil
+	}
+	if in.Cluster != "" {
+		return nil, false, nil, Refuse(http.StatusBadRequest, "ClusterNeedsStage", "cluster reads one Stage: give namespace and stage with it")
 	}
 	api, err := s.deliveryFor(ctx)
 	if err != nil {

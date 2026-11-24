@@ -355,7 +355,7 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	rm.authoring = remoteAuthoring(svc, ociRefs, rm.modes.Fleet, registry, push)
 	if rm.delivery != nil {
 		policy := rm.delivery(nil) // only its trust and policy namespace are read
-		id := baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace)
+		id := remoteDeliveryIdentity(cmd, svc, d, cluster, policy)
 		rm.reads = mcpDeliveryReads(id, rm.modes.Fleet, deliveryNarrowing(flagNamespaces(cmd)))
 		rm.installed, rm.installedAt = id.installedProbe(), id.installedAt()
 	}
@@ -364,6 +364,20 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	}
 	s.remoteAuthoring = true
 	return nil
+}
+
+// remoteDeliveryIdentity is the identity a remote MCP server's delivery
+// reads use: every other context its fleet reads is read too, each caller
+// reviewed in that cluster as the dashboard reviews a person, never read
+// with the server's own credentials unreviewed.
+func remoteDeliveryIdentity(cmd *cobra.Command, svc *app.Service, d deps, cluster *rest.Config, policy *app.Delivery) *dashboardIdentity {
+	id := baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace)
+	mode, _ := cmd.Flags().GetString("review")
+	home := newHomeCluster(cluster, d)
+	id.entries = memoEntries(fleetEntries(svc, d, mcpFleetOptions(cmd)))
+	// A separate MCP server is no hub: its member clusters stay unreviewable.
+	id.viewer, id.homeUID = clusterViewer(id.entries, home, d, mode, flagNamespaces(cmd), nil), home.UID
+	return id
 }
 
 // remoteMCP builds an HTTP MCP server whose callers the apiserver names per

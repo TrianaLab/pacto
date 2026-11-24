@@ -23,6 +23,10 @@ import (
 // words the fleet's cluster chips use (514-S2).
 var errRemoteReview = errors.New("the review failed or took longer than 5s, so its delivery objects are hidden")
 
+// errClusterUnidentified is a context whose cluster identity could not be
+// read: its delivery is not read either.
+var errClusterUnidentified = errors.New("its cluster identity could not be read, so its delivery objects are not read")
+
 // remotes is the dashboard's own cluster and the delivery of every other
 // cluster the fleet reads, for a request that may read delivery at all: none
 // in open shared mode or for a sign-in link session.
@@ -50,14 +54,24 @@ func (id *dashboardIdentity) remotesFor(ctx context.Context, p authn.Person) (fl
 	for _, e := range id.entries(ctx) {
 		c := fleet.Cluster{ID: e.UID, Name: e.ClusterName()}
 		switch {
-		case e.Alias != "" || e.Conflict != "":
-		case homeUID != "" && e.UID == homeUID || homeUID == "" && sameServer(e.Config, id.cluster):
+		case e.Alias != "":
+		case homeUID != "" && e.UID == homeUID || sameServer(e.Config, id.cluster):
 			home = c
+		case e.Conflict != "":
+			// Its uid is another context's: it is named by its context.
+			c.ID = e.Name
+			out = append(out, dashboard.RemoteDelivery{Cluster: c, Context: e.Name,
+				Err: errors.New("it reports the cluster id of context " + e.Conflict + " from another server, so it is read as no cluster")})
 		case e.Err != nil:
 			c.ID = cmp.Or(e.UID, e.Name)
-			out = append(out, dashboard.RemoteDelivery{Cluster: c, Err: e.Err})
-		case e.UID != "":
-			out = append(out, id.remote(ctx, e.Config, c, p))
+			out = append(out, dashboard.RemoteDelivery{Cluster: c, Context: e.Name, Err: e.Err})
+		case e.UID == "":
+			c.ID = e.Name
+			out = append(out, dashboard.RemoteDelivery{Cluster: c, Context: e.Name, Err: errClusterUnidentified})
+		default:
+			r := id.remote(ctx, e.Config, c, p, e.Name)
+			r.Context = e.Name
+			out = append(out, r)
 		}
 	}
 	if len(out) == 0 {
@@ -68,7 +82,7 @@ func (id *dashboardIdentity) remotesFor(ctx context.Context, p authn.Person) (fl
 
 // remote is cluster c's delivery read through cfg, reviewed for p when the
 // dashboard has a viewer.
-func (id *dashboardIdentity) remote(ctx context.Context, cfg *rest.Config, c fleet.Cluster, p authn.Person) dashboard.RemoteDelivery {
+func (id *dashboardIdentity) remote(ctx context.Context, cfg *rest.Config, c fleet.Cluster, p authn.Person, kubeContext string) dashboard.RemoteDelivery {
 	var all bool
 	if id.viewer != nil {
 		var err error
@@ -88,7 +102,7 @@ func (id *dashboardIdentity) remote(ctx context.Context, cfg *rest.Config, c fle
 		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams}
 	api := dashboard.DeliveryAPI(newDashDelivery(id, act, ""))
 	if id.viewer != nil {
-		api = &reviewedDelivery{inner: api, viewer: id.viewer, person: p, cluster: c, stagesAll: all, denied: map[string]bool{}}
+		api = &reviewedDelivery{inner: api, viewer: id.viewer, person: p, cluster: c, context: kubeContext, stagesAll: all, denied: map[string]bool{}}
 	}
 	return dashboard.RemoteDelivery{Cluster: c, API: api}
 }
@@ -123,6 +137,8 @@ type reviewedDelivery struct {
 	viewer  *authn.Viewer
 	person  authn.Person
 	cluster fleet.Cluster
+	// context is the kubeconfig context that reaches the cluster.
+	context string
 	// stagesAll: the person may list Stages in every namespace there.
 	stagesAll bool
 
@@ -256,11 +272,11 @@ func (r *reviewedDelivery) Record(ctx context.Context, ns, stage, id string) (*d
 	return r.inner.Record(ctx, ns, stage, id)
 }
 
-func (r *reviewedDelivery) Undo(ctx context.Context, ns, name, stage string) (*delivery.Undo, error) {
-	if err := r.get(ctx, ns, name, authn.OperationResource); err != nil {
-		return nil, err
-	}
-	return r.inner.Undo(ctx, ns, name, stage)
+// Undo is never planned with the dashboard's credentials there: planning
+// reads every Pacto and Stage they may read. It is planned in that cluster.
+func (r *reviewedDelivery) Undo(_ context.Context, ns, name, _ string) (*delivery.Undo, error) {
+	return nil, dashboard.Refuse(http.StatusConflict, "RemoteClusterReadOnly", "this dashboard only reads cluster "+r.cluster.Name+
+		": plan the undo there with kubectl config use-context "+r.context+" && pacto delivery undo "+name+" -n "+ns)
 }
 
 func (r *reviewedDelivery) Describe(ctx context.Context, st *delivery.StageObject, digest string) delivery.Revision {

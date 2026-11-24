@@ -28,21 +28,28 @@ type RemoteDelivery struct {
 	// Hidden is a cluster the reader may not see, or one with no live
 	// channel: counted, never named.
 	Hidden bool
-	// Next is the command that acts on operation namespace/name there; nil
-	// names pacto delivery approve with the cluster's kubeconfig context.
-	Next func(namespace, name string) string
+	// Context is the kubeconfig context that reaches the cluster, which the
+	// command that acts there switches to; empty when none does.
+	Context string
 }
 
 // namespacesHidden is a remote API that left out the namespaces the reader
 // may not list there: it says how many, never which.
 type namespacesHidden interface{ HiddenNamespaces() int }
 
-// next is the command that acts on operation namespace/name in r's cluster.
-func (r RemoteDelivery) next(namespace, name string) string {
-	if r.Next != nil {
-		return r.Next(namespace, name)
+// next is command (a pacto delivery command) run in r's cluster: pacto
+// delivery reads the current kubeconfig context, so it first switches to the
+// one that reaches the cluster.
+func (r RemoteDelivery) next(command string) string {
+	if r.Context == "" {
+		return command + " (in cluster " + cmp.Or(r.Cluster.Name, r.Cluster.ID) + ")"
 	}
-	return "pacto delivery approve " + name + " -n " + namespace + " --context " + cmp.Or(r.Cluster.Name, r.Cluster.ID)
+	return "kubectl config use-context " + r.Context + " && " + command
+}
+
+// approveCommand is the command that answers operation namespace/name.
+func approveCommand(namespace, name string) string {
+	return "pacto delivery approve " + name + " -n " + namespace
 }
 
 // remotes are the other clusters the request reads delivery from, and the
@@ -62,7 +69,10 @@ func (s *Server) deliveryAt(ctx context.Context, cluster string) (DeliveryAPI, e
 	if err != nil || cluster == "" {
 		return api, err
 	}
-	_, remotes := s.remotes(ctx)
+	home, remotes := s.remotes(ctx)
+	if cluster == home.ID {
+		return api, nil
+	}
 	for _, r := range remotes {
 		switch {
 		case r.Cluster.ID != cluster || r.Hidden:
@@ -76,12 +86,16 @@ func (s *Server) deliveryAt(ctx context.Context, cluster string) (DeliveryAPI, e
 }
 
 // refuseRemote refuses a write in a cluster other than the dashboard's own,
-// with the command that acts there; nil for the dashboard's own ("").
-func (s *Server) refuseRemote(ctx context.Context, cluster, namespace, name string) error {
+// with command (the pacto delivery command of the write) run there; nil for
+// the dashboard's own ("" or its id, as listings name it).
+func (s *Server) refuseRemote(ctx context.Context, cluster, command string) error {
 	if cluster == "" {
 		return nil
 	}
-	_, remotes := s.remotes(ctx)
+	home, remotes := s.remotes(ctx)
+	if cluster == home.ID {
+		return nil
+	}
 	r := RemoteDelivery{Cluster: fleet.Cluster{ID: cluster}}
 	for _, rd := range remotes {
 		if rd.Cluster.ID == cluster && !rd.Hidden {
@@ -89,7 +103,30 @@ func (s *Server) refuseRemote(ctx context.Context, cluster, namespace, name stri
 		}
 	}
 	return Refuse(http.StatusConflict, "RemoteClusterReadOnly", "this dashboard only reads cluster "+cmp.Or(r.Cluster.Name, r.Cluster.ID)+
-		": act there with "+r.next(namespace, name))
+		": act there with "+r.next(command))
+}
+
+// namedCluster is the listing row that names remote cluster, so a one-Stage
+// answer says which cluster it read; none for the dashboard's own ("").
+func (s *Server) namedCluster(ctx context.Context, cluster string) []delivery.ClusterListing {
+	var out []delivery.ClusterListing
+	_, remotes := s.remotes(ctx)
+	for _, r := range remotes {
+		if r.Cluster.ID == cluster && cluster != "" {
+			out = append(out, clusterRow(r, time.Now().UTC().Format(time.RFC3339)))
+		}
+	}
+	return out
+}
+
+// clusterRow is r's listing row, read completely at asOf unless r says when
+// its objects were recorded.
+func clusterRow(r RemoteDelivery, asOf string) delivery.ClusterListing {
+	cl := delivery.ClusterListing{ID: r.Cluster.ID, Name: r.Cluster.Name, Completeness: "complete", AsOf: asOf}
+	if r.AsOf != nil {
+		cl.AsOf = r.AsOf.UTC().Format(time.RFC3339)
+	}
+	return cl
 }
 
 // readOnly is a remote cluster's API: it offers no action, since this
@@ -103,7 +140,7 @@ func (readOnly) Can(context.Context, string, string, string) (bool, error) { ret
 type fanned struct {
 	DeliveryAPI
 	by   map[string]DeliveryAPI
-	next map[string]func(namespace, name string) string
+	next map[string]func(command string) string
 }
 
 // at is the API of cluster; the dashboard's own for "".
@@ -150,7 +187,7 @@ func (f fanned) access(stages []delivery.StageObject) func(cluster string) deliv
 func (f fanned) readOnlyItems(items []InboxItem) {
 	for i, it := range items {
 		if it.Cluster != "" {
-			items[i].ReadOnly, items[i].Next = true, f.next[it.Cluster](it.Namespace, it.Name)
+			items[i].ReadOnly, items[i].Next = true, f.next[it.Cluster](approveCommand(it.Namespace, it.Name))
 		}
 	}
 }
@@ -161,7 +198,7 @@ func (f fanned) readOnlyItems(items []InboxItem) {
 // be read is partial and shows nothing, a hidden one is only counted, and
 // the whole listing is partial when any cluster is.
 func (s *Server) listsAll(ctx context.Context, api DeliveryAPI, withOps bool) ([]delivery.StageObject, []delivery.OperationObject, Listing, fanned, error) {
-	f := fanned{DeliveryAPI: api, by: map[string]DeliveryAPI{}, next: map[string]func(string, string) string{}}
+	f := fanned{DeliveryAPI: api, by: map[string]DeliveryAPI{}, next: map[string]func(string) string{}}
 	stages, ops, l, err := s.lists(ctx, api, withOps)
 	home, remotes := s.remotes(ctx)
 	if err != nil || len(remotes) == 0 {
@@ -183,10 +220,7 @@ func (s *Server) listsAll(ctx context.Context, api DeliveryAPI, withOps bool) ([
 			l.HiddenClusters++
 			continue
 		}
-		cl := delivery.ClusterListing{ID: r.Cluster.ID, Name: r.Cluster.Name, Completeness: "complete", AsOf: l.AsOf}
-		if r.AsOf != nil {
-			cl.AsOf = r.AsOf.UTC().Format(time.RFC3339)
-		}
+		cl := clusterRow(r, l.AsOf)
 		switch got := read[i]; {
 		case r.Err != nil:
 			cl.Completeness, cl.Why = "partial", r.Err.Error()

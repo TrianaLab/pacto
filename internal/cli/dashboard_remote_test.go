@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"slices"
@@ -98,8 +99,11 @@ func TestRemotesOnePerContextSkipsHomeAndAlias(t *testing.T) {
 	alias.Alias, clash.Conflict, broken.Err = "eu-prod", "eu-prod", errors.New("no such context")
 	id.entries = entriesOf(entry("hub", "https://hub", "uid-hub"), entry("eu-prod", "https://eu", "uid-eu"), alias, clash, broken, entry("unread", "https://x", ""))
 	home, rs := id.remotesFor(context.Background(), dave)
-	expect(t, home.ID == "uid-hub" && len(rs) == 2 && rs[0].Cluster.ID == "uid-eu" && rs[0].API != nil && rs[0].Err == nil &&
-		rs[1].Cluster == fleet.Cluster{ID: "ap-dev", Name: "ap-dev"} && rs[1].Err != nil, "home %+v remotes %+v", home, rs)
+	// A conflicting or unidentified context is read as partial, never left out.
+	expect(t, home.ID == "uid-hub" && len(rs) == 4 && rs[0].Cluster.ID == "uid-eu" && rs[0].API != nil && rs[0].Err == nil && rs[0].Context == "eu-prod" &&
+		rs[1].Cluster.ID == "restored" && strings.Contains(fmt.Sprint(rs[1].Err), "cluster id of context eu-prod") &&
+		rs[2].Cluster == fleet.Cluster{ID: "ap-dev", Name: "ap-dev"} && rs[2].Err != nil &&
+		rs[3].Cluster.ID == "unread" && errors.Is(rs[3].Err, errClusterUnidentified), "home %+v remotes %+v", home, rs)
 	// The sign-in cluster is found by server when its id is unknown.
 	id.homeUID = nil
 	id.entries = entriesOf(entry("hub", "https://hub", "uid-hub"))
@@ -218,8 +222,6 @@ func TestRemoteHistoryNeedsReview(t *testing.T) {
 	notFound("record", err)
 	_, err = api.Blame(ctx, "staging", "payments-staging", "")
 	notFound("blame", err)
-	_, err = api.Undo(ctx, "staging", "held", "")
-	notFound("undo", err)
 	_, err = api.Stage(ctx, "staging", "payments-staging")
 	notFound("stage", err)
 	_, err = api.Get(ctx, "staging", "held")
@@ -241,8 +243,9 @@ func TestRemoteHistoryNeedsReview(t *testing.T) {
 	expect(t, err == nil && op.Metadata.Name == "held", "get %v %v", op, err)
 	e, err := api.Explain(ctx, "prod", "held")
 	expect(t, err == nil && e.Operation == "prod/held", "explain %v %v", e, err)
-	_, err = api.Undo(ctx, "prod", "missing", "")
-	notFound("undo of an absent operation", err)
+	// An undo is never planned with the dashboard's credentials there.
+	_, err = api.Undo(ctx, "prod", "held", "payments-prod")
+	expect(t, isRefusal(err, http.StatusConflict) && strings.Contains(err.Error(), "use-context eu-prod && pacto delivery undo held -n prod"), "undo %v", err)
 }
 
 func TestRemoteReviewFailureHidesClusterPartial(t *testing.T) {
