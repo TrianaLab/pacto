@@ -81,7 +81,7 @@ func (d *demoDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in das
 		return ans, nil
 	}
 	if w.Offering != "" {
-		return planOffering(w, in.Offering), nil
+		return planOffering(w, in.OfferingAcceptance), nil
 	}
 	ans := &dashboard.DeclareAnswer{Signing: demoSigning(), Write: dashboard.DeclareWrite{Available: true}}
 	// A draft's requested ranges stay unknown unless the person accepts them.
@@ -122,7 +122,7 @@ func (d *demoDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload, in d
 	}
 	if w.Offering != "" {
 		// Nobody signs in the demo and it saves no offering draft.
-		a := planOffering(w, in.Offering)
+		a := planOffering(w, in.OfferingAcceptance)
 		if a.Refusal != nil {
 			return &dashboard.DeclareAcceptAnswer{Refusal: a.Refusal}, nil
 		}

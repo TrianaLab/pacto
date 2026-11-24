@@ -275,7 +275,7 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 			in.Accept = acc
 		}
 	}
-	req, err := d.request(r, w, in.Accept, in.FromDraft, in.ClaimInput, in.Offering)
+	req, err := d.request(r, w, in.Accept, in.FromDraft, in.ClaimInput, in.OfferingAcceptance)
 	if err != nil {
 		ans.Refusal, err = dashRefusal(err)
 		if err != nil {
@@ -519,7 +519,7 @@ func (d *dashboardDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload,
 	if refusal := d.mayAccept(ctx, w, in); refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
 	}
-	req, err := d.request(r, w, in.Accept, in.FromDraft, in.ClaimInput, in.Offering)
+	req, err := d.request(r, w, in.Accept, in.FromDraft, in.ClaimInput, in.OfferingAcceptance)
 	if err != nil {
 		refusal, err := dashRefusal(err)
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, err
@@ -565,7 +565,7 @@ func runDeclare(ctx context.Context, svc *app.Service, req app.DeclareRequest, v
 
 // stale is the PlanStale refusal with the fresh plan.
 func (d *dashboardDeclarer) stale(r *http.Request, w dashboard.DeclareWorkload, in dashboard.DeclareAcceptInput, p *app.DeclarePlan) (*dashboard.DeclareAcceptAnswer, error) {
-	fresh, err := d.Plan(r, w, dashboard.DeclareInput{ServiceKey: in.ServiceKey, Accept: in.Accept, FromDraft: in.FromDraft, ClaimInput: in.ClaimInput, Offering: in.Offering})
+	fresh, err := d.Plan(r, w, dashboard.DeclareInput{ServiceKey: in.ServiceKey, Accept: in.Accept, FromDraft: in.FromDraft, ClaimInput: in.ClaimInput, OfferingAcceptance: in.OfferingAcceptance})
 	return &dashboard.DeclareAcceptAnswer{Plan: fresh, Refusal: refused("PlanStale", "the plan changed since intent "+in.IntentDigest+
 		" was reviewed; it is now "+p.IntentDigest+": review the new plan", "")}, err
 }

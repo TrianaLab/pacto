@@ -114,19 +114,26 @@ func TestDeclareRefusalEnumCarriesClaimCodes(t *testing.T) {
 }
 
 // TestDeclareInputKeepsClaimOfferingApartFromAcceptance: a claim's offering
-// (a string) and an offering acceptance (an object) decode under their own
-// keys on the plan and accept bodies: neither shadows the other.
+// (a string) and an offering acceptance (an object) reach the declarer under
+// their own keys on the plan and accept routes: neither shadows the other in
+// the decoded input or in the route's body schema.
 func TestDeclareInputKeepsClaimOfferingApartFromAcceptance(t *testing.T) {
-	body := `{"serviceKey":"external:stripe","owner":"team-pay","offering":"postgresql","offeringAcceptance":{"version":"1.0.0"}}`
+	body := map[string]any{"serviceKey": "external:stripe", "owner": "team-pay", "offering": "postgresql", "offeringAcceptance": map[string]any{"version": "1.0.0"}}
 	var plan DeclareInput
-	var accept DeclareAcceptInput
-	for _, v := range []any{&plan, &accept} {
-		if err := json.Unmarshal([]byte(body), v); err != nil {
-			t.Fatal(err)
-		}
+	raw, _ := json.Marshal(body)
+	if err := json.Unmarshal(raw, &plan); err != nil || plan.ClaimInput.Offering != "postgresql" || plan.OfferingAcceptance == nil || plan.OfferingAcceptance.Version != "1.0.0" {
+		t.Fatalf("plan %+v, %v", plan, err)
 	}
-	if plan.ClaimInput.Offering != "postgresql" || plan.Offering == nil || plan.Offering.Version != "1.0.0" ||
-		accept.ClaimInput.Offering != "postgresql" || accept.Offering == nil || accept.Offering.Version != "1.0.0" {
-		t.Fatalf("plan %+v, accept %+v", plan, accept)
+	d := &fakeDeclarer{write: true}
+	base := claimServer(t, nil, d)
+	var out DeclareAnswer
+	postJSON(t, base+"/api/fleet/declare", body, http.StatusOK, &out)
+	var got DeclareAcceptInput
+	d.accept = func(in DeclareAcceptInput) (*DeclareAcceptAnswer, error) { got = in; return &DeclareAcceptAnswer{Tag: "0.1.0"}, nil }
+	body["intentDigest"], body["mode"] = "sha256:i", "sign"
+	var acc DeclareAcceptAnswer
+	postJSON(t, base+"/api/fleet/declare/accept", body, http.StatusOK, &acc)
+	if got.ClaimInput.Offering != "postgresql" || got.OfferingAcceptance == nil || got.OfferingAcceptance.Version != "1.0.0" {
+		t.Fatalf("accept got %+v", got)
 	}
 }

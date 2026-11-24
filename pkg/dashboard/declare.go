@@ -85,7 +85,7 @@ type DeclareInput struct {
 	// IntentDigest names the plan a signing login was started for.
 	IntentDigest string `json:"intentDigest,omitempty" doc:"The intent a signing login was started for: back from that login, the accepted ranges are the ones it was started with, whatever accept says"`
 	ClaimInput
-	Offering *OfferingInput `json:"offeringAcceptance,omitempty" doc:"Set to accept the inferred offering serviceKey names as a declared offering; the server takes the record it is accepted from from your view of the fleet"`
+	OfferingAcceptance *OfferingInput `json:"offeringAcceptance,omitempty" doc:"Set to accept the inferred offering serviceKey names as a declared offering; the server takes the record it is accepted from from your view of the fleet"`
 }
 
 // OfferingInput is how a person accepts an inferred offering: the version
@@ -115,7 +115,7 @@ type DeclareAcceptInput struct {
 	Mode         string    `json:"mode" enum:"sign,draft" doc:"sign: publish the declared version signed by the person's fresh login; draft: save a draft-<n> a person accepts later"`
 	FromDraft    *DraftRef `json:"fromDraft,omitempty" doc:"Accept this draft: its tag must still name the digest the plan showed"`
 	ClaimInput
-	Offering *OfferingInput `json:"offeringAcceptance,omitempty" doc:"The offering acceptance the plan was made for"`
+	OfferingAcceptance *OfferingInput `json:"offeringAcceptance,omitempty" doc:"The offering acceptance the plan was made for"`
 }
 
 // DeclareText is one file of a declaration, at most MaxDeclareText bytes.

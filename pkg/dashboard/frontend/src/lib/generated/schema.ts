@@ -1816,6 +1816,8 @@ export interface components {
             mode: "sign" | "draft";
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
+            /** @description The platform offering the external system is meant to join, written as display-only metadata on the claimed contract and never as service.offering; joining an offering another team provides writes a draft for that team. Invalid slugs are refused with OfferingInvalid */
+            offering?: string;
             /** @description The offering acceptance the plan was made for */
             offeringAcceptance?: components["schemas"]["OfferingInput"];
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
@@ -1871,6 +1873,8 @@ export interface components {
             intentDigest?: string;
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
+            /** @description The platform offering the external system is meant to join, written as display-only metadata on the claimed contract and never as service.offering; joining an offering another team provides writes a draft for that team. Invalid slugs are refused with OfferingInvalid */
+            offering?: string;
             /** @description Set to accept the inferred offering serviceKey names as a declared offering; the server takes the record it is accepted from from your view of the fleet */
             offeringAcceptance?: components["schemas"]["OfferingInput"];
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */

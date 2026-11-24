@@ -453,8 +453,8 @@ func offeringRows() []surfaceRow {
 		{"declare --owner", "", "", "pacto_declare.owner and the declare routes' body.owner, the claim --owner row, also name an offering's owner"},
 		{"declare --detected", "", "", "stdio pacto_declare verifies with the server's own --detected; over HTTP the server's --detected is read with the caller's own cluster credentials"},
 		{"declare --contribution-trust", "", "", "a third-party producer's grant is a file on the person's machine; pacto_declare and the dashboard verify with their detection and name this flag in the CLI a refusal prints"},
-		{"", "", "POST /api/fleet/declare body.offering", "the dashboard's offering input holds the version, owner and registry declare --version, --owner and --registry name; the server takes --from from the viewer's fleet and --detected from its own"},
-		{"", "", "POST /api/fleet/declare/accept body.offering", "the accept route carries out the plan with the offering input it named"},
+		{"", "", "POST /api/fleet/declare body.offeringAcceptance", "the dashboard's offering input holds the version, owner and registry declare --version, --owner and --registry name; the server takes --from from the viewer's fleet and --detected from its own"},
+		{"", "", "POST /api/fleet/declare/accept body.offeringAcceptance", "the accept route carries out the plan with the offering input it named"},
 	}
 }
 

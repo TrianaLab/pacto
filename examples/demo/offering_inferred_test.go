@@ -132,7 +132,7 @@ func planOfferingIn(t *testing.T, key fleet.ServiceKey, in dashboard.OfferingInp
 	t.Helper()
 	who := "system:serviceaccount:pacto:agent"
 	var a dashboard.DeclareAnswer
-	post(t, declareDemo(t, &who), "/api/fleet/declare", dashboard.DeclareInput{ServiceKey: string(key), Offering: &in}, &a)
+	post(t, declareDemo(t, &who), "/api/fleet/declare", dashboard.DeclareInput{ServiceKey: string(key), OfferingAcceptance: &in}, &a)
 	return a
 }
 
@@ -206,7 +206,7 @@ func TestDemoAcceptOfferingSignsNothing(t *testing.T) {
 	h := declareDemo(t, &who)
 	for _, in := range []dashboard.OfferingInput{{Version: "1.0.0", Owner: "team-storage"}, {}} {
 		var a dashboard.DeclareAcceptAnswer
-		post(t, h, "/api/fleet/declare/accept", dashboard.DeclareAcceptInput{ServiceKey: string(demoXBucketKey), Mode: "sign", IntentDigest: "sha256:x", Offering: &in}, &a)
+		post(t, h, "/api/fleet/declare/accept", dashboard.DeclareAcceptInput{ServiceKey: string(demoXBucketKey), Mode: "sign", IntentDigest: "sha256:x", OfferingAcceptance: &in}, &a)
 		if a.Refusal == nil || a.Published != "" || a.Refusal.Command == "" {
 			t.Errorf("%+v: answer = %+v", in, a)
 		}
