@@ -181,6 +181,7 @@ limitation per source.
 | Limitation | Raised when |
 |------------|-------------|
 | `CLUSTER_HIDDEN` | The view hides one cluster: you may read no namespace there, its review failed or Pacto cannot review you there ([Multi-cluster](multi-cluster.md)). A [member](member-clusters.md) reads "cluster eu-prod joined through the registry and has no live channel yet, so its services are hidden from signed-in readers". Its `source` is the cluster id; the answer is partial |
+| `CLUSTERS_UNREAD` | Clusters publish to this hub's targets repository and are not members, once a person approved or removed a member. Informational: it counts clusters and never names one, it is never a listed source and completeness is unchanged. Gates read the count through `unreadClusters`, so a `BREAKING` change stays `unverified` ([Multi-cluster](multi-cluster.md#consumers-and-delivery-across-clusters)) |
 | `CLUSTER_FILTER_UNKNOWN` | A list filtered by a cluster id that no cluster of the answer has, such as a display name or a retired cluster, so its empty list says nothing about it. Completeness is unchanged |
 
 | `meta.clusters[]` field | Meaning |

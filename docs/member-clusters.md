@@ -68,6 +68,11 @@ grant turns their approvals pending. A dashboard installed with a namespace
 list cannot review `clusterjoins`, so its approvals stay pending. The CLI
 reviews approvers as you: grant `create subjectaccessreviews`.
 
+Once the hub approved a member, a pending cluster keeps breaking changes
+waiting for a person until it is approved or removed. On a member, a change
+that is not plainly non-breaking waits for a person there to accept the
+consumers it cannot see ([Multi-cluster](multi-cluster.md#consumers-and-delivery-across-clusters)).
+
 ## Remove, rebuild and rotate
 
 - `pacto cluster remove 9f1c4e2a --registry ghcr.io/acme` records a signed
