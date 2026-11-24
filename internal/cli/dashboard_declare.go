@@ -292,18 +292,8 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 	}
 	p, decl, err := d.svc.PlanDeclare(r.Context(), req)
 	ans.Command = declareCommand(req, "")
-	if refusal := claimRedacted(w, req, p, err); refusal != nil {
-		ans.Refusal = refusal
-		return ans, nil
-	}
-	if refusal, err := dashRefusal(err); err != nil || refusal != nil {
-		ans.Refusal = refusal
+	if ans.Refusal, err = d.planRefusal(w, req, p, err, fresh); err != nil || ans.Refusal != nil {
 		return ans, err
-	}
-	if fresh {
-		if ans.Refusal = d.claimDraft(w, req, p); ans.Refusal != nil {
-			return ans, nil
-		}
 	}
 	listed := len(p.Drafts)
 	if ans.Refusal = ownView(p, w, in.FromDraft); ans.Refusal != nil {
@@ -317,6 +307,23 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 		ans.SignTicket = d.ticket(r, p.IntentDigest, in.Accept)
 	}
 	return ans, nil
+}
+
+// planRefusal is the refusal a plan of w answers, in order: a claim or an
+// acceptance whose repository holds what the viewer may not see, the
+// planner's own refusal, then on a fresh login a claim that would be a
+// draft. Nil with a nil error when the plan stands.
+func (d *dashboardDeclarer) planRefusal(w dashboard.DeclareWorkload, req app.DeclareRequest, p *app.DeclarePlan, err error, fresh bool) (*dashboard.DeclareRefusal, error) {
+	if refusal := claimRedacted(w, req, p, err); refusal != nil {
+		return refusal, nil
+	}
+	if refusal, err := dashRefusal(err); err != nil || refusal != nil {
+		return refusal, err
+	}
+	if fresh {
+		return d.claimDraft(w, req, p), nil
+	}
+	return nil, nil
 }
 
 // prCommand is the pacto declare that opens w's repository pull request:

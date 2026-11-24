@@ -129,7 +129,10 @@ func TestDeclareInputKeepsClaimOfferingApartFromAcceptance(t *testing.T) {
 	var out DeclareAnswer
 	postJSON(t, base+"/api/fleet/declare", body, http.StatusOK, &out)
 	var got DeclareAcceptInput
-	d.accept = func(in DeclareAcceptInput) (*DeclareAcceptAnswer, error) { got = in; return &DeclareAcceptAnswer{Tag: "0.1.0"}, nil }
+	d.accept = func(in DeclareAcceptInput) (*DeclareAcceptAnswer, error) {
+		got = in
+		return &DeclareAcceptAnswer{Tag: "0.1.0"}, nil
+	}
 	body["intentDigest"], body["mode"] = "sha256:i", "sign"
 	var acc DeclareAcceptAnswer
 	postJSON(t, base+"/api/fleet/declare/accept", body, http.StatusOK, &acc)

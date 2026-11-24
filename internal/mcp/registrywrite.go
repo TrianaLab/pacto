@@ -278,14 +278,35 @@ func (a DeclareArgs) ArgsRefused() *Refused {
 			return &Refused{Code: RefusalExternalUnknown, Message: "service external:<identity> names no external identity: " +
 				"find its identity with pacto fleet search", CLI: "pacto claim <identity> --owner <team> --registry <registry>"}
 		}
-	case a.template() && (a.workloadArgs() || a.Owner != "" || a.Name != "" || a.Offering != ""):
+	case a.template() && (a.workloadArgs() || a.claimArgs()):
 		return &Refused{Code: RefusalFieldNotAcceptable, Message: "a golden path a catalog holds takes registry, draft and intent: " +
 			"call again without namespace, dir, accept, max_items, call_window, pr, repository, folder, repo_map, owner, name and offering", CLI: a.Command("")}
-	case a.Owner != "" || a.Name != "" || a.Offering != "":
+	case a.claimArgs():
 		return &Refused{Code: RefusalFieldNotAcceptable, Message: "owner, name and offering are a claim's (service external:<identity>): " +
 			"a workload's owner, name and offering come from its contract", CLI: a.Command("")}
 	}
 	return nil
+}
+
+// claimArgs is whether a sets an argument only a claim takes.
+func (a DeclareArgs) claimArgs() bool {
+	return a.Owner != "" || a.Name != "" || a.Offering != ""
+}
+
+// claimCommand is the pacto claim a person runs for a, a claim of id.
+func (a DeclareArgs) claimCommand(id, reg, intent string) string {
+	parts := []string{"pacto claim", id, "--owner", cmp.Or(a.Owner, "<team>")}
+	if a.Name != "" {
+		parts = append(parts, "--name", a.Name)
+	}
+	if a.Offering != "" {
+		parts = append(parts, "--offering", a.Offering)
+	}
+	parts = append(parts, "--registry", reg)
+	if intent != "" {
+		parts = append(parts, "--intent", intent)
+	}
+	return strings.Join(parts, " ")
 }
 
 // workloadArgs is whether a sets an argument only a workload takes.
@@ -318,18 +339,7 @@ func (a DeclareArgs) Command(intent string) string {
 		return a.offeringCommand(reg, intent)
 	}
 	if id, ok := a.Claim(); ok {
-		parts := []string{"pacto claim", id, "--owner", cmp.Or(a.Owner, "<team>")}
-		if a.Name != "" {
-			parts = append(parts, "--name", a.Name)
-		}
-		if a.Offering != "" {
-			parts = append(parts, "--offering", a.Offering)
-		}
-		parts = append(parts, "--registry", reg)
-		if intent != "" {
-			parts = append(parts, "--intent", intent)
-		}
-		return strings.Join(parts, " ")
+		return a.claimCommand(id, reg, intent)
 	}
 	parts := []string{"pacto declare", a.Service}
 	if a.template() {

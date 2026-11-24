@@ -313,6 +313,14 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
 		Aggregate: q.aggregate(filtered, offerings),
 	}
+	q.addInferred(res, f, want, inferredOfferings)
+	return res, nil
+}
+
+// addInferred adds to res what a list beside the declared entities says of
+// the inferred ones: the hidden externals, the inferred offerings a declared
+// offering list leaves out and the golden paths a catalog holds.
+func (q *Query) addInferred(res *EntityList, f EntityFilter, want map[EntityKind]bool, inferredOfferings bool) {
 	if want[KindExternal] {
 		res.Hidden = q.snap.hiddenExternals
 	}
@@ -322,7 +330,6 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	if f.Template == TemplateOnly && f.Declaration != DeclarationDeclared {
 		res.InferredTemplates = q.InferredTemplates(f.Text)
 	}
-	return res, nil
 }
 
 // inferredOfferingCount is how many contributed offerings the view holds

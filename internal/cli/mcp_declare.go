@@ -480,6 +480,33 @@ func hiddenOwnerRefusal(err error) error {
 	return &app.DeclareError{Code: delivery.OwnerSignerNotAllowed, Message: "you may not set the owner of this service", CLI: de.CLI}
 }
 
+// plansOnly is the refusal of an Execute this server only plans: a claim
+// and an offering acceptance (whose drafts would go with the server's own
+// push credential for any caller), and any declaration on a server that
+// writes none. Nil when the server may write the draft.
+func (r remoteDeclarer) plansOnly(ctx context.Context, a pactomcp.DeclareArgs) *pactomcp.Refused {
+	if _, claim := a.Claim(); claim {
+		a, refused := r.claimArgs(ctx, a)
+		if refused != nil {
+			return refused
+		}
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans a claim: a draft would go with its own push " +
+			"credential for any caller; run the command on your machine, where adding --yes publishes the claim signed by you", CLI: a.Command(a.IntentDigest)}
+	}
+	if _, offer := a.AcceptedOffering(); offer {
+		if refused := r.offeringArgs(ctx, a); refused != nil {
+			return refused
+		}
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans an offering acceptance: a draft would go " +
+			"with its own push credential for any caller; run the command on your machine, where adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}
+	}
+	if !r.writes() {
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no declaration: run the command on your machine; " +
+			"it prints the same plan, and adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}
+	}
+	return nil
+}
+
 // Execute writes the caller's draft when the server has a registry and a
 // push credential: into that registry alone, unsigned, on behalf of the
 // caller the apiserver reviewed, who must be allowed to update the workload
@@ -492,24 +519,8 @@ func hiddenOwnerRefusal(err error) error {
 // offering acceptance: no review of the caller on its source object backs
 // it either, so it names the pacto declare a person runs.
 func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.RawMessage, *pactomcp.Refused, error) {
-	if _, claim := a.Claim(); claim {
-		a, refused := r.claimArgs(ctx, a)
-		if refused != nil {
-			return nil, refused, nil
-		}
-		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans a claim: a draft would go with its own push " +
-			"credential for any caller; run the command on your machine, where adding --yes publishes the claim signed by you", CLI: a.Command(a.IntentDigest)}, nil
-	}
-	if _, offer := a.AcceptedOffering(); offer {
-		if refused := r.offeringArgs(ctx, a); refused != nil {
-			return nil, refused, nil
-		}
-		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans an offering acceptance: a draft would go " +
-			"with its own push credential for any caller; run the command on your machine, where adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}, nil
-	}
-	if !r.writes() {
-		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no declaration: run the command on your machine; " +
-			"it prints the same plan, and adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}, nil
+	if refused := r.plansOnly(ctx, a); refused != nil {
+		return nil, refused, nil
 	}
 	who := reviewedFrom(ctx)
 	switch {
