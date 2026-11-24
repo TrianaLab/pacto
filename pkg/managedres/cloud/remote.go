@@ -77,7 +77,11 @@ func s3Request(ctx context.Context, loc managedres.Location, id Identity) (*http
 		return nil, err
 	}
 	region = cmp.Or(loc.Region, region, "us-east-1")
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint(endpoints.s3, "{bucket}", loc.Host, "{region}", region, "{key}", escapePath(loc.Key)), nil)
+	tmpl := endpoints.s3
+	if strings.Contains(loc.Host, ".") {
+		tmpl = endpoints.s3Path
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint(tmpl, "{bucket}", loc.Host, "{region}", region, "{key}", escapePath(loc.Key)), nil)
 	if err != nil {
 		return nil, err
 	}

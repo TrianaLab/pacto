@@ -62,7 +62,7 @@ func TestStateKeepsOnlyTypeIDRegion(t *testing.T) {
 		"aws/rds/123456789012/eu-west-1/orders-db aws_db_instance aws_db_instance.orders postgres 16.3",
 		"aws/sqs/123456789012/eu-west-1/orders-events aws_sqs_queue aws_sqs_queue.events[0] ",
 		`aws/sqs/123456789012/eu-west-1/orders-events-dlq aws_sqs_queue aws_sqs_queue.events["dlq"] `,
-		"gcp/cloudsql/acme-prod/europe-west1/billing-db google_sql_database_instance google_sql_database_instance.billing POSTGRES_15",
+		"gcp/cloudsql/acme-prod/europe-west1/billing-db google_sql_database_instance google_sql_database_instance.billing postgres_15",
 	}
 	if !slices.Equal(lines, want) {
 		t.Fatalf("resources\n got %q\nwant %q", lines, want)
@@ -181,5 +181,29 @@ func TestStateCatalogDigestOfOrigin(t *testing.T) {
 	got := parseString(t, `{"version":4,"resources":[{"mode":"managed","type":"acme_db","name":"x","instances":[{"attributes":{"name":"x"}}]}]}`, cat)
 	if len(got) != 1 || got[0].Catalog != "sha256:org" || got[0].Entry != "acme/db" {
 		t.Fatalf("resources %+v", got)
+	}
+}
+
+// An azurerm instance's subscription is read from its resource id, so it
+// gets the full identity the ASO and Resource Graph reads of it get, and a
+// Terraform engine is kept the way an object's is.
+func TestStateAzureSubscriptionAndEngineShape(t *testing.T) {
+	got := parseString(t, `{"version":4,"resources":[
+		{"mode":"managed","type":"azurerm_mssql_server","name":"m","instances":[{"attributes":{"name":"ledger","location":"westeurope","version":"12.0",
+			"id":"/subscriptions/0000AAAA/resourceGroups/rg/providers/Microsoft.Sql/servers/ledger"}}]},
+		{"mode":"managed","type":"aws_db_instance","name":"p","instances":[{"attributes":{"identifier":"orders","engine":"Postgres","engine_version":"16.3"}}]},
+		{"mode":"managed","type":"aws_db_instance","name":"q","instances":[{"attributes":{"identifier":"x","engine":"pg","engine_version":"`+strings.Repeat("9", 70)+`"}}]}]}`,
+		externalcatalog.Default())
+	var lines []string
+	for _, r := range got {
+		lines = append(lines, line(r))
+	}
+	want := []string{
+		"azure/sql/0000aaaa/westeurope/ledger azurerm_mssql_server azurerm_mssql_server.m 12.0",
+		"aws/rds aws_db_instance aws_db_instance.p postgres 16.3 account region",
+		"aws/rds aws_db_instance aws_db_instance.q  account region",
+	}
+	if !slices.Equal(lines, want) {
+		t.Fatalf("resources\n got %q\nwant %q", lines, want)
 	}
 }

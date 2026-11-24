@@ -59,8 +59,11 @@ var (
 	gcpTokenSource   = google.DefaultTokenSource
 	azureCredential  = defaultAzureCredential
 	gcpMetadataEmail = defaultGCPMetadataEmail
-	endpoints        = struct{ s3, gcs, azureBlob, awsExplorer, gcpAsset, azureGraph, gcpMetadata string }{
-		s3:          "https://{bucket}.s3.{region}.amazonaws.com/{key}",
+	endpoints        = struct{ s3, s3Path, gcs, azureBlob, awsExplorer, gcpAsset, azureGraph, gcpMetadata string }{
+		s3: "https://{bucket}.s3.{region}.amazonaws.com/{key}",
+		// A bucket name with a dot adds DNS labels the S3 wildcard
+		// certificate does not cover, so it is read path-style.
+		s3Path:      "https://s3.{region}.amazonaws.com/{bucket}/{key}",
 		gcs:         "https://storage.googleapis.com/storage/v1/b/{bucket}/o/{key}?alt=media",
 		azureBlob:   "https://{account}.blob.core.windows.net/{container}/{key}",
 		awsExplorer: "https://resource-explorer-2.{region}.amazonaws.com/Search",

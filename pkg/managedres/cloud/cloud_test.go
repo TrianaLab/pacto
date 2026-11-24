@@ -67,6 +67,7 @@ func newFake(t *testing.T, env map[string]string) (*fakeCloud, *http.Client) {
 	u := srv.URL
 	saved := endpoints
 	endpoints.s3 = u + "/s3/{bucket}/{region}/{key}"
+	endpoints.s3Path = u + "/s3path/{region}/{bucket}/{key}"
 	endpoints.gcs = u + "/gcs/{bucket}/o/{key}?alt=media"
 	endpoints.azureBlob = u + "/blob/{account}/{container}/{key}"
 	endpoints.awsExplorer = u + "/explorer/{region}/Search"
@@ -253,6 +254,11 @@ func TestFetchStateS3Signed(t *testing.T) {
 	}
 	// With no region in the location the identity's region is used.
 	_ = fetch(t, loc(t, "s3://acme-tf/app.tfstate"), id, hc)
+	// A dotted bucket is read path-style.
+	f.routes["/s3path/eu-west-1/acme.tf-state/prod.tfstate"] = state
+	if got := fetch(t, loc(t, "s3://acme.tf-state/prod.tfstate"), id, hc); got != `{"version":4}` {
+		t.Fatalf("dotted bucket body = %q", got)
+	}
 	awsConfig = func(context.Context) (aws.Config, error) {
 		return aws.Config{Credentials: staticKeys}, nil
 	}

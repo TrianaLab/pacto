@@ -42,7 +42,14 @@ func Engine(obj map[string]any) (value, origin string) {
 // engineAt is the kept engine value of the fields m holds, empty when none.
 func engineAt(m any) string {
 	v := strings.TrimSpace(str(m, "engine") + " " + cmp.Or(str(m, "engineVersion"), str(m, "version")))
-	v = strings.ToLower(cmp.Or(v, str(m, "databaseVersion")))
+	return keepEngine(cmp.Or(v, str(m, "databaseVersion")))
+}
+
+// keepEngine is v lower-cased, empty when longer than 64 bytes or outside
+// [a-z0-9._ -]: every reader keeps an engine the same way, so two reads of
+// one database agree.
+func keepEngine(v string) string {
+	v = strings.ToLower(v)
 	if len(v) > maxEngine || !engineRE.MatchString(v) {
 		return ""
 	}

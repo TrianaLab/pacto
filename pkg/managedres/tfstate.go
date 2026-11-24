@@ -49,8 +49,9 @@ type instance struct {
 // location (a file name or a state URL, never its contents), classified with
 // cat and observed at now. Only managed resources a catalog row names are
 // returned; data sources and unclassified types are skipped. Of every
-// instance only the catalog's id attribute (never a sensitive key), arn,
-// region, location, project and the engine keys are read; the identity is
+// instance only the catalog's id attribute (never a sensitive key), arn, id
+// (an azurerm subscription), region, location, project and the engine keys
+// are read, the engine kept as an object's is; the identity is
 // the full managed identity when account, region and id were read, else the
 // catalog entry's identity with the missing parts listed. State records what
 // Terraform last applied, so the engine is observed.
@@ -114,11 +115,13 @@ func resource(m externalcatalog.Match, idAttr, typ, addr string, attrs map[strin
 		id = strings.ToLower(str(idAttr))
 	}
 	arnRegion, arnAccount := arnParts(str("arn"))
-	account := strings.ToLower(cmp.Or(arnAccount, str("project")))
+	// An azurerm instance names its subscription in its resource id.
+	azAccount, _ := azureParts(str("id"))
+	account := strings.ToLower(cmp.Or(arnAccount, azAccount, str("project")))
 	region := strings.ToLower(cmp.Or(str("region"), str("location"), arnRegion))
 	engine := strings.TrimSpace(str("engine") + " " + cmp.Or(str("engine_version"), str("version")))
 	r := fleet.RawManagedResource{Source: SourceTerraform, Entry: m.Entry, Type: typ, Name: addr,
-		Engine: cmp.Or(engine, str("database_version"))}
+		Engine: keepEngine(cmp.Or(engine, str("database_version")))}
 	identify(&r, m, account, region, id)
 	return r
 }
