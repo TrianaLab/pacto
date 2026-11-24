@@ -3,8 +3,10 @@
 // promoter, the CLI and the MCP tools all call to decide whether a change may
 // move, whether a person must agree and who.
 //
-// Experimental: not covered by semantic versioning. Delivery is Alpha, and
-// this API may change in a minor release.
+// Stable: the wire types the delivery CRDs embed (Stage, Operation and
+// Approval specs and statuses) are covered by semantic versioning from core
+// 4.7; the delivery promoter's behaviour stays Alpha (docs:
+// delivery-setup.md).
 //
 // The decision path (plan, the verdict mappings and the intent digest) holds no
 // Kubernetes, registry or clock dependency: what it reads arrives in PlanInput
@@ -12,8 +14,8 @@
 // providers that call out over HTTP (http, mira and eval, in gate.go, mira.go
 // and eval.go); they run only where the promoter is configured with them, and
 // CheckTimeout bounds each check. The wire types below are
-// embedded verbatim by the delivery CRDs (delivery.pacto.trianalab.io/v1alpha1 in
-// integrations/kubernetes), so a client decoding a Stage or an Operation reads
+// embedded verbatim by the delivery CRDs (delivery.pacto.trianalab.io/v1 and
+// the deprecated v1alpha1 in integrations/kubernetes), so a client decoding a Stage or an Operation reads
 // exactly the struct the controller wrote, and the intent digest a client
 // computes is byte-for-byte the one the controller recomputes.
 package delivery

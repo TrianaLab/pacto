@@ -48,18 +48,18 @@ go 1.27.4
 EOF
 cat > "$WORK/consumer/main.go" <<EOF
 // External consumer of the released Kubernetes integration module. It imports a
-// stable exported symbol from the api/v1alpha1 package to prove the module
+// stable exported symbol from the api/v1 package to prove the module
 // resolves and compiles for an outside user.
 package main
 
 import (
 	"fmt"
 
-	apiv1alpha1 "${MODULE}/api/v1alpha1"
+	apiv1 "${MODULE}/api/v1"
 )
 
 func main() {
-	fmt.Println(apiv1alpha1.GroupVersion.String())
+	fmt.Println(apiv1.GroupVersion.String())
 }
 EOF
 

@@ -113,6 +113,27 @@ def _crd_rows(name: str, schema: dict, required: set[str], rows: list[dict]) -> 
             _crd_rows(f"{path}[]", item_schema, set(item_schema.get("required", [])), rows)
 
 
+def storage_version(spec: dict) -> dict:
+    """The version a CRD stores, so the reference documents that schema
+    whatever order controller-gen writes the versions in."""
+    return next(v for v in spec["versions"] if v.get("storage"))
+
+
+def _served_versions(spec: dict) -> str:
+    parts = []
+    for v in spec["versions"]:
+        if not v.get("served"):
+            continue
+        if v.get("storage"):
+            parts.append(f"`{v['name']}` (storage)")
+        elif v.get("deprecated"):
+            m = re.search(r"\((removed in [^)]*)\)", v.get("deprecationWarning", ""))
+            parts.append(f"`{v['name']}` (deprecated{', ' + m.group(1) if m else ''})")
+        else:
+            parts.append(f"`{v['name']}`")
+    return ", ".join(parts)
+
+
 def gen_crd_reference(k8s: str) -> str:
     crd_files = sorted(glob.glob(os.path.join(k8s, "config/crd/bases/*.yaml")))
     src_note = "config/crd/bases/*.yaml"
@@ -127,10 +148,10 @@ def gen_crd_reference(k8s: str) -> str:
         spec = crd["spec"]
         names = spec["names"]
         kind = names["kind"]
-        version = spec["versions"][0]
+        version = storage_version(spec)
         out.append(f"\n## {kind}\n")
         out.append(f"- **API group**: `{spec['group']}`")
-        out.append(f"- **Version**: `{version['name']}`")
+        out.append(f"- **Served versions**: {_served_versions(spec)}")
         out.append(f"- **Kind**: `{kind}`")
         out.append(f"- **Plural**: `{names['plural']}`")
         out.append(f"- **Scope**: {spec['scope']}\n")
@@ -684,7 +705,7 @@ def gen_operator_configuration(repo_root: str, k8s: str) -> str:
 
 def _subtree_rows(k8s: str, crd_file: str, dotted_root: str) -> list[dict]:
     crd = load_yaml_docs(os.path.join(k8s, crd_file))[0]
-    root = crd["spec"]["versions"][0]["schema"]["openAPIV3Schema"]
+    root = storage_version(crd["spec"])["schema"]["openAPIV3Schema"]
     rows: list[dict] = []
     _crd_rows("", root, set(root.get("required", [])), rows)
     prefix = dotted_root + "."
