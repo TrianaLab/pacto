@@ -10,6 +10,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/externalid"
+	"github.com/trianalab/pacto/v4/pkg/managedres"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
 )
 
@@ -204,8 +205,9 @@ func (t *tfFile) backendAttribute(line string) {
 }
 
 // endBackend closes the backend block the scan is in, if any, and proposes
-// its state location when every setting it needs was read as a literal. A
-// partial or interpolated backend proposes nothing.
+// its state location when every setting it needs was read as a literal and
+// the location is one controller.terraformStates accepts. A partial or
+// interpolated backend proposes nothing.
 func (t *tfFile) endBackend() {
 	b := t.backend
 	if b == nil {
@@ -227,6 +229,9 @@ func (t *tfFile) endBackend() {
 		location = "gs://" + v[0] + "/" + v[1] + "/default.tfstate"
 	default:
 		location = "azurerm://" + strings.Join(v, "/")
+	}
+	if _, err := managedres.ParseLocation(location); err != nil {
+		return // the operator would refuse it in controller.terraformStates
 	}
 	src := at(t.file, b.line)
 	t.findings = append(t.findings, contract.InferredFinding{Code: CodeTerraformBackend, Source: src,

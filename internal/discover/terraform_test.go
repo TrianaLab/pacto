@@ -378,6 +378,8 @@ func TestTerraformBackendInterpolatedNoFinding(t *testing.T) {
 		"other kind":    "terraform {\n  backend \"remote\" {\n    organization = \"acme\"\n  }\n}\n",
 		"odd chars":     "terraform {\n  backend \"gcs\" {\n    bucket = \"acme tf\"\n    prefix = \"prod\"\n  }\n}\n",
 		"not terraform": "locals {\n  backend \"s3\" {\n    bucket = \"acme-tf\"\n    key = \"prod.tfstate\"\n    region = \"eu-west-1\"\n  }\n}\n",
+		"upper bucket":  "terraform {\n  backend \"s3\" {\n    bucket = \"Acme-TF\"\n    key = \"prod.tfstate\"\n    region = \"eu-west-1\"\n  }\n}\n",
+		"dot-dot key":   "terraform {\n  backend \"azurerm\" {\n    storage_account_name = \"acmetf\"\n    container_name = \"tfstate\"\n    key = \"../prod.tfstate\"\n  }\n}\n",
 		"resource attr": "resource \"aws_sqs_queue\" \"q\" {\n  key = \"x\"\n  bucket = \"y\"\n}\n",
 	} {
 		if _, findings, _ := tfUsesOf(t, tfDir(t, main)); len(findings) != 0 {
