@@ -69,7 +69,7 @@ func opRequest(uid, email, digest string) delivery.OperationRequest {
 	at := time.Now().UTC().Truncate(time.Second)
 	return delivery.OperationRequest{Cluster: uid, Hub: joinHub, Service: delivery.ServiceRef{Name: "billing"}, Environment: "production",
 		Digest: digest, Requester: "oidc:" + email, At: at.Format(time.RFC3339), Expires: at.Add(time.Hour).Format(time.RFC3339),
-		Placement: delivery.RequestPlacement{Source: delivery.RequestPlacedAdvertised, ConfirmedBy: "oidc:" + email}}
+		Placement: delivery.RequestPlacement{Source: delivery.RequestPlacedAdvertised, ConfirmedBy: "oidc:" + email, Members: []string{uid}}}
 }
 
 // keyless is email's keyless signer under e's private Sigstore.
@@ -170,7 +170,7 @@ func stateCases() []stateCase {
 			outcome: &delivery.RequestOutcome{State: delivery.RequestConcluded, Operation: raisedOp(), Outcome: delivery.Succeeded}},
 		{name: "failed", state: delivery.MemberFailed, reason: "Failed: the applier", asked: true,
 			outcome: &delivery.RequestOutcome{State: delivery.RequestConcluded, Operation: raisedOp(), Outcome: delivery.Failed, Reason: "the applier"}},
-		{name: "rejected", state: delivery.MemberRejected, reason: "Expired", asked: true,
+		{name: "concluded", state: delivery.MemberConcluded, reason: "Expired", asked: true,
 			outcome: &delivery.RequestOutcome{State: delivery.RequestConcluded, Operation: raisedOp(), Outcome: delivery.Expired}},
 	}
 }
@@ -192,11 +192,18 @@ func TestMemberPlanStates(t *testing.T) {
 		ms = append(ms, newMember(fmt.Sprintf("%08x-0000-4000-8000-%012x", i+1, i+1), "m"+fmt.Sprint(i)+"-prod"))
 	}
 	e := newPlanEnv(t, ms...)
+	var uids []string
+	for _, m := range ms {
+		uids = append(uids, m.uid)
+	}
+	alice := e.keyless(t, "alice@acme.com")
 	for i, c := range cases {
 		if !c.asked {
 			continue
 		}
-		req := e.ask(t, ms[i], "alice@acme.com", planDigest)
+		r := opRequest(ms[i].uid, "alice@acme.com", planDigest)
+		r.Placement.Members = uids // one propose confirmed them all
+		req := e.pushRequest(t, alice, r)
 		if c.outcome != nil {
 			o := *c.outcome
 			o.Request, o.Cluster = req, ms[i].uid
@@ -214,8 +221,8 @@ func TestMemberPlanStates(t *testing.T) {
 }
 
 // TestMemberPlanNoTarget: with no digest the newest request for the
-// service and environment is read, whatever it asked for, and no confirm
-// command is offered.
+// service and environment is read, whatever it asked for, and the confirm
+// command is offered with the digest to fill in.
 func TestMemberPlanNoTarget(t *testing.T) {
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
@@ -223,7 +230,8 @@ func TestMemberPlanNoTarget(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond) // a later signing time
 	e.ask(t, eu, "bob@acme.com", planDigest)
 	p := e.memberPlan(t, planReq(""), e.planOpts())
-	if got := memberOf(t, p, eu.uid); got.State != delivery.MemberWaiting || got.Digest != planDigest || p.Next != "" || p.Placement.ConfirmedBy != "oidc:bob@acme.com" {
+	if got := memberOf(t, p, eu.uid); got.State != delivery.MemberWaiting || got.Digest != planDigest || !strings.Contains(p.Next, "--to '<sha256 digest>'") && !strings.Contains(p.Next, "--to <sha256 digest>") ||
+		p.Placement.ConfirmedBy != "oidc:bob@acme.com" {
 		t.Fatalf("%+v %+v", got, p)
 	}
 }
@@ -331,11 +339,13 @@ func TestMemberPlacementUnverifiedRequestNotConfirmation(t *testing.T) {
 	}
 	p := e.memberPlan(t, planReq(planDigest), e.planOpts())
 	if got := memberOf(t, p, eu.uid); got.State != delivery.MemberNoRequest || p.Placement.Source != delivery.PlacementUnconfirmed || p.Placement.ConfirmedBy != "" ||
-		!slices.Contains(p.Notes, "5 requests on the stream of eu-prod did not verify and were not read") {
+		!slices.Contains(p.Notes, "5 requests on the stream of eu-prod did not verify under the hub's approver signers and were not read") ||
+		p.Completeness != fleet.CompletenessPartial {
 		t.Fatalf("%+v", p)
 	}
-	// Rejected, they leave the bound.
-	if p := e.memberPlan(t, planReq(planDigest), e.planOpts()); len(p.Notes) != 0 {
+	// The hub rejects none: its signers may change, so every read counts
+	// them again and stays partial.
+	if p := e.memberPlan(t, planReq(planDigest), e.planOpts()); len(p.Notes) != 1 || p.Completeness != fleet.CompletenessPartial {
 		t.Fatalf("%+v", p.Notes)
 	}
 }
@@ -437,9 +447,9 @@ func TestMemberPlanPolicyUnreadablePartial(t *testing.T) {
 	opts := e.planOpts()
 	opts.Delivery = policyDelivery(e, "127.0.0.1:1/policy:v1", "")
 	p := e.memberPlan(t, planReq(planDigest), opts)
-	if p.Completeness != fleet.CompletenessPartial || p.Placement.Source != delivery.PlacementUnconfirmed || len(p.Members) != 1 ||
+	if p.Completeness != fleet.CompletenessPartial || p.Placement.Source != delivery.PlacementUnconfirmed || len(p.Members) != 1 || p.Next != "" ||
 		!slices.ContainsFunc(p.Notes, func(n string) bool { return strings.HasPrefix(n, "the placement policy could not be verified") }) {
-		t.Fatalf("%+v", p)
+		t.Fatalf("an unverified policy offers nothing to confirm: %+v", p)
 	}
 }
 
@@ -496,9 +506,17 @@ func TestMemberPlanUnreadable(t *testing.T) {
 	}
 }
 
+// fewRequestPages lowers how many bounds a hub read takes, for t.
+func fewRequestPages(t *testing.T) {
+	t.Helper()
+	maxRequestPages = 1
+	t.Cleanup(func() { maxRequestPages = 10 })
+}
+
 // TestMemberPlanStreamCut: a stream holding more requests than a read
 // takes is partial.
 func TestMemberPlanStreamCut(t *testing.T) {
+	fewRequestPages(t)
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	s := e.keyless(t, "alice@acme.com")
@@ -506,8 +524,91 @@ func TestMemberPlanStreamCut(t *testing.T) {
 		e.pushRequest(t, s, opRequest(eu.uid, "alice@acme.com", fmt.Sprintf("sha256:%064x", i)))
 	}
 	if p := e.memberPlan(t, planReq(planDigest), e.planOpts()); p.Completeness != fleet.CompletenessPartial ||
-		!slices.Contains(p.Notes, "the stream of eu-prod holds more records than a read takes; newer ones are read next time") {
+		!slices.Contains(p.Notes, "the stream of eu-prod holds more records than a read takes, so newer ones may be missing") {
 		t.Fatalf("%+v", p)
+	}
+}
+
+// TestMemberPlanReadsPastTheBound: more requests on a stream than one bound
+// takes are read a bound at a time, so the newest request is read however
+// many older ones sit before it.
+func TestMemberPlanReadsPastTheBound(t *testing.T) {
+	eu := newMember(memberA, "eu-prod")
+	e := newPlanEnv(t, eu)
+	s := e.keyless(t, "alice@acme.com")
+	for i := 0; i <= delivery.MaxOperationRequests+5; i++ {
+		e.pushRequest(t, s, opRequest(eu.uid, "alice@acme.com", fmt.Sprintf("sha256:%064x", i+10)))
+	}
+	e.ask(t, eu, "bob@acme.com", planDigest)
+	p := e.memberPlan(t, planReq(planDigest), e.planOpts())
+	if got := memberOf(t, p, eu.uid); got.State != delivery.MemberWaiting || got.Digest != planDigest || p.Completeness != fleet.CompletenessComplete {
+		t.Fatalf("%+v %+v", got, p)
+	}
+}
+
+// TestMemberPlanSynonymEnvironment: a request signed for prod is the
+// request of a plan for production, as the member reads it.
+func TestMemberPlanSynonymEnvironment(t *testing.T) {
+	eu := newMember(memberA, "eu-prod")
+	e := newPlanEnv(t, eu)
+	r := opRequest(eu.uid, "alice@acme.com", planDigest)
+	r.Environment = "prod"
+	e.pushRequest(t, e.keyless(t, "alice@acme.com"), r)
+	p := e.memberPlan(t, planReq(planDigest), e.planOpts())
+	if got := memberOf(t, p, eu.uid); got.State != delivery.MemberWaiting || p.Placement.ConfirmedBy != "oidc:alice@acme.com" {
+		t.Fatalf("%+v %+v", got, p)
+	}
+}
+
+// TestMemberPlanNarrowsToMembers: a plan for some members answers for them
+// alone; a uid that is no approved member is refused, and a named member
+// the plan does not place leaves nothing to confirm.
+func TestMemberPlanNarrowsToMembers(t *testing.T) {
+	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
+	c := newMember("cccc0000-0000-4000-8000-00000000000c", "ap-prod")
+	e := newPlanEnv(t, a, b)
+	e.publishTaking(t, c, e.clock, "prod")
+	req := planReq(planDigest)
+	req.Members = []string{a.uid}
+	p := e.memberPlan(t, req, e.planOpts())
+	if len(p.Members) != 1 || p.Members[0].UID != a.uid || len(p.Placement.Placed) != 1 || !strings.Contains(p.Next, "--member "+a.uid) {
+		t.Fatalf("%+v", p)
+	}
+	for _, uid := range []string{"dddd0000-0000-4000-8000-00000000000d", c.uid} {
+		req.Members = []string{uid}
+		if _, err := e.svc.MemberPlan(t.Context(), req, e.planOpts()); err == nil || !strings.HasPrefix(err.Error(), delivery.RefusalNotAMember+":") {
+			t.Errorf("%s: %v", uid, err)
+		}
+	}
+	e.publish(t, b, b.key, e.clock) // takes no requests now: unplaced
+	req.Members = []string{a.uid, b.uid}
+	if p := e.memberPlan(t, req, e.planOpts()); len(p.Placement.Placed) != 1 || p.Next != "" {
+		t.Fatalf("%+v", p)
+	}
+}
+
+// TestMemberPlanRefusalNamespaceHiddenForRestricted: an intake refusal
+// carries no Operation, yet its reason and next command name the Stage's
+// namespace: a reader whose review of the member hides that namespace
+// reads neither, and an AmbiguousStage reason, which lists namespaces, is
+// replaced.
+func TestMemberPlanRefusalNamespaceHiddenForRestricted(t *testing.T) {
+	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
+	e := newPlanEnv(t, a, b)
+	ra, rb := e.ask(t, a, "alice@acme.com", planDigest), e.ask(t, b, "alice@acme.com", planDigest)
+	e.answer(t, a.uid, a.key, delivery.RequestOutcome{Request: ra, Cluster: a.uid, State: delivery.RequestRefused, Code: delivery.RefusalNotAllowedHere,
+		Namespace: "payments-secure", Reason: "alice may not create operations in namespace payments-secure on this member", Next: "kubectl create rolebinding x -n payments-secure"})
+	e.answer(t, b.uid, b.key, delivery.RequestOutcome{Request: rb, Cluster: b.uid, State: delivery.RequestRefused, Code: delivery.RefusalAmbiguousStage,
+		Reason: "2 Stages of billing in production: team-a/billing, secret/billing", Next: "keep one Stage"})
+	opts := e.planOpts()
+	opts.Restrict = func(_, ns string) bool { return ns == "team-a" }
+	opts.Reviewable = func(string) bool { return true }
+	p := e.memberPlan(t, planReq(planDigest), opts)
+	if got := memberOf(t, p, a.uid); got.State != delivery.MemberRefused || got.Next != "" || strings.Contains(got.Reason, "payments-secure") {
+		t.Errorf("%+v", got)
+	}
+	if got := memberOf(t, p, b.uid); got.State != delivery.MemberRefused || strings.Contains(got.Reason, "secret") || got.Next != "keep one Stage" {
+		t.Errorf("%+v", got)
 	}
 }
 

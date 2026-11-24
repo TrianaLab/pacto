@@ -366,7 +366,8 @@ func TestIntakeRefusesWithoutGrant(t *testing.T) {
 		t.Fatal("a failed review recorded something")
 	}
 	e.revErr, e.rights[inAlice] = nil, false
-	if o := e.refusedWith(m, core.RefusalNotAllowedHere); !strings.Contains(o.Reason, "namespace billing") || !strings.Contains(o.Next, "kubectl create rolebinding") {
+	if o := e.refusedWith(m, core.RefusalNotAllowedHere); !strings.Contains(o.Reason, "namespace billing") || !strings.Contains(o.Next, "kubectl create rolebinding") ||
+		o.Namespace != "billing" {
 		t.Fatalf("%+v", o)
 	}
 }
@@ -660,6 +661,11 @@ func TestIntakeConcludedOutcome(t *testing.T) {
 	}
 	if published(nil) != "" {
 		t.Fatal("no verdict")
+	}
+	// A passing pacto.published verdict says nothing about why another gate
+	// rejected the promote: the Operation's own reason does.
+	if got := published([]core.Verdict{{Gate: core.GatePublished, Result: core.Pass, Message: "signed by trusted publisher ci"}}); got != "" {
+		t.Fatalf("a passing verdict: %q", got)
 	}
 }
 
@@ -987,5 +993,14 @@ func TestJoinRequestsOnlyWithIntake(t *testing.T) {
 	e.poll()
 	if got := e.i.JoinRequests(); got != nil {
 		t.Fatalf("more issuers than a join block names takes no requests, got %d", len(got.Issuers))
+	}
+	// An issuer that is no URL would make the hub refuse the whole join
+	// block, so the member says it takes no requests.
+	e.i.Policy = func(context.Context) (core.ClassPolicy, error) {
+		return core.ClassPolicy{Signers: []core.PersonSigner{{Issuer: "accounts.google.com"}}}, nil
+	}
+	e.poll()
+	if got := e.i.JoinRequests(); got != nil {
+		t.Fatalf("a non-URL issuer takes no requests, got %+v", got)
 	}
 }

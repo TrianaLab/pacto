@@ -49,8 +49,9 @@ type MemberPlacementPlan struct {
 // (unconfirmed). A member that takes no requests or names no environment is
 // left out with why; a pending or removed one is never named. Once a request
 // in requests (verified, for the same service, environment and digest)
-// exists, an unconfirmed placement reads advertised, confirmed by the newest
-// one's requester. The caller sets Policy.
+// confirms it (advertised, naming every member placed now), an unconfirmed
+// placement reads advertised, confirmed by the newest such request's
+// requester. The caller sets Policy.
 func MemberPlacement(policy *PlacementPolicy, states []ClusterJoinState, service ServiceRef, env string, requests []VerifiedRequest) MemberPlacementPlan {
 	plan := MemberPlacementPlan{Placed: []PlacedMember{}, Source: PlacementUnconfirmed}
 	var rule *PlacementRule
@@ -71,17 +72,20 @@ func MemberPlacement(policy *PlacementPolicy, states []ClusterJoinState, service
 			plan.Placed = append(plan.Placed, PlacedMember{UID: s.UID, Name: s.Name, Evidence: evidence, Stale: s.Status == fleet.SourceStale})
 		}
 	}
-	if newest := newestRequest(requests, service, env); plan.Source == PlacementUnconfirmed && newest != nil {
+	if newest := newestConfirmation(requests, service, env, plan.Placed); plan.Source == PlacementUnconfirmed && newest != nil {
 		plan.Source, plan.ConfirmedBy = RequestPlacedAdvertised, newest.Request.Requester
 	}
 	return plan
 }
 
-// newestRequest is the newest of requests for service in env, nil for none.
-func newestRequest(requests []VerifiedRequest, service ServiceRef, env string) *VerifiedRequest {
+// newestConfirmation is the newest of requests for service in env that
+// confirms placed: a person signed it for an advertised placement naming
+// every placed member. nil for none, and with nothing placed.
+func newestConfirmation(requests []VerifiedRequest, service ServiceRef, env string, placed []PlacedMember) *VerifiedRequest {
 	var newest *VerifiedRequest
 	for i, r := range requests {
-		if r.Request.Service == service && SameEnvironment(r.Request.Environment, env) &&
+		covers := len(placed) > 0 && !slices.ContainsFunc(placed, func(m PlacedMember) bool { return !slices.Contains(r.Request.Placement.Members, m.UID) })
+		if r.Request.Service == service && SameEnvironment(r.Request.Environment, env) && r.Request.Placement.Source == RequestPlacedAdvertised && covers &&
 			(newest == nil || r.SignedAt.After(newest.SignedAt)) {
 			newest = &requests[i]
 		}

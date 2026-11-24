@@ -47,10 +47,10 @@ func planMembers(cmd *cobra.Command, d deps, svc *app.Service, req delivery.Requ
 
 // placementWords say where a member placement came from.
 func placementWords(p delivery.MemberPlacementPlan) string {
-	switch {
-	case p.Source == delivery.PlacementFromPolicy && len(p.Placed) > 0:
-		return "(" + p.Placed[0].Evidence + ")"
-	case p.Source == delivery.RequestPlacedAdvertised:
+	switch p.Source {
+	case delivery.PlacementFromPolicy:
+		return "(from the signed placement policy " + p.Policy + ")"
+	case delivery.RequestPlacedAdvertised:
 		return "(confirmed by " + p.ConfirmedBy + ")"
 	}
 	return "(proposed from the environments they take requests for)"
@@ -112,17 +112,28 @@ func plural(n int, word string) string {
 	return fmt.Sprintf("%d %ss", n, word)
 }
 
+// memberRequested is one request propose --confirm signed and pushed.
+type memberRequested struct {
+	Member string `json:"member"`
+	UID    string `json:"uid"`
+	Ref    string `json:"ref"`
+	Tag    string `json:"tag,omitempty"`
+}
+
 // proposeMembers plans req over the members and, with --confirm, logs the
 // person in and signs one request per placed member, or per --member; it
-// signs nothing without --confirm.
+// signs nothing without --confirm, nor when the plan offers nothing to
+// confirm (PlacementUnknown, with its notes, or a refusal of the members).
 func proposeMembers(cmd *cobra.Command, v *viper.Viper, d deps, svc *app.Service, req delivery.Request) error {
 	plan, opts, err := planMembers(cmd, d, svc, req)
 	if err != nil {
 		return err
 	}
-	w := cmd.OutOrStdout()
+	w, format := cmd.OutOrStdout(), v.GetString(outputFormatKey)
 	if confirm, _ := cmd.Flags().GetBool("confirm"); !confirm {
-		printMemberPlan(w, *plan.Members)
+		if err := formatResult(cmd, format, plan, func() error { printMemberPlan(w, *plan.Members); return nil }, nil); err != nil {
+			return err
+		}
 		return delivery.HubRefusal(delivery.RefusalMemberRequestNeedsPerson, "nothing was signed: a person confirms a member request by signing it", req, opts.Repository)
 	}
 	mr := &memberRequests{cmd: cmd, v: v, d: d, svc: svc, req: req, opts: opts, plan: *plan.Members}
@@ -134,15 +145,26 @@ func proposeMembers(cmd *cobra.Command, v *viper.Viper, d deps, svc *app.Service
 	if err != nil {
 		return err
 	}
+	out := struct {
+		Requests []memberRequested `json:"requests"`
+	}{[]memberRequested{}}
 	for i, ref := range refs {
-		_, _ = fmt.Fprintf(w, "requested %s on %s as %s; recorded %s\n", short(req.To), mr.names[i], mr.user, ref)
+		r := memberRequested{Member: mr.names[i], UID: reqs[i].Cluster, Ref: ref}
 		if mode == capabilities.ReferrersWriteOnceTags {
 			_, dg, _ := strings.Cut(ref, "@")
-			_, _ = fmt.Fprintf(w, "pushed %s:%s (write-once tag; registry has no Referrers)\n", opts.Repository,
-				deliveryrecord.KindTag(delivery.ClusterRequestStream(reqs[i].Cluster), deliveryrecord.KindRequest, digest.Digest(dg)))
+			r.Tag = opts.Repository + ":" + deliveryrecord.KindTag(delivery.ClusterRequestStream(reqs[i].Cluster), deliveryrecord.KindRequest, digest.Digest(dg))
 		}
+		out.Requests = append(out.Requests, r)
 	}
-	return nil
+	return formatResult(cmd, format, out, func() error {
+		for _, r := range out.Requests {
+			_, _ = fmt.Fprintf(w, "requested %s on %s as %s; recorded %s\n", short(req.To), r.Member, mr.user, r.Ref)
+			if r.Tag != "" {
+				_, _ = fmt.Fprintf(w, "pushed %s (write-once tag; registry has no Referrers)\n", r.Tag)
+			}
+		}
+		return nil
+	}, nil)
 }
 
 // memberRequests is a person's confirmation on its way to signed requests.
@@ -193,13 +215,19 @@ func (mr *memberRequests) build() ([]delivery.OperationRequest, error) {
 	return mr.requests(members), nil
 }
 
-// targets are the members each --member names, each approved and taking
-// requests, or else every placed member.
+// targets are the placed members (the plan narrows them to --member),
+// each approved and taking requests. A --member the plan did not place is
+// refused, so a request never carries a placement that did not place it,
+// and so is a plan that offers nothing to confirm (its placement is
+// unknown).
 func (mr *memberRequests) targets() ([]delivery.ClusterJoinState, error) {
 	list := mr.svc.ClusterJoins(mr.cmd.Context(), app.JoinOptions{Repository: mr.opts.Repository, Hub: mr.opts.Hub, Authorize: mr.opts.Authorize, Delivery: mr.opts.Delivery})
+	placed := func(uid string) bool {
+		return slices.ContainsFunc(mr.plan.Placement.Placed, func(c delivery.PlacedMember) bool { return c.UID == uid })
+	}
 	uids := mr.req.Members
-	for _, c := range mr.plan.Placement.Placed {
-		if len(mr.req.Members) == 0 {
+	if len(uids) == 0 {
+		for _, c := range mr.plan.Placement.Placed {
 			uids = append(uids, c.UID)
 		}
 	}
@@ -216,11 +244,22 @@ func (mr *memberRequests) targets() ([]delivery.ClusterJoinState, error) {
 			return nil, delivery.HubRefusal(delivery.RefusalNotAMember, clusterName(m)+" ("+shortUID(m.UID)+") is "+string(m.State), mr.req, mr.opts.Repository)
 		case m.Requests == nil:
 			return nil, delivery.HubRefusal(delivery.RefusalMemberTakesNoRequests, clusterName(m)+" does not take requests", mr.req, mr.opts.Repository)
+		case !placed(uid):
+			return nil, delivery.HubRefusal(delivery.RefusalMemberNotPlaced, clusterName(m)+" ("+shortUID(m.UID)+") is not placed for "+mr.req.Service+" in "+mr.req.Environment, mr.req, mr.opts.Repository)
 		}
 		out = append(out, m)
 		mr.names = append(mr.names, clusterName(m)+" ("+shortUID(m.UID)+")")
 	}
-	return out, nil
+	return out, confirmable(mr.plan, mr.req, mr.opts.Repository)
+}
+
+// confirmable refuses a plan of req that offers nothing to confirm: its
+// placement is known only in part, as its notes say.
+func confirmable(p delivery.MemberPlan, req delivery.Request, registry string) error {
+	if p.Next != "" {
+		return nil
+	}
+	return delivery.HubRefusal(delivery.RefusalPlacementUnknown, "nothing was signed: the placement is known only in part ("+strings.Join(p.Notes, "; ")+")", req, registry)
 }
 
 // requests are the signed-to-be requests, one per member, carrying the
@@ -231,7 +270,7 @@ func (mr *memberRequests) requests(members []delivery.ClusterJoinState) []delive
 		pl = delivery.RequestPlacement{Source: delivery.RequestPlacedPolicy, Policy: p.Policy}
 	}
 	for _, m := range members {
-		pl.Clusters = append(pl.Clusters, m.UID)
+		pl.Members = append(pl.Members, m.UID)
 	}
 	now := time.Now().UTC()
 	var out []delivery.OperationRequest

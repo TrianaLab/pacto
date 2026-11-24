@@ -122,11 +122,12 @@ type Intake struct {
 
 // JoinRequests is what the join block says about requests: nil when the
 // intake is off, before it read the approver signers, with no signer or
-// with no environment the allowlist takes, or with more issuers or
-// environments than core.MaxJoinRequestEntries (the hub would refuse the
-// whole join block), so a member never claims requests it cannot verify or
-// take. Otherwise the signers' issuers and the
-// environments RequestAllowlist.Hosted takes (nil: every environment).
+// with no environment the allowlist takes, or when core's Check refuses
+// them (more entries than core.MaxJoinRequestEntries or an issuer that is
+// not a URL: the hub would refuse the whole join block, logged), so a
+// member never claims requests it cannot verify or take. Otherwise the
+// signers' issuers and the environments RequestAllowlist.Hosted takes (nil:
+// every environment).
 func (i *Intake) JoinRequests() *core.JoinRequests {
 	if i == nil {
 		return nil
@@ -135,11 +136,15 @@ func (i *Intake) JoinRequests() *core.JoinRequests {
 	issuers := i.issuers
 	i.mu.Unlock()
 	hosted := i.Allow.Hosted(core.AdvertisedEnvironments(nil, i.ClusterName, i.NameSource))
-	if len(issuers) == 0 || (hosted != nil && len(hosted) == 0) ||
-		len(issuers) > core.MaxJoinRequestEntries || len(hosted) > core.MaxJoinRequestEntries {
+	if len(issuers) == 0 || (hosted != nil && len(hosted) == 0) {
 		return nil
 	}
-	return &core.JoinRequests{Issuers: issuers, Environments: hosted}
+	r := &core.JoinRequests{Issuers: issuers, Environments: hosted}
+	if err := r.Check(); err != nil {
+		i.Log.Info("the join block says this member takes no requests: the hub would refuse them", "why", err.Error())
+		return nil
+	}
+	return r
 }
 
 // Start reads the operator's identity, then polls until ctx ends. A failed
@@ -462,7 +467,7 @@ func (i *Intake) ownHub(ctx context.Context, policy core.ClassPolicy) string {
 // refuse writes r's refused outcome and, once written, finishes r.
 func (i *Intake) refuse(ctx context.Context, r request, ref refusal) {
 	o := core.RequestOutcome{Request: r.manifest, Cluster: i.ClusterID, State: core.RequestRefused, Code: ref.code, Reason: ref.why,
-		Next: core.RefusalNext(ref.code, r.req, ref.namespace), Digest: r.req.Digest}
+		Next: core.RefusalNext(ref.code, r.req, ref.namespace), Namespace: ref.namespace, Digest: r.req.Digest}
 	if i.record(ctx, o) {
 		i.finish(r.manifest)
 	}
@@ -549,9 +554,11 @@ func (i *Intake) conclude(ctx context.Context, req string, op *dv1.Operation) {
 	i.done = remember(i.done, req+"/concluded")
 }
 
-// published is the message of the pacto.published verdict, "" without one.
+// published is the pacto.published verdict when it did not pass, "" when
+// it passed or there is none: a passing verdict says nothing about why the
+// Operation concluded as it did.
 func published(vs []core.Verdict) string {
-	if k := slices.IndexFunc(vs, func(v core.Verdict) bool { return v.Gate == core.GatePublished }); k >= 0 {
+	if k := slices.IndexFunc(vs, func(v core.Verdict) bool { return v.Gate == core.GatePublished }); k >= 0 && vs[k].Result != core.Pass {
 		return string(vs[k].Result) + ": " + vs[k].Message
 	}
 	return ""

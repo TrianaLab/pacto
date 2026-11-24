@@ -357,7 +357,7 @@ func registerDeliveryWrites(server *mcpsdk.Server, api DeliveryAPI) {
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a requestArgs) (*mcpsdk.CallToolResult, any, error) {
 		req, err := a.request()
 		if err == nil && req.MemberMode() {
-			err = delivery.HubRefusal(delivery.RefusalMemberRequestNeedsPerson, "a member request is signed by a person, never by an agent", req, "")
+			err = needsPerson(ctx, api, req)
 		}
 		if err != nil {
 			return errorResult(err), nil, nil
@@ -422,12 +422,18 @@ type requestArgs struct {
 var errStageOrMembers = errors.New(delivery.RefusalStageOrMembers + ": name namespace and stage for a Stage in this cluster, " +
 	"or service and environment (and optionally members) to plan over a hub's members, not both")
 
+// errNoNamespace refuses a Stage named without its namespace.
+var errNoNamespace = errors.New(delivery.RefusalStageOrMembers + ": name the namespace of the Stage with namespace")
+
 func (a requestArgs) request() (delivery.Request, error) {
 	req := delivery.Request{Namespace: a.Namespace, Stage: a.Stage, Service: a.Service, Environment: a.Environment, Members: a.Members,
 		Type: a.Type, To: a.To, From: a.From, Undoes: a.Undoes,
 		Reason: a.Reason, CorrelationID: a.CorrelationID, OnBehalfOf: a.OnBehalfOf, IntentDigest: a.IntentDigest, Name: a.Name}
 	if (a.Stage == "") != req.MemberMode() || a.Stage != "" && (a.Service != "" || a.Environment != "" || len(a.Members) > 0) {
 		return req, errStageOrMembers
+	}
+	if a.Stage != "" && a.Namespace == "" {
+		return req, errNoNamespace
 	}
 	if a.CauseVerdict != "" {
 		var v delivery.Verdict
@@ -437,6 +443,21 @@ func (a requestArgs) request() (delivery.Request, error) {
 		req.Cause = &delivery.Cause{Verdict: &v}
 	}
 	return req, nil
+}
+
+// needsPerson refuses req, a member request, with the command a person runs:
+// the plan's own when it offers one (the hub's registry in it), else the
+// command with the registry to fill in. A plan that fails is its refusal.
+func needsPerson(ctx context.Context, api DeliveryAPI, req delivery.Request) error {
+	const why = "a member request is signed by a person, never by an agent"
+	p, err := api.Plan(ctx, req)
+	switch {
+	case err != nil:
+		return err
+	case p.Members != nil && p.Members.Next != "":
+		return &delivery.HubRefusalError{Code: delivery.RefusalMemberRequestNeedsPerson, Why: why, Next: "a person runs: " + p.Members.Next}
+	}
+	return delivery.HubRefusal(delivery.RefusalMemberRequestNeedsPerson, why, req, "")
 }
 
 // requestSchema is the plan input, plus the extra propose-only fields.
@@ -487,7 +508,7 @@ func stageSchema(extra ...string) map[string]any {
 	if len(extra) > 0 {
 		props["digest"] = property{Type: "string", Description: "The version (sha256:...) to blame; defaults to the one the Stage runs"}
 	}
-	return inputSchema(props, nil)
+	return inputSchema(props, []string{"namespace", "stage"})
 }
 
 type historyArgs struct {

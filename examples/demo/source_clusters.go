@@ -6,6 +6,7 @@ import (
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/hex"
+	"slices"
 	"strings"
 	"time"
 
@@ -174,6 +175,9 @@ func demoMemberRequests() []demoMemberRequest {
 	}
 	eu, us := ask("eu-prod", "9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34", story.ArtifactDigest("payments", "2.4.2")),
 		ask("us-west", "c2d8a6f0-5e1b-4a73-9c4d-8b2f6e0a1d95", unsigned)
+	// One propose signed both, each naming the placement it confirmed.
+	both := []string{eu.request.Request.Cluster, us.request.Request.Cluster}
+	eu.request.Request.Placement.Members, us.request.Request.Placement.Members = both, both
 	us.outcome.Outcome = delivery.Rejected
 	us.outcome.Published = "Fail: no publisher check accepted " + unsigned[:19] + " on " + strings.TrimPrefix(demoRegistry, "oci://") + "payments: see pacto delivery trust payments"
 	return []demoMemberRequest{eu, us}
@@ -201,7 +205,9 @@ func demoMemberPlans(service string, envs []string) []delivery.MemberPlan {
 	var out []delivery.MemberPlan
 	for _, env := range delivery.MemberEnvironments(envs, list.Clusters) {
 		p := delivery.MemberPlan{Service: svc, Environment: env, Placement: delivery.MemberPlacement(nil, list.Clusters, svc, env, verified),
-			Members: []delivery.MemberState{}, Completeness: fleet.CompletenessComplete, AsOf: list.AsOf}
+			Members: []delivery.MemberState{}, Completeness: fleet.CompletenessComplete, AsOf: list.AsOf,
+			OrderUnknown: !slices.ContainsFunc(envs, func(e string) bool { return delivery.SameEnvironment(e, env) }),
+			Next:         delivery.ConfirmCommand(delivery.Request{Service: service, Environment: env}, demoTargetsRepository)}
 		if len(p.Placement.Placed) == 0 {
 			continue
 		}

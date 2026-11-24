@@ -24,12 +24,15 @@ came from:
 - `policy`: a signed placement rule names the members by uid.
 - `unconfirmed`: the members whose join block says they take requests for that
   environment. Pacto sends nothing on an unconfirmed placement.
-- `advertised`, with `confirmedBy`: a person signed a request on it.
+- `advertised`, with `confirmedBy`: a person signed a request that named every
+  member placed now.
 
 To confirm, the person runs the command the plan and the dashboard print. It
 logs them in again in their browser and signs one request per placed member,
-or per `--member`, keyless as them, pushed to that member's request stream in
-`<registry>/pacto-targets`:
+or per `--member` (each one the plan places), keyless as them, pushed to that
+member's request stream in `<registry>/pacto-targets`. When the placement
+policy or the members read only in part, the plan offers no command and
+`--confirm` answers `PlacementUnknown`, signing nothing:
 
 ```sh
 pacto delivery propose --service billing --environment production \
@@ -88,7 +91,8 @@ Every refusal and conclusion is an outcome record the member signs with its
 installation key, the key the hub approved. The plan, the Members block on the
 Environments board of one service and `pacto delivery refusals --registry`
 read them per member: `waiting`, `refused`, `raised`, `held`, `applied`,
-`rejected` or `failed`, each with its reason. A `held` member names the
+`failed` or `concluded` (it expired, was cancelled or superseded), each with
+its reason. A `held` member names the
 command to approve it from the hub, which needs no trust file:
 
 ```sh

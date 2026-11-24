@@ -20,15 +20,19 @@ import (
 var deliveryViews = []struct{ route, short string }{
 	{"caller", "Show who you are to delivery: the user the API server names and your actor class"},
 	{"inbox", "Show what waits on you: held changes your teams may answer, frozen Stages, the Errored changes on them and an installation ladder proposal"},
-	{"environments", "Show every Stage by service and environment: what it runs, whether it is verified, failed, frozen or held, and where it runs and why"},
+	{"environments", "Show every Stage by service and environment: what it runs, whether it is verified, failed, frozen or held, where it runs and why and, with --registry on a hub, its members"},
 	{"autonomy", "Show the path to autonomy: each Stage's level, the next level Pacto proposes and what blocks it"},
 	{"published", "Show the versions the Stages know per service and whether Flux or the registry watch verified their signature"},
 	{"refusals", "Show the publishes and promotes Pacto refused: the version bump a refused publish needs, the Stage of a refused promote and, with --registry on a hub, the requests its members refused"},
 	{"trust", "Show which publishers each service accepts: the rule, the signed policy, the pinned identities and the signers waiting for a person"},
 }
 
-// memberViews are the views that also read a hub's members with --registry.
-var memberViews = map[string]bool{"refusals": true}
+// memberViews are the views that also read a hub's members with --registry,
+// and what they read there.
+var memberViews = map[string]string{
+	"refusals":     "on a hub: also read the requests its members refused, from the request streams of the members that publish to this registry",
+	"environments": "on a hub, with --service: also read which members a promote is placed on and what each did with the newest request, from the members that publish to this registry",
+}
 
 // positionalService are the views whose one optional argument is --service.
 var positionalService = map[string]bool{"trust": true}
@@ -84,8 +88,8 @@ func newDeliveryViewCommand(svc *app.Service, d deps, route, short string) *cobr
 			return printJSON(cmd, json.RawMessage(body))
 		},
 	}
-	if memberViews[route] {
-		cmd.Flags().String("registry", "", "on a hub: also read the requests its members refused, from the request streams of the members that publish to this registry")
+	if help, ok := memberViews[route]; ok {
+		cmd.Flags().String("registry", "", help)
 	}
 	if positionalService[route] {
 		cmd.Use, cmd.Args = route+" [service]", cobra.MaximumNArgs(1)

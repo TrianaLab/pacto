@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"maps"
 	"path"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -45,10 +47,10 @@ const (
 )
 
 // RequestPlacement is the placement the person confirmed by signing: the
-// members it named, where it came from (advertised environments or a
-// signed placement policy, by digest) and who confirmed it.
+// members it named (by uid), where it came from (advertised environments or
+// a signed placement policy, by digest) and who confirmed it.
 type RequestPlacement struct {
-	Clusters    []string `json:"clusters,omitempty"`
+	Members     []string `json:"clusters,omitempty"`
 	Source      string   `json:"source"`
 	Policy      string   `json:"policy,omitempty"`
 	ConfirmedBy string   `json:"confirmedBy,omitempty"`
@@ -220,9 +222,10 @@ type RequestedOperation struct {
 }
 
 // RequestOutcome is a member's signed answer to one request: Request is the
-// request's manifest digest. A refusal carries a code, a reason and the next
-// command; a conclusion the Operation's outcome and the pacto.published
-// verdict.
+// request's manifest digest. A refusal carries a code, a reason, the next
+// command and the namespace of the Stage it was refused in (when one was
+// found), which a hub restricts a reader by; a conclusion the Operation's
+// outcome and the pacto.published verdict when it did not pass.
 type RequestOutcome struct {
 	Request   string              `json:"request"`
 	Cluster   string              `json:"cluster"`
@@ -230,6 +233,7 @@ type RequestOutcome struct {
 	Code      string              `json:"code,omitempty"`
 	Reason    string              `json:"reason,omitempty"`
 	Next      string              `json:"next,omitempty"`
+	Namespace string              `json:"namespace,omitempty"`
 	Operation *RequestedOperation `json:"operation,omitempty"`
 	Outcome   Outcome             `json:"outcome,omitempty"`
 	Digest    string              `json:"digest,omitempty"`
@@ -440,7 +444,7 @@ func (a RequestAllowlist) Refusal(service ServiceRef, namespace, environment str
 	case len(observed) > 0 && !slices.Contains(observed, namespace):
 		why = "namespace " + namespace + " is not one this member observes"
 	case len(a.Namespaces) > 0 && !slices.Contains(a.Namespaces, namespace):
-		why = "namespace " + namespace + " is not in delivery.remote.allow.namespaces (" + strings.Join(a.Namespaces, ", ") + ")"
+		why = "namespace " + namespace + " is not in delivery.remote.allow.namespaces"
 	case hosted != nil && !slices.Contains(hosted, canonicalEnvironment(environment)):
 		why = "environment " + environment + " is not one this member takes requests for (" + strings.Join(hosted, ", ") + ")"
 	case len(a.Services) > 0 && !slices.ContainsFunc(a.Services, func(p string) bool { ok, _ := path.Match(p, service.Name); return ok }):
@@ -486,8 +490,10 @@ const (
 	MemberRaised    = "raised"
 	MemberHeld      = "held"
 	MemberApplied   = "applied"
-	MemberRejected  = "rejected"
 	MemberFailed    = "failed"
+	// MemberConcluded: the Operation ended without applying, failing or a
+	// gate refusing it (it expired, was cancelled or superseded).
+	MemberConcluded = "concluded"
 )
 
 // MemberState is one placed member and what happened to the newest request
@@ -497,7 +503,7 @@ const (
 type MemberState struct {
 	UID       string `json:"uid"`
 	Name      string `json:"name"`
-	State     string `json:"state" enum:"no request,waiting,unknown,refused,raised,held,applied,rejected,failed"`
+	State     string `json:"state" enum:"no request,waiting,unknown,refused,raised,held,applied,failed,concluded"`
 	Digest    string `json:"digest,omitempty"`
 	Reason    string `json:"reason,omitempty"`
 	Next      string `json:"next,omitempty"`
@@ -509,7 +515,9 @@ type MemberState struct {
 // MemberPlan is a promote of Service in Environment planned over the members
 // of a hub: the placement, each placed member's state, the members a
 // restricted reader may not see (counted, with why), what was not read
-// (Notes; Completeness partial) and the command a person runs to confirm.
+// (Notes; Completeness partial), whether its environment's place in the
+// promotion order is unknown (only members take requests for it) and the
+// command a person runs to confirm.
 type MemberPlan struct {
 	Service      ServiceRef          `json:"service"`
 	Environment  string              `json:"environment"`
@@ -522,6 +530,7 @@ type MemberPlan struct {
 	Completeness fleet.Completeness  `json:"completeness"`
 	Notes        []string            `json:"notes,omitempty"`
 	AsOf         string              `json:"asOf"`
+	OrderUnknown bool                `json:"orderUnknown,omitempty"`
 	Next         string              `json:"next,omitempty"`
 }
 
@@ -535,16 +544,37 @@ const (
 	RefusalDigestRequired           = "DigestRequired"
 	RefusalMemberTakesNoRequests    = "MemberTakesNoRequests"
 	RefusalIssuerNotAccepted        = "IssuerNotAccepted"
+	RefusalPlacementUnknown         = "PlacementUnknown"
+	RefusalMemberNotPlaced          = "MemberNotPlaced"
 )
 
 // ConfirmCommand is the command a person runs on the hub to sign the
-// requests of req, reading the members from registry.
+// requests of req, reading the members from registry: its members, reason
+// and correlation id carried, each value shell-quoted.
 func ConfirmCommand(req Request, registry string) string {
-	cmd := fmt.Sprintf("pacto delivery propose --service %s --environment %s --to %s", req.Service, req.Environment, cmp.Or(req.To, "<sha256 digest>"))
+	cmd := "pacto delivery propose --service " + shellWord(req.Service) + " --environment " + shellWord(req.Environment) + " --to " + cmp.Or(shellWord(req.To), "<sha256 digest>")
 	for _, m := range req.Members {
-		cmd += " --member " + m
+		cmd += " --member " + shellWord(m)
 	}
-	return cmd + " --registry " + cmp.Or(registry, "<registry>") + " --confirm"
+	if req.Reason != "" {
+		cmd += " --reason " + shellWord(req.Reason)
+	}
+	if req.CorrelationID != "" {
+		cmd += " --correlation-id " + shellWord(req.CorrelationID)
+	}
+	return cmd + " --registry " + cmp.Or(shellWord(registry), "<registry>") + " --confirm"
+}
+
+// plainWord is what a shell reads as one word, unquoted.
+var plainWord = regexp.MustCompile(`^[A-Za-z0-9_./:@%+=,-]*$`)
+
+// shellWord is s as one shell word: unquoted when it is plain, else in
+// single quotes.
+func shellWord(s string) string {
+	if plainWord.MatchString(s) {
+		return s
+	}
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // HubRefusalError is a hub refusal: its stable code, why and the next
@@ -556,8 +586,9 @@ func (e *HubRefusalError) Error() string {
 }
 
 // CheckRequestMode refuses a request that names both a Stage and members,
-// or neither, and a member request that is not a promote (an empty type is
-// one) to a sha256 digest, for req read from registry.
+// or neither, a member request that is not a promote (an empty type is one)
+// to a sha256 digest, and one a member could not take (CheckMemberRequest),
+// for req read from registry.
 func CheckRequestMode(req Request, registry string) error {
 	switch {
 	case req.Stage != "" && (req.Service != "" || req.Environment != "" || len(req.Members) > 0):
@@ -568,8 +599,31 @@ func CheckRequestMode(req Request, registry string) error {
 		return HubRefusal(RefusalStageOrMembers, "a member request is a promote only; change "+req.Type+" with --stage on the member itself", req, registry)
 	case req.Stage == "" && !strings.HasPrefix(req.To, "sha256:"):
 		return HubRefusal(RefusalDigestRequired, "member mode takes the digest of what to promote, never a version or tag", req, registry)
+	case req.Stage == "":
+		return CheckMemberRequest(req, registry)
 	}
 	return nil
+}
+
+// CheckMemberRequest refuses, before anything is read or signed, a member
+// request whose signed record Check would refuse: a to that is set but is
+// no sha256 manifest digest, no service, an environment that is not a DNS
+// label or a bad correlation id.
+func CheckMemberRequest(req Request, registry string) error {
+	why := ""
+	switch {
+	case req.To != "" && (!strings.HasPrefix(req.To, "sha256:") || !isDigest(req.To)):
+		return HubRefusal(RefusalDigestRequired, req.To+" is not a sha256 manifest digest", req, registry)
+	case req.Service == "":
+		why = "name the service with --service"
+	case !dnsLabel(req.Environment):
+		why = "environment " + strconv.Quote(req.Environment) + " is not a DNS label"
+	case CheckCorrelationID(req.CorrelationID) != nil:
+		why = CheckCorrelationID(req.CorrelationID).Error()
+	default:
+		return nil
+	}
+	return HubRefusal(RefusalStageOrMembers, why, req, registry)
 }
 
 // HubRefusal is the refusal code with why and its next command, for req
@@ -582,7 +636,9 @@ func HubRefusal(code, why string, req Request, registry string) error {
 		RefusalMemberRecorderUnknown:    "a cluster admin of that member sets delivery.recorder.signing.publicKey there, then approve again",
 		RefusalDigestRequired:           "pass the sha256: digest pacto publish printed for " + req.To + ", or the to of the offer on the Environments board",
 		RefusalMemberTakesNoRequests:    "a cluster admin of that member sets delivery.remote.enabled, a registry and delivery there",
-		RefusalIssuerNotAccepted:        "log in with an approver signer the member accepts: pass --oidc-issuer-url",
+		RefusalIssuerNotAccepted:        "pass --issuer with one of the issuers the member takes requests signed through",
+		RefusalPlacementUnknown:         "plan again once the members and the placement policy read: pacto delivery plan --service " + shellWord(req.Service) + " --environment " + shellWord(req.Environment) + " --to " + cmp.Or(shellWord(req.To), "<sha256 digest>") + " --registry " + cmp.Or(shellWord(registry), "<registry>"),
+		RefusalMemberNotPlaced:          "leave out --member to request on every placed member, or name the member in a placement rule",
 	}[code]
 	return &HubRefusalError{Code: code, Why: why, Next: next}
 }

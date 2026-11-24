@@ -157,7 +157,7 @@ func requestOn(ctx context.Context, s delivery.Signer, m memberCmd, opts app.Mem
 	now := time.Now().UTC()
 	r := delivery.OperationRequest{Cluster: m.cluster, Hub: opts.Hub, Service: delivery.ServiceRef{Name: m.service}, Environment: m.environment,
 		Digest: m.digest, Reason: m.reason, Requester: m.requester,
-		Placement: delivery.RequestPlacement{Clusters: []string{m.cluster}, Source: delivery.RequestPlacedAdvertised, ConfirmedBy: m.requester},
+		Placement: delivery.RequestPlacement{Members: []string{m.cluster}, Source: delivery.RequestPlacedAdvertised, ConfirmedBy: m.requester},
 		At:        now.Format(time.RFC3339), Expires: now.Add(delivery.DefaultRequestLifetime).Format(time.RFC3339)}
 	refs, mode, err := app.NewService(nil, nil).WriteOperationRequests(ctx, []delivery.OperationRequest{r}, s, opts)
 	if err != nil {

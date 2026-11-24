@@ -149,6 +149,10 @@ func TestRefusalsListMemberRefusals(t *testing.T) {
 	if out, _, err := runRoot(t, e.d, nil, "delivery", "refusals", "--registry", e.repo); err != nil || !strings.Contains(out, `"cluster": "us-prod"`) {
 		t.Errorf("%v %s", err, out)
 	}
+	// So does pacto delivery environments --registry, per environment.
+	if out, _, err := runRoot(t, e.d, nil, "delivery", "environments", "--service", "billing", "--registry", e.repo); err != nil || !strings.Contains(out, `"members": [`) {
+		t.Errorf("%v %s", err, out)
+	}
 }
 
 // TestRefusalsMembersUnread: no records and no members is no answer;
@@ -194,5 +198,40 @@ func TestRefusalsMemberRowsRestricted(t *testing.T) {
 	id.cluster = nil
 	if r, _ := a.PublishRefusals(t.Context(), ""); len(r.Refusals) != 0 || r.Hidden != 2 {
 		t.Errorf("nobody named: %+v", r)
+	}
+}
+
+// TestMemberReadsOverRemoteMCPUseTheReviewedCaller: on the dashboard's /mcp
+// there is no session: a member read is reviewed as the caller the
+// apiserver named for the request, a request naming nobody sees nothing,
+// and the plan tool reads the dashboard's members narrowed to that caller.
+func TestMemberReadsOverRemoteMCPUseTheReviewedCaller(t *testing.T) {
+	e := refusedHub(t)
+	id, _, _ := operationAccessWorld(t)
+	id.viewer = authn.NewViewer(func(context.Context) map[string]authn.Review {
+		return map[string]authn.Review{euProd: func(_ context.Context, p authn.Person, _ string, _ authn.ResourceAttributes) (bool, error) {
+			return p.User == "bob", nil
+		}}
+	})
+	id.members = e.hubMembers()
+	a := dashDelivery{id: id}
+	for user, want := range map[string]bool{"bob": true, "carol": false, "": false} {
+		ctx := context.WithValue(t.Context(), reviewedKey{}, reviewed{person: authn.Person{User: user}})
+		var o app.MemberPlanOptions
+		a.restrictMembers(ctx, &o)
+		if got := o.Restrict(euProd, "billing"); got != want {
+			t.Errorf("%q: %v", user, got)
+		}
+	}
+	api := remoteMCP{id: id}.deliveryAPI(&app.Delivery{})
+	if api.members != id.members || api.scope == nil {
+		t.Fatalf("%+v", api)
+	}
+	if api := (remoteMCP{}).deliveryAPI(&app.Delivery{}); api.members != nil || api.scope != nil {
+		t.Fatalf("%+v", api)
+	}
+	ctx := context.WithValue(t.Context(), reviewedKey{}, reviewed{person: authn.Person{User: "bob"}})
+	if p, err := api.Plan(ctx, delivery.Request{Service: "billing", Environment: "production", To: memberDigest}); err != nil || p.Members == nil {
+		t.Fatalf("%v %+v", err, p)
 	}
 }

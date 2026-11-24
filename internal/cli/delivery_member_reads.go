@@ -4,13 +4,11 @@ import (
 	"cmp"
 	"context"
 	"errors"
-	"time"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
-	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // memberDelivery is how a host on a hub reads its members' requests: svc
@@ -84,16 +82,29 @@ func (a dashDelivery) memberOptions(ctx context.Context) (app.MemberPlanOptions,
 // restrictMembers narrows o to a's caller: behind a viewer they see a
 // member only when a live channel reviews for it, and a namespace there
 // only when that member's review lets them; a caller the hub cannot name
-// sees none.
+// sees none. Over remote MCP the caller is the one the apiserver reviewed
+// for the request, never the session's (there is none).
 func (a dashDelivery) restrictMembers(ctx context.Context, o *app.MemberPlanOptions) {
 	v := a.id.viewer
 	if v == nil {
 		return
 	}
-	who, err := a.id.subject(ctx)
-	p := authn.Person{User: who.User, Groups: who.Groups}
+	p, err := a.memberReader(ctx)
 	o.Restrict = func(cluster, ns string) bool { return err == nil && v.Sees(ctx, p, cluster, ns) }
 	o.Reviewable = func(uid string) bool { return err == nil && v.Reviewable(ctx, p, uid) }
+}
+
+// memberReader is who a's caller is: the person remote MCP reviewed for
+// this request, else the session's subject.
+func (a dashDelivery) memberReader(ctx context.Context) (authn.Person, error) {
+	if p, ok := personFrom(ctx); ok {
+		if p.User == "" {
+			return p, errNobodyReviewed
+		}
+		return p, nil
+	}
+	who, err := a.id.subject(ctx)
+	return authn.Person{User: who.User, Groups: who.Groups}, err
 }
 
 // memberPlan plans req, a member request, over the hub's members as a's
@@ -116,9 +127,7 @@ func (a dashDelivery) Members(ctx context.Context, service string, envs []string
 	case !ok:
 		return nil
 	case err != nil:
-		return []delivery.MemberPlan{{Service: delivery.ServiceRef{Name: service}, Members: []delivery.MemberState{},
-			Placement:    delivery.MemberPlacementPlan{Placed: []delivery.PlacedMember{}, Source: delivery.PlacementUnconfirmed},
-			Completeness: fleet.CompletenessPartial, Notes: []string{"the members could not be read: " + err.Error()}, AsOf: a.id.now().UTC().Format(time.RFC3339)}}
+		return []delivery.MemberPlan{app.UnreadMemberPlan(service, a.id.now(), "the members could not be read: "+err.Error())}
 	}
 	return a.id.members.svc.MemberPlans(ctx, service, envs, o)
 }
@@ -163,6 +172,7 @@ func memberRefusalRow(m app.MemberRefusal) dashboard.PublishRefusal {
 	if o.State == delivery.RequestConcluded {
 		row.Code, row.Reason = string(o.Outcome), cmp.Or(o.Published, o.Reason)
 	}
+	row.Namespace = o.Namespace
 	if o.Operation != nil {
 		row.Namespace, row.Stage = o.Operation.Namespace, o.Operation.Stage
 	}

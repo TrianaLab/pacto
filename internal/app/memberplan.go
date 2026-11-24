@@ -65,29 +65,63 @@ type memberRead struct {
 // it is on; an outcome only when the member's approved key signed it for
 // that request. What cannot be read or does not verify is counted in Notes;
 // what could change the answer makes it partial. With no req.To the newest
-// request for the service and environment is read, whatever its digest; a
-// req.To that is not a sha256 digest is DigestRequired.
+// request for the service and environment is read, whatever its digest. A
+// request the members could not take is refused (CheckMemberRequest), and
+// so is req.Members naming a uid that is no approved member (NotAMember);
+// the plan then covers only req.Members.
 func (s *Service) MemberPlan(ctx context.Context, req delivery.Request, opts MemberPlanOptions) (delivery.MemberPlan, error) {
-	if req.To != "" && !strings.HasPrefix(req.To, "sha256:") {
-		return delivery.MemberPlan{}, delivery.HubRefusal(delivery.RefusalDigestRequired, "member mode takes the digest of what to promote, never a version or tag ("+req.To+")", req, opts.Repository)
+	if err := delivery.CheckMemberRequest(req, opts.Repository); err != nil {
+		return delivery.MemberPlan{}, err
 	}
-	return s.memberPlan(ctx, req, opts, s.ClusterJoins(ctx, opts.joins())), nil
+	list := s.ClusterJoins(ctx, opts.joins())
+	for _, uid := range req.Members {
+		i := slices.IndexFunc(list.Clusters, func(c delivery.ClusterJoinState) bool { return c.UID == uid })
+		switch {
+		case i >= 0 && list.Clusters[i].State != delivery.JoinApproved:
+			return delivery.MemberPlan{}, delivery.HubRefusal(delivery.RefusalNotAMember, list.Clusters[i].Name+" ("+uid+") is "+string(list.Clusters[i].State), req, opts.Repository)
+		case i < 0 && list.Completeness == fleet.CompletenessComplete:
+			return delivery.MemberPlan{}, delivery.HubRefusal(delivery.RefusalNotAMember, "no approved member "+uid+" publishes to "+list.Repository, req, opts.Repository)
+		}
+	}
+	return s.memberPlan(ctx, req, opts, list), nil
 }
 
 // MemberPlans are the member plans, with no target digest, of service in
 // each environment the hub lists (envs, in their order) or an approved
-// member takes requests for (delivery.MemberEnvironments), read over one
-// list of the members: only those that place it on a member or hide one
-// from a restricted reader.
+// member takes requests for (delivery.MemberEnvironments, OrderUnknown),
+// read over one list of the members: those that place it on a member, hide
+// one from a restricted reader or were read in part. When the members could
+// not be read and no plan says so, one partial plan does.
 func (s *Service) MemberPlans(ctx context.Context, service string, envs []string, opts MemberPlanOptions) []delivery.MemberPlan {
 	list := s.ClusterJoins(ctx, opts.joins())
 	out := []delivery.MemberPlan{}
 	for _, env := range delivery.MemberEnvironments(envs, list.Clusters) {
-		if p := s.memberPlan(ctx, delivery.Request{Service: service, Environment: env}, opts, list); len(p.Placement.Placed) > 0 || p.Hidden > 0 {
+		p := s.memberPlan(ctx, delivery.Request{Service: service, Environment: env}, opts, list)
+		p.OrderUnknown = !slices.ContainsFunc(envs, func(e string) bool { return delivery.SameEnvironment(e, env) })
+		if len(p.Placement.Placed) > 0 || p.Hidden > 0 || p.Completeness != fleet.CompletenessComplete {
 			out = append(out, p)
 		}
 	}
+	if len(out) == 0 && list.Completeness != fleet.CompletenessComplete {
+		p := UnreadMemberPlan(service, s.env().now(), "")
+		for _, l := range list.Limitations {
+			p.Notes = append(p.Notes, l.Message)
+		}
+		out = append(out, p)
+	}
 	return out
+}
+
+// UnreadMemberPlan is the plan of service over members that could not be
+// read at now: partial, placing nothing, with why as its note when set.
+func UnreadMemberPlan(service string, now time.Time, why string) delivery.MemberPlan {
+	p := delivery.MemberPlan{Service: delivery.ServiceRef{Name: service}, Members: []delivery.MemberState{},
+		Placement:    delivery.MemberPlacementPlan{Placed: []delivery.PlacedMember{}, Source: delivery.PlacementUnconfirmed},
+		Completeness: fleet.CompletenessPartial, AsOf: now.UTC().Format(time.RFC3339)}
+	if why != "" {
+		p.Notes = []string{why}
+	}
+	return p
 }
 
 // memberPlan is MemberPlan over list, the hub's members.
@@ -106,17 +140,27 @@ func (s *Service) memberPlan(ctx context.Context, req delivery.Request, opts Mem
 	if err != nil {
 		mp.note("the placement policy could not be verified, so no placement rule was read: "+err.Error(), true)
 	}
-	reads := mp.read(ctx, delivery.MemberPlacement(policy, list.Clusters, svc, req.Environment, nil))
+	// The placement is known only when the members and the policy read;
+	// otherwise nothing is offered to confirm.
+	known := err == nil && list.Completeness == fleet.CompletenessComplete
+	states := list.Clusters
+	if len(req.Members) > 0 {
+		states = slices.DeleteFunc(slices.Clone(states), func(c delivery.ClusterJoinState) bool { return !slices.Contains(req.Members, c.UID) })
+	}
+	reads := mp.read(ctx, delivery.MemberPlacement(policy, states, svc, req.Environment, nil))
 	var verified []delivery.VerifiedRequest
 	for _, r := range reads {
 		verified = append(verified, r.requests...)
 	}
-	plan.Placement = delivery.MemberPlacement(policy, list.Clusters, svc, req.Environment, verified)
+	plan.Placement = delivery.MemberPlacement(policy, states, svc, req.Environment, verified)
 	if plan.Placement.Source == delivery.PlacementFromPolicy {
 		plan.Placement.Policy = digest
 	}
+	everyAsked := !slices.ContainsFunc(req.Members, func(uid string) bool {
+		return !slices.ContainsFunc(plan.Placement.Placed, func(m delivery.PlacedMember) bool { return m.UID == uid })
+	})
 	mp.states(reads)
-	if req.To != "" && len(plan.Placement.Placed) > 0 {
+	if known && everyAsked && len(plan.Placement.Placed) > 0 {
 		plan.Next = delivery.ConfirmCommand(req, opts.Repository)
 	}
 	return plan
@@ -191,7 +235,7 @@ func (mp *memberPlanning) readMember(ctx context.Context, repo *remote.Repositor
 	var r memberRead
 	var err error
 	r.requests, r.unverified, r.requestsCut, err = mp.verifiedRequests(ctx, repo, policy, uid, func(q delivery.OperationRequest) bool {
-		return q.Service.Name == mp.req.Service && q.Environment == mp.req.Environment && (mp.req.To == "" || q.Digest == mp.req.To)
+		return q.Service.Name == mp.req.Service && delivery.SameEnvironment(q.Environment, mp.req.Environment) && (mp.req.To == "" || q.Digest == mp.req.To)
 	})
 	if err != nil {
 		r.unread = err.Error()
@@ -207,23 +251,35 @@ func (mp *memberPlanning) readMember(ctx context.Context, repo *remote.Repositor
 	return r
 }
 
+// maxRequestPages is how many bounds of a member's requests a hub read
+// takes before it says the stream was cut.
+// ponytail: up to 10 x MaxOperationRequests requests verified per member per
+// read; keep the verified ones across reads if a hub reads too often.
+var maxRequestPages = 10
+
 // verifiedRequests are the requests on member uid's stream that verify
-// (verifyRequest) and match says to keep, oldest first; those that do not
-// verify are counted and leave the read bound.
+// (verifyRequest) and match says to keep, oldest first, and how many did not
+// verify. The hub rejects none: what does not verify under its signers now
+// may once they change, so every read counts it again. It reads the stream
+// a bound at a time, skipping what it read, up to maxRequestPages bounds.
 func (mp *memberPlanning) verifiedRequests(ctx context.Context, repo *remote.Repository, policy delivery.ClassPolicy, uid string,
 	match func(delivery.OperationRequest) bool) (reqs []delivery.VerifiedRequest, unverified int, cut bool, err error) {
-	fetched, cut, err := mp.s.joinRecords.ListOperationRequests(ctx, repo, uid)
-	if err != nil {
-		return nil, 0, false, err
-	}
-	for _, f := range fetched {
-		v, ok := verifyRequest(policy, uid, f)
-		switch {
-		case !ok:
-			unverified++
-			mp.s.joinRecords.Reject(delivery.ClusterRequestStream(uid), delivery.PredicateOperationRequest, f.Manifest)
-		case match(v.Request):
-			reqs = append(reqs, v)
+	skip := map[string]bool{}
+	cut = true
+	for page := 0; cut && page < maxRequestPages; page++ {
+		var fetched []deliveryrecord.Fetched
+		if fetched, cut, err = mp.s.joinRecords.ListOperationRequestsSkipping(ctx, repo, uid, skip); err != nil {
+			return nil, 0, false, err
+		}
+		for _, f := range fetched {
+			skip[f.Manifest] = true
+			v, ok := verifyRequest(policy, uid, f)
+			switch {
+			case !ok:
+				unverified++
+			case match(v.Request):
+				reqs = append(reqs, v)
+			}
 		}
 	}
 	slices.SortFunc(reqs, func(a, b delivery.VerifiedRequest) int { return a.SignedAt.Compare(b.SignedAt) })
@@ -337,13 +393,13 @@ func (mp *memberPlanning) readNotes(name string, r memberRead) {
 		mp.note("the request stream of "+name+" could not be read: "+r.unread, true)
 	}
 	if r.unverified > 0 {
-		mp.note(fmt.Sprintf("%s on the stream of %s did not verify and %s not read", plural(r.unverified, "request"), name, were(r.unverified)), false)
+		mp.note(fmt.Sprintf("%s on the stream of %s did not verify under the hub's approver signers and %s not read", plural(r.unverified, "request"), name, were(r.unverified)), true)
 	}
 	if r.badOutcomes > 0 {
 		mp.note(fmt.Sprintf("%s from %s did not verify and %s not read", plural(r.badOutcomes, "outcome"), name, were(r.badOutcomes)), true)
 	}
 	if r.requestsCut || r.outcomesCut {
-		mp.note("the stream of "+name+" holds more records than a read takes; newer ones are read next time", true)
+		mp.note("the stream of "+name+" holds more records than a read takes, so newer ones may be missing", true)
 	}
 }
 
@@ -355,34 +411,33 @@ func were(n int) string {
 	return "were"
 }
 
-// concludedStates are the member states an Operation's outcome reads as.
+// concludedStates are the member states an Operation's outcome reads as;
+// any other outcome (expired, cancelled, superseded) reads concluded.
 var concludedStates = map[delivery.Outcome]string{delivery.Succeeded: delivery.MemberApplied, delivery.Witnessed: delivery.MemberApplied,
 	delivery.Rejected: delivery.MemberRefused, delivery.Failed: delivery.MemberFailed, delivery.Errored: delivery.MemberFailed}
 
-// outcomeState sets st from o, the newest request's furthest outcome,
-// dropping what a restricted reader may not read in the Operation's
-// namespace.
+// outcomeState sets st from o, the newest request's furthest outcome, as
+// the reader may see it (restricted).
 func (mp *memberPlanning) outcomeState(st *delivery.MemberState, o delivery.RequestOutcome) {
-	st.Reason, st.Next = o.Reason, o.Next
+	shown := mp.restricted(st.UID, o)
+	st.Reason, st.Next = shown.Reason, shown.Next
 	switch o.State {
 	case delivery.RequestRefused:
-		st.State, st.Reason = delivery.MemberRefused, o.Code+": "+o.Reason
+		st.State, st.Reason = delivery.MemberRefused, o.Code+": "+shown.Reason
 	case delivery.RequestRaised:
 		st.State = delivery.MemberRaised
 		if o.Operation.IntentRecord != "" {
-			st.State, st.Next = delivery.MemberHeld, "pacto delivery approve --intent "+o.Operation.IntentRecord+" --registry "+mp.opts.Repository
+			st.State = delivery.MemberHeld
+			if shown.Operation != nil {
+				st.Next = "pacto delivery approve --intent " + o.Operation.IntentRecord + " --registry " + mp.opts.Repository
+			}
 		}
 	default:
-		st.State = cmp.Or(concludedStates[o.Outcome], delivery.MemberRejected)
-		st.Reason = strings.TrimSuffix(string(o.Outcome)+": "+cmp.Or(o.Published, o.Reason), ": ")
+		st.State = cmp.Or(concludedStates[o.Outcome], delivery.MemberConcluded)
+		st.Reason = strings.TrimSuffix(string(o.Outcome)+": "+cmp.Or(shown.Published, shown.Reason), ": ")
 	}
-	if o.Operation == nil {
-		return
-	}
-	st.Operation = o.Operation.Namespace + "/" + o.Operation.Name
-	if mp.opts.Restrict != nil && !mp.opts.Restrict(st.UID, o.Operation.Namespace) {
-		st.Operation, st.Next = "", ""
-		st.Reason = strings.ReplaceAll(st.Reason, o.Operation.Namespace, "a namespace you may not read")
+	if shown.Operation != nil {
+		st.Operation = shown.Operation.Namespace + "/" + shown.Operation.Name
 	}
 }
 
@@ -521,7 +576,7 @@ func (mp *memberPlanning) refusalsOf(ctx context.Context, repo *remote.Repositor
 	var rows []MemberRefusal
 	var unread []string
 	if unverified > 0 {
-		unread = append(unread, fmt.Sprintf("%s did not verify and %s not read", plural(unverified, "request"), were(unverified)))
+		unread = append(unread, fmt.Sprintf("%s did not verify under the hub's approver signers and %s not read", plural(unverified, "request"), were(unverified)))
 	}
 	for _, r := range reqs {
 		o, bad, ocut, err := mp.outcomeOf(ctx, repo, c.UID, r.Manifest)
@@ -538,7 +593,7 @@ func (mp *memberPlanning) refusalsOf(ctx context.Context, repo *remote.Repositor
 		}
 	}
 	if cut {
-		unread = append(unread, "its stream holds more records than a read takes; newer ones are read next time")
+		unread = append(unread, "its stream holds more records than a read takes, so newer ones may be missing")
 	}
 	return rows, strings.Join(unread, "; ")
 }
@@ -549,15 +604,29 @@ func refused(o *delivery.RequestOutcome) bool {
 	return o != nil && (o.State == delivery.RequestRefused || o.State == delivery.RequestConcluded && o.Outcome == delivery.Rejected)
 }
 
-// restricted is o as a restricted reader sees it on member uid: without the
-// Operation, and its namespace out of the reasons, when that member's review
-// does not let them read the namespace.
+// restricted is o as a restricted reader sees it on member uid. When that
+// member's review does not let them read the namespace o names (its
+// Operation's, or the Stage's a refusal names), o loses the Operation, the
+// namespace and the next command, and the namespace leaves the reasons. An
+// AmbiguousStage refusal names several namespaces, so its reason is
+// replaced.
+// ponytail: an AmbiguousStage reason is hidden even when every namespace in
+// it is readable; carry the namespaces in the outcome to review each.
 func (mp *memberPlanning) restricted(uid string, o delivery.RequestOutcome) delivery.RequestOutcome {
-	if o.Operation == nil || mp.opts.Restrict == nil || mp.opts.Restrict(uid, o.Operation.Namespace) {
+	ns := o.Namespace
+	if o.Operation != nil {
+		ns = o.Operation.Namespace
+	}
+	switch {
+	case mp.opts.Restrict == nil:
+		return o
+	case o.Code == delivery.RefusalAmbiguousStage:
+		o.Reason = "more than one Stage of the service matches on this member"
+		return o
+	case ns == "" || mp.opts.Restrict(uid, ns):
 		return o
 	}
-	ns := o.Operation.Namespace
-	o.Operation = nil
+	o.Operation, o.Namespace, o.Next = nil, "", ""
 	o.Reason = strings.ReplaceAll(o.Reason, ns, "a namespace you may not read")
 	o.Published = strings.ReplaceAll(o.Published, ns, "a namespace you may not read")
 	return o

@@ -2348,6 +2348,7 @@ export interface components {
             members: components["schemas"]["Delivery.MemberState"][] | null;
             next?: string;
             notes?: string[] | null;
+            orderUnknown?: boolean;
             placement: components["schemas"]["Delivery.MemberPlacementPlan"];
             service: components["schemas"]["Delivery.ServiceRef"];
             version?: string;
@@ -2361,7 +2362,7 @@ export interface components {
             reason?: string;
             stale?: boolean;
             /** @enum {string} */
-            state: "no request" | "waiting" | "unknown" | "refused" | "raised" | "held" | "applied" | "rejected" | "failed";
+            state: "no request" | "waiting" | "unknown" | "refused" | "raised" | "held" | "applied" | "failed" | "concluded";
             uid: string;
         };
         "Delivery.MoveFirst": {

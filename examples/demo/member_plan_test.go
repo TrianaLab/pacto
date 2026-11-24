@@ -77,7 +77,8 @@ func checkDemoMemberStates(t *testing.T, test, prod delivery.MemberPlan) {
 	if test.Placement.Source != delivery.PlacementUnconfirmed || len(test.Members) != 1 || test.Members[0].State != delivery.MemberNoRequest {
 		t.Errorf("test: %+v", test)
 	}
-	if prod.Placement.Source != delivery.RequestPlacedAdvertised || prod.Placement.ConfirmedBy != "alice@example.com" {
+	if prod.Placement.Source != delivery.RequestPlacedAdvertised || prod.Placement.ConfirmedBy != "alice@example.com" ||
+		!strings.HasPrefix(prod.Next, "pacto delivery propose --service payments --environment prod") || prod.OrderUnknown {
 		t.Errorf("prod placement: %+v", prod.Placement)
 	}
 	states := map[string]delivery.MemberState{}

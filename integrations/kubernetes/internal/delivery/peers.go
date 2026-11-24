@@ -115,7 +115,9 @@ func (p *Peers) upstream(ctx context.Context, svc delivery.ServiceRef, rung stri
 		if len(named) > 0 && !slices.Contains(named, m.UID) {
 			continue
 		}
-		ss := slices.DeleteFunc(slices.Clone(m.Streams), func(s delivery.JoinStream) bool { return s.Service != svc || s.Environment != rung })
+		ss := slices.DeleteFunc(slices.Clone(m.Streams), func(s delivery.JoinStream) bool {
+			return s.Service != svc || !delivery.SameEnvironment(s.Environment, rung)
+		})
 		if len(ss) > 0 || len(m.Environments) > 0 && len(delivery.HostedRungs([]delivery.LadderRung{{Name: rung}}, m.Environments)) == 1 {
 			hosts, streams = append(hosts, m), append(streams, ss)
 		}

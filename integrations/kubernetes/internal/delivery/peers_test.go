@@ -215,6 +215,18 @@ func TestFollowUpstreamOnMember(t *testing.T) {
 	}
 }
 
+// TestFollowUpstreamSynonymStream: a member whose Stage records stage is
+// followed for this cluster's rung staging.
+func TestFollowUpstreamSynonymStream(t *testing.T) {
+	w := newPeerWorld(t)
+	w.approvedHere()
+	_, rk := recorder(t)
+	w.member(stageEU, "stage-eu", hubH, rk, func(j *delivery.SnapshotJoin) { j.Streams[0].Environment = "stage" })
+	if r := w.production(); r.Stage != "payments-production/payments-production" || r.Reason != "" {
+		t.Fatalf("production %+v", r)
+	}
+}
+
 func TestFollowUpstreamUsesOwnHub(t *testing.T) {
 	w := newPeerWorld(t)
 	_, rk := recorder(t)

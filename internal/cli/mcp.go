@@ -396,20 +396,26 @@ func buildDeliveryMode(cmd *cobra.Command, svc *app.Service, d deps, fm *pactomc
 	// detection names read unrestricted, as pacto delivery plan reads them.
 	id.members = newMemberDelivery(svc, mcpFleetOptions(cmd).ClusterJoins)
 	reads := mcpDeliveryReads(id, fm, deliveryNarrowing(flagNamespaces(cmd)))
-	return &pactomcp.DeliveryMode{API: mcpDelivery{c, id.members}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
+	return &pactomcp.DeliveryMode{API: mcpDelivery{Delivery: c, members: id.members}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
 		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe(), InstalledAt: id.installedAt(), Refs: c}, nil
 }
 
 // mcpDelivery adapts app.Delivery to the MCP tools' interface. members
-// plans member requests, as the server's own user; nil reads no members.
+// plans member requests, narrowed by scope when set (else as the server's
+// own user); nil reads no members.
 type mcpDelivery struct {
 	*app.Delivery
 	members *memberDelivery
+	scope   func(context.Context, *app.MemberPlanOptions)
 }
 
 func (m mcpDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
 	if memberRequest(req) {
-		return m.members.plan(ctx, req, func(*app.MemberPlanOptions) {})
+		return m.members.plan(ctx, req, func(o *app.MemberPlanOptions) {
+			if m.scope != nil {
+				m.scope(ctx, o)
+			}
+		})
 	}
 	p, _, err := m.Delivery.Plan(ctx, req)
 	return p, err

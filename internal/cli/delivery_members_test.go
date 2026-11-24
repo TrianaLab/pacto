@@ -7,6 +7,7 @@ import (
 	"crypto/rand"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"regexp"
 	"strings"
@@ -93,7 +94,7 @@ func (e *clusterEnv) ask(t *testing.T, uid string) string {
 	}
 	now := time.Now().UTC()
 	r := delivery.OperationRequest{Cluster: uid, Hub: clusterHubUID, Service: delivery.ServiceRef{Name: "billing"}, Environment: "production", Digest: memberDigest,
-		Requester: alice, Placement: delivery.RequestPlacement{Source: delivery.RequestPlacedAdvertised, ConfirmedBy: alice},
+		Requester: alice, Placement: delivery.RequestPlacement{Source: delivery.RequestPlacedAdvertised, ConfirmedBy: alice, Members: []string{euProd, usProd}},
 		At: now.Format(time.RFC3339), Expires: now.Add(time.Hour).Format(time.RFC3339)}
 	b, err := delivery.SignOperationRequest(t.Context(), s, delivery.NewOperationRequestStatement(r))
 	if err != nil {
@@ -150,12 +151,12 @@ func TestDeliveryPlanMemberMode(t *testing.T) {
 // stale member with its next command, hidden members and notes.
 func TestPrintMemberPlanEveryPart(t *testing.T) {
 	var b bytes.Buffer
-	printMemberPlan(&b, delivery.MemberPlan{Placement: delivery.MemberPlacementPlan{Source: delivery.PlacementFromPolicy,
+	printMemberPlan(&b, delivery.MemberPlan{Placement: delivery.MemberPlacementPlan{Source: delivery.PlacementFromPolicy, Policy: "sha256:p",
 		Placed:   []delivery.PlacedMember{{UID: euProd, Name: "eu-prod", Evidence: "placement rule eu"}},
 		Unplaced: []delivery.UnplacedMember{{UID: usProd, Name: "us-prod", Reason: "does not take requests"}}},
 		Members: []delivery.MemberState{{UID: euProd, Name: "eu-prod", State: delivery.MemberHeld, Stale: true, Next: "pacto delivery approve --intent r"}},
 		Hidden:  1, HiddenReason: "no live channel", Notes: []string{"n"}, AsOf: "t", Completeness: fleet.CompletenessPartial})
-	want := "placement: eu-prod (placement rule eu)\neu-prod (aaaa0000): stale, held\n  next: pacto delivery approve --intent r\n" +
+	want := "placement: eu-prod (from the signed placement policy sha256:p)\neu-prod (aaaa0000): stale, held\n  next: pacto delivery approve --intent r\n" +
 		"not placed: us-prod (bbbb0000): does not take requests\n1 member hidden: no live channel\nnote: n\nas of t (partial)\n"
 	if b.String() != want {
 		t.Fatalf("%q", b.String())
@@ -163,6 +164,12 @@ func TestPrintMemberPlanEveryPart(t *testing.T) {
 	b.Reset()
 	printMemberPlan(&b, delivery.MemberPlan{Placement: delivery.MemberPlacementPlan{Source: delivery.PlacementUnconfirmed}, Hidden: 2, AsOf: "t"})
 	if !strings.HasPrefix(b.String(), "placement: none (proposed from the environments they take requests for)\n2 members hidden") {
+		t.Fatalf("%q", b.String())
+	}
+	// A rule that placed no member is still the rule's placement.
+	b.Reset()
+	printMemberPlan(&b, delivery.MemberPlan{Placement: delivery.MemberPlacementPlan{Source: delivery.PlacementFromPolicy, Policy: "sha256:p"}, AsOf: "t"})
+	if !strings.HasPrefix(b.String(), "placement: none (from the signed placement policy sha256:p)\n") {
 		t.Fatalf("%q", b.String())
 	}
 }
@@ -267,9 +274,9 @@ func TestDeliveryProposeMemberUnknownMember(t *testing.T) {
 	e.publishJoin(t, ap, nil)
 	logins := e.logins
 	for want, member := range map[string]string{
-		delivery.RefusalNotAMember + ": no cluster dddd0000":          "dddd0000",
-		delivery.RefusalNotAMember + ": ap-dev (cccc0000) is pending": ap.uid,
-		delivery.RefusalMemberTakesNoRequests + ": us-prod":           us.uid,
+		delivery.RefusalNotAMember + ": no approved member dddd0000": "dddd0000",
+		delivery.RefusalNotAMember + ": ap-dev (" + ap.uid + ")":     ap.uid,
+		delivery.RefusalMemberTakesNoRequests + ": us-prod":          us.uid,
 	} {
 		if _, _, err := e.delivery(t, memberArgs("propose", memberDigest, "--confirm", "--member", member)...); err == nil || !strings.HasPrefix(err.Error(), want) {
 			t.Errorf("%s: %v", want, err)
@@ -427,6 +434,58 @@ func TestProposeMemberKeyChangedDuringLogin(t *testing.T) {
 	}
 }
 
+// TestDeliveryProposeMemberNotPlaced: a --member the plan does not place
+// gets nothing signed, so a request never claims a placement that did not
+// place it.
+func TestDeliveryProposeMemberNotPlaced(t *testing.T) {
+	eu, us := newJoinMember(euProd, "eu-prod"), newJoinMember(usProd, "us-prod")
+	e := newRequestHub(t, eu)
+	e.publishJoin(t, us, func(j *delivery.SnapshotJoin) { j.Requests.Environments = []string{"staging"} })
+	if _, errOut, err := e.approve(t, us); err != nil {
+		t.Fatalf("%v %s", err, errOut)
+	}
+	logins := e.logins
+	if _, _, err := e.delivery(t, memberArgs("propose", memberDigest, "--confirm", "--member", us.uid)...); err == nil ||
+		!strings.HasPrefix(err.Error(), delivery.RefusalMemberNotPlaced+": us-prod") || e.logins != logins || len(e.requests(t, us.uid)) != 0 {
+		t.Fatal(err)
+	}
+}
+
+// TestMemberRequestsRefuseUnknownPlacement: a plan that offers nothing to
+// confirm (its placement policy or members read in part) signs nothing.
+func TestMemberRequestsRefuseUnknownPlacement(t *testing.T) {
+	req := delivery.Request{Service: "billing", Environment: "production", To: memberDigest}
+	err := confirmable(delivery.MemberPlan{Notes: []string{"the placement policy could not be verified"}}, req, "zot/acme")
+	if err == nil || !strings.HasPrefix(err.Error(), delivery.RefusalPlacementUnknown+": nothing was signed") || !strings.Contains(err.Error(), "the placement policy could not be verified") {
+		t.Fatal(err)
+	}
+	if err := confirmable(delivery.MemberPlan{Next: "pacto delivery propose"}, req, "zot/acme"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestProposeMemberJSON: member-mode propose writes JSON when asked: the
+// plan without --confirm, the requests it pushed with it.
+func TestProposeMemberJSON(t *testing.T) {
+	eu := newJoinMember(euProd, "eu-prod")
+	e := newRequestHub(t, eu)
+	out, _, err := e.delivery(t, memberArgs("propose", memberDigest, "--output-format", "json")...)
+	var plan struct {
+		Members      *delivery.MemberPlan `json:"members"`
+		IntentDigest *string              `json:"intentDigest"`
+	}
+	if err == nil || json.Unmarshal([]byte(out), &plan) != nil || plan.Members == nil || plan.IntentDigest != nil {
+		t.Fatalf("%v %s", err, out)
+	}
+	out, _, err = e.delivery(t, memberArgs("propose", memberDigest, "--confirm", "--output-format", "json")...)
+	var pushed struct {
+		Requests []memberRequested `json:"requests"`
+	}
+	if err != nil || json.Unmarshal([]byte(out), &pushed) != nil || len(pushed.Requests) != 1 || pushed.Requests[0].UID != euProd {
+		t.Fatalf("%v %s", err, out)
+	}
+}
+
 // TestMemberRequestsCarryPolicyPlacement: a placement a signed rule made is
 // signed as the policy's, by digest, confirmed by no one.
 func TestMemberRequestsCarryPolicyPlacement(t *testing.T) {
@@ -434,7 +493,7 @@ func TestMemberRequestsCarryPolicyPlacement(t *testing.T) {
 		plan: delivery.MemberPlan{Placement: delivery.MemberPlacementPlan{Source: delivery.PlacementFromPolicy, Policy: "sha256:p"}}}
 	reqs := mr.requests([]delivery.ClusterJoinState{{UID: euProd}, {UID: usProd}})
 	if len(reqs) != 2 || reqs[1].Placement.Source != delivery.RequestPlacedPolicy || reqs[1].Placement.Policy != "sha256:p" ||
-		reqs[1].Placement.ConfirmedBy != "" || len(reqs[0].Placement.Clusters) != 2 || reqs[0].Check() != nil {
+		reqs[1].Placement.ConfirmedBy != "" || len(reqs[0].Placement.Members) != 2 || reqs[0].Check() != nil {
 		t.Fatalf("%+v", reqs)
 	}
 }

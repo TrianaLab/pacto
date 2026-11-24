@@ -16,7 +16,7 @@ import (
 // forks names the write-once tags that vanished or do not name the manifest
 // they point at: a tag someone moved is never read as a record.
 func (r *Reader) ListClusterJoins(ctx context.Context, repo *remote.Repository, uid string) (recs []Fetched, cut bool, forks []string, err error) {
-	recs, cut, err = r.listPredicate(ctx, repo, delivery.ClusterJoinStream(uid), delivery.PredicateClusterJoin, "", delivery.MaxJoinRecords, &forks)
+	recs, cut, err = r.listPredicate(ctx, repo, delivery.ClusterJoinStream(uid), delivery.PredicateClusterJoin, "", delivery.MaxJoinRecords, &forks, nil)
 	return recs, cut, forks, err
 }
 

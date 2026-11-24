@@ -382,6 +382,9 @@ type remoteMCP struct {
 	reads       func(*app.Delivery, string) pactomcp.DeliveryReads
 	installed   func(context.Context) (bool, error)
 	installedAt func() time.Time
+	// id is the dashboard's identity on its /mcp: members plan through it,
+	// as each caller may see them; nil reads no members.
+	id *dashboardIdentity
 }
 
 // middleware names each request's caller and picks their server. The modes
@@ -409,7 +412,7 @@ func (rm remoteMCP) middleware() (func(http.Handler) http.Handler, error) {
 	// caller from the request's context.
 	build := func(context.Context) *mcpsdk.Server { return shared }
 	if rm.delivery != nil {
-		build = perCallerBuild(rm.version, rm.authoring, rm.modes, rm.reads, rm.installed, rm.installedAt)
+		build = rm.perCallerBuild()
 	}
 	rc.build = build
 	if credless {
@@ -456,20 +459,32 @@ func quietBundle(b *pactomcp.BundleMode) *pactomcp.BundleMode {
 }
 
 // perCallerBuild builds each request's server with its caller's delivery
-// tools. The bundle's notices went out once at startup, so the per-request
-// builds discard them.
-func perCallerBuild(version string, a pactomcp.Authoring, m pactomcp.Modes, reads func(*app.Delivery, string) pactomcp.DeliveryReads,
-	installed func(context.Context) (bool, error), installedAt func() time.Time) func(context.Context) *mcpsdk.Server {
+// tools; on the dashboard's /mcp a member plan reads the members as the
+// caller may see them, as the dashboard's own reads do. The bundle's notices
+// went out once at startup, so the per-request builds discard them.
+func (rm remoteMCP) perCallerBuild() func(context.Context) *mcpsdk.Server {
+	m := rm.modes
 	m.Bundle = quietBundle(m.Bundle)
 	return func(ctx context.Context) *mcpsdk.Server {
 		mm := m
 		if who := reviewedFrom(ctx); who.delivery != nil {
-			mm.Delivery = &pactomcp.DeliveryMode{API: mcpDelivery{Delivery: who.delivery}, Writes: who.writes, Caller: who.caller,
-				Reads: reads(who.delivery, remoteCallerKey(who.person)), CallerAt: time.Now(), Installed: installed, InstalledAt: installedAt}
+			mm.Delivery = &pactomcp.DeliveryMode{API: rm.deliveryAPI(who.delivery), Writes: who.writes, Caller: who.caller,
+				Reads: rm.reads(who.delivery, remoteCallerKey(who.person)), CallerAt: time.Now(), Installed: rm.installed, InstalledAt: rm.installedAt}
 		}
-		srv, _ := pactomcp.New(version, a, mm) // registered once at startup
+		srv, _ := pactomcp.New(rm.version, rm.authoring, mm) // registered once at startup
 		return srv
 	}
+}
+
+// deliveryAPI is a caller's delivery tools over their client d: on the
+// dashboard's /mcp a member plan reads the members as that caller may see
+// them, as the dashboard's own reads do; elsewhere it reads none.
+func (rm remoteMCP) deliveryAPI(d *app.Delivery) mcpDelivery {
+	api := mcpDelivery{Delivery: d}
+	if rm.id != nil {
+		api.members, api.scope = rm.id.members, dashDelivery{id: rm.id}.restrictMembers
+	}
+	return api
 }
 
 // remoteDeliveryClients builds each caller's delivery client over their

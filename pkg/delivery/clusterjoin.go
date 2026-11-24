@@ -95,7 +95,7 @@ var snapshotNameSources = []string{fleet.ClusterNameFromNodeLabel, fleet.Cluster
 // DNS label, whose name source is unknown or approval, with over 16
 // environments or a source that is empty, over 200 bytes or not printable
 // ASCII, a recorder key or a stream checkJoinStreams refuses, and requests
-// checkJoinRequests refuses.
+// JoinRequests.Check refuses.
 func checkJoin(uid string, j SnapshotJoin) error {
 	if err := checkKeyID(j.PublicKey, j.KeyID); err != nil {
 		return err
@@ -120,7 +120,7 @@ func checkJoin(uid string, j SnapshotJoin) error {
 	if err := checkJoinStreams(uid, j); err != nil {
 		return err
 	}
-	return checkJoinRequests(j.Requests)
+	return j.Requests.Check()
 }
 
 // stageNamePattern is a Kubernetes object name, an RFC 1123 subdomain.
@@ -165,10 +165,11 @@ func (s JoinStream) Check(uid string) error {
 	return nil
 }
 
-// checkJoinRequests refuses requests naming more than MaxJoinRequestEntries
-// issuers or environments, an issuer that is not a URL or an environment
-// that is not a DNS label; nil checks.
-func checkJoinRequests(r *JoinRequests) error {
+// Check refuses requests naming more than MaxJoinRequestEntries issuers or
+// environments, an issuer that is not a URL or an environment that is not
+// a DNS label; nil checks. A hub refuses a whole join block whose requests
+// Check refuses, so a member checks them before it advertises them.
+func (r *JoinRequests) Check() error {
 	if r == nil {
 		return nil
 	}

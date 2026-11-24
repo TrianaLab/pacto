@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"testing"
@@ -123,5 +124,18 @@ func TestIntentDiffersNamesCause(t *testing.T) {
 	both.Reason = "smoke failed"
 	if got := IntentDiffers(both, stage, IntentDigest(cited, stage)); got != "reason" {
 		t.Fatalf("the reason keeps precedence: %q", got)
+	}
+}
+
+// TestPlanAnswerMemberJSON: a member request's answer is its members alone,
+// with no empty intent digest an agent could propose; a Stage plan keeps
+// every field.
+func TestPlanAnswerMemberJSON(t *testing.T) {
+	b, err := json.Marshal(PlanAnswer{Members: &MemberPlan{Environment: "prod"}})
+	if err != nil || strings.Contains(string(b), "intentDigest") || !strings.HasPrefix(string(b), `{"members":{`) {
+		t.Fatalf("%s %v", b, err)
+	}
+	if b, _ := json.Marshal(PlanAnswer{Plan: Plan{IntentDigest: "sha256:i"}}); !strings.Contains(string(b), `"intentDigest":"sha256:i"`) || strings.Contains(string(b), "members") {
+		t.Fatalf("%s", b)
 	}
 }

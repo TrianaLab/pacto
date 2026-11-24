@@ -887,6 +887,7 @@ pacto delivery environments [flags]
       --limit int            How many per page; 0 means the list's default
       --offset int           Where the page starts. Past the end answers the last page
       --q string             Keep only what contains this text, ignoring case
+      --registry string      on a hub, with --service: also read which members a promote is placed on and what each did with the newest request, from the members that publish to this registry
       --service string       Keep only the Stages of the service with exactly this name; with service, each row also offers freeze and undo
       --state string         Keep only the services with a Stage in this state (the one counts.byEnvironment counts it in), and only those Stages (failed, frozen, autohold, waiting, unverified, empty, verified)
       --tier string          Keep only the services with a Stage in an environment whose name says this tier (inferred from the name, never an order), and only those Stages (dev, test, prod)

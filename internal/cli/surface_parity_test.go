@@ -298,6 +298,7 @@ func deliveryViewRows() []surfaceRow {
 		[]surfaceRow{
 			{"delivery refusals", "pacto_delivery_refusals", "GET /api/delivery/refusals", ""},
 			{"delivery refusals --registry", "", "", "the dashboard and the MCP server read the members of the hub they run on; the CLI names the registry its members publish to"},
+			{"delivery environments --registry", "", "", "the dashboard and the MCP server read the members of the hub they run on; the CLI names the registry its members publish to"},
 			{"delivery caller", "pacto_delivery_caller", "GET /api/delivery/caller", ""},
 			{"delivery types", "pacto_delivery_operation_types", "", "the dashboard's propose panel lists the types it offers"},
 		},

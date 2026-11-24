@@ -18,6 +18,14 @@ func (r *Reader) ListOperationRequests(ctx context.Context, repo *remote.Reposit
 	return r.ListPredicate(ctx, repo, delivery.ClusterRequestStream(uid), delivery.PredicateOperationRequest, "", delivery.MaxOperationRequests)
 }
 
+// ListOperationRequestsSkipping is [Reader.ListOperationRequests] leaving
+// out, for this call only, the manifests in skip (and their copies): a hub,
+// which rejects none of a member's requests, reads them all a bound at a
+// time by skipping what earlier calls returned.
+func (r *Reader) ListOperationRequestsSkipping(ctx context.Context, repo *remote.Repository, uid string, skip map[string]bool) ([]Fetched, bool, error) {
+	return r.listPredicate(ctx, repo, delivery.ClusterRequestStream(uid), delivery.PredicateOperationRequest, "", delivery.MaxOperationRequests, new([]string), skip)
+}
+
 // ListRequestOutcomes reads the outcomes of one request, by its manifest
 // digest, on member uid's request stream in repo: at most
 // delivery.MaxRequestOutcomes distinct bundles, cut when more matched,

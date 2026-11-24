@@ -102,6 +102,32 @@ func TestListOperationRequestsRejectedLeaveTheBound(t *testing.T) {
 	}
 }
 
+// TestListOperationRequestsSkippingRejectsNothing: a hub skips what it read
+// for one call only: the next page holds the rest, and a fresh call starts
+// from the first page again.
+func TestListOperationRequestsSkippingRejectsNothing(t *testing.T) {
+	repo := joinServer(t, capabilities.ReferrersNative, nil)
+	for i := range 60 {
+		pushRequest(t, repo, capabilities.ReferrersNative, fmt.Sprintf(`{"r":%d}`, i))
+	}
+	r := &Reader{}
+	skip := map[string]bool{}
+	first, cut, err := r.ListOperationRequestsSkipping(t.Context(), repo, joinUID, skip)
+	if err != nil || !cut || len(first) != delivery.MaxOperationRequests {
+		t.Fatalf("%d %v %v", len(first), cut, err)
+	}
+	for _, f := range first {
+		skip[f.Manifest] = true
+	}
+	rest, cut, err := r.ListOperationRequestsSkipping(t.Context(), repo, joinUID, skip)
+	if err != nil || cut || len(rest) != 10 || slices.ContainsFunc(rest, func(f Fetched) bool { return skip[f.Manifest] }) {
+		t.Fatalf("%d %v %v", len(rest), cut, err)
+	}
+	if again, _, _ := r.ListOperationRequests(t.Context(), repo, joinUID); len(again) != delivery.MaxOperationRequests {
+		t.Fatalf("skipping rejected %d", delivery.MaxOperationRequests-len(again))
+	}
+}
+
 // TestListRequestOutcomesPerRequest: outcomes of two requests on one stream
 // list apart, and requests are never outcomes.
 func TestListRequestOutcomesPerRequest(t *testing.T) {

@@ -16,6 +16,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -32,13 +33,34 @@ func TestMemberPlans(t *testing.T) {
 	for _, p := range plans {
 		envs = append(envs, p.Environment)
 	}
-	if strings.Join(envs, ",") != "production,qa" || len(plans[0].Members) != 2 || memberOf(t, plans[0], eu.uid).State != delivery.MemberWaiting {
+	if strings.Join(envs, ",") != "production,qa" || len(plans[0].Members) != 2 || memberOf(t, plans[0], eu.uid).State != delivery.MemberWaiting ||
+		plans[0].OrderUnknown || !plans[1].OrderUnknown {
 		t.Fatalf("%v %+v", envs, plans)
 	}
 	opts := e.planOpts()
 	opts.Restrict = func(string, string) bool { return true }
 	plans = e.svc.MemberPlans(t.Context(), "billing", nil, opts)
 	if len(plans) != 2 || plans[0].Hidden != 2 || len(plans[0].Members) != 0 {
+		t.Fatalf("%+v", plans)
+	}
+}
+
+// TestMemberPlansUnreadIsPartial: members that cannot be read never read as
+// a hub with none: the plans say partial and why, and with no plan to say
+// it one partial plan does.
+func TestMemberPlansUnreadIsPartial(t *testing.T) {
+	eu := newMember(memberA, "eu-prod")
+	e := newPlanEnv(t, eu)
+	e.tagPage.Store(true)
+	e.deny.Store(true)
+	plans := e.svc.MemberPlans(t.Context(), "billing", []string{"production"}, e.planOpts())
+	if len(plans) == 0 || slices.ContainsFunc(plans, func(p delivery.MemberPlan) bool {
+		return p.Completeness != fleet.CompletenessPartial || len(p.Notes) == 0
+	}) {
+		t.Fatalf("%+v", plans)
+	}
+	plans = e.svc.MemberPlans(t.Context(), "billing", nil, e.planOpts())
+	if len(plans) != 1 || plans[0].Completeness != fleet.CompletenessPartial || len(plans[0].Notes) == 0 {
 		t.Fatalf("%+v", plans)
 	}
 }
@@ -51,7 +73,8 @@ func refusalsEnv(t *testing.T) (*joinEnv, member, member) {
 	eu, us := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
 	e := newPlanEnv(t, eu, us)
 	refused := e.ask(t, eu, "alice@acme.com", planDigest)
-	e.answer(t, eu.uid, eu.key, delivery.RequestOutcome{Request: refused, Cluster: eu.uid, State: delivery.RequestRefused, Code: "NoStage", Reason: "no Stage of billing", Next: "create the Stage"})
+	e.answer(t, eu.uid, eu.key, delivery.RequestOutcome{Request: refused, Cluster: eu.uid, State: delivery.RequestRefused, Code: delivery.RefusalNotAllowedHere,
+		Namespace: "billing", Reason: "alice may not create operations in namespace billing", Next: "kubectl create rolebinding x -n billing"})
 	rejected := e.ask(t, eu, "alice@acme.com", otherDigest)
 	op := &delivery.RequestedOperation{Namespace: "billing", Name: "billing-prod-req-1", Stage: "billing-prod"}
 	e.answer(t, eu.uid, eu.key, delivery.RequestOutcome{Request: rejected, Cluster: eu.uid, State: delivery.RequestRaised, Operation: op})
@@ -75,7 +98,7 @@ func TestMemberRefusals(t *testing.T) {
 	}
 	slices.SortFunc(r.Refusals, func(a, b MemberRefusal) int { return strings.Compare(string(a.Outcome.State), string(b.Outcome.State)) })
 	concluded, refused := r.Refusals[0], r.Refusals[1]
-	if refused.Member.Name != "eu-prod" || refused.Member.UID != eu.uid || refused.Outcome.Code != "NoStage" || refused.Request.Digest != planDigest {
+	if refused.Member.Name != "eu-prod" || refused.Member.UID != eu.uid || refused.Outcome.Code != delivery.RefusalNotAllowedHere || refused.Request.Digest != planDigest {
 		t.Errorf("%+v", refused)
 	}
 	if concluded.Outcome.Outcome != delivery.Rejected || concluded.Outcome.Operation == nil || concluded.Request.Digest != otherDigest {
@@ -96,7 +119,7 @@ func TestMemberRefusalsRestricted(t *testing.T) {
 		t.Fatalf("%+v", r)
 	}
 	for _, x := range r.Refusals {
-		if x.Outcome.Operation != nil || strings.Contains(x.Outcome.Reason+x.Outcome.Published, " billing") && x.Outcome.State == delivery.RequestConcluded {
+		if o := x.Outcome; o.Operation != nil || o.Namespace != "" || strings.Contains(o.Reason+o.Published+o.Next, "billing") {
 			t.Errorf("namespace kept: %+v", x.Outcome)
 		}
 	}
@@ -122,7 +145,7 @@ func TestMemberRefusalsUnread(t *testing.T) {
 	_, stranger, _ := ed25519.GenerateKey(rand.Reader)
 	e.answer(t, eu.uid, stranger, delivery.RequestOutcome{Request: req, Cluster: eu.uid, State: delivery.RequestRefused, Code: "NoStage", Reason: "r", Next: "n"})
 	r := e.svc.MemberRefusals(t.Context(), e.planOpts())
-	if len(r.Refusals) != 0 || len(r.Unreadable) != 1 || r.Unreadable[0] != "eu-prod: 1 request did not verify and was not read; 1 outcome did not verify and was not read" {
+	if len(r.Refusals) != 0 || len(r.Unreadable) != 1 || r.Unreadable[0] != "eu-prod: 1 request did not verify under the hub's approver signers and was not read; 1 outcome did not verify and was not read" {
 		t.Fatalf("%+v", r)
 	}
 	anchor := "/referrers/" + deliveryrecord.Anchor(delivery.ClusterRequestStream(eu.uid)).ManifestDesc.Digest.String()
@@ -156,6 +179,7 @@ func TestMemberRefusalsUnread(t *testing.T) {
 	if r := e.svc.MemberRefusals(t.Context(), opts); len(r.Unreadable) != 1 || !strings.HasPrefix(r.Unreadable[0], "the hub's approver signers could not be read") {
 		t.Fatalf("signers: %+v", r)
 	}
+	fewRequestPages(t)
 	s := e.keyless(t, "alice@acme.com")
 	for i := 0; i <= delivery.MaxOperationRequests; i++ {
 		e.pushRequest(t, s, opRequest(eu.uid, "alice@acme.com", fmt.Sprintf("sha256:%064x", i)))

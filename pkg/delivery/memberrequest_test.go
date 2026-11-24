@@ -26,7 +26,7 @@ var reqSigned = time.Date(2026, 11, 23, 10, 0, 0, 0, time.UTC)
 func memberRequest() delivery.OperationRequest {
 	return delivery.OperationRequest{Cluster: reqCluster, Hub: "hub-uid", Service: delivery.ServiceRef{Name: "billing"},
 		Environment: "production", Digest: reqDigest, Requester: "oidc:alice@acme.com",
-		Placement: delivery.RequestPlacement{Clusters: []string{reqCluster}, Source: delivery.RequestPlacedAdvertised, ConfirmedBy: "oidc:alice@acme.com"},
+		Placement: delivery.RequestPlacement{Members: []string{reqCluster}, Source: delivery.RequestPlacedAdvertised, ConfirmedBy: "oidc:alice@acme.com"},
 		At:        reqSigned.Format(time.RFC3339), Expires: reqSigned.Add(24 * time.Hour).Format(time.RFC3339)}
 }
 
@@ -367,7 +367,9 @@ func TestAllowlistNarrowsOnly(t *testing.T) {
 	if code, why := a.Refusal(svc, "other", "production", []string{"billing"}, nil); code != delivery.RefusalOutsideAllowlist || !strings.Contains(why, "observes") {
 		t.Fatalf("a listed namespace not observed: %s %s", code, why)
 	}
-	if code, why := a.Refusal(svc, "third", "production", nil, nil); code == "" || !strings.Contains(why, "allow.namespaces") {
+	// The reason names the refused namespace and never the listed ones: a
+	// hub may show it to a reader who may not read them.
+	if code, why := a.Refusal(svc, "third", "production", nil, nil); code == "" || !strings.Contains(why, "allow.namespaces") || strings.Contains(why, "other") {
 		t.Fatalf("an unlisted namespace: %s", why)
 	}
 	envs := delivery.RequestAllowlist{Environments: []string{"prod", "staging"}}
@@ -405,5 +407,14 @@ func TestRefusalCodesHaveNextCommand(t *testing.T) {
 	}
 	if n := delivery.RefusalNext(delivery.RefusalNotAllowedHere, r, "billing"); !strings.Contains(n, "--user=oidc:alice@acme.com -n billing") {
 		t.Fatal(n)
+	}
+}
+
+// TestCheckMemberRequestNeedsService: a member request with no service is
+// refused before anything is read.
+func TestCheckMemberRequestNeedsService(t *testing.T) {
+	var hr *delivery.HubRefusalError
+	if err := delivery.CheckMemberRequest(delivery.Request{Environment: "prod"}, "r"); !errors.As(err, &hr) || hr.Code != delivery.RefusalStageOrMembers {
+		t.Fatal(err)
 	}
 }
