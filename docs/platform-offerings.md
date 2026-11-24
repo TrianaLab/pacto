@@ -144,6 +144,39 @@ is the provider's registry repository without a tag or
 digest. A deprecated current revision adds a comment saying so. A provider
 that is not published to a registry has no snippet.
 
+## Offerings you may consume
+
+Ask which offerings you may consume with `pacto fleet offerings --consumable`,
+with `pacto_fleet_entities` and `consumable: true`, or with the **Only
+offerings you may consume** filter of the Offerings view. Each row lists the
+providers in your view whose newest revision is accepted, with:
+
+- `acceptance` and `publisher`: `declaration` for a person's verified
+  declaration the signer policy allows, `publisher` for a verified signer an
+  installation publisher rule, pin, policy or the release signer covers;
+- `version`, `digest` and `lifecycle`;
+- `parameters`: each field of the required configurations' closed schemas
+  with its type, bounds, enum and `tier`: `contract` is set once, the same in
+  every environment, and `tunable` may change per environment within its
+  bounds. A field with no `x-pacto-tier` reads `contract`;
+- `classes`: the enum of the `class` property;
+- `guarantees`: the interfaces that declare guarantees;
+- `snippet`: the [consume snippet](#consume-snippet), which `pacto validate`
+  accepts as is once every field in `missingValues` has a value.
+
+Acceptance covers the listed digest; run pacto lock to pin it.
+
+A provider is left out, first reason wins, when it is `observed-only`,
+`sunset`, `not-published`, `not-accepted`, `acceptance-unknown`,
+`schema-unreadable` or `schema-open`. Inferred and contributed offerings never
+appear. `OFFERING_NOT_CONSUMABLE` counts the known exclusions per reason,
+naming up to three offerings and an open schema's open paths.
+`OFFERING_ACCEPTANCE_UNKNOWN` counts the providers Pacto could not check and
+makes the answer `partial`, so a missing offering means unknown. Discovered,
+user-authored and starter offerings are read by the same rule. A person
+turns an inferred offering into one you may consume with
+[Accept an inferred offering](inferred-offerings.md#accept-an-inferred-offering).
+
 ## Provider versions
 
 `pacto fleet versions <offering>`, `pacto_fleet_versions` and the offering page
@@ -210,25 +243,6 @@ Adapters are `observed`, from visible consumers' reports only.
 
 ## Offerings under a restricted view
 
-A viewer restricted to some namespaces sees a provider that has no Kubernetes
-target, with its owner, offering and versions, when its contract declares the
-offering and every Kubernetes source is available. All of that provider's
-targets are removed from the view and its versions omit `inUse`. Any provider
-with a target in a namespace the viewer cannot read omits `inUse` too. With a
-Kubernetes source unavailable or partial, the absence of a target proves
-nothing, so the provider stays hidden.
-
-A consumer the viewer cannot see is
-never named: the offering counts them in `hiddenConsumers`, and its
-provisioning statuses, external references and namespace stay hidden. A
-`PROVISIONING_CONFLICT` reflects only the reports the viewer can see, and
-`PROVISIONING_TRUNCATED` counts only the dropped reports about visible
-consumers. A visible
-consumer whose configuration reference resolves to a hidden provider has the
-reference validated again without it, so the reference reads
-`CONFIG_REF_UNVERIFIED` and no finding carries what the hidden provider
-declares.
-
-Availability, observed callers and offering impact count what a restricted
-view hides; see
+A restricted view counts the providers and consumers the viewer cannot see,
+here and in the offerings you may consume, and never names them; see
 [Under a restricted view](offering-availability.md#under-a-restricted-view).

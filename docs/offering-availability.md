@@ -126,6 +126,25 @@ The offering page links to the same question with
 
 ## Under a restricted view
 
+A viewer restricted to some namespaces sees a provider that has no Kubernetes
+target, with its owner, offering and versions, when its contract declares the
+offering and every Kubernetes source is available. All of that provider's
+targets are removed from the view and its versions omit `inUse`. Any provider
+with a target in a namespace the viewer cannot read omits `inUse` too. With a
+Kubernetes source unavailable or partial, the absence of a target shows
+nothing, so the provider stays hidden.
+
+A consumer the viewer cannot see is
+never named: the offering counts them in `hiddenConsumers`, and its
+provisioning statuses, external references and namespace stay hidden. A
+`PROVISIONING_CONFLICT` reflects only the reports the viewer can see, and
+`PROVISIONING_TRUNCATED` counts only the dropped reports about visible
+consumers. A visible
+consumer whose configuration reference resolves to a hidden provider has the
+reference validated again without it, so the reference reads
+`CONFIG_REF_UNVERIFIED` and no finding carries what the hidden provider
+declares.
+
 Availability is `partial` in every environment where the provider has
 dependents or consumers the viewer cannot see, and its reason says so. A
 provider the viewer cannot see is counted in `hiddenProviders`, and in each
