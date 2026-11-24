@@ -155,7 +155,7 @@ func (s *DetectionSource) Collect(ctx context.Context) (*fleet.Collection, error
 		s.offerings(ctx, res, col)
 		col.ManagedResources, col.SecretRefs = stampManaged(res)
 		col.Limitations = append(col.Limitations, detect.CappedLimitations(res, s.id)...)
-		col.Notes = fleet.UnclassifiedNotes(res.ManagedResourcesUnclassified, s.id)
+		col.Notes = append(col.Notes, fleet.UnclassifiedNotes(res.ManagedResourcesUnclassified, s.id)...)
 	}
 	return col, nil
 }
