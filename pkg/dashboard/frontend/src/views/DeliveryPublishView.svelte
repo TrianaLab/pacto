@@ -264,7 +264,8 @@
   .pv-svc { display: flex; flex-direction: column; gap: var(--sp-2); }
   .pv-svc h2 a { color: var(--c-accent); }
   .pv-row { gap: var(--sp-1); padding: var(--sp-1) var(--sp-3); min-width: 0; overflow-wrap: break-word; }
-  .pv-stage, .pv-head > strong, .pv-rhead > strong { min-width: 0; overflow-wrap: anywhere; }
+  .pv-stage, .pv-member, .pv-head > strong, .pv-rhead > strong { min-width: 0; overflow-wrap: anywhere; }
+  .pv-rhead > .t-meta { min-width: 0; overflow-wrap: anywhere; }
   /* A refusal's head stays one wrapping line at every width: the versions grid
      below would stretch its badge across a column and push its record mark
      onto a second row. */

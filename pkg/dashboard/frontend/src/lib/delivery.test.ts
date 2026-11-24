@@ -531,6 +531,7 @@ describe('memberStateLabel', () => {
     expect(memberStateLabel('held')).toBe('Held for a person');
     expect(memberStateLabel('no request')).toBe('No request yet');
     expect(memberStateLabel('unknown')).toBe('Unknown: no answer in time');
+    expect(memberStateLabel('concluded')).toBe('Ended without applying');
     expect(memberStateLabel('later')).toBe('later');
   });
 });

@@ -845,7 +845,7 @@ type MemberPlanOf = NonNullable<DeliveryEnvironments['members']>[number];
 
 const MEMBER_STATES: Record<string, string> = {
   'no request': 'No request yet', waiting: 'Waiting for the member', unknown: 'Unknown: no answer in time',
-  refused: 'Refused', raised: 'Raised', held: 'Held for a person', applied: 'Applied', rejected: 'Rejected', failed: 'Failed',
+  refused: 'Refused', raised: 'Raised', held: 'Held for a person', applied: 'Applied', failed: 'Failed', concluded: 'Ended without applying',
 };
 
 /** memberStateLabel names what a member answered to the newest request (514-S6). */

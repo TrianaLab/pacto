@@ -4,6 +4,7 @@
   import { fleetServicesUrl } from '../lib/router.ts';
   import { shortDigest, timeLabel, sentence, memberStateLabel, placementSourceLabel } from '../lib/delivery.ts';
   import { countOf } from '../lib/format.ts';
+  import { GLYPH_PATH } from '../lib/figure.ts';
 
   // The Members block on the Environments board of one service (514-S6): per
   // environment members host, in the order the server gives (the service's promotion
@@ -11,20 +12,26 @@
   // each member answered to the newest request. Each member is a mark (its name: opens
   // the services that run on it) and a sibling glyph (its state: opens the reason and
   // the next command). Collapsed unless a member needs a look. The dashboard never
-  // signs: Confirm placement hands a person the command that signs the requests.
+  // signs: Confirm placement hands a person the command that signs the requests. An
+  // environment only members take requests for has no known place in that order, and
+  // says so.
   let { plans = [], service = '' } = $props();
   const id = $props.id();
 
-  const GLYPHS = { applied: '✓', held: '⏸', refused: '✕', rejected: '✕', failed: '!', waiting: '…', unknown: '?', raised: '↑', 'no request': '–' };
+  // held is drawn from the figure language (its pause bars), never a font's glyph.
+  const GLYPHS = { applied: '✓', refused: '✕', failed: '!', concluded: '○', waiting: '…', unknown: '?', raised: '↑', 'no request': '–' };
   const muted = (m) => !!m.stale || m.state === 'unknown';
-  const looks = (m) => muted(m) || m.state === 'held' || m.state === 'refused';
-  const attention = $derived(plans.flatMap((p) => p.members ?? []).filter(looks).length);
+  // A member a person should read: held, refused or failed, opened by default.
+  const asks = (m) => m.state === 'held' || m.state === 'refused' || m.state === 'failed';
+  const looks = (m) => muted(m) || asks(m);
+  // Members, not member-environment pairs: one stale member in two environments is one.
+  const attention = $derived(new Set(plans.flatMap((p) => (p.members ?? []).filter(looks).map((m) => m.uid))).size);
   const memberCount = $derived(new Set(plans.flatMap((p) => (p.members ?? []).map((m) => m.uid))).size);
 
-  // A glyph toggles its member's detail; a held or refused member's starts open.
+  // A glyph toggles its member's detail; one that asks for a person starts open.
   let toggled = $state({});
   const key = (p, m) => `${p.environment}\u0000${m.uid}`;
-  const shown = (p, m) => toggled[key(p, m)] ?? (m.state === 'held' || m.state === 'refused');
+  const shown = (p, m) => toggled[key(p, m)] ?? asks(m);
   const flip = (p, m) => { toggled = { ...toggled, [key(p, m)]: !shown(p, m) }; };
   let confirming = $state('');
 
@@ -43,6 +50,7 @@
       <li class="mp-env" data-testid="member-env" data-environment={p.environment}>
         <p class="mp-head">
           <bdi class="mp-env-name" title={p.environment}>{p.environment}</bdi>
+          {#if p.orderUnknown}<span class="t-meta mp-muted-text" data-testid="member-order-unknown" title="Only members take requests for this environment, so its place in the promotion order is unknown">order unknown</span>{/if}
           <span data-testid="member-placement-source"><ProvenanceMark label={`Where ${service} runs in ${p.environment} across members`} text={sourceTip(p)} /></span>
         </p>
         <ul class="mp-members">
@@ -55,7 +63,7 @@
                 <bdi>{m.name}</bdi>{#if m.digest}<span class="mp-digest">{shortDigest(m.digest)}</span>{/if}
               </a>
               <button type="button" class="mp-glyph tone-{m.state.replace(' ', '-')}" aria-label={`${m.name}: ${label}`} title={label}
-                aria-expanded={shown(p, m)} aria-controls={`${id}-${p.environment}-${m.uid}`} onclick={() => flip(p, m)}><span aria-hidden="true">{GLYPHS[m.state] ?? '•'}</span></button>
+                aria-expanded={shown(p, m)} aria-controls={`${id}-${p.environment}-${m.uid}`} onclick={() => flip(p, m)}>{#if m.state === 'held'}<svg class="mp-svg" width="14" height="14" viewBox="-7 -7 14 14" aria-hidden="true" focusable="false"><path d={GLYPH_PATH.held} /></svg>{:else}<span aria-hidden="true">{GLYPHS[m.state] ?? '•'}</span>{/if}</button>
               {#if muted(m) && m.asOf}<span class="t-meta">as of {timeLabel(m.asOf)}</span>{/if}
             </li>
           {/each}
@@ -100,7 +108,8 @@
   .mp-glyph { display: inline-flex; align-items: center; justify-content: center; min-inline-size: 1.75rem; min-block-size: 1.75rem; padding: 0; border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); color: var(--c-text); cursor: pointer; }
   .mp-glyph.tone-applied { color: var(--c-ok); }
   .mp-glyph.tone-held, .mp-glyph.tone-waiting { color: var(--c-warn); }
-  .mp-glyph.tone-refused, .mp-glyph.tone-rejected, .mp-glyph.tone-failed { color: var(--c-err); }
+  .mp-glyph.tone-refused, .mp-glyph.tone-failed { color: var(--c-err); }
+  .mp-svg path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
   .mp-muted, .mp-muted .mp-mark, .mp-muted .mp-glyph, .mp-muted-text { color: var(--c-text-3); }
   .mp-detail, .mp-panel { display: flex; flex-direction: column; gap: var(--sp-2); min-inline-size: 0; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); background: var(--c-surface); }
   .mp-text { margin: 0; font-size: var(--text-sm); overflow-wrap: anywhere; }

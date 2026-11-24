@@ -87,6 +87,41 @@ describe('MemberPlacement', () => {
     expect((t.querySelector('[data-testid="member"]') as HTMLElement).classList.contains('mp-muted')).toBe(true);
   });
 
+  it('opens when a member failed and shows why', () => {
+    const t = render([plan('production', [member({ state: 'failed', reason: 'Failed: the applier timed out' }), member({ uid: US, name: 'us-prod' })])]);
+    expect(block(t).open).toBe(true);
+    expect(text(block(t).querySelector('summary')!)).toBe('Members: 2 members in 1 environment, 1 needs a look');
+    expect(text(t.querySelector('[data-testid="member-detail"]')!)).toContain('Failed: Failed: the applier timed out.');
+  });
+
+  it('reads an expired or superseded promote as ended, never as a refusal', () => {
+    const t = render([plan('production', [member({ state: 'concluded', reason: 'Expired' })])]);
+    expect(block(t).open).toBe(false);
+    const b = t.querySelector('button.mp-glyph') as HTMLButtonElement;
+    expect(b.getAttribute('aria-label')).toBe('eu-prod: Ended without applying');
+    expect(b.className).not.toMatch(/tone-(refused|failed)/);
+  });
+
+  it('counts a member that needs a look once, however many environments it is in', () => {
+    const stale = member({ stale: true, state: 'waiting', asOf: '2026-11-23T08:00:00Z' });
+    const t = render([plan('test', [stale]), plan('prod', [stale])]);
+    expect(text(block(t).querySelector('summary')!)).toBe('Members: 1 member in 2 environments, 1 needs a look');
+  });
+
+  it('draws held from the figure language, not a font glyph', () => {
+    const t = render([plan('production', [member({ state: 'held', reason: 'r' })])]);
+    const b = t.querySelector('button.mp-glyph') as HTMLButtonElement;
+    expect(b.querySelector('svg path')).toBeTruthy();
+    expect(b.textContent).not.toContain('\u23F8');
+  });
+
+  it('says when an environment has no known place in the promotion order', () => {
+    const t = render([plan('production', [member({})]), plan('qa', [member({})], { orderUnknown: true })]);
+    const marks = [...t.querySelectorAll('[data-testid="member-order-unknown"]')];
+    expect(marks.length).toBe(1);
+    expect(marks[0].closest('[data-testid="member-env"]')?.getAttribute('data-environment')).toBe('qa');
+  });
+
   it('never shows a uid in a label', () => {
     const t = render([plan('production', [member({ state: 'refused', reason: 'r' })], { hidden: 1, hiddenReason: 'no live channel to it' })]);
     expect(text(t)).not.toContain(EU);

@@ -715,7 +715,7 @@ export function installScaleFixture(): void {
       // members left out and hidden, and a partial read.
       const plans = doc.members as Record<string, unknown>[] | undefined;
       if (plans?.length) {
-        const states = ['applied', 'held', 'refused', 'stale', 'unknown', 'waiting', 'raised', 'rejected', 'failed', 'no request'];
+        const states = ['applied', 'held', 'refused', 'stale', 'unknown', 'waiting', 'raised', 'concluded', 'failed', 'no request'];
         const p = plans[plans.length - 1];
         const members = Array.from({ length: 40 }, (_, i) => ({ uid: `${String(i).padStart(8, '0')}-3b7d-4e19-a2c5-6d8f0b1e7a34`, name: longName(`member-${i}`),
           state: states[i % 10] === 'stale' ? 'waiting' : states[i % 10], stale: states[i % 10] === 'stale' || undefined,
@@ -1033,7 +1033,8 @@ export function installScaleFixture(): void {
             at: `2026-11-21T10:${String(59 - i).padStart(2, '0')}:00Z`, verified: false })) });
       // Every fifth row a member's refusal (514-S6), its member name at its longest.
       for (const [i, r] of (doc.refusals as Record<string, unknown>[]).entries()) {
-        if (i % 5 === 4) Object.assign(r, { check: 'member', cluster: longName(`member-${i}`), code: i % 10 === 4 ? 'Rejected' : 'OutsideAllowlist',
+        // ... and one an unhyphenated 63-character DNS label, which breaks at no hyphen.
+        if (i % 5 === 4) Object.assign(r, { check: 'member', cluster: i === 4 ? 'productioneuropewestclusterzeroonefortheledgerservicesandothers' : longName(`member-${i}`), code: i % 10 === 4 ? 'Rejected' : 'OutsideAllowlist',
           requiredBump: undefined, baseline: undefined, reason: longName(`member refusal ${i}`) });
       }
     }

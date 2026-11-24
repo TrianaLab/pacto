@@ -295,6 +295,9 @@ test.describe('Browser demo: the delivery story', () => {
     await expect(prod.locator('[data-testid="member"][data-state="applied"]')).toContainText('eu-prod');
     await expect(prod.locator('[data-testid="member"][data-state="refused"]')).toContainText('us-west');
     await expect(prod.getByTestId('member-detail')).toContainText('no publisher check accepted');
+    // The hub offers the command a person confirms the placement with.
+    await prod.getByRole('button', { name: 'Confirm placement' }).click();
+    await expect(prod.locator('.mp-panel')).toContainText('pacto delivery propose --service payments --environment prod');
     await audit(page, 'environments of payments with members');
     await page.goto('/#/delivery/publish');
     const row = page.getByTestId('refused-publishes').locator('li.pv-row').filter({ hasText: 'Refused on a member' });
