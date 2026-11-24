@@ -218,6 +218,9 @@ spec:
     spec:
       containers: [{name: app, image: "${PAUSE_IMG%@*}"}]
 YAML
+  # The Pacto pulls its contract with billing's own pull secret: a tenant's
+  # contract never rides on the installation's registry credential, so the
+  # member install grants the operator that one Secret (controller.secretGrants).
   cat > "$tree/pacto.yaml" <<YAML
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
@@ -226,7 +229,7 @@ metadata:
   labels: {delivery.pacto.trianalab.io/environment: production}
 spec:
   checkIntervalSeconds: 30
-  contractRef: {oci: "$ref"}
+  contractRef: {oci: "$ref", pullSecretRef: zot-push}
   target: {workloadRef: {name: $APP, kind: Deployment}}
 YAML
   tar -czf "$tgz" -C "$tree" .
@@ -292,6 +295,7 @@ helm install pacto-operator "$PACTO_CHART" -n "$NS" --kube-context "$CTX_M" "${S
   --set delivery.promoter.registryCredentials.secretName=zot-push \
   --set delivery.publishers.registry=ghcr.io/acme --set-file delivery.publishers.trustedRoot="$CI_ROOT" \
   --set delivery.recorder.enabled=true --set delivery.recorder.poll=5s --set delivery.recorder.registryCredentials.secretName=zot-push \
+  --set 'controller.secretGrants[0]=billing/zot-push' \
   --set delivery.recorder.signing.ed25519.secretName=recorder-key --set delivery.recorder.signing.allowOperatorReadableKey=true \
   --set-file delivery.recorder.signing.publicKey="$RECORDER_PUB" \
   --wait --timeout 300s >/dev/null || fail "helm install pacto-operator on the member did not roll out"
@@ -368,7 +372,7 @@ spec:
   candidates: {registry: {repository: "$REG/acme/apps/$APP"}}
   startLevel: advise
   approval: {always: true}
-  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 20s}}
+  gates: {impact: {declaredConsumersOnly: true}, verify: {window: 60s}}
 ---
 apiVersion: delivery.pacto.trianalab.io/v1alpha1
 kind: Stage
