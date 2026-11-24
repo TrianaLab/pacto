@@ -123,7 +123,7 @@ func (p *InferredPublisher) Start(ctx context.Context) error {
 // partial.
 func (p *InferredPublisher) run(ctx context.Context) {
 	pactos, listErr := p.pactos(ctx)
-	snap, err := delivery.Snapshot(ctx, pactos, listErr, nil, p.Deps.Now())
+	snap, err := delivery.Snapshot(ctx, pactos, listErr, nil, p.Deps.Now(), delivery.Members{})
 	var rep inferredcontract.Report
 	if err == nil && len(p.Namespaces) > 0 {
 		snap.Completeness = fleet.CompletenessPartial

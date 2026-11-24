@@ -91,7 +91,7 @@ func newDashboardMCP(v *viper.Viper, svc *app.Service, version string, repos []s
 	rm.authoring = remoteAuthoring(svc, repos, rm.modes.Fleet, "", nil)
 	// Delivery follows the dashboard: served with a cluster, with its trust
 	// and policy namespace.
-	rm.delivery = deliveryClientsFor(id.trust, id.policyNS, d)
+	rm.delivery = deliveryClientsFor(id.trust, id.policyNS, id.members, d)
 	rm.reads = mcpDeliveryReads(id, rm.modes.Fleet, deliveryNarrowing(splitNamespaces(v.GetString("dashboard.namespace"))))
 	rm.installed, rm.installedAt = id.installedProbe(), id.installedAt()
 	// ponytail: only a bundle can fail to register, and the dashboard serves

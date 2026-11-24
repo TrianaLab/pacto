@@ -42,11 +42,14 @@ type dashboardIdentity struct {
 	newClient func(*rest.Config) (dynamic.Interface, error)
 	// scope is the sign-in cluster's API discovery, built once at start:
 	// discovery is the same for every caller.
-	scope  delivery.ScopeFunc
-	infra  delivery.InfraFunc
-	served func(*rest.Config, string) (bool, error)
-	now    func() time.Time
-	state  func(context.Context) authn.State
+	scope delivery.ScopeFunc
+	infra delivery.InfraFunc
+	// members are the hub's approved members a promote's plan reads
+	// (Service.PlanMembers); nil reads none.
+	members func(context.Context, string) delivery.Members
+	served  func(*rest.Config, string) (bool, error)
+	now     func() time.Time
+	state   func(context.Context) authn.State
 	// viewer narrows the fleet views to what the signed-in person's Kubernetes
 	// RBAC lets them read; nil outside shared mode with sign-in.
 	viewer *authn.Viewer
@@ -175,7 +178,7 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		return nil, err
 	}
 	act := &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope, Infra: id.infra}
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope, Infra: id.infra, Members: id.members}
 	out := newDashDelivery(id, act, who)
 	if s := id.sharedReads(); s != nil && token != "" {
 		c, sc := *act, sharedClient{Interface: dyn, s: s, token: token}

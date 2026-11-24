@@ -769,6 +769,7 @@ pacto delivery [flags]
 
 ```
       --delivery-namespace string   namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
+      --detected string             what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, or a file holding the same JSON; a promote's plan then reads the hub's approved member clusters too
   -h, --help[=true|false]           help for delivery
   -n, --namespace string            namespace of the Stage and its Operations (default "default")
       --trust string                the trust config delivery records are verified with: the recorder's PEM public key, or a YAML file of keys and the streams each may sign (default $PACTO_DELIVERY_TRUST)

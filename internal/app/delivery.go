@@ -87,6 +87,10 @@ type Delivery struct {
 	// Infra tells which kinds are infrastructure Crossplane manages
 	// (DiscoveryScope); nil tells them by group only.
 	Infra delivery.InfraFunc
+	// Members are the hub's members a promote in an environment projects
+	// onto beyond the hub's own Pactos (Service.PlanMembers); nil reads
+	// none.
+	Members func(ctx context.Context, environment string) delivery.Members
 }
 
 // Caller is who the apiserver says is calling, and when they last logged in.
@@ -500,6 +504,13 @@ func (d *Delivery) applierObject(ctx context.Context, ns string, ref delivery.Ap
 		gvr = gvrHelmRelease
 	}
 	return d.Dynamic.Resource(gvr).Namespace(ns).Get(ctx, ref.Name, metav1.GetOptions{})
+}
+
+func (p planSources) Members(ctx context.Context, environment string) delivery.Members {
+	if p.d.Members == nil {
+		return delivery.Members{}
+	}
+	return p.d.Members(ctx, environment)
 }
 
 func (p planSources) Stages(ctx context.Context) ([]delivery.StageObject, error) {

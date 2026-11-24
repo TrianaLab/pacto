@@ -264,7 +264,7 @@ func TestSameApplierIgnoresTimes(t *testing.T) {
 func applierPlan(t *testing.T, ref ApplyRef, st *ApplierStatus) Plan {
 	t.Helper()
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
-	snap, err := Snapshot(t.Context(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(t.Context(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

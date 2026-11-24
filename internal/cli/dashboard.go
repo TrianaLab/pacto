@@ -185,6 +185,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			if err != nil {
 				return err
 			}
+			identity.members = svc.PlanMembers(fopts.ClusterJoins)
 			go identity.signing.report(cmd.Context())
 			warnOpen(cmd.Context(), identity)
 			opts := dashboard.Options{

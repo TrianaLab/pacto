@@ -161,7 +161,7 @@ func paymentsDep(rng string) contract.Dependency {
 func orderPlan(t *testing.T, in PlanInput, pactos []PactoView, from, to Revision) Plan {
 	t.Helper()
 	pactos = keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), in.StagesErr, "prod"))
-	snap, err := Snapshot(context.Background(), pactos, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), pactos, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +377,7 @@ func TestOrderCandidateMustAcceptWhatElseRunsHere(t *testing.T) {
 func TestAcceptsWhatRunsHere(t *testing.T) {
 	in, pactos := ordersWorld(nil)
 	pactos = append(pactos, runningPacto("orders-prod", "shipping", "1.4.0"))
-	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now)
+	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +423,7 @@ func TestAcceptsWhatRunsHere(t *testing.T) {
 func TestAcceptsWhatRunsHereDerivedName(t *testing.T) {
 	in, pactos := ordersWorld(nil)
 	pactos = append(pactos, runningPacto("orders-prod", "shipping", "1.4.0"))
-	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now)
+	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -536,7 +536,7 @@ func TestOrderCandidateMustKeepItsOwnConsumers(t *testing.T) {
 func TestAcceptedHere(t *testing.T) {
 	in, pactos := ordersWorld(nil)
 	pactos = append(pactos, dependentPacto("prod", "checkout", "1.0.0", "^1.0.0"))
-	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now)
+	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -622,7 +622,7 @@ func TestStatusCarriesExternal(t *testing.T) {
 	if m := onlyMove(t, orderPlan(t, in, pactos, payments2, payments3)); m.Candidate == nil || m.Candidate.Digest != o2 {
 		t.Fatalf("an external dependency nothing runs here does not block the move: %+v", m)
 	}
-	snap, err := Snapshot(context.Background(), pactos, nil, nil, now)
+	snap, err := Snapshot(context.Background(), pactos, nil, nil, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -654,7 +654,7 @@ func TestDeliveryUnknownRangeHolds(t *testing.T) {
 
 	in, pactos = ordersWorld(nil)
 	pactos = append(pactos, runningPacto("orders-prod", "shipping", "1.4.0"))
-	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now)
+	s, err := Snapshot(context.Background(), keep(EnvironmentPactos(pactos, in.Stages, appliedHere(in.Stages), nil, "prod")), nil, nil, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -135,6 +135,9 @@ func (p planSources) Kustomizations(ctx context.Context) ([]delivery.Kustomizati
 	return p.c.kustomizations(ctx)
 }
 
+// Members reads no member yet: the promoter projects onto its own Pactos.
+func (p planSources) Members(context.Context, string) delivery.Members { return delivery.Members{} }
+
 func (p planSources) Describe(ctx context.Context, stage delivery.StageObject, digest string) delivery.Revision {
 	return p.c.describe(ctx, stage, digest)
 }

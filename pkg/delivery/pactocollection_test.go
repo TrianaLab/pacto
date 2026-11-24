@@ -71,7 +71,7 @@ func TestDeliverySnapshotUnchangedByPactoCollection(t *testing.T) {
 	sides := []Revision{from, to, {}}
 	listErr := errors.New("page 2 failed")
 
-	got, err := Snapshot(context.Background(), pactos, listErr, sides, now)
+	got, err := Snapshot(context.Background(), pactos, listErr, sides, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

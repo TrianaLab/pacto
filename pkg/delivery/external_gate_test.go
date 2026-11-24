@@ -43,7 +43,7 @@ func TestPlanInferredExternalEdgeChangesNoVerdict(t *testing.T) {
 		{"breaking", rev(dA, c1, old), rev(dB, c2, major), []PactoView{checkoutPacto("^1.0.0")}},
 		{"environment", rev(dA, c1, old), rev(dB, c2, envBundle(map[string]string{"prod": "prod.yaml"}, prod, true)), nil},
 	} {
-		snap, err := Snapshot(context.Background(), c.pactos, nil, []Revision{c.from, c.to}, now)
+		snap, err := Snapshot(context.Background(), c.pactos, nil, []Revision{c.from, c.to}, now, Members{})
 		if err != nil {
 			t.Fatal(err)
 		}

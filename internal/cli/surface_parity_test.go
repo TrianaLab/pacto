@@ -200,6 +200,7 @@ func deliveryRows() []surfaceRow {
 			{"delivery --namespace", "", "", "each delivery tool and route takes namespace as an argument; its row follows the tool"},
 			{"delivery --delivery-namespace", "", "", whyAtServerStart},
 			{"delivery --trust", "", "", whyAtServerStart},
+			{"delivery --detected", "", "", whyAtServerStart + "; plans read the hub's approved members from the detection the server reads"},
 			{"delivery status --why", "pacto_delivery_status.why", "GET /api/delivery/progress", "the dashboard's progress page plans the candidates of one Stage"},
 			{"", "", "GET /api/delivery/progress?stage", "pacto delivery status --why and pacto_delivery_status with why plan every Stage of a service"},
 			{"", "", "GET /api/delivery/progress?namespace", "pacto delivery status --why and pacto_delivery_status with why plan every Stage of a service"},

@@ -239,9 +239,14 @@ const SnapshotSourceID = "delivery"
 
 // Snapshot builds the operational graph plan() projects a change onto: the
 // Pactos' [PactoCollection] under [SnapshotSourceID], plus the revisions on
-// both sides of the change.
-func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Revision, now time.Time) (*fleet.FleetSnapshot, error) {
+// both sides of the change and the sources of m, the hub's members. With
+// member sources the hub's Pactos sit in m.Home, so they are never
+// clusterless next to a member's.
+func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Revision, now time.Time, m Members) (*fleet.FleetSnapshot, error) {
 	col := PactoCollection(SnapshotSourceID, pactos, listErr, now)
+	if len(m.Sources) > 0 {
+		col.Cluster = m.Home
+	}
 	var revs []fleet.RawRevision
 	for _, side := range sides {
 		if side.Bundle == nil {
@@ -259,7 +264,7 @@ func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Re
 	// No ExternalCatalog: Build classifies with externalcatalog.Default(), the
 	// catalog the operator compiles in, so its digest is the snapshot's catalog
 	// ref that EXTERNAL_CATALOG_MISMATCH compares each status against.
-	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, src)
+	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, append([]fleet.Source{src}, m.Sources...)...)
 }
 
 // PactoCollection is the collection of the Pactos as source reads them: one

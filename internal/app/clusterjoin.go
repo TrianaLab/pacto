@@ -388,3 +388,44 @@ func readDetection(ctx context.Context, dyn dynamic.Interface, ref string, now f
 	}
 	return res, string(st.Status)
 }
+
+// PlanMembers reads, for each promote, the members of the hub joins
+// resolves to, as the fleet reads them: the join list and each approved
+// member's snapshot through the shared snapshot cache, verified only under
+// its approved key scoped to its UID. The hub's own Pactos sit in the hub's
+// cluster. nil joins gives nil: no members.
+func (s *Service) PlanMembers(joins *JoinOptions) func(ctx context.Context, environment string) delivery.Members {
+	if joins == nil {
+		return nil
+	}
+	return func(ctx context.Context, environment string) delivery.Members {
+		list := s.ClusterJoins(ctx, membersOnly(*joins))
+		trust := delivery.JoinTrust(list.Clusters)
+		r := &snapshotReader{cache: &s.snapshots, now: s.env().now()}
+		repo, _ := openTargets(list.Repository) // read only for an approved member: the list was read
+		read := func(uid string) (delivery.TargetSnapshot, error) {
+			return r.member(ctx, repo, list.Repository, trust, uid)
+		}
+		var home *fleet.Cluster
+		if list.Hub.UID != "" {
+			home = &fleet.Cluster{ID: list.Hub.UID, Name: list.Hub.Name}
+		}
+		return delivery.MembersOf(list, read, environment, r.now, home)
+	}
+}
+
+// member reads the snapshot of member uid from repo (at path), verified
+// under trust, the approved keys, each covering only its own member's
+// stream. ClusterJoins read it a moment before; a tag that moved since is
+// an error, so the member's consumers read unknown.
+func (r *snapshotReader) member(ctx context.Context, repo *remote.Repository, path string, trust *delivery.TrustConfig, uid string) (delivery.TargetSnapshot, error) {
+	b, _, err := r.fetch(ctx, repo, path, delivery.TargetSnapshotTagPrefix+uid)
+	if err != nil {
+		return delivery.TargetSnapshot{}, err
+	}
+	st, _, err := delivery.OpenTargetSnapshot(b, trust, signing.OpenKey)
+	if err == nil && st.Predicate.Cluster != uid {
+		err = errors.New("its tag holds the snapshot of cluster " + st.Predicate.Cluster)
+	}
+	return st.Predicate, err
+}

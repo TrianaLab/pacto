@@ -780,7 +780,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 	citeCallers(in, res, v.Citation)
 	unseenConsumers := unseenConsumersOf(in, res, unknown)
 	unseen := slices.Clone(unseenConsumers)
-	if len(res.Consumers) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {
+	if localConsumers(in.Snapshot, res) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {
 		unseen = append(unseen, "no Pacto depends on "+in.Stage.Service.Name+", but a service with no contract can still call it")
 	}
 	unseen = append(unseen, versionDoubts(in, res)...)
@@ -925,7 +925,9 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 	}
 	if res.Classification != diff.NonBreaking.String() {
 		out = append(out, callersUnseen(in.Snapshot, fleet.NewServiceKeyDomain(contract.OCIDomain(in.To.ContractRef), in.Stage.Service.Name))...)
+		out = append(out, unreadReason(in.Snapshot)...)
 	}
+	out = append(out, staleMemberReasons(in.Snapshot, res)...)
 	out = append(out, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
 	consumers := map[string]bool{}
 	for _, c := range res.Consumers {
@@ -943,6 +945,78 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 		}
 	}
 	return out
+}
+
+// memberStates are the states of the members' sources by cluster id: every
+// source that names its cluster but the hub's own (whose Pactos sit in the
+// hub's cluster only once members exist, and never name it in their state).
+// Empty with no members.
+func memberStates(snap *fleet.FleetSnapshot) map[string]fleet.SourceState {
+	out := map[string]fleet.SourceState{}
+	for _, st := range snap.Sources {
+		if st.ID != SnapshotSourceID && st.Cluster != nil {
+			out[st.Cluster.ID] = st
+		}
+	}
+	return out
+}
+
+// targetCluster is the cluster of target key tk, "" when Pacto cannot tell.
+func targetCluster(snap *fleet.FleetSnapshot, tk string) string {
+	if t := snap.Targets[fleet.TargetKey(tk)]; t != nil {
+		return t.Cluster
+	}
+	return ""
+}
+
+// localConsumers counts the consumers with a target outside every member, or
+// no target: a consumer seen only in members never removes the doubt a
+// service with no contract leaves, since member data raises a gate and never
+// clears it. With no members every consumer counts.
+func localConsumers(snap *fleet.FleetSnapshot, res *impact.Result) int {
+	members, n := memberStates(snap), 0
+	for _, c := range res.Consumers {
+		if len(c.Targets) == 0 || slices.ContainsFunc(c.Targets, func(tk string) bool { _, member := members[targetCluster(snap, tk)]; return !member }) {
+			n++
+		}
+	}
+	return n
+}
+
+// staleMemberReasons names every consumer with a target in a member whose
+// snapshot is stale or could not be read: the instance there may run
+// another revision whose range refuses the change.
+func staleMemberReasons(snap *fleet.FleetSnapshot, res *impact.Result) []string {
+	members := memberStates(snap)
+	var out []string
+	for _, c := range res.Consumers {
+		for _, tk := range c.Targets {
+			st, member := members[targetCluster(snap, tk)]
+			if !member || st.Status != fleet.SourceStale && st.Status != fleet.SourceUnavailable {
+				continue
+			}
+			age := "could not be read"
+			if st.LastSuccessfulSync != nil {
+				age = "is " + ageWords(max(snap.GeneratedAt.Sub(*st.LastSuccessfulSync), 0)) + " old"
+			}
+			out = append(out, c.Service+" runs in cluster "+cmp.Or(st.Cluster.Name, st.Cluster.ID)+", whose snapshot "+age)
+			break
+		}
+	}
+	return out
+}
+
+// unreadReason says that clusters publish to this hub and are not members,
+// so consumers there are unknown. It reads the typed count, never the
+// limitation prose a cap or a restricted view may drop.
+func unreadReason(snap *fleet.FleetSnapshot) []string {
+	switch n := snap.UnreadClusters; {
+	case n == 1:
+		return []string{"1 cluster publishes to this hub and is not a member, so consumers there are unknown: approve or remove it (pacto cluster list)"}
+	case n > 1:
+		return []string{strconv.Itoa(n) + " clusters publish to this hub and are not members, so consumers there are unknown: approve or remove them (pacto cluster list)"}
+	}
+	return nil
 }
 
 // requirementsUnseen says which direct consumers' requirements Pacto cannot
