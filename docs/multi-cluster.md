@@ -145,6 +145,10 @@ unknown:
   how long ago it last published. An `incompatible` verdict stays.
 - **A join list Pacto could not read.** The answer stays partial.
 
+An event answer, such as `pacto impact --removed payments`, names where each
+consumer runs the same way. While clusters are not members yet, an event
+answer that finds no consumer waits for a person too.
+
 `pacto delivery plan` reads the hub's members too with `--detected`, which
 finds the registry as `pacto cluster list` does.
 
