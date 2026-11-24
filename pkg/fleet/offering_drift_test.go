@@ -296,6 +296,39 @@ func TestOfferingDriftNoneWhenEqual(t *testing.T) {
 	}
 }
 
+func TestOfferingDriftNoneAcrossRenewal(t *testing.T) {
+	// A record re-pushed only to renew its age has a new digest and names
+	// the accepted one: the same record, no drift.
+	renewed := xbucket(3)
+	renewed.Digest = offSum([]byte("renewed"))
+	renewed.ResolvedRef = offRepo + "@" + renewed.Digest
+	renewed.Contributor.Renews = xbucket(3).Digest
+	if _, d := acceptedDrift(t, offRoot+"/offerings", xbucket(3), []RawRevision{renewed}, []OfferingObservation{freshObs("xbucket")}); d != nil {
+		t.Fatalf("drift = %+v", d)
+	}
+}
+
+func TestDriftUnknownWhenHeadIsFallback(t *testing.T) {
+	// The accepted record 4 was refused, so the read fell back to 3: no
+	// confident drift.
+	fallback := xbucket(3)
+	fallback.Contributor.NewerRefused = "0.0.0-inferred.4.0"
+	_, d := acceptedDrift(t, offRoot+"/offerings", xbucket(4), []RawRevision{fallback}, []OfferingObservation{freshObs("xbucket")})
+	unknownBecause(t, d, "newest record 0.0.0-inferred.4.0 was refused")
+	// Nor in sync when the accepted record is the fallback.
+	fallback = xbucket(4)
+	fallback.Contributor.NewerRefused = "0.0.0-inferred.5.0"
+	_, d = acceptedDrift(t, offRoot+"/offerings", xbucket(4), []RawRevision{fallback}, []OfferingObservation{freshObs("xbucket")})
+	unknownBecause(t, d, "newest record 0.0.0-inferred.5.0 was refused")
+}
+
+func TestDriftUnknownWhenUnreadDespiteDifferentHead(t *testing.T) {
+	obs := freshObs("xbucket")
+	obs.Unread = "registry unavailable"
+	_, d := acceptedDrift(t, offRoot+"/offerings", xbucket(3), []RawRevision{xbucket(4)}, []OfferingObservation{obs})
+	unknownBecause(t, d, "not all read: registry unavailable")
+}
+
 // unknownBecause asserts d is unknown for reason.
 func unknownBecause(t *testing.T, d *OfferingDrift, reason string) {
 	t.Helper()
@@ -359,6 +392,19 @@ func TestDriftUnknownWhenHidden(t *testing.T) {
 	// The base snapshot keeps its drift.
 	if q.snap.Services[NewServiceKeyDomain(offRoot+"/offerings", "xbucket")].OfferingDrift.State != DriftDrifted {
 		t.Error("Restrict changed the base snapshot")
+	}
+}
+
+func TestDriftUnknownWhenObservationHiddenWithoutHead(t *testing.T) {
+	// No record was read, but the hidden cluster's observation would still
+	// leak its reader text and time.
+	obs := freshObs("xbucket")
+	obs.Unread = "reading ghcr.io/acme/secret failed"
+	q, _ := acceptedDrift(t, offRoot+"/offerings", xbucket(3), nil, []OfferingObservation{obs})
+	d := q.Restrict(otherCluster, everyKind).snap.Services[NewServiceKeyDomain(offRoot+"/offerings", "xbucket")].OfferingDrift
+	unknownBecause(t, d, "the inferred offering is outside your view")
+	if d.AsOf != nil || strings.Contains(d.Reason, "secret") {
+		t.Errorf("hidden drift names the observation: %+v", d)
 	}
 }
 

@@ -155,13 +155,15 @@ func (s *DetectionSource) offerings(ctx context.Context, res detect.Result, col 
 	for i := range revs {
 		revs[i].Contributor.Cluster = res.Cluster
 	}
+	// Unread is only what the reader could not read; a partial run is
+	// obs.Partial already.
+	if len(lims) > 0 {
+		obs.Unread = lims[0].Message
+	}
 	if o.Partial != "" {
 		f.Problems = append(f.Problems, "the producer's last run stopped short: "+o.Partial)
 		lims = append(lims, fleet.Limitation{Code: fleet.LimitationContributionUnread, Source: s.id,
 			Message: "the inferred offerings of " + o.Producer + " are partial: " + o.Partial})
-	}
-	if len(lims) > 0 {
-		obs.Unread = lims[0].Message
 	}
 	col.Revisions = append(col.Revisions, revs...)
 	col.Notes = append(col.Notes, lims...)

@@ -179,16 +179,27 @@ func TestOfferingPublisherRenewsAgingRecord(t *testing.T) {
 	host := testHost(t)
 	p, _, _ := publisher(t, host, clusterA, cluster(xrd("v2", "XBucket", 3, 500)), serves("v2"))
 	p.run(context.Background())
+	repo := p.repository()
+	first, _ := client().Head(context.Background(), repo+":xbucket_0.0.0-inferred.3.0")
 	later := now.Add(fleet.RecentEvidenceWindow)
 	p.now = func() time.Time { return later }
 	p.run(context.Background())
-	repo := p.repository()
 	if got := offeringTags(t, repo); len(got) != 1 {
 		t.Fatalf("tags = %v", got)
 	}
 	h, _ := client().Head(context.Background(), repo+":xbucket_0.0.0-inferred.3.0")
 	if h.Annotations[publish.AnnotationCreated] != later.Format(time.RFC3339) {
 		t.Fatalf("created = %s, the aging record was not renewed", h.Annotations[publish.AnnotationCreated])
+	}
+	// The renewal names the first record, so an acceptance of it is not drift,
+	// and a second renewal still names that one.
+	if h.Annotations[contract.AnnotationRenews] != first.Digest || h.Digest == first.Digest {
+		t.Fatalf("renewal %s names %q, want %s", h.Digest, h.Annotations[contract.AnnotationRenews], first.Digest)
+	}
+	p.now = func() time.Time { return later.Add(fleet.RecentEvidenceWindow) }
+	p.run(context.Background())
+	if h2, _ := client().Head(context.Background(), repo+":xbucket_0.0.0-inferred.3.0"); h2.Digest == h.Digest || h2.Annotations[contract.AnnotationRenews] != first.Digest {
+		t.Fatalf("second renewal names %q, want %s", h2.Annotations[contract.AnnotationRenews], first.Digest)
 	}
 }
 
@@ -239,7 +250,7 @@ func pushForeign(t *testing.T, host, repo string, o xrdoffering.Offering, versio
 	} else {
 		other.reg = client()
 	}
-	if err := other.push(context.Background(), other.reg, repo, o, version); err != nil && key != nil {
+	if err := other.push(context.Background(), other.reg, repo, o, version, ""); err != nil && key != nil {
 		t.Fatal(err)
 	}
 }
@@ -424,8 +435,20 @@ func TestOfferingPublisherSkipsUnmappableAndDuplicateSlugs(t *testing.T) {
 	if got := offeringTags(t, p.repository()); !slices.Equal(got, []string{"xbucket_0.0.0-inferred.1.0"}) {
 		t.Fatalf("tags = %v", got)
 	}
-	if !slices.Equal(p.ad.Observed, []string{"xbucket"}) || !strings.Contains(l.String(), "is another XRD's") || !strings.Contains(l.String(), "no DNS label") {
+	// The XRD that lost its slug leaves the run partial; the unmappable one
+	// is no offering, only counted.
+	if p.ad.Observed != nil || p.ad.Partial != "1 XRDs share a slug with another and were left out" ||
+		!strings.Contains(l.String(), "is another XRD's") || !strings.Contains(l.String(), "no DNS label") {
 		t.Fatalf("advertisement = %+v\n%s", p.ad, l)
+	}
+}
+
+func TestOfferingPublisherAdvertisesNothingWithoutCrossplane(t *testing.T) {
+	host := testHost(t)
+	p, _, _ := publisher(t, host, clusterA, cluster(), serves())
+	p.run(context.Background())
+	if ad := p.Advertisement(); ad != nil {
+		t.Fatalf("advertisement = %+v, want none while Crossplane was never served", ad)
 	}
 }
 

@@ -96,7 +96,8 @@ func TestDetectionOfferingsPartialIsLimitation(t *testing.T) {
 	if len(col.Notes) != 1 || col.Notes[0].Code != fleet.LimitationContributionUnread || !strings.Contains(col.Notes[0].Message, "partial: 201 source objects") {
 		t.Fatalf("notes = %+v", col.Notes)
 	}
-	if col.Offerings[0].Partial == "" || col.Offerings[0].Unread == "" {
+	// Every record was read: the run stopped short, nothing went unread.
+	if col.Offerings[0].Partial == "" || col.Offerings[0].Unread != "" {
 		t.Fatalf("observation = %+v", col.Offerings[0])
 	}
 	for _, p := range col.Providers {

@@ -1515,21 +1515,32 @@ func hideClusterContributions(s *FleetSnapshot, visible func(cluster, namespace 
 
 // restrictOfferingDrift turns the drift of every visible declared offering
 // whose inferred source the caller may not see into unknown, naming no
-// record: what changed in a hidden source object is cluster data too.
+// record: what changed in a hidden source object, or what a hidden cluster's
+// installation advertised of it, is cluster data too.
 func restrictOfferingDrift(out, s *FleetSnapshot, hiddenSvc map[ServiceKey]bool, visible func(cluster, namespace string) bool) {
 	for k, svc := range out.Services {
-		if svc.OfferingDrift == nil && svc.offeringFrom == "" {
+		if svc.offeringFrom == "" || !offeringFromHidden(s, svc.offeringFrom, hiddenSvc, visible) {
 			continue
 		}
-		head := s.contributedHeads[svc.offeringFrom]
-		if head == nil || !hiddenSvc[head.ServiceKey] && !headHidden(head, visible) {
-			continue
-		}
+		producer, _, _ := strings.Cut(svc.offeringFrom, "/")
 		cp := *svc
-		cp.OfferingDrift = &OfferingDrift{State: DriftUnknown, Producer: head.contributor.Producer,
+		cp.OfferingDrift = &OfferingDrift{State: DriftUnknown, Producer: producer,
 			AcceptedDigest: svc.offeringDigest, Reason: "the inferred offering is outside your view"}
 		out.Services[k] = &cp
 	}
+}
+
+// offeringFromHidden reports whether the caller may not see the producer's
+// newest record of from (<producer>/<service>), or the cluster that
+// advertised it or the producer's observation, whether or not a record was
+// read.
+func offeringFromHidden(s *FleetSnapshot, from string, hiddenSvc map[ServiceKey]bool, visible func(cluster, namespace string) bool) bool {
+	if head := s.contributedHeads[from]; head != nil && (hiddenSvc[head.ServiceKey] || headHidden(head, visible)) {
+		return true
+	}
+	producer, _, _ := strings.Cut(from, "/")
+	obs, ok := s.offeringObs[producer]
+	return ok && obs.Cluster != "" && !visible(obs.Cluster, "")
 }
 
 // headHidden reports whether the cluster that advertised head's records is
@@ -1539,10 +1550,11 @@ func headHidden(head *ContractRevision, visible func(cluster, namespace string) 
 }
 
 // offeringSourceHidden reports whether some declared offering of s was
-// accepted from records a cluster the caller may not read advertised.
+// accepted from records, or a producer observation, a cluster the caller may
+// not read advertised.
 func offeringSourceHidden(s *FleetSnapshot, visible func(cluster, namespace string) bool) bool {
 	for _, svc := range s.Services {
-		if head := s.contributedHeads[svc.offeringFrom]; svc.offeringFrom != "" && head != nil && headHidden(head, visible) {
+		if svc.offeringFrom != "" && offeringFromHidden(s, svc.offeringFrom, nil, visible) {
 			return true
 		}
 	}

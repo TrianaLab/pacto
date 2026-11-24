@@ -127,9 +127,12 @@ func acceptedFrom(snap *FleetSnapshot, s *ServiceRecord) (producer, service, dig
 }
 
 // offeringDrift is the drift of an offering accepted from producer p's
-// record digest d of service svc: drifted when p's newest record differs,
-// nil only for a fresh, complete observation that lists svc and a newest
-// record equal to d, unknown with the reason otherwise.
+// record digest d of service svc: drifted when p's newest record differs (a
+// record re-pushed only to renew its age names d as the one it renews, so it
+// is the same record), nil only for a fresh, complete observation that lists
+// svc and a newest record equal to d, unknown with the reason otherwise. A
+// read the producer reports incomplete, or a newest record read only because
+// a newer one was refused, proves no drift either way.
 func offeringDrift(snap *FleetSnapshot, p, svc, d string) *OfferingDrift {
 	out := &OfferingDrift{State: DriftUnknown, Producer: p, AcceptedDigest: d}
 	head := snap.contributedHeads[p+"/"+svc]
@@ -141,14 +144,16 @@ func offeringDrift(snap *FleetSnapshot, p, svc, d string) *OfferingDrift {
 		out.AsOf = obs.AsOf
 	}
 	switch {
-	case head != nil && head.Digest != d:
+	case observed && obs.Unread != "":
+		out.Reason = "the producer's records were not all read: " + obs.Unread
+	case observed && obs.Partial != "":
+		out.Reason = "the producer's last run stopped short: " + obs.Partial
+	case head != nil && head.contributor != nil && head.contributor.NewerRefused != "":
+		out.Reason = "the producer's newest record " + head.contributor.NewerRefused + " was refused"
+	case head != nil && head.Digest != d && (head.contributor == nil || head.contributor.Renews != d):
 		out.State, out.Reason = DriftDrifted, "source object changed since accepted"+generationNote(head)
 	case !observed:
 		out.Reason = "the producer reports no observation"
-	case obs.Unread != "":
-		out.Reason = "the producer's records were not all read: " + obs.Unread
-	case obs.Partial != "":
-		out.Reason = "the producer's last run stopped short: " + obs.Partial
 	case obs.AsOf == nil || snap.GeneratedAt.Sub(*obs.AsOf) > cmp.Or(snap.provisioningWindow, RecentEvidenceWindow):
 		out.Reason = "observation is stale"
 	case !slices.Contains(obs.Observed, svc):

@@ -307,7 +307,16 @@ func (r *contributionReader) readOne(ctx context.Context, c evidenceingest.Produ
 	resolved := contract.OCIScheme + c.Repository + "@" + head.Digest
 	return &fleet.RawRevision{Bundle: b, Domain: contract.OCIDomain(resolved), RequestedRef: contract.OCIScheme + c.Repository + ":" + tag,
 		ResolvedRef: resolved, Digest: head.Digest,
-		Contributor: &fleet.Contributor{Producer: c.Producer, KeyID: keyID, ReadAt: r.Now(), AsOf: asOf}}, nil
+		Contributor: &fleet.Contributor{Producer: c.Producer, KeyID: keyID, ReadAt: r.Now(), AsOf: asOf, Renews: renews(head.Annotations)}}, nil
+}
+
+// renews is the digest a renewal's signed manifest names as the record it
+// repeats, "" when it names none or no digest.
+func renews(ann map[string]string) string {
+	if d := ann[contract.AnnotationRenews]; contract.ValidOCIDigest(d) {
+		return d
+	}
+	return ""
 }
 
 // verifyOne is the id of the key one of repo@digest's signatures verifies

@@ -186,10 +186,14 @@ func (p *Publisher) run(ctx context.Context) {
 		p.partial("reading " + repo + " failed: " + fleet.SanitizedReason(err))
 		return
 	}
-	observed, skipped, failed := []string{}, 0, 0
+	observed, skipped, collided, failed := []string{}, 0, 0, 0
 	for _, x := range xrds {
 		o, err := xrdoffering.Map(&x, comps, p.cfg.Pacto)
 		if err == nil && slices.Contains(observed, o.Slug) {
+			// An XRD that maps to an offering but loses its slug is left out
+			// of a run that would otherwise read complete: say so. One that
+			// maps to no offering is no offering, only counted.
+			collided++
 			err = fmt.Errorf("XRD %s: slug %s is another XRD's", x.GetName(), o.Slug)
 		}
 		if err != nil {
@@ -203,6 +207,9 @@ func (p *Publisher) run(ctx context.Context) {
 			PublishErrors.Inc()
 			p.log.Error(err, "offering not published", "offering", o.Slug, "repository", repo)
 		}
+	}
+	if collided > 0 {
+		why = strings.TrimPrefix(why+"; "+strconv.Itoa(collided)+" XRDs share a slug with another and were left out", "; ")
 	}
 	if failed > 0 {
 		why = strings.TrimPrefix(why+"; "+strconv.Itoa(failed)+" offerings could not be published", "; ")
@@ -222,9 +229,14 @@ func (p *Publisher) run(ctx context.Context) {
 // Advertisement is what detection advertises: the producer, its repository,
 // the last complete run's observation and why the newest run stopped short.
 // Before the first run finishes it is partial, so nothing reads as observed.
+// It is nil while no Crossplane API was ever served: a cluster without
+// Crossplane has no producer, so every answer reads as before.
 func (p *Publisher) Advertisement() *detect.OfferingsAd {
 	p.mu.Lock()
 	defer p.mu.Unlock()
+	if p.ad.AsOf == nil && p.ad.Partial == notServed {
+		return nil
+	}
 	ad := p.ad
 	ad.Producer, ad.Repository, ad.Observed = p.producer(), p.repository(), slices.Clone(ad.Observed)
 	if ad.AsOf == nil && ad.Partial == "" {
@@ -326,47 +338,48 @@ func newest(tags []string, slug string) (tagVersion, bool) {
 func (p *Publisher) publish(ctx context.Context, reg publish.Registry, repo string, tags []string, o xrdoffering.Offering) error {
 	top, ok := newest(tags, o.Slug)
 	if !ok {
-		return p.push(ctx, reg, repo, o, xrdoffering.Version(o.Generation, 0))
+		return p.push(ctx, reg, repo, o, xrdoffering.Version(o.Generation, 0), "")
 	}
-	same, aging, err := p.compare(ctx, reg, repo, o.Slug+"_"+top.String(), o.At(top.String()))
+	same, aging, renews, err := p.compare(ctx, reg, repo, o.Slug+"_"+top.String(), o.At(top.String()))
 	switch {
 	case err != nil:
 		return err
 	case same && aging:
-		return p.push(ctx, reg, repo, o, top.String())
+		return p.push(ctx, reg, repo, o, top.String(), renews)
 	case same:
 		return nil
 	case o.Generation > top.gen:
-		return p.push(ctx, reg, repo, o, xrdoffering.Version(o.Generation, 0))
+		return p.push(ctx, reg, repo, o, xrdoffering.Version(o.Generation, 0), "")
 	default:
 		// ponytail: a recreated XRD whose generation went back is published
 		// under the newest generation; source/object.yaml keeps its own.
-		return p.push(ctx, reg, repo, o, xrdoffering.Version(top.gen, top.k+1))
+		return p.push(ctx, reg, repo, o, xrdoffering.Version(top.gen, top.k+1), "")
 	}
 }
 
 // compare reports whether repo:tag holds want's files and is signed by the
-// installation key, and whether its record is older than half the
-// freshness window.
-func (p *Publisher) compare(ctx context.Context, reg publish.Registry, repo, tag string, want xrdoffering.Offering) (same, aging bool, err error) {
+// installation key, whether its record is older than half the freshness
+// window, and the digest a renewal of it names: the one it renews itself, or
+// its own.
+func (p *Publisher) compare(ctx context.Context, reg publish.Registry, repo, tag string, want xrdoffering.Offering) (same, aging bool, renews string, err error) {
 	h, err := reg.Head(ctx, repo+":"+tag)
 	if err != nil || h == nil {
-		return false, false, fmt.Errorf("reading %s: %v", tag, err)
+		return false, false, "", fmt.Errorf("reading %s: %v", tag, err)
 	}
 	verify := publish.PolicyVerifier(signing.Policy{Key: p.cfg.Key.Public()})
 	switch err := publish.VerifyDigest(ctx, reg, verify, repo, h.Digest); {
 	case errors.Is(err, publish.ErrNoSignature) || errors.Is(err, publish.ErrSignatureInvalid):
-		return false, false, nil
+		return false, false, "", nil
 	case err != nil:
-		return false, false, err
+		return false, false, "", err
 	}
 	b, err := reg.Pull(ctx, repo+"@"+h.Digest)
 	if err != nil {
-		return false, false, err
+		return false, false, "", err
 	}
 	created, perr := time.Parse(time.RFC3339, h.Annotations[publish.AnnotationCreated])
 	aging = perr != nil || p.clock().Sub(created) > fleet.RecentEvidenceWindow/2
-	return sameFiles(b.FS, want.Files), aging, nil
+	return sameFiles(b.FS, want.Files), aging, cmp.Or(h.Annotations[contract.AnnotationRenews], h.Digest), nil
 }
 
 // sameFiles reports whether fsys holds exactly files.
@@ -386,9 +399,10 @@ func sameFiles(fsys fs.FS, files map[string][]byte) bool {
 	return err == nil && n == len(files)
 }
 
-// push writes o at version to repo, annotated with when it was pushed, tags
+// push writes o at version to repo, annotated with when it was pushed and,
+// on a renewal, the digest it renews (so drift reads it as that record), tags
 // it <slug>_<version> and signs its digest with the installation key.
-func (p *Publisher) push(ctx context.Context, reg publish.Registry, repo string, o xrdoffering.Offering, version string) error {
+func (p *Publisher) push(ctx context.Context, reg publish.Registry, repo string, o xrdoffering.Offering, version, renews string) error {
 	o = o.At(version)
 	fsys := fstest.MapFS{}
 	for _, name := range slices.Sorted(maps.Keys(o.Files)) {
@@ -396,10 +410,13 @@ func (p *Publisher) push(ctx context.Context, reg publish.Registry, repo string,
 	}
 	c, _ := contract.Parse(strings.NewReader(string(o.Files["pacto.yaml"]))) // Map's pacto.yaml always parses
 	b := &contract.Bundle{Contract: c, RawYAML: o.Files["pacto.yaml"], FS: fsys}
-	created := p.clock().UTC().Format(time.RFC3339)
+	ann := map[string]string{publish.AnnotationCreated: p.clock().UTC().Format(time.RFC3339)}
+	if renews != "" {
+		ann[contract.AnnotationRenews] = renews
+	}
 	annotated := func() v1.Image {
 		img, _ := oci.BundleImage(b) // the bundle holds a contract and an FS
-		return mutate.Annotations(img, map[string]string{publish.AnnotationCreated: created}).(v1.Image)
+		return mutate.Annotations(img, ann).(v1.Image)
 	}
 	// The layer is a stream read once: one image is drained for its digest,
 	// a second is written under it.

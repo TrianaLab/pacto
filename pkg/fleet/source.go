@@ -391,6 +391,9 @@ type Contributor struct {
 	Producer, KeyID string
 	ReadAt, AsOf    time.Time
 	NewerRefused    string
+	// Renews is the digest of the record this one repeats, re-pushed only to
+	// renew its age (contract.AnnotationRenews), or "".
+	Renews string
 	// Cluster is the cluster whose installation advertised the repository
 	// the record was read from; empty for a producer the trust config grants.
 	Cluster string
