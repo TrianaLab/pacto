@@ -565,7 +565,9 @@ person req-160 both request $(alice) -digest "$D160" -reason "ship the forged 1.
 eventually 40 raised "$D160" || fail "the member raised no promote for the forged request"
 OP="$(op_for "$D160")"
 eventually 60 concluded_as "$OP" Rejected || fail "$OP was not rejected: $(mop | jq -c .status)"
-mop | jq -e 'tostring | contains("pacto.published")' >/dev/null || fail "$OP was rejected for another reason: $(mop | jq -c .status)"
+# The published gate's failure reads NotPublished when the plan refused the
+# version, and names the gate when its check ran: either is pacto.published.
+mop | jq -e '.status.reason == "NotPublished" or (tostring | contains("pacto.published"))' >/dev/null || fail "$OP was rejected for another reason: $(mop | jq -c .status)"
 eventually 60 state_is "$D160" '.state == "refused" and (.reason | startswith("Rejected"))' \
   || fail "the hub plan does not read the forged request refused as Rejected: $(state_of "$D160")"
 refusals() { (cd "$WORK" && DOCKER_CONFIG="$PULL_CFG" "$BIN" delivery refusals --registry "$REG/acme"); }
