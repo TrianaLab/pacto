@@ -10,7 +10,7 @@ package controller
 import (
 	"context"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -26,7 +26,7 @@ func enqueueForTarget(c client.Client) handler.EventHandler {
 // mapObjectToPactos returns the MapFunc used by enqueueForTarget.
 func mapObjectToPactos(c client.Client) handler.MapFunc {
 	return func(ctx context.Context, obj client.Object) []reconcile.Request {
-		pactoList := &pactov1alpha1.PactoList{}
+		pactoList := &pactov1.PactoList{}
 		if err := c.List(ctx, pactoList, client.InNamespace(obj.GetNamespace())); err != nil {
 			return nil
 		}

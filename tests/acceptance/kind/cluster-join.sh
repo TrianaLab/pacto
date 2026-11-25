@@ -181,7 +181,7 @@ helm install pacto-operator "$PACTO_CHART" -n "$NS" --kube-context "$CTX_M" "${S
   --wait --timeout 180s >/dev/null
 kubectl --context "$CTX_M" create ns "$APP_NS" --dry-run=client -o yaml | kubectl --context "$CTX_M" apply -f - >/dev/null
 kubectl --context "$CTX_M" apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: ledger
@@ -279,7 +279,7 @@ pass "pacto fleet lists no target of the pending member"
 impact_is 'has("gate")' || { hub_impact >&2; fail "the hub's pacto impact gave no answer"; }
 G0="$(hub_impact | jq -r .gate)"
 kubectl --context "$CTX_M" apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: checkout

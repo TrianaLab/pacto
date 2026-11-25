@@ -58,7 +58,7 @@ func remoteIdentity(t *testing.T, rr *remoteReviews) *dashboardIdentity {
 	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
 		c, err := d.newDynamic()
 		if cfg.Host == "https://eu" {
-			st := u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-staging", map[string]any{
+			st := u("delivery.pacto.trianalab.io/v1", "Stage", "payments-staging", map[string]any{
 				"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"}}})
 			st.SetNamespace("staging")
 			_ = c.(*dynamicfake.FakeDynamicClient).Tracker().Add(st)

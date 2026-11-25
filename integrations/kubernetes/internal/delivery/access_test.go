@@ -15,7 +15,7 @@ import (
 
 	"k8s.io/client-go/tools/record"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 

@@ -39,7 +39,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/xrdoffering"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/xrdoffering"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"

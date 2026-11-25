@@ -42,7 +42,7 @@ func TestDemoProviderRows(t *testing.T) {
 		rows[p.Source+"/"+p.ID] = p
 	}
 	crd, ok := rows["k8s-production/"+fleet.ProviderPactoCRD]
-	if !ok || crd.Evidence != "served (pacto.trianalab.io/v1alpha1)" {
+	if !ok || crd.Evidence != "served (pacto.trianalab.io/v1)" {
 		t.Errorf("crd row = %+v", crd)
 	}
 	for _, id := range []string{fleet.ProviderArgoCD, fleet.ProviderFlux, fleet.ProviderHelm} {

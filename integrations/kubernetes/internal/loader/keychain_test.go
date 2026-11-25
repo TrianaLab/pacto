@@ -13,7 +13,7 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/credentials"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
 

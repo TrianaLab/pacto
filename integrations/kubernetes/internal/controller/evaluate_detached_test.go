@@ -26,9 +26,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -78,14 +78,14 @@ func linkedLoad(t *testing.T) func(context.Context, string, string) (*loader.Loa
 }
 
 // linkedPacto is the transient Pacto the linker builds for Deployment shop/payments.
-func linkedPacto() *pactov1alpha1.Pacto {
-	return &pactov1alpha1.Pacto{
+func linkedPacto() *pactov1.Pacto {
+	return &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "payments", Namespace: "shop"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{OCI: "oci://ghcr.io/acme/contracts/payments@sha256:ab12"},
-			Target: pactov1alpha1.TargetRef{
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{OCI: "oci://ghcr.io/acme/contracts/payments@sha256:ab12"},
+			Target: pactov1.TargetRef{
 				ServiceName: "payments",
-				WorkloadRef: &pactov1alpha1.WorkloadRef{Kind: "Deployment", Name: "payments"},
+				WorkloadRef: &pactov1.WorkloadRef{Kind: "Deployment", Name: "payments"},
 			},
 		},
 	}
@@ -145,7 +145,7 @@ func detachedReconciler(t *testing.T, funcs *interceptor.Funcs, objs ...client.O
 	s := newSchemeWithApps()
 	_ = discoveryv1.AddToScheme(s)
 	cb := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).WithObjects(objs...)
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).WithObjects(objs...)
 	if funcs != nil {
 		cb = cb.WithInterceptorFuncs(*funcs)
 	}
@@ -170,7 +170,7 @@ func linkedWorld() []client.Object {
 	return []client.Object{svc, slice, dep}
 }
 
-func findingCodes(st *pactov1alpha1.PactoStatus) []string {
+func findingCodes(st *pactov1.PactoStatus) []string {
 	codes := make([]string, 0, len(st.Findings))
 	for _, f := range st.Findings {
 		codes = append(codes, f.Code+" "+f.Subject)
@@ -179,8 +179,8 @@ func findingCodes(st *pactov1alpha1.PactoStatus) []string {
 	return codes
 }
 
-func hasFinding(st *pactov1alpha1.PactoStatus, code finding.Code, subject string) bool {
-	return slices.ContainsFunc(st.Findings, func(f pactov1alpha1.FindingStatus) bool {
+func hasFinding(st *pactov1.PactoStatus, code finding.Code, subject string) bool {
+	return slices.ContainsFunc(st.Findings, func(f pactov1.FindingStatus) bool {
 		return f.Code == string(code) && strings.Contains(f.Subject, subject)
 	})
 }
@@ -199,7 +199,7 @@ func TestEvaluateDetachedWritesNothing(t *testing.T) {
 	if events := drainEvents(rec); len(events) != 0 {
 		t.Fatalf("EvaluateDetached recorded events %v; want none", events)
 	}
-	var revisions pactov1alpha1.PactoRevisionList
+	var revisions pactov1.PactoRevisionList
 	if err := r.List(context.Background(), &revisions); err != nil || len(revisions.Items) != 0 {
 		t.Fatalf("revisions = %d (err %v); want none", len(revisions.Items), err)
 	}
@@ -209,7 +209,7 @@ func TestEvaluateDetachedWritesNothing(t *testing.T) {
 	if p.Status.ContractStatus == "" || p.Status.LastReconciledAt == nil || p.Status.Readiness == nil {
 		t.Fatalf("status not judged: %+v", p.Status)
 	}
-	if c := meta.FindStatusCondition(p.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied); c == nil || c.Status != metav1.ConditionFalse {
+	if c := meta.FindStatusCondition(p.Status.Conditions, pactov1.ConditionReadinessSatisfied); c == nil || c.Status != metav1.ConditionFalse {
 		t.Errorf("ReadinessSatisfied = %+v; want False on the transient status", c)
 	}
 }
@@ -247,10 +247,10 @@ func TestEvaluateDetachedLoadFailureIsUnknown(t *testing.T) {
 
 	r.EvaluateDetached(context.Background(), p)
 
-	if p.Status.ContractStatus != pactov1alpha1.ContractStatusUnknown {
+	if p.Status.ContractStatus != pactov1.ContractStatusUnknown {
 		t.Errorf("ContractStatus = %s; an unreachable registry is Unknown", p.Status.ContractStatus)
 	}
-	if c := meta.FindStatusCondition(p.Status.Conditions, pactov1alpha1.ConditionContractValid); c == nil || c.Status != metav1.ConditionUnknown {
+	if c := meta.FindStatusCondition(p.Status.Conditions, pactov1.ConditionContractValid); c == nil || c.Status != metav1.ConditionUnknown {
 		t.Errorf("ContractValid = %+v; want Unknown", c)
 	}
 	if p.Status.LastReconciledAt == nil || len(drainEvents(rec)) != 0 {
@@ -270,7 +270,7 @@ func TestEvaluateDetachedInvalidContract(t *testing.T) {
 
 	r.EvaluateDetached(context.Background(), p)
 
-	if p.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+	if p.Status.ContractStatus != pactov1.ContractStatusInvalid {
 		t.Errorf("ContractStatus = %s; want Invalid", p.Status.ContractStatus)
 	}
 	if p.Status.Validation == nil || len(p.Status.Validation.Errors) == 0 {
@@ -297,7 +297,7 @@ func TestDependencyResolvesToLinkedSibling(t *testing.T) {
 	r, _ = detachedReconciler(t, nil, append(linkedWorld(), ledgerSvc)...)
 	r.Linked = linked
 	p = linkedPacto()
-	p.Status.ObservationWindows = []pactov1alpha1.ObservationWindow{{
+	p.Status.ObservationWindows = []pactov1.ObservationWindow{{
 		Kind: "dependency", Subject: "ledger", FirstObservedNegativeAt: metav1.NewTime(time.Now().Add(-time.Hour)),
 	}}
 	r.EvaluateDetached(context.Background(), p)

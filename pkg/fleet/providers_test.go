@@ -22,7 +22,7 @@ func buildProviders(t *testing.T, sources ...Source) *FleetSnapshot {
 
 func crdRow() Provider {
 	return Provider{
-		ID: "pacto-crd", Name: "Pacto CRD", Evidence: "served (pacto.trianalab.io/v1alpha1)",
+		ID: "pacto-crd", Name: "Pacto CRD", Evidence: "served (pacto.trianalab.io/v1)",
 		UsedFor: []string{"declared-targets"}, Status: SourceAvailable,
 		Objects: []ProviderObject{{Kind: "CustomResourceDefinition", Name: "pactos.pacto.trianalab.io"}},
 	}
@@ -295,7 +295,7 @@ func TestRestrictProvidersHidesNamespacedObjects(t *testing.T) {
 		t.Errorf("objects = %+v total %d", mon.Objects, mon.ObjectsTotal)
 	}
 	crd := providerByID(t, r.Providers, "pacto-crd")
-	if len(crd.Objects) != 0 || crd.Evidence != "served (pacto.trianalab.io/v1alpha1)" || crd.ObjectsTotal != 1 {
+	if len(crd.Objects) != 0 || crd.Evidence != "served (pacto.trianalab.io/v1)" || crd.ObjectsTotal != 1 {
 		t.Errorf("restricted crd row = %+v", crd)
 	}
 	if len(providerByID(t, orig.Providers, "prometheus").Objects) != 2 {
@@ -339,7 +339,7 @@ func TestRestrictProvidersRecountsEvidence(t *testing.T) {
 		t.Errorf("restricted evidence = %q", got)
 	}
 	crd := providerByID(t, r.Providers, "pacto-crd")
-	if strings.ContainsAny(crd.Evidence, "0123456789") && crd.Evidence != "served (pacto.trianalab.io/v1alpha1)" {
+	if strings.ContainsAny(crd.Evidence, "0123456789") && crd.Evidence != "served (pacto.trianalab.io/v1)" {
 		t.Errorf("crd evidence carries a count: %q", crd.Evidence)
 	}
 	if r.Sources[0].TargetCount != 1 {
@@ -511,7 +511,7 @@ func TestRestrictProvidersHidesClusterName(t *testing.T) {
 func TestRestrictProvidersMasksWholeNamesOnly(t *testing.T) {
 	rows := []Provider{crdRow(), {ID: "x", Status: SourceAvailable, Evidence: "reads pacto"}}
 	got := restrictProviders(rows, nil, []string{"pacto"}, anyCluster(func(string) bool { return true }), anyClusterKind(anyKind), nil, nil)
-	if got[0].Evidence != "served (pacto.trianalab.io/v1alpha1)" || got[1].Evidence != "hidden by your permissions" {
+	if got[0].Evidence != "served (pacto.trianalab.io/v1)" || got[1].Evidence != "hidden by your permissions" {
 		t.Errorf("evidence = %q, %q", got[0].Evidence, got[1].Evidence)
 	}
 }

@@ -52,9 +52,9 @@
     "kubernetes": {
       "artifacts": [
         {
-          "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v6",
+          "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v7",
           "kind": "go-module",
-          "tag": "integrations/kubernetes/v6.6.0",
+          "tag": "integrations/kubernetes/v7.0.0",
           "unit": "k8s-module"
         },
         {
@@ -92,7 +92,7 @@
         "version": "v4.6.1"
       },
       "tags": [
-        "integrations/kubernetes/v6.6.0"
+        "integrations/kubernetes/v7.0.0"
       ],
       "version": "6.6.0"
     }

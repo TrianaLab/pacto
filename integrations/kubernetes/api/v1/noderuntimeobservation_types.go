@@ -5,7 +5,7 @@ Licensed under the MIT License.
 See LICENSE file in the project root for full license text.
 */
 
-package v1alpha1
+package v1
 
 import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -24,16 +24,6 @@ const (
 	// CollectionFailed means the eBPF program could not be loaded or attached.
 	// Kernel facts on this node must not be read as evidence of absence.
 	CollectionFailed CollectionState = "Failed"
-)
-
-// Bounds on what one node publishes.
-//
-// Deprecated: kept for source compatibility with v6.0; the CRD's
-// +kubebuilder MaxItems markers are the enforced bounds.
-const (
-	MaxRuntimePodsPerNode       = 256
-	MaxRuntimeListenersPerPod   = 64
-	MaxRuntimeConnectionsPerPod = 128
 )
 
 // RuntimeCollection reports the health of the kernel collection on one node.
@@ -235,6 +225,7 @@ type NodeRuntimeObservationStatus struct {
 }
 
 // +kubebuilder:object:root=true
+// +kubebuilder:storageversion
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Node",type=string,JSONPath=`.status.nodeName`
 // +kubebuilder:printcolumn:name="State",type=string,JSONPath=`.status.collection.state`

@@ -1,6 +1,6 @@
 <!--
   GENERATED FILE -- DO NOT EDIT.
-  Produced by release/scripts/gen_integration_docs.py from internal/observer/runtime.go, pkg/evidence, pkg/finding, pkg/runtimefacts, api/v1alpha1.
+  Produced by release/scripts/gen_integration_docs.py from internal/observer/runtime.go, pkg/evidence, pkg/finding, pkg/runtimefacts, api/v1.
   Regenerate with `make docs-generate`; drift is a CI failure (`make docs-check`).
 -->
 

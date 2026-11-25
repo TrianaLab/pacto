@@ -20,27 +20,27 @@ import (
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	ctrlmetrics "sigs.k8s.io/controller-runtime/pkg/metrics"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 )
 
 const meterName = "pacto.trianalab.io/operator"
 
 // allStatuses is the set of ContractStatus values emitted by RecordContractStatus.
 var allStatuses = []string{
-	pactov1alpha1.ContractStatusCompliant,
-	pactov1alpha1.ContractStatusWarning,
-	pactov1alpha1.ContractStatusNonCompliant,
-	pactov1alpha1.ContractStatusReference,
-	pactov1alpha1.ContractStatusUnknown,
-	pactov1alpha1.ContractStatusInvalid,
-	pactov1alpha1.ContractStatusNotEvaluated,
+	pactov1.ContractStatusCompliant,
+	pactov1.ContractStatusWarning,
+	pactov1.ContractStatusNonCompliant,
+	pactov1.ContractStatusReference,
+	pactov1.ContractStatusUnknown,
+	pactov1.ContractStatusInvalid,
+	pactov1.ContractStatusNotEvaluated,
 }
 
 // allReadinessStatuses is the set of readiness gate states emitted by RecordReadiness.
 var allReadinessStatuses = []string{
-	pactov1alpha1.ReasonReadinessSatisfied,
-	pactov1alpha1.ReasonReadinessBelowMinScore,
-	pactov1alpha1.ReasonReadinessExpired,
+	pactov1.ReasonReadinessSatisfied,
+	pactov1.ReasonReadinessBelowMinScore,
+	pactov1.ReasonReadinessExpired,
 }
 
 // readinessCheckStatuses is the set of declared per-check statuses for pacto_readiness_checks.
@@ -117,7 +117,7 @@ func RecordContractStatus(namespace, name, status string) {
 // per-declared-status check counts (pacto_readiness_checks). gateReason is the
 // ReadinessSatisfied condition reason (Satisfied/BelowMinScore/Expired). It is a
 // no-op when the contract declares no readiness (rs is nil).
-func RecordReadiness(namespace, name string, rs *pactov1alpha1.ReadinessStatus, gateReason string) {
+func RecordReadiness(namespace, name string, rs *pactov1.ReadinessStatus, gateReason string) {
 	if rs == nil {
 		return
 	}

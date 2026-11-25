@@ -15,7 +15,7 @@ import (
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
 )
 
 // observeSettings resolves probing and metrics observation for one target namespace. It reads the

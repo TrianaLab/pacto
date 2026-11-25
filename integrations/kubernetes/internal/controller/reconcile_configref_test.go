@@ -19,8 +19,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
@@ -83,15 +83,15 @@ func consumerYAML(version, values string) string {
 	return s
 }
 
-func reconcileConsumer(t *testing.T, raw string, overrides *pactov1alpha1.ContractOverrides, resolver validation.BundleResolver) *pactov1alpha1.Pacto {
+func reconcileConsumer(t *testing.T, raw string, overrides *pactov1.ContractOverrides, resolver validation.BundleResolver) *pactov1.Pacto {
 	t.Helper()
 	c, err := contract.Parse(strings.NewReader(raw))
 	if err != nil {
 		t.Fatalf("parse: %v", err)
 	}
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "default", UID: "u"},
-		Spec:       pactov1alpha1.PactoSpec{ContractRef: pactov1alpha1.ContractRef{Inline: raw}, Overrides: overrides},
+		Spec:       pactov1.PactoSpec{ContractRef: pactov1.ContractRef{Inline: raw}, Overrides: overrides},
 	}
 	r := newReconciler(pacto)
 	r.Loader = &refLoader{resolver: resolver, mockLoader: mockLoader{loadFn: func(context.Context, string, string) (*loader.LoadResult, error) {
@@ -103,7 +103,7 @@ func reconcileConsumer(t *testing.T, raw string, overrides *pactov1alpha1.Contra
 	return getPacto(t, r, "orders", "default")
 }
 
-func issueCodes(issues []pactov1alpha1.ValidationIssue) string {
+func issueCodes(issues []pactov1.ValidationIssue) string {
 	out := make([]string, 0, len(issues))
 	for _, i := range issues {
 		out = append(out, i.Code+": "+i.Message)
@@ -116,7 +116,7 @@ func TestReconcileConfigRefValues(t *testing.T) {
 	tests := []struct {
 		name         string
 		raw          string
-		overrides    *pactov1alpha1.ContractOverrides
+		overrides    *pactov1.ContractOverrides
 		resolver     validation.BundleResolver
 		wantStatus   string
 		wantError    string
@@ -124,20 +124,20 @@ func TestReconcileConfigRefValues(t *testing.T) {
 		wantNoErrors bool
 	}{
 		{name: "inline values the resolved schema accepts", raw: consumerYAML("2.4", "{size: small}"), resolver: resolved,
-			wantStatus: pactov1alpha1.ContractStatusReference, wantNoErrors: true},
+			wantStatus: pactov1.ContractStatusReference, wantNoErrors: true},
 		{name: "inline values invalid", raw: consumerYAML("2.4", "{size: huge}"), resolver: resolved,
-			wantStatus: pactov1alpha1.ContractStatusInvalid, wantError: "CONFIG_VALUES_VALIDATION_FAILED"},
+			wantStatus: pactov1.ContractStatusInvalid, wantError: "CONFIG_VALUES_VALIDATION_FAILED"},
 		{name: "override invalid", raw: consumerYAML("2.4", "{size: small}"), resolver: resolved,
 			overrides:  overrideOf("db", map[string]string{"size": "huge"}),
-			wantStatus: pactov1alpha1.ContractStatusInvalid, wantError: "CONFIG_VALUES_VALIDATION_FAILED"},
+			wantStatus: pactov1.ContractStatusInvalid, wantError: "CONFIG_VALUES_VALIDATION_FAILED"},
 		{name: "unresolved ref warns and the contract stays valid", raw: consumerYAML("2.4", "{size: huge}"),
 			resolver:   refResolver{err: errors.New("registry unreachable")},
-			wantStatus: pactov1alpha1.ContractStatusReference, wantWarning: "CONFIG_REF_UNVERIFIED", wantNoErrors: true},
+			wantStatus: pactov1.ContractStatusReference, wantWarning: "CONFIG_REF_UNVERIFIED", wantNoErrors: true},
 		{name: "a loader that cannot resolve leaves the ref unverified", raw: consumerYAML("2.4", "{size: huge}"),
-			wantStatus: pactov1alpha1.ContractStatusReference, wantWarning: "CONFIG_REF_UNVERIFIED", wantNoErrors: true},
+			wantStatus: pactov1.ContractStatusReference, wantWarning: "CONFIG_REF_UNVERIFIED", wantNoErrors: true},
 		{name: "2.3 override on a ref configuration", raw: consumerYAML("2.3", ""), resolver: resolved,
 			overrides:  overrideOf("db", map[string]string{"size": "small"}),
-			wantStatus: pactov1alpha1.ContractStatusInvalid,
+			wantStatus: pactov1.ContractStatusInvalid,
 			wantError:  `override for configuration "db": it takes its schema by ref; values for it need pactoVersion "2.4"`},
 	}
 	for _, tc := range tests {
@@ -175,9 +175,9 @@ func TestReconcileConfigRef_ResolverInputsAndStatus(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "pull", Namespace: "default"},
 		Data:       map[string][]byte{"token": []byte("t0k")},
 	}
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "orders", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{ContractRef: pactov1alpha1.ContractRef{
+		Spec: pactov1.PactoSpec{ContractRef: pactov1.ContractRef{
 			OCI: "oci://ghcr.io/acme/orders:1.0.0", PullSecretRef: "pull"}},
 	}
 	r := newReconciler(pacto, secret)

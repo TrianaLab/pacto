@@ -26,6 +26,8 @@ Present in every cluster-wide install, including one with every managed componen
 | `"" (core)` | `pods` | `get`, `list`, `watch` | *not name-restricted* |
 | `"" (core)` | `services` | `get`, `list`, `watch` | *not name-restricted* |
 | `apiextensions.crossplane.io` | `compositeresourcedefinitions`, `compositions` | `get`, `list`, `watch` | *not name-restricted* |
+| `apiextensions.k8s.io` | `customresourcedefinitions` | `get` | `pactos.pacto.trianalab.io`, `pactorevisions.pacto.trianalab.io`, `noderuntimeobservations.pacto.trianalab.io` |
+| `apiextensions.k8s.io` | `customresourcedefinitions/status` | `patch` | `pactos.pacto.trianalab.io`, `pactorevisions.pacto.trianalab.io`, `noderuntimeobservations.pacto.trianalab.io` |
 | `apps` | `deployments`, `replicasets`, `statefulsets`, `daemonsets` | `get`, `list`, `watch` | *not name-restricted* |
 | `argoproj.io` | `applications` | `list` | *not name-restricted* |
 | `batch` | `cronjobs`, `jobs` | `get`, `list`, `watch` | *not name-restricted* |
@@ -35,6 +37,7 @@ Present in every cluster-wide install, including one with every managed componen
 | `kustomize.toolkit.fluxcd.io` | `kustomizations` | `list` | *not name-restricted* |
 | `networking.k8s.io` | `ingresses` | `get`, `list`, `watch` | *not name-restricted* |
 | `pacto.trianalab.io` | `noderuntimeobservations` | `delete`, `get`, `list`, `watch` | *not name-restricted* |
+| `pacto.trianalab.io` | `noderuntimeobservations/status` | `patch` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactorevisions` | `create`, `get`, `list`, `watch` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactorevisions/status` | `get`, `patch`, `update` | *not name-restricted* |
 | `pacto.trianalab.io` | `pactos` | `create`, `delete`, `get`, `list`, `patch`, `update`, `watch` | *not name-restricted* |

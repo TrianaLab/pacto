@@ -21,8 +21,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -99,40 +99,40 @@ const ownerJudgedPrefix = " [bundle "
 // a transient unknown (a root or registry read that failed) is judged again
 // on every reconcile. Memoise per digest in the loader cache if many Pactos
 // share one bundle.
-func (r *PactoReconciler) verifyOwner(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract, prev *pactov1alpha1.PactoStatus) bool {
+func (r *PactoReconciler) verifyOwner(ctx context.Context, pacto *pactov1.Pacto, ec *effectiveContract, prev *pactov1.PactoStatus) bool {
 	oc, lr := r.Owners, ec.loaded
 	if oc == nil || lr.ResolvedDigest == "" {
-		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
+		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1.ConditionOwnerVerified)
 		return true
 	}
 	oc = oc.resolved(ctx)
 	fp := oc.fingerprint()
 	ref, judge := ownerReference(prev, lr.ResolvedDigest, fp)
 	if !judge {
-		if c := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified); c != nil && judged(c).bundle == lr.ResolvedDigest {
+		if c := meta.FindStatusCondition(pacto.Status.Conditions, pactov1.ConditionOwnerVerified); c != nil && judged(c).bundle == lr.ResolvedDigest {
 			return c.Status == metav1.ConditionTrue
 		}
-		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
+		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1.ConditionOwnerVerified)
 		return true
 	}
 	tm, rootErr := oc.Root()
 	reg := oc.Registry(ec.auth)
 	cur := oc.bundle(ctx, reg, tm, lr)
 	if cur.outsideRule() || cur.provesNothing(ctx, reg, tm) {
-		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
+		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1.ConditionOwnerVerified)
 		return true
 	}
 	tail := ownerTail{bundle: lr.ResolvedDigest, ref: ref, policy: fp}
 	current, err := r.referenceClaim(ctx, oc, reg, tm, ref, ec.auth)
 	if err != nil {
 		tail.unread = true
-		r.setOwnerVerified(pacto, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified,
+		r.setOwnerVerified(pacto, metav1.ConditionUnknown, pactov1.ReasonOwnerSignerUnverified,
 			"the owner of the revision this one replaces is unknown: "+err.Error(), tail)
 		return false
 	}
 	proposed, claims := cur.claim()
 	if !ownerChange(current, proposed, claims, cur.declaration()) {
-		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
+		meta.RemoveStatusCondition(&pacto.Status.Conditions, pactov1.ConditionOwnerVerified)
 		return true
 	}
 	v, kept := oc.verdict(ctx, reg, tm, cur, ref, current, proposed)
@@ -189,8 +189,8 @@ func (oc *OwnerCheck) fingerprint() string {
 // judged against, empty when the owner before it is unknown, and false when
 // there is nothing to judge: digest kept its verdict under the policy fp, or
 // ran before without one.
-func ownerReference(prev *pactov1alpha1.PactoStatus, digest, fp string) (string, bool) {
-	c := meta.FindStatusCondition(prev.Conditions, pactov1alpha1.ConditionOwnerVerified)
+func ownerReference(prev *pactov1.PactoStatus, digest, fp string) (string, bool) {
+	c := meta.FindStatusCondition(prev.Conditions, pactov1.ConditionOwnerVerified)
 	var t ownerTail
 	if c != nil {
 		t = judged(c)
@@ -251,7 +251,7 @@ func judged(c *metav1.Condition) ownerTail {
 	return t
 }
 
-func (r *PactoReconciler) setOwnerVerified(pacto *pactov1alpha1.Pacto, status metav1.ConditionStatus, reason, msg string, t ownerTail) {
+func (r *PactoReconciler) setOwnerVerified(pacto *pactov1.Pacto, status metav1.ConditionStatus, reason, msg string, t ownerTail) {
 	tail := ownerJudgedPrefix + t.bundle + ", judged against " + cmp.Or(t.ref, "unknown") + ", policy " + t.policy
 	if t.kept {
 		tail += ", kept"
@@ -259,20 +259,20 @@ func (r *PactoReconciler) setOwnerVerified(pacto *pactov1alpha1.Pacto, status me
 	if t.unread {
 		tail += ", unread"
 	}
-	r.setCondition(pacto, pactov1alpha1.ConditionOwnerVerified, status, reason, msg+tail+"]")
+	r.setCondition(pacto, pactov1.ConditionOwnerVerified, status, reason, msg+tail+"]")
 }
 
 // ownerVerdict maps an owner right onto the condition's status and reason.
 func ownerVerdict(v core.OwnerRight) (metav1.ConditionStatus, string) {
 	switch {
 	case v.Allowed:
-		return metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed
+		return metav1.ConditionTrue, pactov1.ReasonOwnerSignerAllowed
 	case v.Code == core.OwnerSignerNotPerson:
-		return metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotPerson
+		return metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotPerson
 	case v.Code == core.OwnerSignerNotAllowed:
-		return metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed
+		return metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotAllowed
 	}
-	return metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified
+	return metav1.ConditionUnknown, pactov1.ReasonOwnerSignerUnverified
 }
 
 // referenceClaim is the owner the revision ref claims (declared, else

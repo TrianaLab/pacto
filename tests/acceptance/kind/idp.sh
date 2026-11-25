@@ -334,7 +334,7 @@ eventually 60 engine_is '. != "crossplane"' || { show_engine || true; fail "GET 
 pass "GET /api/capabilities no longer reads provisioning engine crossplane"
 kubectl create ns idp-a >/dev/null 2>&1 || true
 kubectl apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: idp-after, namespace: idp-a}
 spec:

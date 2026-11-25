@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	sigtest "github.com/trianalab/pacto/v4/pkg/signing/testutil"

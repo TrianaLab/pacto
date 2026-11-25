@@ -75,7 +75,7 @@ func TestWorkloadAccessEvaluationErrorUnverified(t *testing.T) {
 
 func TestApproveRefusalCopy(t *testing.T) {
 	t.Parallel()
-	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "payments", "p1", map[string]any{
+	op := obj("delivery.pacto.trianalab.io/v1", "Operation", "payments", "p1", map[string]any{
 		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments", "actor": map[string]any{"user": "bot"}},
 		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
 	})

@@ -116,7 +116,7 @@ func (s *Server) deliveryFor(ctx context.Context) (DeliveryAPI, error) {
 			"cannot reach the cluster to tell whether it serves delivery: "+err.Error())
 	case !installed:
 		return nil, Refuse(http.StatusNotFound, "DeliveryNotInstalled",
-			"this cluster does not serve delivery.pacto.trianalab.io/v1alpha1. Install pacto-operator with delivery.enabled=true")
+			"this cluster does not serve delivery.pacto.trianalab.io. Install pacto-operator with delivery.enabled=true")
 	}
 	return s.opts.Delivery(requestFrom(ctx))
 }

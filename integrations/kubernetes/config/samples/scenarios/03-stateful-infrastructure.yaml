@@ -15,7 +15,7 @@
 #   rabbitmq — stateful message broker, high criticality
 ---
 # postgresql — relational database with persistent local storage
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: postgresql
@@ -61,7 +61,7 @@ spec:
         storage-class: ssd
 ---
 # redis — in-memory cache with optional persistence
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: redis
@@ -106,7 +106,7 @@ spec:
         eviction-policy: allkeys-lru
 ---
 # rabbitmq — message broker with management UI and clustering
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: rabbitmq

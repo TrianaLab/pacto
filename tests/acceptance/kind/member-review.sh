@@ -368,7 +368,7 @@ helm install pacto-operator "$PACTO_CHART" -n "$NS" --kube-context "$CTX_M" "${S
   --set hub.url="$HUB" --set hub.caConfigMap=scenario-ca --wait --timeout 180s >/dev/null
 for ns in payments ops; do
   kubectl --context "$CTX_M" apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $ns-svc, namespace: $ns}
 spec:

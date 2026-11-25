@@ -13,14 +13,9 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
-// RecordFinalizer keeps a concluded Operation until its record is written. The
-// client sets it and admission requires it. The recorder removes it once the
-// record is in the registry; without a recorder, the promoter removes it when
-// the concluded operation is deleted.
-const RecordFinalizer = "delivery.pacto.trianalab.io/record"
-
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:deprecatedversion:warning="delivery.pacto.trianalab.io/v1alpha1 is deprecated; use v1 (removed in chart 8.0)"
 // +kubebuilder:resource:categories=pacto-delivery
 // +kubebuilder:printcolumn:name="Service",type=string,JSONPath=`.spec.service.name`
 // +kubebuilder:printcolumn:name="Env",type=string,JSONPath=`.spec.environment`
@@ -61,6 +56,7 @@ type StageList struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:deprecatedversion:warning="delivery.pacto.trianalab.io/v1alpha1 is deprecated; use v1 (removed in chart 8.0)"
 // +kubebuilder:resource:categories=pacto-delivery
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
 // +kubebuilder:printcolumn:name="Stage",type=string,JSONPath=`.spec.stage`
@@ -96,6 +92,7 @@ type OperationList struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:deprecatedversion:warning="delivery.pacto.trianalab.io/v1alpha1 is deprecated; use v1 (removed in chart 8.0)"
 // +kubebuilder:resource:categories=pacto-delivery
 // +kubebuilder:printcolumn:name="Operation",type=string,JSONPath=`.spec.operation`
 // +kubebuilder:printcolumn:name="Decision",type=string,JSONPath=`.spec.decision`

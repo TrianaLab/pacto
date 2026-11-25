@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -26,12 +27,12 @@ import (
 )
 
 var (
-	gvrTestStages = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}
-	gvrTestOps    = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}
+	gvrTestStages = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}
+	gvrTestOps    = schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}
 )
 
 func deliveryObj(kind, ns, name string, fields map[string]any) *unstructured.Unstructured {
-	o := map[string]any{"apiVersion": "delivery.pacto.trianalab.io/v1alpha1", "kind": kind,
+	o := map[string]any{"apiVersion": "delivery.pacto.trianalab.io/v1", "kind": kind,
 		"metadata": map[string]any{"namespace": ns, "name": name, "managedFields": []any{map[string]any{"manager": "x"}}}}
 	for k, v := range fields {
 		o[k] = v
@@ -83,7 +84,7 @@ func newSharedWorld(t *testing.T) *sharedWorld {
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	w.s = newSharedReads(ctx, w.sa, func(b string) bool { return w.wrote.Load() && b == "Bearer alice" })
+	w.s = newSharedReads(ctx, w.sa, "", func(b string) bool { return w.wrote.Load() && b == "Bearer alice" })
 	w.s.now = func() time.Time { return w.now }
 	for _, inf := range w.s.informers {
 		if !cache.WaitForCacheSync(ctx.Done(), inf.HasSynced) {
@@ -91,6 +92,69 @@ func newSharedWorld(t *testing.T) *sharedWorld {
 		}
 	}
 	return w
+}
+
+// TestSharedReadsWatchTheServedVersion: on a chart-6 cluster, which serves
+// the delivery group at v1alpha1 only, the shared informers list and watch
+// that version and still key their cache by the v1 resource.
+func TestSharedReadsWatchTheServedVersion(t *testing.T) {
+	old := func(gvr schema.GroupVersionResource) schema.GroupVersionResource {
+		gvr.Version = "v1alpha1"
+		return gvr
+	}
+	stage := deliveryObj("Stage", "a", "s1", nil)
+	stage.SetAPIVersion(deliveryGroup + "/v1alpha1")
+	sa := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+		old(gvrTestStages): "StageList", old(gvrTestOps): "OperationList"}, stage)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	s := newSharedReads(ctx, sa, "v1alpha1", func(string) bool { return false })
+	for _, inf := range s.informers {
+		if !cache.WaitForCacheSync(ctx.Done(), inf.HasSynced) {
+			t.Fatal("the informers never synced")
+		}
+	}
+	expect(t, fmt.Sprint(s.informers[sharedStages].GetStore().ListKeys()) == "[a/s1]", "stages %v", s.informers[sharedStages].GetStore().ListKeys())
+	for _, a := range sa.Actions() {
+		expect(t, a.GetResource().Version == "v1alpha1", "%s %s at %s", a.GetVerb(), a.GetResource().Resource, a.GetResource().Version)
+	}
+}
+
+// TestSharedReadsAskDiscoveryFirst: a Metrics or Clusters page can start the
+// shared cache before any delivery view probed. The cache asks discovery
+// first, starts nothing while discovery fails, and then watches the version a
+// chart-6 cluster serves.
+func TestSharedReadsAskDiscoveryFirst(t *testing.T) {
+	v := viper.New()
+	v.Set("dashboard.token-login", true)
+	id := identityFor(t, v, "0.0.0.0", &rest.Config{Host: "https://k"})
+	sa := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
+		{Group: deliveryGroup, Version: "v1alpha1", Resource: "stages"}:     "StageList",
+		{Group: deliveryGroup, Version: "v1alpha1", Resource: "operations"}: "OperationList"})
+	id.newClient = func(*rest.Config) (dynamic.Interface, error) { return sa, nil }
+	down := true
+	id.served = func(_ *rest.Config, gv string) (bool, error) {
+		if down {
+			return false, errors.New("timeout")
+		}
+		return strings.HasSuffix(gv, "/v1alpha1"), nil
+	}
+	expect(t, id.sharedReads() == nil && !id.sharedStarted.Load(), "nothing started while discovery fails")
+	down, id.checked = false, time.Time{}
+	s := id.sharedReads()
+	expect(t, s != nil, "started once discovery answers")
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	t.Cleanup(cancel)
+	for _, inf := range s.informers {
+		if !cache.WaitForCacheSync(ctx.Done(), inf.HasSynced) {
+			t.Fatal("the informers never synced")
+		}
+	}
+	for _, a := range sa.Actions() {
+		expect(t, a.GetResource().Version == "v1alpha1", "%s %s at %s", a.GetVerb(), a.GetResource().Resource, a.GetResource().Version)
+	}
+	down, id.checked = true, time.Time{}
+	expect(t, id.sharedReads() == s, "a later failed probe keeps the started cache")
 }
 
 // person is a person's own client: the apiserver names them user and holds

@@ -20,7 +20,7 @@
 # platform-config — shared configuration schema for all services.
 # Defines standard config keys (observability, health, etc.) with a JSON Schema
 # and default values. Services adopt this schema via configurations[].ref.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: platform-config
@@ -54,7 +54,7 @@ spec:
 # Its bundle carries a JSON Schema at policy/schema.json, applied to pacto.yaml
 # to enforce org standards: e.g., all services must declare health checks and
 # an owner. Services adopt this policy via policies[].ref.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: platform-policy
@@ -78,7 +78,7 @@ spec:
 # payment-gateway — external payment API (Stripe-like).
 # Definition-only: represents an external service not running in the cluster.
 # Services that depend on this gateway reference it via dependencies.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: payment-gateway
@@ -107,7 +107,7 @@ spec:
 # Demonstrates a service that inherits organizational standards from definitions.
 # configurations[].ref → platform-config (inherits config schema)
 # policies[].ref → platform-policy (inherits policy rules)
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: billing-api

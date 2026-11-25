@@ -36,6 +36,7 @@ import (
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
 	"k8s.io/apimachinery/pkg/util/validation"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -47,25 +48,26 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/detection"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/inferredpublish"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/installkey"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/linker"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/member"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/offeringpublish"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/controller"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/dashboard"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/delivery"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/detection"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/evidence"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/inferredpublish"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/installkey"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/linker"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/member"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/nodeagent"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/offeringpublish"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/scope"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/storagemigrate"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/targetsnapshot"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/detect"
@@ -99,7 +101,7 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(pactov1alpha1.AddToScheme(scheme))
+	utilruntime.Must(pactov1.AddToScheme(scheme))
 	utilruntime.Must(dv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
@@ -702,6 +704,7 @@ func main() {
 		setupLog.Error(err, "Failed to add revision mirror")
 		os.Exit(1)
 	}
+	addStorageMigration(mgr, o.namespaces)
 	// +kubebuilder:scaffold:builder
 
 	if err := addComponents(mgr, &o, operatorNamespace, publishKeychain, keychain, pactoReconciler); err != nil {
@@ -1452,4 +1455,21 @@ func readClusterIdentity(mgr ctrl.Manager) kubecluster.Identity {
 	}
 	setupLog.Info("the cluster id could not be read; Evidence Server reports carry no cluster", "error", err)
 	return kubecluster.Identity{}
+}
+
+// addStorageMigration rewrites every pacto.trianalab.io object stored as
+// v1alpha1 as v1, then drops v1alpha1 from the CRDs' storedVersions. A scoped
+// operator cannot list other namespaces, so it leaves that to the documented
+// kubectl procedure.
+func addStorageMigration(mgr ctrl.Manager, namespaces []string) {
+	if len(namespaces) > 0 {
+		setupLog.Info("storage migration: skipped, the operator watches only some namespaces; see the installation guide")
+		return
+	}
+	if err := mgr.Add(&storagemigrate.Migrator{Client: dynamic.NewForConfigOrDie(mgr.GetConfig()),
+		Discovery: discovery.NewDiscoveryClientForConfigOrDie(mgr.GetConfig()), Targets: storagemigrate.PactoTargets(),
+		From: "v1alpha1", To: "v1", Log: ctrl.Log.WithName("storage-migration")}); err != nil {
+		setupLog.Error(err, "Failed to add the storage migration")
+		os.Exit(1)
+	}
 }

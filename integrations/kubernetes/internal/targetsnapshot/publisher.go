@@ -53,10 +53,10 @@ var snapshotWorkloads = []schema.GroupVersionKind{
 }
 
 // gvkPactoList is the Pacto list kind, read unstructured.
-var gvkPactoList = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1alpha1", Kind: "PactoList"}
+var gvkPactoList = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1", Kind: "PactoList"}
 
 // gvkStageList is the delivery Stage list kind, read unstructured.
-var gvkStageList = schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "StageList"}
+var gvkStageList = schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1", Kind: "StageList"}
 
 // TargetPublisher publishes the cluster's signed target snapshot to
 // <registry>/pacto-targets:cluster-<uid> at once and then every Interval, so CI

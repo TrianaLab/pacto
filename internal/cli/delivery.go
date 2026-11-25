@@ -114,7 +114,8 @@ func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.
 		return nil, "", err
 	}
 	return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Members: promoteMembers(cmd, dyn, policyNS)}, ns, nil
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, ServedVersions: servedVersions(d),
+		Members: promoteMembers(cmd, dyn, policyNS)}, ns, nil
 }
 
 // promoteMembers reads, for each promote, the approved members of the hub dyn

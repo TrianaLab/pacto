@@ -16,11 +16,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/inferredpublish"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/member"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/offeringpublish"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/controller"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/inferredpublish"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/member"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/offeringpublish"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/targetsnapshot"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 )

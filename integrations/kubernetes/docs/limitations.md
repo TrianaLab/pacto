@@ -364,5 +364,6 @@ does not. See [signed records](delivery-records.md).
 
 ## API version
 
-The CRDs are served at `v1alpha1`. Fields are added conservatively and
-additively; see the [CRD reference](crd-reference.md) for the current schema.
+The CRDs store `v1` and serve the deprecated `v1alpha1` until chart 8.0.
+Fields are added conservatively and additively; see the
+[CRD reference](crd-reference.md) for the current schema.

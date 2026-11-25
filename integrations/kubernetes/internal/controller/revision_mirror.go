@@ -19,8 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 )
 
 // RevisionMirror keeps a PactoRevision for every registry tag of every Pacto whose
@@ -51,7 +51,7 @@ func (m *RevisionMirror) Start(ctx context.Context) error {
 // component.Run stops the manager on a failed FIRST sync, and a registry that is down
 // at startup must not take the operator with it. Per-Pacto failures become events.
 func (m *RevisionMirror) Sync(ctx context.Context) error {
-	list := &pactov1alpha1.PactoList{}
+	list := &pactov1.PactoList{}
 	if err := m.Reconciler.List(ctx, list); err != nil {
 		return fmt.Errorf("failed to list pactos: %w", err)
 	}
@@ -63,7 +63,7 @@ func (m *RevisionMirror) Sync(ctx context.Context) error {
 
 // mirror runs one Pacto's tag sync. A digest-pinned or inline ref has no tag set to
 // walk, so it is skipped before any registry call.
-func (m *RevisionMirror) mirror(ctx context.Context, pacto *pactov1alpha1.Pacto) {
+func (m *RevisionMirror) mirror(ctx context.Context, pacto *pactov1.Pacto) {
 	ociRef := pacto.Spec.ContractRef.OCI
 	if ociRef == "" || strings.Contains(ociRef, "@") {
 		return
@@ -96,10 +96,10 @@ func (m *RevisionMirror) mirror(ctx context.Context, pacto *pactov1alpha1.Pacto)
 // one of them. One event per Pacto per pass; the API server collapses repeats of the
 // same reason and message into a single event with a count, so a tag that stays
 // broken does not accumulate objects.
-func (r *PactoReconciler) recordMirrorFailure(pacto *pactov1alpha1.Pacto, err error) {
-	reason := pactov1alpha1.EventContractInvalid
-	if classifyLoadError(err) == pactov1alpha1.ContractStatusUnknown {
-		reason = pactov1alpha1.EventContractUnavailable
+func (r *PactoReconciler) recordMirrorFailure(pacto *pactov1.Pacto, err error) {
+	reason := pactov1.EventContractInvalid
+	if classifyLoadError(err) == pactov1.ContractStatusUnknown {
+		reason = pactov1.EventContractUnavailable
 	}
 	r.Recorder.Eventf(pacto, corev1.EventTypeWarning, reason,
 		"Revision mirror failed for %s: %v", pacto.Spec.ContractRef.OCI, err)

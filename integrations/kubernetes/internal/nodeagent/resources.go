@@ -18,7 +18,7 @@ See LICENSE file in the project root for full license text.
 // not a trace pipeline and opens no port.
 package nodeagent
 
-import "github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+import "github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 
 const (
 	// Name is the resource name for every managed node agent resource.

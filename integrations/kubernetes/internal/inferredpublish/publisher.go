@@ -45,7 +45,7 @@ const InferredInterval = 5 * time.Minute
 const pactoPage = 500
 
 // gvkPactoList is the Pacto list kind, read unstructured.
-var gvkPactoList = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1alpha1", Kind: "PactoList"}
+var gvkPactoList = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1", Kind: "PactoList"}
 
 // Config is what the operator hands the publisher.
 type Config struct {

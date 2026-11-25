@@ -15,7 +15,7 @@ import (
 )
 
 func opFixture(name string, spec, status map[string]any) runtime.Object {
-	return obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", name, map[string]any{"spec": spec, "status": status})
+	return obj("delivery.pacto.trianalab.io/v1", "Operation", "prod", name, map[string]any{"spec": spec, "status": status})
 }
 
 func TestDeliveryExplain(t *testing.T) {
@@ -166,7 +166,7 @@ func TestOperationsAreSelectedByField(t *testing.T) {
 		sel := a.(k8stesting.ListAction).GetListRestrictions().Fields.String()
 		asked = append(asked, sel)
 		if refuse && sel != "" {
-			return true, nil, apierrors.NewBadRequest(`Unable to find "delivery.pacto.trianalab.io/v1alpha1, Resource=operations" that match label selector "", field selector "` + sel + `": field label not supported: status.outcome`)
+			return true, nil, apierrors.NewBadRequest(`Unable to find "delivery.pacto.trianalab.io/v1, Resource=operations" that match label selector "", field selector "` + sel + `": field label not supported: status.outcome`)
 		}
 		return false, nil, nil
 	})

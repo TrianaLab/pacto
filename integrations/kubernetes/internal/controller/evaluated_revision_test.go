@@ -17,25 +17,25 @@ import (
 	"k8s.io/client-go/tools/record"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
 const evaluatedDigest = "sha256:1111111111111111111111111111111111111111111111111111111111111111"
 
-func reconcileEvaluated(t *testing.T, withWorkload bool) *pactov1alpha1.Pacto {
+func reconcileEvaluated(t *testing.T, withWorkload bool) *pactov1.Pacto {
 	t.Helper()
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "pay", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{OCI: "oci://r/pactos/payments@" + evaluatedDigest},
-			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "app", Kind: "Deployment"}},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{OCI: "oci://r/pactos/payments@" + evaluatedDigest},
+			Target:      pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "app", Kind: "Deployment"}},
 		},
 	}
 	b := fake.NewClientBuilder().WithScheme(newSchemeWithApps()).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).WithObjects(pacto)
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).WithObjects(pacto)
 	if withWorkload {
 		b = b.WithObjects(&appsv1.Deployment{ObjectMeta: metav1.ObjectMeta{Name: "app", Namespace: "default", UID: "w-1", Generation: 3}})
 	}
@@ -59,8 +59,8 @@ func reconcileEvaluated(t *testing.T, withWorkload bool) *pactov1alpha1.Pacto {
 // names the contract digest and the workload generation the verdict came from.
 func TestReconcile_EvaluatedRevisionTiesTheResultToTheVersion(t *testing.T) {
 	got := reconcileEvaluated(t, true).Status.EvaluatedRevision
-	want := &pactov1alpha1.EvaluatedRevision{ContractDigest: evaluatedDigest,
-		Workload: &pactov1alpha1.EvaluatedWorkload{Kind: "Deployment", Name: "app", UID: "w-1", Generation: 3}}
+	want := &pactov1.EvaluatedRevision{ContractDigest: evaluatedDigest,
+		Workload: &pactov1.EvaluatedWorkload{Kind: "Deployment", Name: "app", UID: "w-1", Generation: 3}}
 	gj, _ := json.Marshal(got)
 	wj, _ := json.Marshal(want)
 	if string(gj) != string(wj) {
@@ -76,24 +76,24 @@ func TestReconcile_EvaluatedRevisionTiesTheResultToTheVersion(t *testing.T) {
 // reads. A rename here fails this test instead of silently starving delivery.
 func TestPactoStatusFillsTheDeliveryReadContract(t *testing.T) {
 	p := reconcileEvaluated(t, true)
-	p.Status.Dependencies = []pactov1alpha1.DependencyInfo{{Name: "ledger", Ref: "oci://r/ledger", Required: true, Compatibility: "^1"}}
-	p.Status.Contract.Owner = &pactov1alpha1.OwnerInfo{Team: "team-pay"}
+	p.Status.Dependencies = []pactov1.DependencyInfo{{Name: "ledger", Ref: "oci://r/ledger", Required: true, Compatibility: "^1"}}
+	p.Status.Contract.Owner = &pactov1.OwnerInfo{Team: "team-pay"}
 	p.Generation = 2
-	p.Spec.Target = pactov1alpha1.TargetRef{ServiceName: "pay", WorkloadRef: &pactov1alpha1.WorkloadRef{Kind: "StatefulSet", Name: "pay-0"}}
+	p.Spec.Target = pactov1.TargetRef{ServiceName: "pay", WorkloadRef: &pactov1.WorkloadRef{Kind: "StatefulSet", Name: "pay-0"}}
 	p.Status.EvaluatedRevision.KernelCoverage = "Complete"
-	p.Status.ObservedCallers = []pactov1alpha1.ObservedCaller{{Namespace: "pay", Kind: "Deployment", Name: "legacy", Source: "ebpf"}}
-	p.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: "partial", Reason: "stale-node", RefreshSeconds: 300}
-	ext := pactov1alpha1.ExternalStatus{Identity: "stripe", Class: "vendor-api", Confidence: "likely", Kind: "env", Where: "deployment/pay env STRIPE", Host: "api.stripe.com", Entry: "stripe"}
-	p.Status.Externals = []pactov1alpha1.ExternalStatus{ext}
-	p.Status.ExternalsCoverage = &pactov1alpha1.CallerCoverage{State: "partial", Reason: "truncated", RefreshSeconds: 300}
+	p.Status.ObservedCallers = []pactov1.ObservedCaller{{Namespace: "pay", Kind: "Deployment", Name: "legacy", Source: "ebpf"}}
+	p.Status.ObservedCallersCoverage = &pactov1.CallerCoverage{State: "partial", Reason: "stale-node", RefreshSeconds: 300}
+	ext := pactov1.ExternalStatus{Identity: "stripe", Class: "vendor-api", Confidence: "likely", Kind: "env", Where: "deployment/pay env STRIPE", Host: "api.stripe.com", Entry: "stripe"}
+	p.Status.Externals = []pactov1.ExternalStatus{ext}
+	p.Status.ExternalsCoverage = &pactov1.CallerCoverage{State: "partial", Reason: "truncated", RefreshSeconds: 300}
 	p.Status.ExternalCatalog = "sha256:c (embedded)"
-	p.Status.StatusFormat = pactov1alpha1.PactoStatusFormat
-	egress := pactov1alpha1.EgressStatus{Identity: "stripe", Class: "vendor-api", Host: "api.stripe.com", Port: 443, Source: pactov1alpha1.EgressSourceKernel}
-	p.Status.ObservedEgress = []pactov1alpha1.EgressStatus{egress}
-	p.Status.ObservedEgressCoverage = &pactov1alpha1.EgressCoverage{CallerCoverage: pactov1alpha1.CallerCoverage{State: "partial", Reason: "dns-unavailable", RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3}
-	p.Status.Findings = append(p.Status.Findings, pactov1alpha1.FindingStatus{Code: "DEPENDENCY_UNDECLARED", Severity: "warning",
+	p.Status.StatusFormat = pactov1.PactoStatusFormat
+	egress := pactov1.EgressStatus{Identity: "stripe", Class: "vendor-api", Host: "api.stripe.com", Port: 443, Source: pactov1.EgressSourceKernel}
+	p.Status.ObservedEgress = []pactov1.EgressStatus{egress}
+	p.Status.ObservedEgressCoverage = &pactov1.EgressCoverage{CallerCoverage: pactov1.CallerCoverage{State: "partial", Reason: "dns-unavailable", RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3}
+	p.Status.Findings = append(p.Status.Findings, pactov1.FindingStatus{Code: "DEPENDENCY_UNDECLARED", Severity: "warning",
 		Category: "RuntimeDrift", Subject: "dependency/fraud", Message: "m",
-		EvidenceRefs: []pactov1alpha1.EvidenceRefStatus{{Source: "k8s", ObservedAt: "t", Collector: "ebpf", DetectedAt: "2026-10-20T10:00:00Z"}}})
+		EvidenceRefs: []pactov1.EvidenceRefStatus{{Source: "k8s", ObservedAt: "t", Collector: "ebpf", DetectedAt: "2026-10-20T10:00:00Z"}}})
 	data, _ := json.Marshal(p)
 	var v delivery.PactoView
 	if err := json.Unmarshal(data, &v); err != nil {
@@ -151,7 +151,7 @@ func TestStatusCarriesGuaranteesToDelivery(t *testing.T) {
 		{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true, Timeout: "1m"}},
 		{Interface: "events", Guarantees: contract.Guarantees{Delivery: "at-least-once"}},
 	}
-	p := &pactov1alpha1.Pacto{}
+	p := &pactov1.Pacto{}
 	newReconciler().populateContractStatus(p, &loader.LoadResult{Contract: &contract.Contract{
 		Service:    contract.Service{Name: "payments", Version: "1.0.0"},
 		Interfaces: ifaces,

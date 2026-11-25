@@ -68,7 +68,7 @@ func wantVerdict(t *testing.T, name string, in ManifestInspection, result Result
 func TestInspectPlainManifestsPass(t *testing.T) {
 	in := inspectFlux(t, map[string]string{
 		"deploy.yaml": obj("apps/v1", "Deployment", "payments", "prod") + "---\n" + obj("v1", "Service", "payments", ""),
-		"pacto.yml":   "# only a comment\n---\n" + obj("pacto.trianalab.io/v1alpha1", "Pacto", "payments", "prod") + "---\n",
+		"pacto.yml":   "# only a comment\n---\n" + obj("pacto.trianalab.io/v1", "Pacto", "payments", "prod") + "---\n",
 		"README.md":   "not read",
 		"svc.json":    `{"apiVersion": "v1", "kind": "ServiceAccount", "metadata": {"name": "payments"}}`,
 	})
@@ -121,8 +121,8 @@ func TestInspectRoleBindingOutsideSubjectsUnknown(t *testing.T) {
 func TestInspectNestedApplierFails(t *testing.T) {
 	for _, o := range [][2]string{
 		{"kustomize.toolkit.fluxcd.io/v1", "Kustomization"}, {"helm.toolkit.fluxcd.io/v2", "HelmRelease"},
-		{"source.toolkit.fluxcd.io/v1", "OCIRepository"}, {"delivery.pacto.trianalab.io/v1alpha1", "Stage"},
-		{"delivery.pacto.trianalab.io/v1alpha1", "Operation"}, {"argoproj.io/v1alpha1", "Application"},
+		{"source.toolkit.fluxcd.io/v1", "OCIRepository"}, {"delivery.pacto.trianalab.io/v1", "Stage"},
+		{"delivery.pacto.trianalab.io/v1", "Operation"}, {"argoproj.io/v1alpha1", "Application"},
 	} {
 		in := inspectFlux(t, map[string]string{"x.yaml": obj(o[0], o[1], "n", "prod")})
 		wantVerdict(t, o[1], in, Fail, o[1]+" n is a delivery or applier object")
@@ -334,7 +334,7 @@ func TestInspectOtherMediaTypeUnknown(t *testing.T) {
 // An Argo CD OCI source's default layer is read like Flux content: a
 // Deployment and its Pacto in the Stage namespace pass, a Namespace is refused.
 func TestInspectArgoCDLayer(t *testing.T) {
-	ok := map[string]string{"deployment.yaml": obj("apps/v1", "Deployment", "payments", ""), "pacto.yaml": obj("pacto.trianalab.io/v1alpha1", "Pacto", "payments", "")}
+	ok := map[string]string{"deployment.yaml": obj("apps/v1", "Deployment", "payments", ""), "pacto.yaml": obj("pacto.trianalab.io/v1", "Pacto", "payments", "")}
 	in := InspectArtifact(ArgoCDContentMediaType, tgz(t, ok), ManifestTarget{Namespace: "prod"}, BuiltinScope)
 	wantVerdict(t, "argo pass", in, Pass, "")
 	in = InspectArtifact(ArgoCDContentMediaType, tgz(t, map[string]string{"ns.yaml": obj("v1", "Namespace", "n", "")}), ManifestTarget{Namespace: "prod"}, BuiltinScope)

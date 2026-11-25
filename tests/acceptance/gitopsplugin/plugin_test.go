@@ -237,7 +237,7 @@ func TestArgoPluginDiscoversContractsOnly(t *testing.T) {
 		want    bool
 	}{
 		"contract":  {contract20, true},
-		"pacto CR":  {"apiVersion: pacto.trianalab.io/v1alpha1\nkind: Pacto\nmetadata:\n  name: x\n", false},
+		"pacto CR":  {"apiVersion: pacto.trianalab.io/v1\nkind: Pacto\nmetadata:\n  name: x\n", false},
 		"no file":   {"", false},
 		"no header": {"service:\n  name: x\n", true},
 	} {
@@ -422,7 +422,7 @@ func TestArgoPluginRefusesUnsetSnapshot(t *testing.T) {
 var showReason = map[string]string{"PACTO_SHOW_REASON": "true"}
 
 func pactoObject(ref string) string {
-	return "---\napiVersion: pacto.trianalab.io/v1alpha1\nkind: Pacto\nmetadata:\n  name: payments\nspec:\n  contractRef:\n    oci: " + ref + "\n"
+	return "---\napiVersion: pacto.trianalab.io/v1\nkind: Pacto\nmetadata:\n  name: payments\nspec:\n  contractRef:\n    oci: " + ref + "\n"
 }
 
 func TestArgoPluginJudgesRenderedContractRef(t *testing.T) {

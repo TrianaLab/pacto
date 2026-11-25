@@ -31,8 +31,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/runstats"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/runstats"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 

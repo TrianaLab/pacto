@@ -1,5 +1,5 @@
 # Default PactoRevision sample — immutable snapshot of a resolved contract version.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: PactoRevision
 metadata:
   name: payments-api-2-1-0-abc1234

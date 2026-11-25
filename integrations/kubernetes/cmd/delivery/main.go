@@ -42,10 +42,11 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/manager"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/runstats"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/delivery"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/runstats"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/storagemigrate"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -288,13 +289,29 @@ func configuredGates(raw string) (map[string]core.Gate, error) {
 	return core.NewGates(providers, &http.Client{Timeout: 30 * time.Second}, signing.OpenKey)
 }
 
+// addStorageMigration adds the runnable that rewrites every delivery object
+// stored as v1alpha1 as v1, after which the CRDs stop listing v1alpha1 as
+// stored. It runs on every promoter, unconditionally.
+func addStorageMigration(mgr manager.Manager, dc discovery.DiscoveryInterface) error {
+	dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return err
+	}
+	return mgr.Add(&storagemigrate.Migrator{Client: dyn, Discovery: dc, Targets: storagemigrate.DeliveryTargets(),
+		From: "v1alpha1", To: "v1", Log: ctrl.Log.WithName("storage-migration")})
+}
+
 // infra reads the cluster's infrastructure objects. Discovery is cached for
 // the life of the process; Infra invalidates it once on a kind it does not
 // list, so a Crossplane kind served after start is read, and one still
-// missing reads Unknown, never Pass.
+// missing reads Unknown, never Pass. It also adds the delivery storage
+// migration, which reads the same uncached discovery.
 func infra(mgr manager.Manager) (core.InfraFunc, error) {
 	dc, err := discovery.NewDiscoveryClientForConfig(mgr.GetConfig())
 	if err != nil {
+		return nil, err
+	}
+	if err := addStorageMigration(mgr, dc); err != nil {
 		return nil, err
 	}
 	return kubecluster.Infra(memory.NewMemCacheClient(dc)), nil

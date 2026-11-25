@@ -13,7 +13,7 @@ ledger for every claim family:
   (g) chart values + install snippets are valid against the real Helm chart
   (h) artifact coordinates match release/release-manifest.json
   (i) twice = no diff: a second `docs-generate` produces byte-identical output
-  (j) documented conditions + reasons match the api/v1alpha1 constants
+  (j) documented conditions + reasons match the api/v1 constants
   (k) documented events match the reasons the recorder actually emits
   (l) no bare `<placeholder>` in prose (the browser deletes it as an HTML tag)
   (m) every fenced target-state fixture actually loads as a fleet source
@@ -296,11 +296,11 @@ def check_conditions() -> None:
     """The troubleshooting table names Condition/Reason identifiers verbatim.
 
     Those are the strings an operator greps their CR status for, so a rename in
-    api/v1alpha1/conditions.go silently invalidates the page. Compare the table
+    api/v1/conditions.go silently invalidates the page. Compare the table
     against the constants rather than restating them here: nothing in this check
     hard-codes a reason, so it stays correct when a real one is added.
     """
-    src = read(os.path.join(K8S, "api", "v1alpha1", "conditions.go"))
+    src = read(os.path.join(K8S, "api", "v1", "conditions.go"))
     types = set(re.findall(r"^\tCondition\w+\s*=\s*\"(\w+)\"", src, re.M))
     reasons = set(re.findall(r"^\tReason\w+\s*=\s*\"(\w+)\"", src, re.M))
 
@@ -403,7 +403,7 @@ def resolve_event_token(tok: str, src: str, api_consts: dict, seen=None) -> list
     seen = seen or set()
     if tok.startswith('"') and tok.endswith('"') and len(tok) > 1:
         return [tok[1:-1]]
-    if "." in tok:                                   # pactov1alpha1.X / corev1.X
+    if "." in tok:                                   # pactov1.X / corev1.X
         name = tok.rsplit(".", 1)[1]
         if name in EVENT_TYPES:
             return [EVENT_TYPES[name]]
@@ -425,13 +425,13 @@ def check_events() -> None:
     Those are the strings an operator greps `kubectl get events` for, so a new
     call site or a renamed reason silently invalidates the page. Resolve the real
     call sites rather than restating them here: a literal is taken as-is, an
-    api/v1alpha1 `EventXxx` constant is looked up, a local variable is resolved
+    api/v1 `EventXxx` constant is looked up, a local variable is resolved
     through its assignments in the same file, and a parameter is resolved through
     the arguments that file's own call sites pass it. A token that resolves to
     none of those is reported, so a new emission pattern fails this gate instead
     of slipping past it.
     """
-    api_src = read(os.path.join(K8S, "api", "v1alpha1", "conditions.go"))
+    api_src = read(os.path.join(K8S, "api", "v1", "conditions.go"))
     api_consts = dict(re.findall(r"^\t(\w+)\s*=\s*\"(\w+)\"", api_src, re.M))
 
     problems, emitted = [], {}

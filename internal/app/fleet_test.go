@@ -608,7 +608,7 @@ func TestFleetK8sProviderRows(t *testing.T) {
 	svc := NewService(nil, nil)
 	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
-			disc:      &k8sclient.CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"},
+			disc:      &k8sclient.CRDDiscovery{Found: true, Version: "v1", ResourceName: "pactos"},
 			listData:  []byte(`{"items":[]}`),
 			identity:  kubecluster.Identity{ID: "uid-1", Name: "eu-prod", NameSource: kubecluster.NameFromContext},
 			workloads: map[string]string{"deployments": `{"items":[{"metadata":{"name":"cart","namespace":"shop"}}]}`},
@@ -635,7 +635,7 @@ func TestFleetK8sGroupingRows(t *testing.T) {
 	svc := NewService(nil, nil)
 	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
-			disc:     &k8sclient.CRDDiscovery{Found: true, Version: "v1alpha1", ResourceName: "pactos"},
+			disc:     &k8sclient.CRDDiscovery{Found: true, Version: "v1", ResourceName: "pactos"},
 			listData: []byte(`{"items":[]}`),
 			identity: kubecluster.Identity{ID: "uid-1", Name: "eu-prod", NameSource: kubecluster.NameFromContext},
 			versions: map[string]string{"argoproj.io": "v1alpha1", "helm.toolkit.fluxcd.io": "v2"},

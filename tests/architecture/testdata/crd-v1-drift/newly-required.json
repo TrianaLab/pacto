@@ -1,0 +1,41 @@
+{
+  "properties": {
+    "spec": {
+      "properties": {
+        "items": {
+          "items": {
+            "properties": {
+              "id": {
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "labels": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "type": "object"
+        },
+        "mode": {
+          "enum": [
+            "a",
+            "b"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "mode"
+      ],
+      "type": "object"
+    }
+  },
+  "type": "object"
+}

@@ -24,7 +24,7 @@ var _ = Describe("Stage startLevel", func() {
 			spec["startLevel"] = start
 		}
 		u := &unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{"namespace": "default", "name": name}, "spec": spec}}
-		u.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "Stage"})
+		u.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1", Kind: "Stage"})
 		return u
 	}
 
@@ -58,7 +58,7 @@ var _ = Describe("Stage environment", func() {
 		spec := map[string]any{"service": map[string]any{"name": "payments"}, "environment": env,
 			"applyRef": map[string]any{"name": "payments"}}
 		u := &unstructured.Unstructured{Object: map[string]any{"metadata": map[string]any{"namespace": "default", "name": name}, "spec": spec}}
-		u.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "Stage"})
+		u.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1", Kind: "Stage"})
 		return u
 	}
 
@@ -93,7 +93,7 @@ var _ = Describe("Stage environment", func() {
 			"spec": map[string]any{"type": "delivery.pacto.trianalab.io/promote", "stage": "env-legacy-prod", "facet": "pointer",
 				"actor": map[string]any{"user": "bot"}},
 		}}
-		op.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Kind: "Operation"})
+		op.SetGroupVersionKind(schema.GroupVersionKind{Group: "delivery.pacto.trianalab.io", Version: "v1", Kind: "Operation"})
 		Expect(k8sClient.Create(ctx, op)).To(Succeed())
 		for _, env := range []string{"prod_eu", "Prod", ""} {
 			Expect(unstructured.SetNestedField(op.Object, map[string]any{"service": map[string]any{"name": "payments"}, "environment": env,

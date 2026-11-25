@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
@@ -27,11 +27,11 @@ import (
 // A reconcile that finds nothing new writes no status until the heartbeat is due,
 // so a watch event or the operator's own write never turns into a status write.
 func TestReconcile_WritesStatusOnlyOnChangeOrHeartbeat(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "steady", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef:          pactov1alpha1.ContractRef{Inline: driftRawYAML},
-			Target:               pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "steady-job", Kind: "Job"}},
+		Spec: pactov1.PactoSpec{
+			ContractRef:          pactov1.ContractRef{Inline: driftRawYAML},
+			Target:               pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "steady-job", Kind: "Job"}},
 			CheckIntervalSeconds: 120,
 		},
 	}
@@ -42,11 +42,11 @@ func TestReconcile_WritesStatusOnlyOnChangeOrHeartbeat(t *testing.T) {
 	writes := 0
 	s := newSchemeWithApps()
 	cl := fake.NewClientBuilder().WithScheme(s).
-		WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+		WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 		WithObjects(pacto, job).
 		WithInterceptorFuncs(interceptor.Funcs{
 			SubResourceUpdate: func(ctx context.Context, c client.Client, sub string, obj client.Object, opts ...client.SubResourceUpdateOption) error {
-				if _, ok := obj.(*pactov1alpha1.Pacto); ok {
+				if _, ok := obj.(*pactov1.Pacto); ok {
 					writes++
 				}
 				return c.SubResource(sub).Update(ctx, obj, opts...)

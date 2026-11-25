@@ -195,7 +195,7 @@ describe('product endpoint serialization + schema validation', () => {
   it('fleetProviders GET /api/fleet/providers resolves the rows with a product meta', async () => {
     const body = {
       meta: { schemaVersion: PRODUCT_SCHEMA_VERSION, asOf: '2026-11-17T00:00:00Z', completeness: 'complete', snapshotId: 's', sourceCounts: { total: 1 }, sources: [{ id: 'k8s', kind: 'kubernetes', status: 'available', revisionCount: 0, targetCount: 2 }] },
-      total: 1, providers: [{ id: 'pacto-crd', source: 'k8s', name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1alpha1)', usedFor: ['declared-targets'], status: 'available' }],
+      total: 1, providers: [{ id: 'pacto-crd', source: 'k8s', name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1)', usedFor: ['declared-targets'], status: 'available' }],
     };
     mockFetch.mockResolvedValue(jsonResponse(body));
     const res = await api.fleetProviders();

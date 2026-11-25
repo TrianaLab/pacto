@@ -61,7 +61,7 @@ spec:
       targetPort: http
       protocol: TCP
 ---
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: deaf-api

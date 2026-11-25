@@ -1,6 +1,6 @@
 # The Pacto of the published orders revision in prod; its target workload is
 # the orders Deployment.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   namespace: shop

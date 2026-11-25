@@ -23,6 +23,10 @@
 #      (unchanged UID) is still stored + readable under the new CRD (no decode /
 #      conversion error, i.e. NOT silently dropped) and reconciles to a v6 status
 #      that carries a post-v4 field (status.evaluationCoverage).
+#   4b. the operator's storage migrator rewrites the stored objects as v1: every
+#      pacto-group CRD ends with status.storedVersions ["v1"], the operator logs
+#      the "storage migration" line for pactos, a v1alpha1 read returns the
+#      deprecation warning and the same CR (unchanged UID) reads as v1.
 #   5. clean uninstall, which keeps the CRDs (helm.sh/resource-policy: keep).
 # Prints V4-TO-V6-UPGRADE PASS.
 set -euo pipefail
@@ -212,14 +216,44 @@ kubectl -n "$NS" get deploy pacto-operator -o jsonpath='{.spec.template.spec.con
 
 echo "== the v6 operator reconciles the pre-existing CR to a v6 status =="
 wait_pacto_status "$DEMO_NS" orders Compliant \
-  && echo "  contractStatus=Compliant (v6)" \
   || fail "v6 operator did not reconcile the pre-existing CR to Compliant"
+echo "  contractStatus=Compliant (v6)"
 FINAL_UID=$(kubectl -n "$DEMO_NS" get pacto orders -o jsonpath='{.metadata.uid}')
 [ "$FINAL_UID" = "$V4_UID" ] || fail "CR was recreated across the upgrade ($V4_UID -> $FINAL_UID)"
 COV=$(kubectl -n "$DEMO_NS" get pacto orders -o jsonpath='{.status.evaluationCoverage}' 2>/dev/null || true)
 [ -n "$COV" ] || fail "post-v4 status field evaluationCoverage missing — CR not re-reconciled under v6"
 echo "  same CR (uid=$FINAL_UID) now carries the post-v4 status.evaluationCoverage: $COV"
 echo "  migration summary: v4 contractStatus='$V4_STATUS' -> v6 contractStatus='Compliant'"
+
+echo
+echo "== STEP 4b: the operator migrates storage to v1 =="
+# The v4 CRDs stored objects as v1alpha1; the upgraded CRDs store v1. The
+# migrator (leader-elected, all namespaces) rewrites every object and then
+# drops v1alpha1 from status.storedVersions. NodeRuntimeObservation did not
+# exist under v4, so the upgrade created it fresh with storedVersions ["v1"].
+stored_versions() { kubectl get crd "$1" -o jsonpath='{.status.storedVersions}' 2>/dev/null; }
+only_v1_stored() { [ "$(stored_versions "$1")" = '["v1"]' ]; }
+migration_failed() { # CRD — what was observed, then the operator log tail
+  echo "  $1 storedVersions: $(stored_versions "$1")" >&2
+  kubectl -n "$NS" logs deploy/pacto-operator --tail=50 >&2 || true
+  fail "$2"
+}
+for crd in "$CRD_PACTOS" "$CRD_REVS" "$CRD_NROS"; do
+  eventually 40 only_v1_stored "$crd" \
+    || migration_failed "$crd" "$crd still stores a version other than v1 after 120s"
+  echo "  $crd storedVersions: $(stored_versions "$crd")"
+done
+MIGRATED_RE='storage migration: pactos\.pacto\.trianalab\.io rewrote [1-9][0-9]* objects as v1'
+kubectl -n "$NS" logs deploy/pacto-operator | grep -qE "$MIGRATED_RE" \
+  || migration_failed "$CRD_PACTOS" "operator log has no line matching '$MIGRATED_RE'"
+echo "  operator logged: $(kubectl -n "$NS" logs deploy/pacto-operator | grep -oE "$MIGRATED_RE" | head -1)"
+WARNING='pacto.trianalab.io/v1alpha1 is deprecated; use v1 (removed in chart 8.0)'
+OLD_READ=$(kubectl get pactos.v1alpha1.pacto.trianalab.io -n "$DEMO_NS" 2>&1) || fail "v1alpha1 read failed: $OLD_READ"
+grep -qF "$WARNING" <<<"$OLD_READ" || fail "v1alpha1 read did not return the deprecation warning: $OLD_READ"
+echo "  v1alpha1 read warns: $WARNING"
+V1_READ=$(kubectl -n "$DEMO_NS" get pactos.v1.pacto.trianalab.io orders -o jsonpath='{.apiVersion} {.metadata.uid}')
+[ "$V1_READ" = "pacto.trianalab.io/v1 $V4_UID" ] || fail "the CR does not read as v1 with its original uid $V4_UID: $V1_READ"
+echo "  same CR reads as v1: $V1_READ"
 
 echo
 echo "== STEP 5: clean uninstall =="

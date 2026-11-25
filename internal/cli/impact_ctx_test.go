@@ -25,7 +25,7 @@ import (
 func TestMCPRegressionUsesTheCallContext(t *testing.T) {
 	d := defaultDeps()
 	d.newDynamic = func() (dynamic.Interface, error) {
-		gvrStages := schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}
+		gvrStages := schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}
 		c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), map[schema.GroupVersionResource]string{
 			gvrStages:                               "StageList",
 			{Version: "v1", Resource: "namespaces"}: "NamespaceList",

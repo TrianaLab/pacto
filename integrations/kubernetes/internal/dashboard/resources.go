@@ -7,7 +7,7 @@ See LICENSE file in the project root for full license text.
 
 package dashboard
 
-import "github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+import "github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 
 const (
 	// Resource naming

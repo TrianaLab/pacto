@@ -201,7 +201,7 @@ the exit status is discarded, so a failed read reads as an empty one.
 Go binds a module's version to its import path: a path ending `/vN` carries only
 `vN.y.z`, and an unsuffixed path only v0 and v1. Both Go modules here publish on a
 suffixed path — `github.com/trianalab/pacto/v4` and
-`github.com/trianalab/pacto/integrations/kubernetes/v6` — so the major in the path
+`github.com/trianalab/pacto/integrations/kubernetes/v7` — so the major in the path
 and the major in the version are the same number, always.
 
 A major changeset moves the version. It does not move the path, and it cannot: the

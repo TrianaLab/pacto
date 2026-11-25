@@ -33,11 +33,11 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/metrics"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/metrics"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -133,7 +133,7 @@ type PactoReconciler struct {
 
 func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl.Result, error) {
 	// 1. Fetch the Pacto CR
-	pacto := &pactov1alpha1.Pacto{}
+	pacto := &pactov1.Pacto{}
 	if err := r.Get(ctx, req.NamespacedName, pacto); err != nil {
 		if apierrors.IsNotFound(err) {
 			return ctrl.Result{}, nil
@@ -143,7 +143,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 
 	// Capture the prior readiness condition before the status is reset, so
 	// readiness gate transition events fire only on a change of state.
-	prevReadiness := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionReadinessSatisfied)
+	prevReadiness := meta.FindStatusCondition(pacto.Status.Conditions, pactov1.ConditionReadinessSatisfied)
 	readinessWasUnmet := prevReadiness != nil && prevReadiness.Status == metav1.ConditionFalse
 
 	// Same for the whole status, which judge resets: the value
@@ -163,7 +163,7 @@ func (r *PactoReconciler) Reconcile(ctx context.Context, req ctrl.Request) (ctrl
 // EvaluateDetached judges p, a Pacto that is never stored, exactly as Reconcile judges a stored one,
 // and writes nothing: no status update, no PactoRevision, no event and no metric. The verdict is left
 // in p.Status. p.Status.ObservationWindows carries the caller's windows in and the updated ones out.
-func (r *PactoReconciler) EvaluateDetached(ctx context.Context, p *pactov1alpha1.Pacto) {
+func (r *PactoReconciler) EvaluateDetached(ctx context.Context, p *pactov1.Pacto) {
 	if failure := r.judge(ctx, p, false, false); failure != nil {
 		r.markFailure(p, failure)
 	}
@@ -175,7 +175,7 @@ func (r *PactoReconciler) EvaluateDetached(ctx context.Context, p *pactov1alpha1
 // why no contract could be judged. persisted is true for a stored Pacto: only then are readiness events
 // and metrics emitted and the PactoRevision ensured. readinessWasUnmet is the ReadinessSatisfied
 // condition before this reconciliation.
-func (r *PactoReconciler) judge(ctx context.Context, pacto *pactov1alpha1.Pacto, readinessWasUnmet, persisted bool) *loadFailure {
+func (r *PactoReconciler) judge(ctx context.Context, pacto *pactov1.Pacto, readinessWasUnmet, persisted bool) *loadFailure {
 	prev := pacto.Status.DeepCopy()
 
 	// 2. Reset all derived status fields so no stale data survives.
@@ -189,8 +189,8 @@ func (r *PactoReconciler) judge(ctx context.Context, pacto *pactov1alpha1.Pacto,
 	}
 	effectiveContract := ec.effective.Contract
 
-	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue,
-		pactov1alpha1.ReasonContractParsed,
+	r.setCondition(pacto, pactov1.ConditionContractValid, metav1.ConditionTrue,
+		pactov1.ReasonContractParsed,
 		fmt.Sprintf("Contract %s v%s is valid", effectiveContract.Service.Name, effectiveContract.Service.Version))
 
 	// 6. Populate contract-derived status fields (from effective contract)
@@ -223,11 +223,11 @@ func (r *PactoReconciler) judge(ctx context.Context, pacto *pactov1alpha1.Pacto,
 
 	// 8. Reference-only: skip runtime validation
 	if pacto.IsReference() {
-		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue,
-			pactov1alpha1.ReasonReferenceOnly,
+		r.setCondition(pacto, pactov1.ConditionContractValid, metav1.ConditionTrue,
+			pactov1.ReasonReferenceOnly,
 			fmt.Sprintf("Reference contract %s v%s is valid", effectiveContract.Service.Name, effectiveContract.Service.Version))
-		pacto.Status.ContractStatus = pactov1alpha1.ContractStatusReference
-		pacto.Status.Summary = &pactov1alpha1.Summary{}
+		pacto.Status.ContractStatus = pactov1.ContractStatusReference
+		pacto.Status.Summary = &pactov1.Summary{}
 		return nil
 	}
 
@@ -238,7 +238,7 @@ func (r *PactoReconciler) judge(ctx context.Context, pacto *pactov1alpha1.Pacto,
 
 // recordRevision ensures the PactoRevision of the loaded contract and points status.currentRevision
 // at it; a failure is logged and leaves the previous revision standing.
-func (r *PactoReconciler) recordRevision(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract) {
+func (r *PactoReconciler) recordRevision(ctx context.Context, pacto *pactov1.Pacto, ec *effectiveContract) {
 	revisionName, revErr := r.ensureRevision(ctx, pacto, ec.loaded)
 	if revErr != nil {
 		logf.FromContext(ctx).Error(revErr, "Failed to ensure PactoRevision")
@@ -263,7 +263,7 @@ type effectiveContract struct {
 // loadFailure is why no effective contract could be produced, phrased for failReconciliation.
 type loadFailure struct {
 	msg        string
-	validation *pactov1alpha1.ValidationResult
+	validation *pactov1.ValidationResult
 	status     string
 	// reason is the ContractValid reason; empty picks the status's default.
 	reason string
@@ -271,7 +271,7 @@ type loadFailure struct {
 
 // loadEffectiveContract resolves the pull secret, loads the contract, applies the configuration overrides
 // and validates the result (steps 3 to 5). status.validation and status.resolutionPolicy are set on the way.
-func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pactov1alpha1.Pacto) (*effectiveContract, *loadFailure) {
+func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pactov1.Pacto) (*effectiveContract, *loadFailure) {
 	// 3. Resolve pull secret credentials (if specified)
 	var ociAuth *authn.AuthConfig
 	var credID string
@@ -281,15 +281,15 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 			return nil, &loadFailure{
 				msg:        notGranted.hint(r.Scoped),
 				validation: invalidAt("spec.contractRef.pullSecretRef", secretErr),
-				status:     pactov1alpha1.ContractStatusUnknown,
-				reason:     pactov1alpha1.ReasonPullSecretNotGranted,
+				status:     pactov1.ContractStatusUnknown,
+				reason:     pactov1.ReasonPullSecretNotGranted,
 			}
 		}
 		if secretErr != nil {
 			return nil, &loadFailure{
 				msg:        fmt.Sprintf("failed to read pull secret %q: %v", secretName, secretErr),
 				validation: invalidAt("spec.contractRef.pullSecretRef", secretErr),
-				status:     pactov1alpha1.ContractStatusUnknown,
+				status:     pactov1.ContractStatusUnknown,
 			}
 		}
 		ociAuth, credID = auth, id
@@ -304,7 +304,7 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 		return nil, &loadFailure{msg: err.Error(), validation: invalidAt("", err), status: classifyLoadError(err), reason: loadErrorReason(err)}
 	}
 	// Recorded before validation, so an Invalid verdict is tied to its contract too.
-	pacto.Status.EvaluatedRevision = &pactov1alpha1.EvaluatedRevision{ContractDigest: loadResult.ResolvedDigest}
+	pacto.Status.EvaluatedRevision = &pactov1.EvaluatedRevision{ContractDigest: loadResult.ResolvedDigest}
 
 	// 4b. Apply configuration overrides (if specified)
 	effectiveLR, overriddenKeys, overrideErr := applyOverrides(loadResult, pacto.Spec.Overrides)
@@ -312,7 +312,7 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 		return nil, &loadFailure{
 			msg:        fmt.Sprintf("override error: %s", overrideErr.Error()),
 			validation: invalidAt("spec.overrides", overrideErr),
-			status:     pactov1alpha1.ContractStatusInvalid,
+			status:     pactov1.ContractStatusInvalid,
 		}
 	}
 
@@ -324,7 +324,7 @@ func (r *PactoReconciler) loadEffectiveContract(ctx context.Context, pacto *pact
 		return nil, &loadFailure{
 			msg:        formatValidationErrors(contractResult.Errors),
 			validation: pacto.Status.Validation,
-			status:     pactov1alpha1.ContractStatusInvalid,
+			status:     pactov1.ContractStatusInvalid,
 		}
 	}
 
@@ -359,16 +359,16 @@ func (r *PactoReconciler) validateEffective(ctx context.Context, lr loader.LoadR
 }
 
 // invalidAt is the one-issue validation result of a contract that could not be obtained or overridden.
-func invalidAt(path string, err error) *pactov1alpha1.ValidationResult {
-	return &pactov1alpha1.ValidationResult{
+func invalidAt(path string, err error) *pactov1.ValidationResult {
+	return &pactov1.ValidationResult{
 		Valid:  false,
-		Errors: []pactov1alpha1.ValidationIssue{{Path: path, Message: err.Error()}},
+		Errors: []pactov1.ValidationIssue{{Path: path, Message: err.Error()}},
 	}
 }
 
 // evaluateRuntime collects the target's runtime evidence and judges the effective contract against it
 // (steps 9 to 15), filling the runtime half of the status.
-func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alpha1.Pacto, ec *effectiveContract) {
+func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1.Pacto, ec *effectiveContract) {
 	effectiveContract := ec.effective.Contract
 	obs := observer.New(r.Client).WithReader(r.APIReader).WithGatewayLogs(r.GatewayLogs).WithLinked(r.Linked)
 
@@ -382,7 +382,7 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 	pacto.Status.Externals, pacto.Status.ExternalsCoverage = obs.Externals()
 	pacto.Status.ExternalCatalog = observer.ExternalCatalog()
 	pacto.Status.ObservedEgress, pacto.Status.ObservedEgressCoverage = obs.ObservedEgress(pacto.Status.ObservedEgress)
-	coverages := []*pactov1alpha1.CallerCoverage{pacto.Status.ObservedCallersCoverage, pacto.Status.ExternalsCoverage}
+	coverages := []*pactov1.CallerCoverage{pacto.Status.ObservedCallersCoverage, pacto.Status.ExternalsCoverage}
 	if e := pacto.Status.ObservedEgressCoverage; e != nil {
 		coverages = append(coverages, &e.CallerCoverage)
 	}
@@ -411,7 +411,7 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 	// 14. Copy EvaluationCoverage. Reported metadata: the engine charges a required
 	//     assertion and emits its Unknown finding in the same branch, so a coverage
 	//     gap never outranks what the findings already say.
-	pacto.Status.EvaluationCoverage = &pactov1alpha1.EvaluationCoverage{
+	pacto.Status.EvaluationCoverage = &pactov1.EvaluationCoverage{
 		Evaluated:  int32(cov.Evaluated),
 		Required:   int32(cov.Required),
 		Unverified: capUnverified(cov.Unverified),
@@ -426,7 +426,7 @@ func (r *PactoReconciler) evaluateRuntime(ctx context.Context, pacto *pactov1alp
 
 // buildCollectInput maps the resolved target, its bindings and the persisted observation windows onto the
 // observer's input (spec section 9.1).
-func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effectiveContract, probing, metricsObs observer.Setting) observer.CollectInput {
+func (r *PactoReconciler) buildCollectInput(pacto *pactov1.Pacto, ec *effectiveContract, probing, metricsObs observer.Setting) observer.CollectInput {
 	workloadName, workloadKind := pacto.ResolvedWorkload()
 	workloadRef := pacto.Spec.Target.WorkloadRef
 
@@ -472,7 +472,7 @@ func (r *PactoReconciler) buildCollectInput(pacto *pactov1alpha1.Pacto, ec *effe
 
 // observeBackCompat fills status.observedRuntime and status.resources, the lean runtime view the dashboard
 // reads, and returns the observation error.
-func (r *PactoReconciler) observeBackCompat(ctx context.Context, obs *observer.Observer, pacto *pactov1alpha1.Pacto) error {
+func (r *PactoReconciler) observeBackCompat(ctx context.Context, obs *observer.Observer, pacto *pactov1.Pacto) error {
 	workloadName, workloadKind := pacto.ResolvedWorkload()
 	serviceName := pacto.Spec.Target.ServiceName
 	snapshot, obsErr := obs.Observe(ctx, pacto.Namespace, serviceName, workloadName, workloadKind)
@@ -480,12 +480,12 @@ func (r *PactoReconciler) observeBackCompat(ctx context.Context, obs *observer.O
 		snapshot = &observer.RuntimeSnapshot{}
 	}
 	if snapshot.WorkloadExists && pacto.Status.EvaluatedRevision != nil {
-		pacto.Status.EvaluatedRevision.Workload = &pactov1alpha1.EvaluatedWorkload{
+		pacto.Status.EvaluatedRevision.Workload = &pactov1.EvaluatedWorkload{
 			Kind: workloadKind, Name: workloadName, UID: snapshot.WorkloadUID, Generation: snapshot.WorkloadGeneration,
 		}
 	}
 	if snapshot.WorkloadExists {
-		pacto.Status.ObservedRuntime = &pactov1alpha1.ObservedRuntime{
+		pacto.Status.ObservedRuntime = &pactov1.ObservedRuntime{
 			WorkloadKind:                   snapshot.WorkloadKind,
 			DeploymentStrategy:             snapshot.DeploymentStrategy,
 			PodManagementPolicy:            snapshot.PodManagementPolicy,
@@ -500,21 +500,21 @@ func (r *PactoReconciler) observeBackCompat(ctx context.Context, obs *observer.O
 	if serviceName == "" && workloadName == "" {
 		return obsErr
 	}
-	pacto.Status.Resources = &pactov1alpha1.ResourcesStatus{}
+	pacto.Status.Resources = &pactov1.ResourcesStatus{}
 	if serviceName != "" {
-		pacto.Status.Resources.Service = &pactov1alpha1.ResourceStatus{Name: serviceName, Exists: snapshot.ServiceExists}
+		pacto.Status.Resources.Service = &pactov1.ResourceStatus{Name: serviceName, Exists: snapshot.ServiceExists}
 	}
 	if workloadName != "" {
-		pacto.Status.Resources.Workload = &pactov1alpha1.ResourceStatus{Name: workloadName, Kind: workloadKind, Exists: snapshot.WorkloadExists}
+		pacto.Status.Resources.Workload = &pactov1.ResourceStatus{Name: workloadName, Kind: workloadKind, Exists: snapshot.WorkloadExists}
 	}
 	return obsErr
 }
 
 // mapFindings copies engine findings into their status form.
-func mapFindings(findings []finding.Finding) []pactov1alpha1.FindingStatus {
-	out := make([]pactov1alpha1.FindingStatus, 0, len(findings))
+func mapFindings(findings []finding.Finding) []pactov1.FindingStatus {
+	out := make([]pactov1.FindingStatus, 0, len(findings))
 	for _, f := range findings {
-		st := pactov1alpha1.FindingStatus{
+		st := pactov1.FindingStatus{
 			Code:         string(f.Code),
 			Severity:     string(f.Severity),
 			Category:     string(f.Category),
@@ -523,7 +523,7 @@ func mapFindings(findings []finding.Finding) []pactov1alpha1.FindingStatus {
 			Message:      f.Message,
 		}
 		for _, er := range f.EvidenceRefs {
-			st.EvidenceRefs = append(st.EvidenceRefs, pactov1alpha1.EvidenceRefStatus{
+			st.EvidenceRefs = append(st.EvidenceRefs, pactov1.EvidenceRefStatus{
 				Source:     er.Source,
 				ObservedAt: er.ObservedAt,
 				Collector:  er.Collector,
@@ -537,7 +537,7 @@ func mapFindings(findings []finding.Finding) []pactov1alpha1.FindingStatus {
 
 // resetDerivedStatus clears all status fields that are recomputed each reconciliation.
 // This prevents stale data from a previous reconciliation from surviving.
-func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
+func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1.Pacto) {
 	pacto.Status.StatusFormat = 0
 	pacto.Status.ContractStatus = ""
 	pacto.Status.ResolutionPolicy = ""
@@ -569,12 +569,12 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 	// reported reads unavailable, never as the complete list of an older evaluation. It keeps the refresh
 	// interval, so delivery reads it as not evaluated rather than as a status the operator stopped writing.
 	if c := pacto.Status.ObservedCallersCoverage; c != nil {
-		pacto.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: c.RefreshSeconds}
+		pacto.Status.ObservedCallersCoverage = &pactov1.CallerCoverage{State: pactov1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: c.RefreshSeconds}
 	}
 	// Egress is kept for its FirstSeen the same way, its coverage reading not evaluated with its node counts.
 	if c := pacto.Status.ObservedEgressCoverage; c != nil {
-		pacto.Status.ObservedEgressCoverage = &pactov1alpha1.EgressCoverage{
-			CallerCoverage: pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: c.RefreshSeconds},
+		pacto.Status.ObservedEgressCoverage = &pactov1.EgressCoverage{
+			CallerCoverage: pactov1.CallerCoverage{State: pactov1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: c.RefreshSeconds},
 			Nodes:          c.Nodes, NodesWithAgent: c.NodesWithAgent,
 		}
 	}
@@ -586,7 +586,7 @@ func (r *PactoReconciler) resetDerivedStatus(pacto *pactov1alpha1.Pacto) {
 // reason, when set, overrides the status's default ContractValid reason.
 // prev is the status persisted by the previous reconciliation; its contract status gates the
 // transition event (see emitContractStatusEvent) and the whole of it gates the write (see writeStatus).
-func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, msg string, valResult *pactov1alpha1.ValidationResult, prev *pactov1alpha1.PactoStatus, status, reason string) (ctrl.Result, error) {
+func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1.Pacto, msg string, valResult *pactov1.ValidationResult, prev *pactov1.PactoStatus, status, reason string) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	r.markFailure(pacto, &loadFailure{msg: msg, validation: valResult, status: status, reason: reason})
@@ -597,9 +597,9 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 		return ctrl.Result{}, statusErr
 	}
 
-	eventReason := pactov1alpha1.EventContractInvalid
-	if status == pactov1alpha1.ContractStatusUnknown {
-		eventReason = pactov1alpha1.EventContractUnavailable
+	eventReason := pactov1.EventContractInvalid
+	if status == pactov1.ContractStatusUnknown {
+		eventReason = pactov1.EventContractUnavailable
 	}
 	r.emitContractStatusEvent(pacto, prev.ContractStatus, eventReason, msg)
 
@@ -611,28 +611,28 @@ func (r *PactoReconciler) failReconciliation(ctx context.Context, pacto *pactov1
 
 // markFailure is the status half of failReconciliation: the ContractValid condition, the summary,
 // the validation result and the contract status of a contract that could not be judged.
-func (r *PactoReconciler) markFailure(pacto *pactov1alpha1.Pacto, f *loadFailure) {
+func (r *PactoReconciler) markFailure(pacto *pactov1.Pacto, f *loadFailure) {
 	status := f.status
 	switch status {
-	case pactov1alpha1.ContractStatusInvalid:
-		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
-			cmp.Or(f.reason, pactov1alpha1.ReasonContractInvalid), f.msg)
-		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+	case pactov1.ContractStatusInvalid:
+		r.setCondition(pacto, pactov1.ConditionContractValid, metav1.ConditionFalse,
+			cmp.Or(f.reason, pactov1.ReasonContractInvalid), f.msg)
+		pacto.Status.Summary = &pactov1.Summary{ErrorCount: 1}
 		// The contract was loaded and judged invalid -> record the validation result.
 		pacto.Status.Validation = f.validation
-	case pactov1alpha1.ContractStatusUnknown:
-		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionUnknown,
-			cmp.Or(f.reason, pactov1alpha1.ReasonContractUnavailable), f.msg)
-		pacto.Status.Summary = &pactov1alpha1.Summary{UnknownCount: 1}
+	case pactov1.ContractStatusUnknown:
+		r.setCondition(pacto, pactov1.ConditionContractValid, metav1.ConditionUnknown,
+			cmp.Or(f.reason, pactov1.ReasonContractUnavailable), f.msg)
+		pacto.Status.Summary = &pactov1.Summary{UnknownCount: 1}
 		// Transient obtain-failure (spec section 9.8): the contract was never loaded, so leave
 		// status.validation nil rather than asserting the contract IS invalid.
 	default:
 		// Fallback for unexpected status
-		r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionFalse,
-			pactov1alpha1.ReasonContractInvalid, f.msg)
-		pacto.Status.Summary = &pactov1alpha1.Summary{ErrorCount: 1}
+		r.setCondition(pacto, pactov1.ConditionContractValid, metav1.ConditionFalse,
+			pactov1.ReasonContractInvalid, f.msg)
+		pacto.Status.Summary = &pactov1.Summary{ErrorCount: 1}
 		pacto.Status.Validation = f.validation
-		status = pactov1alpha1.ContractStatusInvalid
+		status = pactov1.ContractStatusInvalid
 	}
 	pacto.Status.ContractStatus = status
 }
@@ -642,7 +642,7 @@ func (r *PactoReconciler) markFailure(pacto *pactov1alpha1.Pacto, f *loadFailure
 // service.version implied is ContractUndeclared.
 func loadErrorReason(err error) string {
 	if errors.Is(err, contract.ErrUndeclaredContract) {
-		return pactov1alpha1.ReasonContractUndeclared
+		return pactov1.ReasonContractUndeclared
 	}
 	return ""
 }
@@ -659,9 +659,9 @@ func classifyLoadError(err error) string {
 		notFound    *oci.ArtifactNotFoundError
 	)
 	if errors.As(err, &unreachable) || errors.As(err, &unauthed) || errors.As(err, &notFound) {
-		return pactov1alpha1.ContractStatusUnknown
+		return pactov1.ContractStatusUnknown
 	}
-	return pactov1alpha1.ContractStatusInvalid // fail-closed
+	return pactov1.ContractStatusInvalid // fail-closed
 }
 
 // applyObservationWindowUpdates persists window updates into status.observationWindows (spec section 9.5).
@@ -669,9 +669,9 @@ func classifyLoadError(err error) string {
 // NOT in declaredKeys (the assertion set of the CURRENT effective contract) are pruned, so removing an
 // assertion drops its stale window instead of leaving it to fire a premature confirmed-negative or to grow
 // status unbounded under churn. Still-declared entries that had no update this cycle are preserved.
-func (r *PactoReconciler) applyObservationWindowUpdates(pacto *pactov1alpha1.Pacto, updates []observer.ObservationWindowUpdate, declaredKeys map[string]bool) {
+func (r *PactoReconciler) applyObservationWindowUpdates(pacto *pactov1.Pacto, updates []observer.ObservationWindowUpdate, declaredKeys map[string]bool) {
 	// Build a map of current windows keyed by (Kind/Subject)
-	windowMap := make(map[string]*pactov1alpha1.ObservationWindow)
+	windowMap := make(map[string]*pactov1.ObservationWindow)
 	for i := range pacto.Status.ObservationWindows {
 		w := &pacto.Status.ObservationWindows[i]
 		key := fmt.Sprintf("%s/%s", w.Kind, w.Subject)
@@ -689,7 +689,7 @@ func (r *PactoReconciler) applyObservationWindowUpdates(pacto *pactov1alpha1.Pac
 			if existing, ok := windowMap[key]; ok {
 				existing.FirstObservedNegativeAt = *u.FirstObservedNegativeAt
 			} else {
-				windowMap[key] = &pactov1alpha1.ObservationWindow{
+				windowMap[key] = &pactov1.ObservationWindow{
 					Kind:                    u.Kind,
 					Subject:                 u.Subject,
 					FirstObservedNegativeAt: *u.FirstObservedNegativeAt,
@@ -706,7 +706,7 @@ func (r *PactoReconciler) applyObservationWindowUpdates(pacto *pactov1alpha1.Pac
 	}
 
 	// Rebuild the slice from the map
-	windows := make([]pactov1alpha1.ObservationWindow, 0, len(windowMap))
+	windows := make([]pactov1.ObservationWindow, 0, len(windowMap))
 	for _, w := range windowMap {
 		windows = append(windows, *w)
 	}
@@ -739,7 +739,7 @@ func declaredWindowKeys(c *contract.Contract) map[string]bool {
 // Pacto that is born non-compliant still emits its first warning event.
 func contractStatusDegraded(status string) bool {
 	switch status {
-	case "", pactov1alpha1.ContractStatusCompliant, pactov1alpha1.ContractStatusReference:
+	case "", pactov1.ContractStatusCompliant, pactov1.ContractStatusReference:
 		return false
 	default:
 		return true
@@ -749,10 +749,10 @@ func contractStatusDegraded(status string) bool {
 // contractStatusMessage renders the event body for a completed evaluation. Summary
 // is set by every path that reaches finishReconciliation, but a nil one must still
 // produce an event rather than silently drop the transition.
-func contractStatusMessage(pacto *pactov1alpha1.Pacto) string {
+func contractStatusMessage(pacto *pactov1.Pacto) string {
 	summary := pacto.Status.Summary
 	if summary == nil {
-		summary = &pactov1alpha1.Summary{}
+		summary = &pactov1.Summary{}
 	}
 	return fmt.Sprintf("ContractStatus: %s, %d errors, %d warnings",
 		pacto.Status.ContractStatus, summary.ErrorCount, summary.WarningCount)
@@ -765,14 +765,14 @@ func contractStatusMessage(pacto *pactov1alpha1.Pacto) string {
 // workload status write — a rolling update alone produces dozens. warnReason is
 // the reason for the degraded direction; recovery always uses EventContractRecovered.
 // This mirrors the readiness gate guard (see reconcileReadiness).
-func (r *PactoReconciler) emitContractStatusEvent(pacto *pactov1alpha1.Pacto, prev, warnReason, msg string) {
+func (r *PactoReconciler) emitContractStatusEvent(pacto *pactov1.Pacto, prev, warnReason, msg string) {
 	current := pacto.Status.ContractStatus
 	switch {
 	case contractStatusDegraded(current) && current != prev:
 		// Includes escalation between degraded states (Warning -> NonCompliant).
 		r.Recorder.Event(pacto, corev1.EventTypeWarning, warnReason, msg)
 	case !contractStatusDegraded(current) && contractStatusDegraded(prev):
-		r.Recorder.Event(pacto, corev1.EventTypeNormal, pactov1alpha1.EventContractRecovered, msg)
+		r.Recorder.Event(pacto, corev1.EventTypeNormal, pactov1.EventContractRecovered, msg)
 	}
 }
 
@@ -780,7 +780,7 @@ func (r *PactoReconciler) emitContractStatusEvent(pacto *pactov1alpha1.Pacto, pr
 // prev is the status persisted by the previous reconciliation; its contract
 // status gates the transition event (see emitContractStatusEvent) and the whole
 // of it gates the write (see writeStatus).
-func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pactov1alpha1.Pacto, prev *pactov1alpha1.PactoStatus) (ctrl.Result, error) {
+func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pactov1.Pacto, prev *pactov1.PactoStatus) (ctrl.Result, error) {
 	log := logf.FromContext(ctx)
 
 	if statusErr := r.writeStatus(ctx, pacto, prev); statusErr != nil {
@@ -789,7 +789,7 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 	}
 
 	r.emitContractStatusEvent(pacto, prev.ContractStatus,
-		pactov1alpha1.EventValidationFailed, contractStatusMessage(pacto))
+		pactov1.EventValidationFailed, contractStatusMessage(pacto))
 
 	// Emit Prometheus metrics
 	metrics.RecordContractStatus(pacto.Namespace, pacto.Name, pacto.Status.ContractStatus)
@@ -807,7 +807,7 @@ func (r *PactoReconciler) finishReconciliation(ctx context.Context, pacto *pacto
 // evidence times each finding carries are stamped at observation, so they are
 // left out of the comparison too and refresh with the heartbeat: compared, they
 // wrote the status on every reconcile that fell in a new second.
-func (r *PactoReconciler) writeStatus(ctx context.Context, pacto *pactov1alpha1.Pacto, prev *pactov1alpha1.PactoStatus) error {
+func (r *PactoReconciler) writeStatus(ctx context.Context, pacto *pactov1.Pacto, prev *pactov1.PactoStatus) error {
 	pacto.Status.ObservedGeneration = pacto.Generation
 	now := metav1.Now()
 	if prev != nil && prev.LastReconciledAt != nil && now.Sub(prev.LastReconciledAt.Time) < r.requeueInterval(pacto)/2 {
@@ -821,7 +821,7 @@ func (r *PactoReconciler) writeStatus(ctx context.Context, pacto *pactov1alpha1.
 }
 
 // withoutEvidenceTimes is a copy of st with every finding's evidence times blanked.
-func withoutEvidenceTimes(st *pactov1alpha1.PactoStatus) *pactov1alpha1.PactoStatus {
+func withoutEvidenceTimes(st *pactov1.PactoStatus) *pactov1.PactoStatus {
 	st = st.DeepCopy()
 	for i := range st.Findings {
 		for j := range st.Findings[i].EvidenceRefs {
@@ -832,7 +832,7 @@ func withoutEvidenceTimes(st *pactov1alpha1.PactoStatus) *pactov1alpha1.PactoSta
 	return st
 }
 
-func (r *PactoReconciler) requeueInterval(pacto *pactov1alpha1.Pacto) time.Duration {
+func (r *PactoReconciler) requeueInterval(pacto *pactov1.Pacto) time.Duration {
 	if pacto.Spec.CheckIntervalSeconds > 0 {
 		return time.Duration(pacto.Spec.CheckIntervalSeconds) * time.Second
 	}
@@ -847,11 +847,11 @@ func resolutionPolicy(ociRef string) string {
 	}
 	if oci.HasExplicitTag(ociRef) {
 		if strings.Contains(ociRef, "@") {
-			return pactov1alpha1.ResolutionPolicyPinnedDigest
+			return pactov1.ResolutionPolicyPinnedDigest
 		}
-		return pactov1alpha1.ResolutionPolicyPinnedTag
+		return pactov1.ResolutionPolicyPinnedTag
 	}
-	return pactov1alpha1.ResolutionPolicyLatest
+	return pactov1.ResolutionPolicyLatest
 }
 
 // --- Override application ---
@@ -913,8 +913,8 @@ func (r *PactoReconciler) SetupWithManager(mgr ctrl.Manager) error {
 		// Generation only: a status write, the operator's own included, is not a
 		// reason to reconcile again. Without the filter every write re-entered
 		// Reconcile at once, which is why statuses were written in pairs.
-		For(&pactov1alpha1.Pacto{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
-		Owns(&pactov1alpha1.PactoRevision{}).
+		For(&pactov1.Pacto{}, builder.WithPredicates(predicate.GenerationChangedPredicate{})).
+		Owns(&pactov1.PactoRevision{}).
 		Watches(&corev1.Service{}, enqueueForTarget(mgr.GetClient())).
 		Watches(&appsv1.Deployment{}, enqueueForTarget(mgr.GetClient())).
 		Watches(&appsv1.StatefulSet{}, enqueueForTarget(mgr.GetClient())).

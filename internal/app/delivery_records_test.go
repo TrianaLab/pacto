@@ -776,7 +776,7 @@ func TestFleetAuditWalkIsBounded(t *testing.T) {
 		}
 		l := &unstructured.UnstructuredList{}
 		for i := range auditLimit {
-			l.Items = append(l.Items, *obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", a.GetNamespace(), fmt.Sprint("s", i), nil))
+			l.Items = append(l.Items, *obj("delivery.pacto.trianalab.io/v1", "Stage", a.GetNamespace(), fmt.Sprint("s", i), nil))
 		}
 		return true, l, nil
 	})
@@ -802,7 +802,7 @@ func serviceStages(ns string) *unstructured.UnstructuredList {
 		if i >= 600 {
 			svc = map[string]any{"name": "payments"}
 		}
-		l.Items = append(l.Items, *obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", ns, fmt.Sprint("s", i),
+		l.Items = append(l.Items, *obj("delivery.pacto.trianalab.io/v1", "Stage", ns, fmt.Sprint("s", i),
 			map[string]any{"spec": map[string]any{"service": svc}}))
 	}
 	return l
@@ -1126,7 +1126,7 @@ func TestHistoryFillsRevisions(t *testing.T) {
 // another service names gets no key.
 func TestHistoryAllRevisionsMismatchedService(t *testing.T) {
 	t.Parallel()
-	orders := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "orders-prod", map[string]any{
+	orders := obj("delivery.pacto.trianalab.io/v1", "Stage", "prod", "orders-prod", map[string]any{
 		"spec":   map[string]any{"service": map[string]any{"name": "orders"}, "environment": "prod", "applyRef": map[string]any{"name": "payments"}},
 		"status": map[string]any{"pointer": dlA},
 	})

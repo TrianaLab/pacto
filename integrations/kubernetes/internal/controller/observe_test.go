@@ -21,9 +21,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
@@ -122,12 +122,12 @@ func TestObserveSettingsMetricsLabelNamesMonitorGrant(t *testing.T) {
 	}
 }
 
-func observedPacto(name string) *pactov1alpha1.Pacto {
-	return &pactov1alpha1.Pacto{
+func observedPacto(name string) *pactov1.Pacto {
+	return &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "svc"},
+		Spec: pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: validContract},
+			Target:      pactov1.TargetRef{ServiceName: "svc"},
 		},
 	}
 }
@@ -147,7 +147,7 @@ func TestObserveSettingsTransientErrorMarksObservationFailed(t *testing.T) {
 			pacto := observedPacto("transient")
 			r := newReconciler()
 			r.Scheme = newSchemeWithApps()
-			r.Client = fake.NewClientBuilder().WithScheme(r.Scheme).WithStatusSubresource(&pactov1alpha1.Pacto{}).
+			r.Client = fake.NewClientBuilder().WithScheme(r.Scheme).WithStatusSubresource(&pactov1.Pacto{}).
 				WithObjects(pacto, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "svc", Namespace: "default"}}).Build()
 			r.Loader = &mockLoader{loadFn: func(_ context.Context, _, _ string) (*loader.LoadResult, error) {
 				return &loader.LoadResult{
@@ -161,11 +161,11 @@ func TestObserveSettingsTransientErrorMarksObservationFailed(t *testing.T) {
 			if _, err := r.Reconcile(context.Background(), reconcileReq(pacto.Name, pacto.Namespace)); err != nil {
 				t.Fatalf("unexpected error: %v", err)
 			}
-			cond := meta.FindStatusCondition(getPacto(t, r, pacto.Name, pacto.Namespace).Status.Conditions, pactov1alpha1.ConditionRuntimeObserved)
+			cond := meta.FindStatusCondition(getPacto(t, r, pacto.Name, pacto.Namespace).Status.Conditions, pactov1.ConditionRuntimeObserved)
 			if cond == nil || cond.Status != tc.wantStatus {
 				t.Fatalf("RuntimeObserved = %+v, want %s", cond, tc.wantStatus)
 			}
-			if tc.wantStatus == metav1.ConditionFalse && (cond.Reason != pactov1alpha1.ReasonObservationFailed ||
+			if tc.wantStatus == metav1.ConditionFalse && (cond.Reason != pactov1.ReasonObservationFailed ||
 				!strings.Contains(cond.Message, "namespace default: observe label unreadable")) {
 				t.Errorf("condition = %s %q, want ObservationFailed naming the label read", cond.Reason, cond.Message)
 			}
@@ -187,14 +187,14 @@ func TestRuntimeObservedMessageNamesSource(t *testing.T) {
 		t.Fatalf("observeMessage = %q, want %q", got, clause)
 	}
 	r := newReconciler()
-	pacto := &pactov1alpha1.Pacto{}
+	pacto := &pactov1.Pacto{}
 	r.setRuntimeObservedCondition(pacto, nil, clause)
-	cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionRuntimeObserved)
+	cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1.ConditionRuntimeObserved)
 	if cond.Status != metav1.ConditionTrue || !strings.HasSuffix(cond.Message, ". Observation: "+clause) {
 		t.Errorf("True message %q must end with the clauses", cond.Message)
 	}
 	r.setRuntimeObservedCondition(pacto, errors.New("workload: boom"), clause)
-	cond = meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionRuntimeObserved)
+	cond = meta.FindStatusCondition(pacto.Status.Conditions, pactov1.ConditionRuntimeObserved)
 	if cond.Status != metav1.ConditionFalse || !strings.HasSuffix(cond.Message, ". Observation: "+clause) {
 		t.Errorf("False message %q must end with the clauses", cond.Message)
 	}
@@ -204,7 +204,7 @@ func TestBuildCollectInputUsesResolvedSettings(t *testing.T) {
 	// The reconciler's modes are auto; only the resolved settings reach the collectors.
 	r := &PactoReconciler{Probing: observer.ModeAuto, MetricsObservation: observer.ModeAuto}
 	for _, tc := range []struct{ probing, metrics bool }{{true, false}, {false, true}, {false, false}} {
-		in := r.buildCollectInput(&pactov1alpha1.Pacto{}, &effectiveContract{loaded: &loader.LoadResult{}},
+		in := r.buildCollectInput(&pactov1.Pacto{}, &effectiveContract{loaded: &loader.LoadResult{}},
 			observer.Setting{On: tc.probing}, observer.Setting{On: tc.metrics})
 		if in.EnableProbing != tc.probing || in.EnableMetricsObservation != tc.metrics {
 			t.Errorf("input probing=%v metrics=%v, want %v %v", in.EnableProbing, in.EnableMetricsObservation, tc.probing, tc.metrics)

@@ -76,7 +76,7 @@ install_argocd_cli
 # reads status and metadata.generation and nothing else.
 verdict() {
   cat <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: { name: orders, namespace: $APP_NS, generation: ${2:-1} }
 spec: { contractRef: { inline: "pactoVersion: '2.0'" } }
@@ -126,7 +126,7 @@ health_case "verdict behind the contract" Progressing "not yet evaluated at this
 # A Pacto the operator has not reached yet. Written out rather than produced by
 # `verdict`, because the absent field IS the case.
 health_case "no status yet" Progressing "waiting for the first contract evaluation" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: { name: orders, namespace: $APP_NS, generation: 1 }
 spec: { contractRef: { inline: "pactoVersion: '2.0'" } }
@@ -136,7 +136,7 @@ YAML
 # dot, and it is the one branch that reads a nested list under the sandbox's
 # restrictions.
 health_case "the reason reaches the UI" Degraded "WORKLOAD_MISMATCH" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: { name: orders, namespace: $APP_NS, generation: 1 }
 spec: { contractRef: { inline: "pactoVersion: '2.0'" } }
@@ -232,7 +232,7 @@ YAML
   # (Unknown) rather than WORKLOAD_MISMATCH, and the Application would go amber
   # for a reason this scenario did not set up.
   cat > "$tree/pacto.yaml" << YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: { name: orders, namespace: $APP_NS }
 spec:

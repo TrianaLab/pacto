@@ -19,8 +19,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/cache"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
 )
 
 // Namespaces merges --watch-namespaces (comma-separated) with the deprecated
@@ -54,7 +54,7 @@ func CacheOptions(namespaces []string, kernelNamespace string, kernelEvidence bo
 	// installs no new CRDs).
 	if kernelEvidence {
 		kernel := cache.ByObject{Namespaces: map[string]cache.Config{kernelNamespace: {}}}
-		opts.ByObject[&pactov1alpha1.NodeRuntimeObservation{}] = kernel
+		opts.ByObject[&pactov1.NodeRuntimeObservation{}] = kernel
 		opts.ByObject[&coordinationv1.Lease{}] = kernel
 	}
 	if len(namespaces) > 0 {

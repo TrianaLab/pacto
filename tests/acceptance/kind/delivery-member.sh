@@ -222,7 +222,7 @@ YAML
   # contract never rides on the installation's registry credential, so the
   # member install grants the operator that one Secret (controller.secretGrants).
   cat > "$tree/pacto.yaml" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: $APP
@@ -361,7 +361,7 @@ spec:
   wait: true
   timeout: 2m
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: $APP}
 spec:
@@ -374,7 +374,7 @@ spec:
   approval: {always: true}
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 60s}}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: $APP-staging}
 spec:

@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -25,63 +25,63 @@ import (
 
 func TestClassifyLoadError_RegistryUnreachable(t *testing.T) {
 	err := &oci.RegistryUnreachableError{Ref: "test", Err: errors.New("network timeout")}
-	if got := classifyLoadError(err); got != pactov1alpha1.ContractStatusUnknown {
+	if got := classifyLoadError(err); got != pactov1.ContractStatusUnknown {
 		t.Fatalf("expected Unknown for RegistryUnreachableError, got %q", got)
 	}
 }
 
 func TestClassifyLoadError_Authentication(t *testing.T) {
 	err := &oci.AuthenticationError{Ref: "test", Err: errors.New("401 unauthorized")}
-	if got := classifyLoadError(err); got != pactov1alpha1.ContractStatusUnknown {
+	if got := classifyLoadError(err); got != pactov1.ContractStatusUnknown {
 		t.Fatalf("expected Unknown for AuthenticationError, got %q", got)
 	}
 }
 
 func TestClassifyLoadError_ArtifactNotFound(t *testing.T) {
 	err := &oci.ArtifactNotFoundError{Ref: "test", Err: errors.New("404 not found")}
-	if got := classifyLoadError(err); got != pactov1alpha1.ContractStatusUnknown {
+	if got := classifyLoadError(err); got != pactov1.ContractStatusUnknown {
 		t.Fatalf("expected Unknown for ArtifactNotFoundError, got %q", got)
 	}
 }
 
 func TestClassifyLoadError_InvalidRef(t *testing.T) {
 	err := &oci.InvalidRefError{Ref: "test", Err: errors.New("malformed ref")}
-	if got := classifyLoadError(err); got != pactov1alpha1.ContractStatusInvalid {
+	if got := classifyLoadError(err); got != pactov1.ContractStatusInvalid {
 		t.Fatalf("expected Invalid for InvalidRefError, got %q", got)
 	}
 }
 
 func TestClassifyLoadError_InvalidBundle(t *testing.T) {
 	err := &oci.InvalidBundleError{Ref: "test", Err: errors.New("corrupt tar")}
-	if got := classifyLoadError(err); got != pactov1alpha1.ContractStatusInvalid {
+	if got := classifyLoadError(err); got != pactov1.ContractStatusInvalid {
 		t.Fatalf("expected Invalid for InvalidBundleError, got %q", got)
 	}
 }
 
 func TestClassifyLoadError_NoMatchingVersion(t *testing.T) {
 	err := &oci.NoMatchingVersionError{Ref: "test", Constraint: "^1.0.0", Err: errors.New("no semver tags")}
-	if got := classifyLoadError(err); got != pactov1alpha1.ContractStatusInvalid {
+	if got := classifyLoadError(err); got != pactov1.ContractStatusInvalid {
 		t.Fatalf("expected Invalid for NoMatchingVersionError, got %q", got)
 	}
 }
 
 func TestClassifyLoadError_WrappedRegistryUnreachable(t *testing.T) {
 	wrapped := fmt.Errorf("outer: %w", &oci.RegistryUnreachableError{Ref: "test", Err: errors.New("inner")})
-	if got := classifyLoadError(wrapped); got != pactov1alpha1.ContractStatusUnknown {
+	if got := classifyLoadError(wrapped); got != pactov1.ContractStatusUnknown {
 		t.Fatalf("expected Unknown for wrapped RegistryUnreachableError, got %q", got)
 	}
 }
 
 func TestClassifyLoadError_WrappedInvalidRef(t *testing.T) {
 	wrapped := fmt.Errorf("context: %w", &oci.InvalidRefError{Ref: "test", Err: errors.New("bad")})
-	if got := classifyLoadError(wrapped); got != pactov1alpha1.ContractStatusInvalid {
+	if got := classifyLoadError(wrapped); got != pactov1.ContractStatusInvalid {
 		t.Fatalf("expected Invalid for wrapped InvalidRefError, got %q", got)
 	}
 }
 
 func TestClassifyLoadError_GenericError(t *testing.T) {
 	err := errors.New("some other error")
-	if got := classifyLoadError(err); got != pactov1alpha1.ContractStatusInvalid {
+	if got := classifyLoadError(err); got != pactov1.ContractStatusInvalid {
 		t.Fatalf("expected Invalid (fail-closed) for generic error, got %q", got)
 	}
 }
@@ -90,7 +90,7 @@ func TestClassifyLoadError_GenericError(t *testing.T) {
 
 func TestApplyObservationWindowUpdates_InsertNew(t *testing.T) {
 	r := newReconciler()
-	pacto := &pactov1alpha1.Pacto{}
+	pacto := &pactov1.Pacto{}
 	now := metav1.Now()
 	updates := []observer.ObservationWindowUpdate{
 		{Kind: "check", Subject: "foo", FirstObservedNegativeAt: &now},
@@ -113,9 +113,9 @@ func TestApplyObservationWindowUpdates_InsertNew(t *testing.T) {
 func TestApplyObservationWindowUpdates_UpdateExisting(t *testing.T) {
 	r := newReconciler()
 	old := metav1.NewTime(time.Now().Add(-1 * time.Hour))
-	pacto := &pactov1alpha1.Pacto{
-		Status: pactov1alpha1.PactoStatus{
-			ObservationWindows: []pactov1alpha1.ObservationWindow{
+	pacto := &pactov1.Pacto{
+		Status: pactov1.PactoStatus{
+			ObservationWindows: []pactov1.ObservationWindow{
 				{Kind: "check", Subject: "foo", FirstObservedNegativeAt: old},
 			},
 		},
@@ -139,9 +139,9 @@ func TestApplyObservationWindowUpdates_UpdateExisting(t *testing.T) {
 func TestApplyObservationWindowUpdates_RemoveEntry(t *testing.T) {
 	r := newReconciler()
 	old := metav1.NewTime(time.Now().Add(-1 * time.Hour))
-	pacto := &pactov1alpha1.Pacto{
-		Status: pactov1alpha1.PactoStatus{
-			ObservationWindows: []pactov1alpha1.ObservationWindow{
+	pacto := &pactov1.Pacto{
+		Status: pactov1.PactoStatus{
+			ObservationWindows: []pactov1.ObservationWindow{
 				{Kind: "check", Subject: "foo", FirstObservedNegativeAt: old},
 			},
 		},
@@ -160,9 +160,9 @@ func TestApplyObservationWindowUpdates_RemoveEntry(t *testing.T) {
 func TestApplyObservationWindowUpdates_MultipleUpdates(t *testing.T) {
 	r := newReconciler()
 	old := metav1.NewTime(time.Now().Add(-1 * time.Hour))
-	pacto := &pactov1alpha1.Pacto{
-		Status: pactov1alpha1.PactoStatus{
-			ObservationWindows: []pactov1alpha1.ObservationWindow{
+	pacto := &pactov1.Pacto{
+		Status: pactov1.PactoStatus{
+			ObservationWindows: []pactov1.ObservationWindow{
 				{Kind: "check", Subject: "existing", FirstObservedNegativeAt: old},
 			},
 		},
@@ -202,9 +202,9 @@ func TestApplyObservationWindowUpdates_MultipleUpdates(t *testing.T) {
 func TestApplyObservationWindowUpdates_EmptyInput(t *testing.T) {
 	r := newReconciler()
 	old := metav1.NewTime(time.Now().Add(-1 * time.Hour))
-	pacto := &pactov1alpha1.Pacto{
-		Status: pactov1alpha1.PactoStatus{
-			ObservationWindows: []pactov1alpha1.ObservationWindow{
+	pacto := &pactov1.Pacto{
+		Status: pactov1.PactoStatus{
+			ObservationWindows: []pactov1.ObservationWindow{
 				{Kind: "check", Subject: "existing", FirstObservedNegativeAt: old},
 			},
 		},
@@ -224,9 +224,9 @@ func TestApplyObservationWindowUpdates_EmptyInput(t *testing.T) {
 func TestApplyObservationWindowUpdates_PrunesUndeclared(t *testing.T) {
 	r := newReconciler()
 	old := metav1.NewTime(time.Now().Add(-1 * time.Hour))
-	pacto := &pactov1alpha1.Pacto{
-		Status: pactov1alpha1.PactoStatus{
-			ObservationWindows: []pactov1alpha1.ObservationWindow{
+	pacto := &pactov1.Pacto{
+		Status: pactov1.PactoStatus{
+			ObservationWindows: []pactov1.ObservationWindow{
 				{Kind: "dependency", Subject: "db", FirstObservedNegativeAt: old},
 				{Kind: "dependency", Subject: "cache", FirstObservedNegativeAt: old},
 			},
@@ -263,73 +263,73 @@ func TestDeclaredWindowKeys(t *testing.T) {
 // ---------- failReconciliation status branches ----------
 
 func TestFailReconciliation_UnknownStatus(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 	}
 	r := newReconciler(pacto)
 
-	_, err := r.failReconciliation(context.Background(), pacto, "contract unavailable", nil, &pactov1alpha1.PactoStatus{}, pactov1alpha1.ContractStatusUnknown, "")
+	_, err := r.failReconciliation(context.Background(), pacto, "contract unavailable", nil, &pactov1.PactoStatus{}, pactov1.ContractStatusUnknown, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cond := findCondition(pacto.Status.Conditions, pactov1alpha1.ConditionContractValid)
+	cond := findCondition(pacto.Status.Conditions, pactov1.ConditionContractValid)
 	if cond == nil || cond.Status != metav1.ConditionUnknown {
 		t.Fatal("expected ContractValid=Unknown condition")
 	}
-	if cond.Reason != pactov1alpha1.ReasonContractUnavailable {
+	if cond.Reason != pactov1.ReasonContractUnavailable {
 		t.Fatalf("expected ReasonContractUnavailable, got %s", cond.Reason)
 	}
 	if pacto.Status.Summary == nil || pacto.Status.Summary.UnknownCount != 1 {
 		t.Fatal("expected Summary.UnknownCount=1")
 	}
-	if pacto.Status.ContractStatus != pactov1alpha1.ContractStatusUnknown {
+	if pacto.Status.ContractStatus != pactov1.ContractStatusUnknown {
 		t.Fatalf("expected ContractStatus=Unknown, got %s", pacto.Status.ContractStatus)
 	}
 }
 
 func TestFailReconciliation_InvalidStatus(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 	}
 	r := newReconciler(pacto)
 
-	_, err := r.failReconciliation(context.Background(), pacto, "contract invalid", nil, &pactov1alpha1.PactoStatus{}, pactov1alpha1.ContractStatusInvalid, "")
+	_, err := r.failReconciliation(context.Background(), pacto, "contract invalid", nil, &pactov1.PactoStatus{}, pactov1.ContractStatusInvalid, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	cond := findCondition(pacto.Status.Conditions, pactov1alpha1.ConditionContractValid)
+	cond := findCondition(pacto.Status.Conditions, pactov1.ConditionContractValid)
 	if cond == nil || cond.Status != metav1.ConditionFalse {
 		t.Fatal("expected ContractValid=False condition")
 	}
-	if cond.Reason != pactov1alpha1.ReasonContractInvalid {
+	if cond.Reason != pactov1.ReasonContractInvalid {
 		t.Fatalf("expected ReasonContractInvalid, got %s", cond.Reason)
 	}
 	if pacto.Status.Summary == nil || pacto.Status.Summary.ErrorCount != 1 {
 		t.Fatal("expected Summary.ErrorCount=1")
 	}
-	if pacto.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+	if pacto.Status.ContractStatus != pactov1.ContractStatusInvalid {
 		t.Fatalf("expected ContractStatus=Invalid, got %s", pacto.Status.ContractStatus)
 	}
 }
 
 func TestFailReconciliation_UnexpectedStatusFallback(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default"},
 	}
 	r := newReconciler(pacto)
 
-	_, err := r.failReconciliation(context.Background(), pacto, "unexpected", nil, &pactov1alpha1.PactoStatus{}, "unexpected-status", "")
+	_, err := r.failReconciliation(context.Background(), pacto, "unexpected", nil, &pactov1.PactoStatus{}, "unexpected-status", "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	// Should fall back to Invalid
-	if pacto.Status.ContractStatus != pactov1alpha1.ContractStatusInvalid {
+	if pacto.Status.ContractStatus != pactov1.ContractStatusInvalid {
 		t.Fatalf("expected fallback to Invalid, got %s", pacto.Status.ContractStatus)
 	}
-	cond := findCondition(pacto.Status.Conditions, pactov1alpha1.ConditionContractValid)
+	cond := findCondition(pacto.Status.Conditions, pactov1.ConditionContractValid)
 	if cond == nil || cond.Status != metav1.ConditionFalse {
 		t.Fatal("expected ContractValid=False condition")
 	}

@@ -114,7 +114,7 @@ no_cluster_rbac() { # RELEASE — no ClusterRole or binding of the release, none
 }
 apply_pacto() { # NS NAME — an inline contract, nothing to pull
   kubectl apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $2, namespace: $1}
 spec:

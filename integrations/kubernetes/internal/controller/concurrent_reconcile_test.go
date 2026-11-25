@@ -16,7 +16,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 )
 
 // Reconciling many Pacto CRs created concurrently must be race-free (run under
@@ -33,11 +33,11 @@ var _ = Describe("Concurrent reconciliation", func() {
 			go func() {
 				defer GinkgoRecover()
 				defer wg.Done()
-				pacto := &pactov1alpha1.Pacto{
+				pacto := &pactov1.Pacto{
 					ObjectMeta: metav1.ObjectMeta{GenerateName: "concurrent-", Namespace: "default"},
-					Spec: pactov1alpha1.PactoSpec{
-						ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-						Target:      pactov1alpha1.TargetRef{ServiceName: "nonexistent-svc"},
+					Spec: pactov1.PactoSpec{
+						ContractRef: pactov1.ContractRef{Inline: validContract},
+						Target:      pactov1.TargetRef{ServiceName: "nonexistent-svc"},
 					},
 				}
 				Expect(k8sClient.Create(ctx, pacto)).To(Succeed())
@@ -48,18 +48,18 @@ var _ = Describe("Concurrent reconciliation", func() {
 
 		for _, name := range names {
 			Eventually(func(g Gomega) {
-				pacto := &pactov1alpha1.Pacto{}
+				pacto := &pactov1.Pacto{}
 				g.Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
 				// Converged to the TERMINAL state, not merely a condition that exists:
 				// validContract is valid, so ContractValid must settle to True.
-				cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1alpha1.ConditionContractValid)
+				cond := meta.FindStatusCondition(pacto.Status.Conditions, pactov1.ConditionContractValid)
 				g.Expect(cond).NotTo(BeNil())
 				g.Expect(cond.Status).To(Equal(metav1.ConditionTrue))
 			}).WithTimeout(timeout).WithPolling(interval).Should(Succeed())
 		}
 
 		for _, name := range names {
-			pacto := &pactov1alpha1.Pacto{}
+			pacto := &pactov1.Pacto{}
 			Expect(k8sClient.Get(ctx, types.NamespacedName{Name: name, Namespace: "default"}, pacto)).To(Succeed())
 			Expect(k8sClient.Delete(ctx, pacto)).To(Succeed())
 		}

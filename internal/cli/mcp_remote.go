@@ -555,8 +555,10 @@ func deliveryClientsFor(trust *delivery.TrustConfig, policyNS string, members fu
 		cfg, _ := d.clusterConfig()
 		scope, infra = app.DiscoveryScope(cfg)
 	}
+	versions := servedVersions(d)
 	return func(dyn dynamic.Interface) *app.Delivery {
 		return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Scope: scope, Infra: infra, Members: members}
+			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Scope: scope, Infra: infra, Members: members,
+			ServedVersions: versions}
 	}
 }

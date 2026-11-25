@@ -15,8 +15,8 @@ import (
 
 	"github.com/santhosh-tekuri/jsonschema/v6"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
@@ -33,7 +33,7 @@ func TestPopulateContractStatus_RefPropertiesFromTheResolvedSchema(t *testing.T)
 		"cache": {Name: "cache"}, // unresolved
 		"tuned": {Name: "tuned", Schema: compiledSchema(t), SchemaPath: "configuration/schema.json", ProviderFS: provider},
 	}
-	p := &pactov1alpha1.Pacto{}
+	p := &pactov1.Pacto{}
 	newReconciler().populateContractStatus(p, &loader.LoadResult{Contract: c}, refs)
 
 	keys := func(i int) []string {
@@ -77,7 +77,7 @@ func TestPopulateContractStatus_MetadataJSON(t *testing.T) {
 		"count":  3,
 		"bad":    math.Inf(1), // JSON has no infinity
 	}}
-	p := &pactov1alpha1.Pacto{}
+	p := &pactov1.Pacto{}
 	newReconciler().populateContractStatus(p, &loader.LoadResult{Contract: c}, nil)
 
 	want := map[string]string{
@@ -95,7 +95,7 @@ func TestPopulateContractStatus_MetadataJSON(t *testing.T) {
 }
 
 func TestStatusMirrorsInterfacePort(t *testing.T) {
-	p := &pactov1alpha1.Pacto{}
+	p := &pactov1.Pacto{}
 	newReconciler().populateContractStatus(p, &loader.LoadResult{Contract: &contract.Contract{
 		Service:    contract.Service{Name: "payments", Version: "1.0.0"},
 		Interfaces: []contract.Interface{{Name: "api", Type: "openapi", Port: 8080}, {Name: "events", Type: "asyncapi"}},

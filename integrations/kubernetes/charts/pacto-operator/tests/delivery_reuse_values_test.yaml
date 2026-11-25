@@ -39,6 +39,8 @@ tests:
             - {apiGroups: [delivery.pacto.trianalab.io], resources: [approvals], verbs: [get, list, watch, patch]}
             - {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [get, list, watch, create, update, patch]}
             - {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update, patch]}
+            - {apiGroups: [apiextensions.k8s.io], resources: [customresourcedefinitions], verbs: [get], resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]}
+            - {apiGroups: [apiextensions.k8s.io], resources: [customresourcedefinitions/status], verbs: [patch], resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]}
             - {apiGroups: [admissionregistration.k8s.io], resources: [validatingadmissionpolicies, validatingadmissionpolicybindings], verbs: [get, list, watch]}
             - {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get, list, watch, patch]}
             - {apiGroups: [""], resources: [events], verbs: [create, patch]}
@@ -79,6 +81,8 @@ tests:
             - {apiGroups: [delivery.pacto.trianalab.io], resources: [approvals], verbs: [get, list, watch, patch]}
             - {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [get, list, watch, create, update, patch]}
             - {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update, patch]}
+            - {apiGroups: [apiextensions.k8s.io], resources: [customresourcedefinitions], verbs: [get], resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]}
+            - {apiGroups: [apiextensions.k8s.io], resources: [customresourcedefinitions/status], verbs: [patch], resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]}
             - {apiGroups: [admissionregistration.k8s.io], resources: [validatingadmissionpolicies, validatingadmissionpolicybindings], verbs: [get, list, watch]}
             - {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get, list, watch, patch]}
             - {apiGroups: [""], resources: [events], verbs: [create, patch]}
@@ -126,6 +130,8 @@ tests:
             - {apiGroups: [delivery.pacto.trianalab.io], resources: [approvals], verbs: [get, list, watch, patch]}
             - {apiGroups: [delivery.pacto.trianalab.io], resources: [operations], verbs: [get, list, watch, create, update, patch]}
             - {apiGroups: [delivery.pacto.trianalab.io], resources: [stages/status, operations/status], verbs: [get, update, patch]}
+            - {apiGroups: [apiextensions.k8s.io], resources: [customresourcedefinitions], verbs: [get], resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]}
+            - {apiGroups: [apiextensions.k8s.io], resources: [customresourcedefinitions/status], verbs: [patch], resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]}
             - {apiGroups: [admissionregistration.k8s.io], resources: [validatingadmissionpolicies, validatingadmissionpolicybindings], verbs: [get, list, watch]}
             - {apiGroups: [source.toolkit.fluxcd.io], resources: [ocirepositories], verbs: [get, list, watch, patch]}
             - {apiGroups: [""], resources: [events], verbs: [create, patch]}

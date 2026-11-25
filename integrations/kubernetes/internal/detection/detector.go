@@ -38,7 +38,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )

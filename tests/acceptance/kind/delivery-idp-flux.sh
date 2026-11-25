@@ -178,7 +178,7 @@ spec:
       containers: [{name: app, image: "${PAUSE_IMG%@*}"}]
 YAML
   cat > "$1/pacto.yaml" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $2}
 spec:
@@ -341,11 +341,11 @@ approve() {
   decision="$(field "$3" "$4" plan.floor.decision)"
   groups="$(KUBECONFIG="$kc" kubectl auth whoami -o json | jq -c '.status.userInfo.groups')"
   KUBECONFIG="$kc" kubectl -n "$3" create -f - >/dev/null <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Approval
 metadata:
   generateName: $4-
-  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1alpha1, kind: Operation, name: "$4", uid: "$uid"}]
+  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1, kind: Operation, name: "$4", uid: "$uid"}]
 spec: {operation: "$4", operationUID: "$uid", intentDigest: "$digest", decision: $decision, note: "the kind run approves", by: "$1", authTime: "$at", groups: $groups}
 YAML
 }
@@ -360,7 +360,7 @@ ship() {
 # stage NS APPLY_KIND REPOSITORY — the Stage named after NS, gated on a person.
 stage() {
   kubectl -n "$1" apply -f - >/dev/null <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: $1}
 spec:

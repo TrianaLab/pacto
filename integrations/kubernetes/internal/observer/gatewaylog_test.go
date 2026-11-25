@@ -27,7 +27,7 @@ import (
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 
-	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactoapi "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 )
 

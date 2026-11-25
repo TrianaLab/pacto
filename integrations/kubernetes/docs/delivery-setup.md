@@ -5,7 +5,7 @@
 
 Reference for [Pacto delivery](delivery.md). To pactify a service end to end,
 follow [Pactify a service](../../pactify.md) instead. The API group is
-`delivery.pacto.trianalab.io/v1alpha1` (alpha).
+`delivery.pacto.trianalab.io/v1` (alpha).
 Plans, approvals and who may do what are in
 [Delivery reference: plan, propose and approve](delivery-operations.md).
 
@@ -122,9 +122,12 @@ It emits `EnvironmentCreated` and `EnvironmentDeleted` on a Stage
 
 ## Upgrading
 
-[Upgrade the operator](upgrade.md) as usual: `helm upgrade` updates the
-delivery CRDs; `helm.sh/resource-policy: keep` keeps them, their history
-and `delivery.namespace` on [uninstall](installation.md#uninstall).
+- [Upgrade the operator](upgrade.md) as usual: `helm upgrade` updates the
+  delivery CRDs; `helm.sh/resource-policy: keep` keeps them, their history
+  and `delivery.namespace` on [uninstall](installation.md#uninstall).
+- The delivery API (`delivery.pacto.trianalab.io/v1` and the `pkg/delivery`
+  types it embeds) follows semantic versioning, while the promoter itself
+  stays Alpha.
 
 ## IDP mode
 
@@ -358,7 +361,7 @@ in the operation's `status.message`. A downstream Stage takes only what its upst
 there, never one let through on an accepted unknown.
 
 ```yaml
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments, namespace: prod}
 spec:

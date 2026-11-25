@@ -12,7 +12,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 ## Approval
 
 - **API group**: `delivery.pacto.trianalab.io`
-- **Version**: `v1alpha1`
+- **Served versions**: `v1` (storage), `v1alpha1` (deprecated, removed in chart 8.0)
 - **Kind**: `Approval`
 - **Plural**: `approvals`
 - **Scope**: Namespaced
@@ -51,7 +51,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 ## Operation
 
 - **API group**: `delivery.pacto.trianalab.io`
-- **Version**: `v1alpha1`
+- **Served versions**: `v1` (storage), `v1alpha1` (deprecated, removed in chart 8.0)
 - **Kind**: `Operation`
 - **Plural**: `operations`
 - **Scope**: Namespaced
@@ -264,7 +264,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 ## Stage
 
 - **API group**: `delivery.pacto.trianalab.io`
-- **Version**: `v1alpha1`
+- **Served versions**: `v1` (storage), `v1alpha1` (deprecated, removed in chart 8.0)
 - **Kind**: `Stage`
 - **Plural**: `stages`
 - **Scope**: Namespaced
@@ -460,7 +460,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 ## NodeRuntimeObservation
 
 - **API group**: `pacto.trianalab.io`
-- **Version**: `v1alpha1`
+- **Served versions**: `v1` (storage), `v1alpha1` (deprecated, removed in chart 8.0)
 - **Kind**: `NodeRuntimeObservation`
 - **Plural**: `noderuntimeobservations`
 - **Scope**: Namespaced
@@ -520,7 +520,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 ## PactoRevision
 
 - **API group**: `pacto.trianalab.io`
-- **Version**: `v1alpha1`
+- **Served versions**: `v1` (storage), `v1alpha1` (deprecated, removed in chart 8.0)
 - **Kind**: `PactoRevision`
 - **Plural**: `pactorevisions`
 - **Scope**: Namespaced
@@ -562,7 +562,7 @@ Custom Resource Definitions installed by the operator. Field lists below are gen
 ## Pacto
 
 - **API group**: `pacto.trianalab.io`
-- **Version**: `v1alpha1`
+- **Served versions**: `v1` (storage), `v1alpha1` (deprecated, removed in chart 8.0)
 - **Kind**: `Pacto`
 - **Plural**: `pactos`
 - **Scope**: Namespaced

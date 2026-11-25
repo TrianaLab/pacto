@@ -16,7 +16,7 @@ import (
 	"os"
 	"time"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"

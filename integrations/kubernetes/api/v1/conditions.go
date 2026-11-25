@@ -5,7 +5,7 @@ Licensed under the MIT License.
 See LICENSE file in the project root for full license text.
 */
 
-package v1alpha1
+package v1
 
 import "github.com/trianalab/pacto/v4/pkg/finding"
 

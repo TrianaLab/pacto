@@ -41,7 +41,7 @@ spec:
       containers: [{name: app, image: registry.k8s.io/pause:3.9}]
 YAML
   cat > "$d/invoices/templates/pacto.yaml" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: invoices}
 spec:
@@ -150,7 +150,7 @@ spec:
   install: {disableWait: true}
   upgrade: {disableWait: true}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: invoices}
 spec:
@@ -200,7 +200,7 @@ spec:
     metadata: {labels: {app: invoices}}
     spec: {containers: [{name: app, image: registry.k8s.io/pause:3.9}]}
 ---
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: invoices}
 spec:
@@ -208,7 +208,7 @@ spec:
   contractRef: {oci: "$I100"}
   target: {workloadRef: {name: invoices, kind: Deployment}}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: invoices}
 spec:
@@ -247,7 +247,7 @@ spec:
   chartRef: {kind: OCIRepository, name: invoices-chart, namespace: $A}
   serviceAccountName: invoices-deployer
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: invoices}
 spec:

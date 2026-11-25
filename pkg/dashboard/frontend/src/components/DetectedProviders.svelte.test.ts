@@ -50,14 +50,14 @@ afterEach(() => {
 describe('DetectedProviders', () => {
   it('renders one row per provider with its name, evidence and use', async () => {
     providersFn.mockResolvedValue(resp([
-      row('pacto-crd', { name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1alpha1)', usedFor: ['declared-targets'] }),
+      row('pacto-crd', { name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1)', usedFor: ['declared-targets'] }),
       row('kubernetes-workloads', { name: 'Kubernetes workloads', evidence: '3 Deployments' }),
     ]));
     const t = render();
     await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
     expect(block(t).querySelector('h2')?.textContent).toBe('Detected providers');
     expect(text(rows(t)[0])).toContain('Pacto CRD');
-    expect(text(rows(t)[0])).toContain('served (pacto.trianalab.io/v1alpha1)');
+    expect(text(rows(t)[0])).toContain('served (pacto.trianalab.io/v1)');
     // Tokens render with spaces, never with the wire's hyphen.
     expect(text(rows(t)[0])).toContain('declared targets');
     expect(text(rows(t)[1])).toContain('inferred services');

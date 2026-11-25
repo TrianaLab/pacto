@@ -31,6 +31,17 @@ rules:
   - apiGroups: [delivery.pacto.trianalab.io]
     resources: [stages/status, operations/status]
     verbs: [get, update, patch]
+  # Storage migration: at start the promoter reads the delivery CRDs by name
+  # and, once every object is rewritten as v1, drops v1alpha1 from their
+  # status.storedVersions. No list and no write to a CRD spec.
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get]
+    resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions/status]
+    verbs: [patch]
+    resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]
   # It checks its own admission policies are installed before trusting a spec.
   - apiGroups: [admissionregistration.k8s.io]
     resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]

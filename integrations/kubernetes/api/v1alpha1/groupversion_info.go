@@ -5,7 +5,7 @@ Licensed under the MIT License.
 See LICENSE file in the project root for full license text.
 */
 
-// Package v1alpha1 contains API Schema definitions for the pacto v1alpha1 API group.
+// Package v1alpha1 is the deprecated pacto.trianalab.io/v1alpha1 API. It is served until chart 8.0 and stores nothing: use v1.
 // +kubebuilder:object:generate=true
 // +groupName=pacto.trianalab.io
 package v1alpha1

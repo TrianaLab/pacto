@@ -8,7 +8,7 @@ import (
 // A Pacto as the operator writes it for the listener-absent workload: endpoints
 // ready, the kernel saw no listener, the window elapsed.
 const deafPacto = `{
-  "apiVersion": "pacto.trianalab.io/v1alpha1", "kind": "Pacto",
+  "apiVersion": "pacto.trianalab.io/v1", "kind": "Pacto",
   "metadata": {"name": "deaf", "namespace": "conf"},
   "status": {
     "contractStatus": "NonCompliant",
@@ -120,7 +120,7 @@ func TestStatus_ReportsEveryFailureTogether(t *testing.T) {
 const nodeList = `{
   "apiVersion": "v1", "kind": "List",
   "items": [{
-    "apiVersion": "pacto.trianalab.io/v1alpha1", "kind": "NodeRuntimeObservation",
+    "apiVersion": "pacto.trianalab.io/v1", "kind": "NodeRuntimeObservation",
     "metadata": {"name": "pacto-runtime-control-plane", "namespace": "pacto-system"},
     "status": {
       "nodeName": "pacto-runtime-control-plane", "agentVersion": "5.4.0", "publishIntervalSeconds": 5,

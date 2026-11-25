@@ -35,7 +35,7 @@ import (
 	k8stesting "k8s.io/client-go/testing"
 	ctrl "sigs.k8s.io/controller-runtime"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/xrdoffering"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/xrdoffering"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
