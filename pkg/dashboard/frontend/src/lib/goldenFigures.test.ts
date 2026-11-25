@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { originModel, creationExplainModel, creationRailModel, creationStatus, CREATION_STATUS, ORIGIN_LANES } from './goldenFigures.ts';
+import { originModel, creationRailModel, creationStatus, CREATION_STATUS, ORIGIN_LANES } from './goldenFigures.ts';
 
 const hrefs = { services: (b: string) => `#/s?cf=${b}`, paths: '#/gp' };
 const path = (i: number, services: number, nonCompliant = 0, hidden = 0) => ({ key: `acme/p${i}`, label: `p${i}`, services, nonCompliant, hidden });
@@ -42,22 +42,6 @@ describe('originModel', () => {
     expect(m.wires.map((w) => [w.from, w.to])).toEqual([['lane-0', 'hub'], ['lane-1', 'hub'], ['lane-2', 'hub']]);
     expect(m.lanes[1].note).toEqual({ text: '0 of 0 non-compliant' });
     expect(m.more).toBe(2);
-  });
-});
-
-describe('creationExplainModel', () => {
-  it('draws the mechanism in neutral and accent only, walking one step per station', () => {
-    const m = creationExplainModel(['postgres-database']);
-    expect(m.stations.every((s) => s.tone === 'neutral' || s.tone === 'accent')).toBe(true);
-    expect(m.steps.length).toBe(m.stations.length);
-    expect(m.steps.reduce((a, s) => a + (s.dur ?? 0) + (s.hold ?? 0), 0)).toBeLessThanOrEqual(1200);
-    expect(m.stations[4].sub).toBe('It also requests postgres-database');
-  });
-  it('says when the path requests nothing, counts what is hidden and stays general on the list', () => {
-    expect(creationExplainModel([]).stations[4].sub).toBe('This path requests no offering');
-    expect(creationExplainModel(['a', 'b'], 1).stations[4].sub).toBe('It also requests a, b and 1 requirement you may not see');
-    expect(creationExplainModel([], 2).stations[4].sub).toBe('It also requests 2 requirements you may not see');
-    expect(creationExplainModel(null).stations[4].sub).toContain('any offerings');
   });
 });
 

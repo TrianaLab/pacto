@@ -6,8 +6,6 @@ import OriginFigure from './OriginFigure.svelte';
 import GoldenPathFigure from './GoldenPathFigure.svelte';
 // @ts-expect-error — Svelte component has no declaration file
 import CreationFigure from './CreationFigure.svelte';
-// @ts-expect-error — Svelte component has no declaration file
-import CreationExplainer from './explain/CreationExplainer.svelte';
 
 const { entitiesFn } = vi.hoisted(() => ({ entitiesFn: vi.fn() }));
 vi.mock('../../lib/api.ts', async (importOriginal) => {
@@ -80,12 +78,3 @@ describe('CreationFigure', () => {
   });
 });
 
-describe('CreationExplainer', () => {
-  it('explains the mechanism with Replay and no status tone', async () => {
-    const t = render(CreationExplainer, { requires: ['postgres-database'] });
-    await settle();
-    expect(t.querySelector('.fig--explain')).toBeTruthy();
-    expect(t.textContent).toContain('It also requests postgres-database');
-    expect(t.querySelectorAll('.t-ok, .t-warn, .t-err').length).toBe(0);
-  });
-});

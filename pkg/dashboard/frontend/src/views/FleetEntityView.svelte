@@ -36,8 +36,9 @@
   // body is delegated to the per-kind component.
   // miraURL: Mira's address, only for a caller whose permissions hide nothing.
   // canDeclare and declareQuery reach the inferred service page's Declare panel; its
-  // signed intent also reaches a declared service page's accept plan.
-  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '', correlation = '', changesQuery = {}, canDeclare = false, declareQuery = {} } = $props();
+  // signed intent also reaches a declared service page's accept plan. createService,
+  // portalCreateURL and createQuery reach a golden path's Create service panel.
+  let { kind = '', entityKey = '', refreshTick = 0, deliveryState = 'unknown', miraURL = '', correlation = '', changesQuery = {}, canDeclare = false, declareQuery = {}, createService = false, portalCreateURL = '', createQuery = {} } = $props();
 
   // Four lifecycle events, three behaviours -- the distinction this page used to lack.
   //
@@ -251,7 +252,7 @@
         {:else if detail.service}
           <!-- A contributed inferred offering is accepted from its own page (515-S4). -->
           <ServiceEntity {detail} {deliveryState} {refreshTick} {miraURL} {changesQuery} acceptSigned={declareQuery.signed ?? ''}
-            canDeclare={canDeclare && !!contribution && !!detail.entity?.offering} declareQuery={contribution && detail.entity?.offering ? declareQuery : {}} />
+            canDeclare={canDeclare && !!contribution && !!detail.entity?.offering} declareQuery={contribution && detail.entity?.offering ? declareQuery : {}} {createService} {portalCreateURL} {createQuery} />
         {:else if detail.revision}
           <RevisionEntity {detail} {deliveryState} {miraURL} {correlation} />
         {:else if detail.target}

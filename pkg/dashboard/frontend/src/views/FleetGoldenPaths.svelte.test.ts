@@ -72,14 +72,30 @@ describe('FleetGoldenPathsView', () => {
     done();
   });
 
-  it('opens the creation explainer on request', async () => {
-    entitiesFn.mockResolvedValue(listResp([pathRef('http-service', { created: 1 })]));
-    const { target, done } = mountView();
-    const toggle = await vi.waitFor(() => { const b = target.querySelector<HTMLButtonElement>('[data-testid="creation-toggle"]'); expect(b).toBeTruthy(); return b!; });
+  it('opens Create service with a picker of the declared golden paths on the page', async () => {
+    entitiesFn.mockResolvedValue({ ...listResp([pathRef('http-service', { created: 1 }), pathRef('worker')]),
+      inferredTemplates: { total: 1, items: [{ entity: 'template:default/springboot', name: 'springboot', from: 'Backstage', acceptable: true }] } });
+    const { target, done } = mountView({ canCreate: true });
+    const toggle = await vi.waitFor(() => { const b = target.querySelector<HTMLButtonElement>('[data-testid="create-service-toggle"]'); expect(b).toBeTruthy(); return b!; });
     expect(toggle.getAttribute('aria-expanded')).toBe('false');
     toggle.click();
-    await vi.waitFor(() => expect(target.querySelector('[data-testid="creation-explainer"]')).toBeTruthy());
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="create-form"]')).toBeTruthy());
+    const options = Array.from(target.querySelectorAll('[data-testid="create-service-path"] option')).map((o) => o.textContent);
+    expect(options).toEqual(['http-service', 'worker']);
+    expect(target.querySelector('[data-testid="create-form"]')?.textContent).toContain('http-service');
+    const select = target.querySelector<HTMLSelectElement>('[data-testid="create-service-path"]')!;
+    select.value = 'ghcr.io/acme/worker';
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="create-form"]')?.textContent).toContain('worker'));
     expect(toggle.textContent).toContain('Hide');
+    done();
+  });
+
+  it('offers no Create service to a caller who may not create', async () => {
+    entitiesFn.mockResolvedValue(listResp([pathRef('http-service', { created: 1 })]));
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="golden-path-list"] tbody tr').length).toBe(1));
+    expect(target.querySelector('[data-testid="create-service-toggle"]')).toBeNull();
     done();
   });
 

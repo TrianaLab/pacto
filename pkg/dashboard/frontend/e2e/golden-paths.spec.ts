@@ -43,6 +43,10 @@ test.describe('WASM demo — golden paths', () => {
     const gp = page.getByTestId('golden-path');
     await expect(gp).toBeVisible({ timeout: T });
     await expect(gp.getByTestId('golden-path-plugins')).toContainText('dockerfile');
+    // A host that creates folds the commands under Run it yourself; one that cannot shows them open.
+    const yourself = gp.getByTestId('create-yourself');
+    if (await yourself.count()) await yourself.locator('summary').click();
+    await expect(gp.getByTestId('golden-path-create')).toBeVisible();
     await expect(gp.getByTestId('golden-path-create')).toContainText('pacto init');
     await expect(page.getByTestId('golden-path-created')).toContainText('gift-cards');
     expect(await noSideScroll(page)).toBe(true);
