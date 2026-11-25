@@ -34,6 +34,7 @@ func TestProvenanceListsVerifiedSigners(t *testing.T) {
 }
 
 func TestProvenanceSignersSortedUnique(t *testing.T) {
+	t.Parallel()
 	var ids []delivery.PublisherIdentity
 	for i := 7; i > 0; i-- {
 		ids = append(ids, delivery.PublisherIdentity{Subject: fmt.Sprintf("p%d@acme.com", i), Issuer: provIssuer, Class: delivery.ClassHuman})
@@ -52,6 +53,7 @@ func TestProvenanceSignersSortedUnique(t *testing.T) {
 // with the installation's trust; none is read without a Trust reader, and a
 // trust that cannot be read is an unread policy.
 func TestProvenanceDeclarationSigners(t *testing.T) {
+	t.Parallel()
 	pc := newProvenanceChecker(descRegistry{})
 	if pc.DeclarationSigners(t.Context()) != nil {
 		t.Fatal("no Trust reader read a policy")
@@ -72,6 +74,7 @@ func TestProvenanceDeclarationSigners(t *testing.T) {
 // signer policy beside the publisher trust config, and says why when it
 // cannot.
 func TestInstallationTrustReadsSigners(t *testing.T) {
+	t.Parallel()
 	e := newAtEnv(t, testutil.ReferrersOptions{})
 	e.d.Policy = delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: provIssuer, Subjects: `.+@acme\.com`}}}
 	e.publishing(&delivery.PublisherConfig{Registry: "ghcr.io/acme"})
@@ -89,6 +92,7 @@ func TestInstallationTrustReadsSigners(t *testing.T) {
 // TestExplainPrintsDeclaration: explain carries a declaration's coverage,
 // hidden counts and declarer as the record holds them.
 func TestExplainPrintsDeclaration(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	rec, err := contract.ParseInferredRecord([]byte(completed(t, dir, commitA)))
 	if err != nil {
@@ -118,6 +122,7 @@ func TestExplainPrintsDeclaration(t *testing.T) {
 // The verified installation policy's signer rules classify a signer before
 // the default rule does: an email the policy names as an agent is no person.
 func TestProvenanceSignersUsePolicyClassRules(t *testing.T) {
+	t.Parallel()
 	const google = "https://accounts.google.com"
 	bot := delivery.PublisherIdentity{Subject: "deploy-bot@acme.com", Issuer: google}
 	rules := []delivery.SignerClassRule{{Name: "bots", Issuer: google, Subject: `^deploy-bot@acme\.com$`, Class: delivery.ClassAgent}}

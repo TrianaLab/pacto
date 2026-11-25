@@ -517,8 +517,8 @@ COVER_LIST = go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/
 COVER_PKGS = $$($(COVER_LIST))
 
 # ENGINE_SHARD splits ci-engine over two CI runners (the ci-engine matrix in
-# ci.yml). `app` runs internal/app's unit tests alone: one package, about 15
-# minutes under -race and the longest single package by far. `rest` runs every
+# ci.yml). `app` runs internal/app's unit tests alone: one package and the
+# longest by far (about 15 minutes under -race while its tests ran serially). `rest` runs every
 # other package plus the remaining legs. Profiles are per package (no -coverpkg),
 # so each shard holding its own profile at 100% is the same gate as the whole run.
 # Unset runs everything, as on a laptop.

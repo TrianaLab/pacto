@@ -54,6 +54,7 @@ func writeTrace(t *testing.T, from, to string) (root, file string) {
 // reads as perfectly reasonable in isolation and publishes two semantic sources
 // under one Product identity.
 func TestService_Fleet_SourceIDsMustBeUniqueAcrossTheWholeFleet(t *testing.T) {
+	t.Parallel()
 	root, file := writeTrace(t, "web", "payments")
 
 	for _, tc := range []struct {
@@ -135,6 +136,7 @@ func TestService_Fleet_SourceIDsMustBeUniqueAcrossTheWholeFleet(t *testing.T) {
 // that need a bundle store, in one snapshot: both are configured, so the error
 // must name BOTH collisions rather than stopping at the first.
 func TestService_Fleet_SourceIDCollisionWithOCIAndCache(t *testing.T) {
+	t.Parallel()
 	root, file := writeTrace(t, "web", "payments")
 	_, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{
 		OCIRefs:      []string{"oci://example.invalid/svc:1.0.0"},
@@ -158,6 +160,7 @@ func TestService_Fleet_SourceIDCollisionWithOCIAndCache(t *testing.T) {
 // property of the configured set, not of the order it was written in. Two
 // collisions, reported the same way whichever entry comes first.
 func TestService_Fleet_SourceIDCollisionIsOrderIndependent(t *testing.T) {
+	t.Parallel()
 	root, file := writeTrace(t, "web", "payments")
 	svc := k8sService("")
 
@@ -183,6 +186,7 @@ func TestService_Fleet_SourceIDCollisionIsOrderIndependent(t *testing.T) {
 // resolves to exactly one source detail. That is the invariant the rejection
 // exists to protect — one Product Data Source key, one semantic source.
 func TestService_Fleet_DistinctSourceIDsPublishOneToOne(t *testing.T) {
+	t.Parallel()
 	svc := k8sService("")
 	rootA, fileA := writeTrace(t, "web", "payments")
 	rootB, fileB := writeTrace(t, "checkout", "orders")
@@ -279,6 +283,7 @@ func tamperedFleet(t *testing.T) *fleet.FleetSnapshot {
 // broken source becomes an explicit SOURCE_UNAVAILABLE limitation attributed to
 // its declared identity.
 func TestService_Fleet_EscapingObservationSourceIsExplicitUnavailableKnowledge(t *testing.T) {
+	t.Parallel()
 	snap := tamperedFleet(t)
 
 	// The refusal is knowledge, not silence: the Product learns this named source
@@ -312,6 +317,7 @@ func TestService_Fleet_EscapingObservationSourceIsExplicitUnavailableKnowledge(t
 // healthy sibling still answers under its own identity, and nothing the escaping
 // symlink pointed at was consumed.
 func TestService_Fleet_EscapedBytesNeverReachTheSnapshot(t *testing.T) {
+	t.Parallel()
 	snap := tamperedFleet(t)
 
 	// The healthy sibling is unaffected: its edge is in the snapshot, attributed to
@@ -343,6 +349,7 @@ func TestService_Fleet_EscapedBytesNeverReachTheSnapshot(t *testing.T) {
 // TestCheckSourceIDsAreUnique_NoSources covers the empty configuration: nothing
 // configured is not a collision.
 func TestCheckSourceIDsAreUnique_NoSources(t *testing.T) {
+	t.Parallel()
 	if err := checkSourceIDsAreUnique(nil); err != nil {
 		t.Errorf("no sources = %v, want no error", err)
 	}
@@ -352,6 +359,7 @@ func TestCheckSourceIDsAreUnique_NoSources(t *testing.T) {
 // claiming an already-contested id is reported too, rather than the message
 // stopping at the first pair.
 func TestService_Fleet_TripleCollisionNamesEveryClaimant(t *testing.T) {
+	t.Parallel()
 	err := checkSourceIDsAreUnique([]fleet.Source{
 		fleet.NewFailingSource("k8s", "kubernetes", errors.New("x")),
 		fleet.NewFailingSource("k8s", "oci", errors.New("x")),

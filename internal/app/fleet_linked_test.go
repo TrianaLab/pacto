@@ -79,6 +79,7 @@ func sourceKinds(snap *fleet.FleetSnapshot) []string {
 // detection, over the same ConfigMap or from the file beside the detected
 // one; a detected file alone adds none.
 func TestDetectedRefAddsLinkedSource(t *testing.T) {
+	t.Parallel()
 	now := func() time.Time { return detectedNow }
 	svc := detectedService(t)
 	snap, err := svc.Fleet(context.Background(), FleetOptions{Detected: operatorDir(t, linkedPayload(t, snapA, detectedNow, linkedWebapp("reg.example", "^1.0.0", detectedNow))), Now: now})
@@ -129,6 +130,7 @@ func TestDetectedRefAddsLinkedSource(t *testing.T) {
 // digest is a running consumer like any target of its revision: webapp
 // accepts orders ^1.0.0, so a BREAKING orders 2.0.0 blocks.
 func TestImpactCountsLinkedConsumer(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	detected := operatorDir(t, linkedPayload(t, snapA, snapNow, linkedWebapp(e.host(), "^1.0.0", snapNow)))
 	res, err := ordersService(t).Impact(t.Context(), ImpactOptions{OldPath: e.ordersRef("1.0.0"), NewPath: e.ordersRef("2.0.0"),
@@ -144,6 +146,7 @@ func TestImpactCountsLinkedConsumer(t *testing.T) {
 // TestImpactSnapshotOnlyLinkedTargetGivesVerdict: a target snapshot whose
 // only target is a linked one names its consumer and gives a verdict.
 func TestImpactSnapshotOnlyLinkedTargetGivesVerdict(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	s := webappSnapshot(snapA, e.host(), "^1.0.0", snapNow)
 	s.Pactos = []delivery.PactoView{linkedWebapp(e.host(), "^1.0.0", snapNow)}
@@ -157,6 +160,7 @@ func TestImpactSnapshotOnlyLinkedTargetGivesVerdict(t *testing.T) {
 // TestSnapshotLinkedTargetHandsOver: the snapshot's workloads section holds
 // the twin of a linked target; the linked view hands it over to its service.
 func TestSnapshotLinkedTargetHandsOver(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	s := ledgerSnapshot(snapA, snapNow)
 	s.Pactos = append(s.Pactos, linkedWebapp(e.host(), "^1.0.0", snapNow))

@@ -186,6 +186,7 @@ func checkState(t *testing.T, c stateCase, got delivery.MemberState) {
 
 // TestMemberPlanStates: one member per state, each from signed records.
 func TestMemberPlanStates(t *testing.T) {
+	t.Parallel()
 	cases := stateCases()
 	var ms []member
 	for i := range cases {
@@ -224,6 +225,7 @@ func TestMemberPlanStates(t *testing.T) {
 // service and environment is read, whatever it asked for, and the confirm
 // command is offered with the digest to fill in.
 func TestMemberPlanNoTarget(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	e.ask(t, eu, "alice@acme.com", otherDigest)
@@ -238,6 +240,7 @@ func TestMemberPlanNoTarget(t *testing.T) {
 
 // TestMemberPlanDigestRequired: member mode refuses a version.
 func TestMemberPlanDigestRequired(t *testing.T) {
+	t.Parallel()
 	e := newPlanEnv(t)
 	if _, err := e.svc.MemberPlan(t.Context(), planReq("1.5.0"), e.planOpts()); err == nil || !strings.HasPrefix(err.Error(), delivery.RefusalDigestRequired+":") {
 		t.Fatal(err)
@@ -247,6 +250,7 @@ func TestMemberPlanDigestRequired(t *testing.T) {
 // TestMemberPlanForgedReadsRefused: a request the member's pacto.published
 // gate rejected reads refused, with the gate's reason and the Operation.
 func TestMemberPlanForgedReadsRefused(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	req := e.ask(t, eu, "alice@acme.com", planDigest)
@@ -261,6 +265,7 @@ func TestMemberPlanForgedReadsRefused(t *testing.T) {
 // TestMemberPlanStaleMemberPartial: a stale member stays placed, reads
 // stale and makes the answer partial.
 func TestMemberPlanStaleMemberPartial(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t)
 	e.publishTaking(t, eu, e.clock.Add(-2*delivery.TargetSnapshotFreshness), "prod")
@@ -277,6 +282,7 @@ func TestMemberPlanStaleMemberPartial(t *testing.T) {
 // TestMemberPlanWaitingBecomesUnknown: a request unanswered past freshness
 // reads unknown and the answer partial.
 func TestMemberPlanWaitingBecomesUnknown(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	e.ask(t, eu, "alice@acme.com", planDigest)
@@ -291,6 +297,7 @@ func TestMemberPlanWaitingBecomesUnknown(t *testing.T) {
 // TestMemberPlanUnverifiedOutcomeCounted: an outcome no approved key signed
 // is not read, and is counted.
 func TestMemberPlanUnverifiedOutcomeCounted(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	req := e.ask(t, eu, "alice@acme.com", planDigest)
@@ -307,6 +314,7 @@ func TestMemberPlanUnverifiedOutcomeCounted(t *testing.T) {
 // stream, and an outcome naming B pushed on A's stream, are ignored and
 // counted.
 func TestMemberPlanOutcomeSignedByOtherMemberIgnored(t *testing.T) {
+	t.Parallel()
 	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
 	e := newPlanEnv(t, a, b)
 	req := e.ask(t, a, "alice@acme.com", planDigest)
@@ -324,6 +332,7 @@ func TestMemberPlanOutcomeSignedByOtherMemberIgnored(t *testing.T) {
 // a key, by someone the hub does not accept, or by one person naming
 // another never confirms the placement nor reads waiting.
 func TestMemberPlacementUnverifiedRequestNotConfirmation(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	kp, _ := signing.FromPrivateKey(eu.key)
@@ -354,6 +363,7 @@ func TestMemberPlacementUnverifiedRequestNotConfirmation(t *testing.T) {
 // not see a member no live channel reviews for (D5), counted; the
 // unauthenticated reader sees every one.
 func TestMemberPlanNoLiveChannelHiddenForRestricted(t *testing.T) {
+	t.Parallel()
 	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
 	c := newMember("cccc0000-0000-4000-8000-00000000000c", "ap-prod")
 	e := newPlanEnv(t, a, b)
@@ -377,6 +387,7 @@ func TestMemberPlanNoLiveChannelHiddenForRestricted(t *testing.T) {
 // Operation's namespace on that member keeps the member but not the
 // namespace or the Operation.
 func TestMemberPlanNamespaceHiddenForRestricted(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	req := e.ask(t, eu, "alice@acme.com", planDigest)
@@ -426,6 +437,7 @@ func signPlacement(t *testing.T, reg *provRegistry, key ed25519.PrivateKey, rule
 // TestMemberPlanPolicyPlaces: a signed placement rule naming a member by
 // uid places on it alone, with the policy's digest.
 func TestMemberPlanPolicyPlaces(t *testing.T) {
+	t.Parallel()
 	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
 	e := newPlanEnv(t, a, b)
 	reg := provenanceTestRegistry(t)
@@ -442,6 +454,7 @@ func TestMemberPlanPolicyPlaces(t *testing.T) {
 // TestMemberPlanPolicyUnreadablePartial: a placement policy that cannot be
 // read or verified places from what the members take, partial.
 func TestMemberPlanPolicyUnreadablePartial(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	opts := e.planOpts()
@@ -457,6 +470,7 @@ func TestMemberPlanPolicyUnreadablePartial(t *testing.T) {
 // cannot be read, an outcome listing that fails and a partial join list
 // make the answer partial and say why.
 func TestMemberPlanUnreadable(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	e.ask(t, eu, "alice@acme.com", planDigest)
@@ -533,6 +547,7 @@ func TestMemberPlanStreamCut(t *testing.T) {
 // takes are read a bound at a time, so the newest request is read however
 // many older ones sit before it.
 func TestMemberPlanReadsPastTheBound(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	s := e.keyless(t, "alice@acme.com")
@@ -549,6 +564,7 @@ func TestMemberPlanReadsPastTheBound(t *testing.T) {
 // TestMemberPlanSynonymEnvironment: a request signed for prod is the
 // request of a plan for production, as the member reads it.
 func TestMemberPlanSynonymEnvironment(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	r := opRequest(eu.uid, "alice@acme.com", planDigest)
@@ -564,6 +580,7 @@ func TestMemberPlanSynonymEnvironment(t *testing.T) {
 // alone; a uid that is no approved member is refused, and a named member
 // the plan does not place leaves nothing to confirm.
 func TestMemberPlanNarrowsToMembers(t *testing.T) {
+	t.Parallel()
 	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
 	c := newMember("cccc0000-0000-4000-8000-00000000000c", "ap-prod")
 	e := newPlanEnv(t, a, b)
@@ -593,6 +610,7 @@ func TestMemberPlanNarrowsToMembers(t *testing.T) {
 // reads neither, and an AmbiguousStage reason, which lists namespaces, is
 // replaced.
 func TestMemberPlanRefusalNamespaceHiddenForRestricted(t *testing.T) {
+	t.Parallel()
 	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
 	e := newPlanEnv(t, a, b)
 	ra, rb := e.ask(t, a, "alice@acme.com", planDigest), e.ask(t, b, "alice@acme.com", planDigest)
@@ -615,6 +633,7 @@ func TestMemberPlanRefusalNamespaceHiddenForRestricted(t *testing.T) {
 // TestVerifiedPlacementAbsentIsNone: no delivery policy, or none at the
 // placement tag, is no placement policy and no error.
 func TestVerifiedPlacementAbsentIsNone(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
 	for _, cfg := range []delivery.PublisherConfig{{}, {Policy: reg.host + "/policy:v1", PolicySigners: policySigners(t, pub)}} {
@@ -628,6 +647,7 @@ func TestVerifiedPlacementAbsentIsNone(t *testing.T) {
 // signed, bad policy signers, a bad reference and a layer that cannot be
 // read are errors.
 func TestVerifiedPlacementUnverifiedErrors(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	pub, _, _ := ed25519.GenerateKey(rand.Reader)
 	_, stranger, _ := ed25519.GenerateKey(rand.Reader)
@@ -652,6 +672,7 @@ func TestVerifiedPlacementUnverifiedErrors(t *testing.T) {
 // TestWriteOperationRequestsOnePerMember: one signed request per member,
 // each on its own stream.
 func TestWriteOperationRequestsOnePerMember(t *testing.T) {
+	t.Parallel()
 	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
 	e := newPlanEnv(t, a, b)
 	refs, mode, err := e.svc.WriteOperationRequests(t.Context(), []delivery.OperationRequest{opRequest(a.uid, "alice@acme.com", planDigest),
@@ -681,6 +702,7 @@ func (downSigner) Sign(context.Context, string, []byte) ([]byte, error) {
 // and a request Check refuses get nothing signed; a signer or push that
 // fails is an error.
 func TestWriteOperationRequestsRefusesChangedKey(t *testing.T) {
+	t.Parallel()
 	a, b := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
 	e := newPlanEnv(t, a)
 	e.publish(t, b, b.key, e.clock)
@@ -720,6 +742,7 @@ func TestWriteOperationRequestsRefusesChangedKey(t *testing.T) {
 // TestMemberTrust: the approved members' recorder keys, scoped to their
 // streams.
 func TestMemberTrust(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t)
 	s := ledgerSnapshot(eu.uid, e.clock)
@@ -738,6 +761,7 @@ func TestMemberTrust(t *testing.T) {
 // TestPlanStageModeUnchanged: a request naming a Stage plans as before and
 // carries no member plan.
 func TestPlanStageModeUnchanged(t *testing.T) {
+	t.Parallel()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"pacto:agents"}, nil)
 	plan, _, err := d.Plan(context.Background(), req)

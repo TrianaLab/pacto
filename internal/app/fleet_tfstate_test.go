@@ -8,6 +8,7 @@ import (
 )
 
 func TestFleetReadsTerraformStates(t *testing.T) {
+	t.Parallel()
 	state := "../../pkg/managedres/testdata/state-v4.json"
 	snap, err := NewService(nil, nil).Fleet(t.Context(), FleetOptions{TerraformStates: []string{state, state}})
 	if err != nil {

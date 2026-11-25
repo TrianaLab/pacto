@@ -40,6 +40,7 @@ func TestDeclarationSourceCitationNotADeclaration(t *testing.T) {
 // TestMergeCarryNothingToCarry: a candidate with neither an owner nor an
 // entry is dropped, never dereferenced.
 func TestMergeCarryNothingToCarry(t *testing.T) {
+	t.Parallel()
 	var res carryResult
 	raw := []byte("service:\n  name: invoices\n")
 	cands := []carryCandidate{{Field: "dependencies[ledger].compatibility", Value: "^2"}, {Field: "service.owner"}}
@@ -70,6 +71,7 @@ func TestDeclarationSourceErrorNamesCitedDeclaration(t *testing.T) {
 // TestDeclarationSourceUnreadableRecordNoted: a baseline record this
 // binary cannot read says so, never reads as citing nothing.
 func TestDeclarationSourceUnreadableRecordNoted(t *testing.T) {
+	t.Parallel()
 	b := bundleOf(t, map[string]string{"pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: invoices\n  version: 0.1.1\n",
 		contract.InferredRecordFile: "format: " + contract.InferredRecordFormat + "\nfromANewerPacto: 1\n"})
 	base := carryBase{repo: "r.io/acme/invoices", version: "0.1.1", digest: "sha256:" + strings.Repeat("1", 64), b: b}
@@ -84,6 +86,7 @@ func TestDeclarationSourceUnreadableRecordNoted(t *testing.T) {
 // overrides records the value pacto.yaml publishes, the accepted one in
 // the reason.
 func TestPinAcceptedOverriddenValueIsPactoYAML(t *testing.T) {
+	t.Parallel()
 	js := []delivery.JudgedAcceptance{accepting("0.1.0", "^2.3.0")}
 	raw := []byte("dependencies:\n  - name: ledger\n    compatibility: \"^1.0.0\"\n")
 	deps := []contract.Dependency{{Name: "ledger", Compatibility: "^1.0.0"}}
@@ -107,6 +110,7 @@ func TestPinAcceptedOverriddenValueIsPactoYAML(t *testing.T) {
 // version from another release than the plan read, the plan's digest no
 // longer names the baseline.
 func TestFillRowBaselineMovedDropsPlanDigest(t *testing.T) {
+	t.Parallel()
 	r := ci.Row{Baseline: "0.1.0", BaselineDigest: "sha256:" + strings.Repeat("a", 64), Derived: true}
 	fillRow(&r, nil, &publish.Result{Plan: publish.Plan{Version: "0.3.0", Baseline: "0.2.0"}}, errors.New("refused"))
 	if r.Baseline != "0.2.0" || r.BaselineDigest != "" {
@@ -161,6 +165,7 @@ func TestCarryOwnerPolicyBesideBundleRepository(t *testing.T) {
 // was never judged is dropped as unverified, never as routed to a
 // non-owner.
 func TestDeclarationCandidatesUnjudgedOwnerSaysUnverified(t *testing.T) {
+	t.Parallel()
 	d := &registryDeclaration{Ref: "r", Version: "0.1.0", Signer: fleet.VerifiedSigner{Subject: "ana@acme.com", Issuer: personIssuer, Class: contract.SignerClassHuman},
 		Bundle: bundleOf(t, map[string]string{"pacto.yaml": "service:\n  name: invoices\n"}),
 		Record: &contract.InferredRecord{Declaration: &contract.InferredDeclaration{Accepted: ledgerAccepted}}}
@@ -182,6 +187,7 @@ func ciRevision(version string, owner contract.Owner) fleet.ContractRevision {
 // declared owner keeps it carried. Another owner, or no CI publish, is the
 // spent cap; a declaration that is not among the releases says so.
 func TestJudgeOwnerHistoryWindow(t *testing.T) {
+	t.Parallel()
 	billing, payments := contract.Owner{Team: "billing"}, contract.Owner{Team: "payments"}
 	d := &registryDeclaration{Ref: "r.io/acme/invoices@sha256:decl", Bundle: bundleOf(t, map[string]string{"pacto.yaml": "service:\n  name: invoices\n  owner: {team: billing}\n"})}
 	policy := &delivery.OwnerPolicy{}

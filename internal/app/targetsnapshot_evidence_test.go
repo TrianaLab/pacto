@@ -6,7 +6,6 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"net/http"
-	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -54,6 +53,7 @@ func evidenceOnlySnapshot(t *testing.T, cluster, service string, evidence fleet.
 // a consumer the change breaks, and for one it does not the gate a
 // --target-state source running it gives.
 func TestImpactSnapshotEvidenceOnlyTargetGivesVerdict(t *testing.T) {
+	t.Parallel()
 	for _, compat := range []string{"^1.0.0", "^2.0.0"} {
 		t.Run(compat, func(t *testing.T) {
 			e := newSnapEnv(t)
@@ -86,6 +86,7 @@ func TestImpactSnapshotEvidenceOnlyTargetGivesVerdict(t *testing.T) {
 // read partly makes its source and the answer partial; the Pacto section's
 // targets still answer and its source stays available.
 func TestSnapshotEvidenceSectionPartialKeepsOtherSections(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	s := ledgerSnapshot(snapA, snapNow)
 	part := evidenceOnlySnapshot(t, snapA, "webapp", fleet.CompletenessPartial)
@@ -106,6 +107,7 @@ func TestSnapshotEvidenceSectionPartialKeepsOtherSections(t *testing.T) {
 // TestSnapshotUnverifiedEvidenceNeverComplete: with no trust config every
 // section of the snapshot reads partial, evidence included.
 func TestSnapshotUnverifiedEvidenceNeverComplete(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, evidenceOnlySnapshot(t, snapA, "webapp", fleet.CompletenessComplete))
 	snap := readSnap(t, &Service{}, snapOpts("", "oci://"+e.repo))
@@ -121,6 +123,7 @@ func TestSnapshotUnverifiedEvidenceNeverComplete(t *testing.T) {
 // TestSnapshotEvidenceUnscopedAndStale: a key not scoped to the cluster marks
 // every section; an evidence section older than the freshness bound is stale.
 func TestSnapshotEvidenceUnscopedAndStale(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	s := evidenceOnlySnapshot(t, snapA, "webapp", fleet.CompletenessComplete)
 	s.Sources[2].AsOf = snapNow.Add(-time.Hour).Format(time.RFC3339)
@@ -141,6 +144,7 @@ func TestSnapshotEvidenceUnscopedAndStale(t *testing.T) {
 // refuses is not used, and its source alone is unavailable; a snapshot that
 // names sections but leaves one out reads that one partial.
 func TestSnapshotEvidenceSectionInvalidUnused(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	s := evidenceOnlySnapshot(t, snapA, "webapp", fleet.CompletenessComplete)
 	s.Evidence = json.RawMessage(`{"schemaVersion":"pacto.dev/evidence-source/v1"}`)
@@ -157,8 +161,9 @@ func TestSnapshotEvidenceSectionInvalidUnused(t *testing.T) {
 // TestEvidenceMappingSharedWithEvidenceHTTPSource: one targets body read by
 // an --evidence-url source and from a snapshot yields the same targets.
 func TestEvidenceMappingSharedWithEvidenceHTTPSource(t *testing.T) {
+	t.Parallel()
 	body := evidenceBody(t, "webapp", true)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == evidenceingest.TargetsPath {
 			_, _ = w.Write(body)
 			return
@@ -190,6 +195,7 @@ func TestEvidenceMappingSharedWithEvidenceHTTPSource(t *testing.T) {
 // TestCISnapshotEvidenceOnlyIsConsumerSource: pacto ci reads the evidence
 // section as a consumer source that answered, so the row has a verdict.
 func TestCISnapshotEvidenceOnlyIsConsumerSource(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.breakingPayments(t)
 	e.write(t, map[string]string{"webapp/pacto.yaml": consumerOf("webapp", e.host)})
@@ -214,6 +220,7 @@ func TestCISnapshotEvidenceOnlyIsConsumerSource(t *testing.T) {
 // evidence-http source reads it, and the record keeps the cluster that
 // accepted it.
 func TestSnapshotEvidenceCarriesExtensionReports(t *testing.T) {
+	t.Parallel()
 	present := true
 	body, err := json.Marshal(evidenceingest.TargetsResponse{SchemaVersion: evidenceingest.TargetsSchemaVersionExtensions, GeneratedAt: snapNow,
 		Health: evidenceingest.SourceHealth{Status: evidenceingest.HealthReady, Subjects: 1}, Targets: []evidenceingest.TargetDTO{},
@@ -248,7 +255,7 @@ func TestSnapshotEvidenceCarriesExtensionReports(t *testing.T) {
 // reads it back through the evidence-http source.
 func collectEvidenceHTTP(t *testing.T, body []byte) *fleet.Collection {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) }))
 	defer srv.Close()
 	data, err := fleetsrc.NewEvidenceHTTPSource("ev", srv.URL).Collect(context.Background())
 	if err != nil {

@@ -58,6 +58,7 @@ func (e *recordEnv) attached(path string) int {
 }
 
 func TestApproveSignedPushesToApprovalsRepository(t *testing.T) {
+	t.Parallel()
 	for _, mode := range []capabilities.ReferrersMode{"", capabilities.ReferrersWriteOnceTags} {
 		e := signedEnv(t, mode)
 		ref, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "ok", edSigner(e.key), acmeIssuer, "alice@acme.example")
@@ -91,6 +92,7 @@ func TestApproveSignedPushesToApprovalsRepository(t *testing.T) {
 // TestApproveSignedRecordsThePerson: the statement names the person as the
 // signer, the operation it answers and the decision.
 func TestApproveSignedRecordsThePerson(t *testing.T) {
+	t.Parallel()
 	e := signedEnv(t, "")
 	var payload []byte
 	signer := signerFunc(func(_ context.Context, _ string, p []byte) ([]byte, error) {
@@ -117,6 +119,7 @@ func (f signerFunc) Sign(ctx context.Context, t string, p []byte) ([]byte, error
 }
 
 func TestApproveSignedRefusesWithoutApprovalsRepository(t *testing.T) {
+	t.Parallel()
 	e := signedEnv(t, "")
 	e.setStream(map[string]any{"stream": map[string]any{"id": recStream}})
 	if _, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "", edSigner(e.key), acmeIssuer, "alice@acme.example"); err == nil ||
@@ -140,6 +143,7 @@ func TestApproveSignedRefusesWithoutApprovalsRepository(t *testing.T) {
 }
 
 func TestApproveSignedRefusesURISigner(t *testing.T) {
+	t.Parallel()
 	e := signedEnv(t, "")
 	_, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "", edSigner(e.key), acmeIssuer, "https://github.com/acme/app/.github/workflows/ci.yml@refs/heads/main")
 	if err == nil || !strings.HasPrefix(err.Error(), "AgentsMayNotApprove: agents cannot approve") {
@@ -154,6 +158,7 @@ func TestApproveSignedRefusesURISigner(t *testing.T) {
 }
 
 func TestApproveSignedPredictsRefusal(t *testing.T) {
+	t.Parallel()
 	e := signedEnv(t, "")
 	// bob asked for the change, so he never decides it.
 	e.d.Policy.Signers[0].Subjects = ".+"
@@ -168,6 +173,7 @@ func TestApproveSignedPredictsRefusal(t *testing.T) {
 }
 
 func TestApproveSignedFailures(t *testing.T) {
+	t.Parallel()
 	e := signedEnv(t, "")
 	fail := signerFunc(func(context.Context, string, []byte) ([]byte, error) { return nil, errors.New("no login") })
 	if _, err := e.d.ApproveSigned(context.Background(), "prod", "p1", delivery.Approve, "", fail, acmeIssuer, "alice@acme.example"); err == nil || !strings.Contains(err.Error(), "no login") {
@@ -193,6 +199,7 @@ func TestApproveSignedFailures(t *testing.T) {
 // may sit on a registry without Referrers while the stream reads native, so
 // the push takes the approvals host's form, never the stream's mode.
 func TestApproveSignedProbesTheApprovalsRepository(t *testing.T) {
+	t.Parallel()
 	e := signedEnv(t, capabilities.ReferrersWriteOnceTags)
 	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "registryMode": string(capabilities.ReferrersNative),
 		"anchor": deliveryrecord.AnchorRef(e.host+"/delivery/streams", recStream), "approvals": deliveryrecord.AnchorRef(e.host+"/delivery/approvals", recStream)}})
@@ -210,6 +217,7 @@ func TestApproveSignedProbesTheApprovalsRepository(t *testing.T) {
 // keyless user with no groups, so a right that comes only through the
 // caller's groups is refused before anything is signed.
 func TestApproveSignedAsksForTheKeylessIdentity(t *testing.T) {
+	t.Parallel()
 	e := signedEnv(t, "")
 	var asked string
 	e.c.PrependReactor("create", "subjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
@@ -240,6 +248,7 @@ func TestApproveSignedAsksForTheKeylessIdentity(t *testing.T) {
 }
 
 func TestApproveSignedUnknownWorkloadKindIsUnverified(t *testing.T) {
+	t.Parallel()
 	e := signedEnv(t, "")
 	stages := e.c.Resource(gvrStages).Namespace("prod")
 	st, _ := stages.Get(context.Background(), "payments-prod", metav1.GetOptions{})

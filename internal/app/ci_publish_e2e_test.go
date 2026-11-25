@@ -9,7 +9,6 @@ import (
 	"log"
 	"maps"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -78,12 +77,10 @@ type e2eRepo struct {
 
 func newE2ERepo(t *testing.T) *e2eRepo {
 	t.Helper()
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	privateSigstore(t, ciWorkflow)
 	e := &e2eRepo{root: t.TempDir()}
 	e.emptyRegistry()
-	freshProbes(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { (*e.handler.Load()).ServeHTTP(w, r) }))
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { (*e.handler.Load()).ServeHTTP(w, r) }))
 	t.Cleanup(srv.Close)
 	e.host = strings.TrimPrefix(srv.URL, "http://")
 	e.reg = &hookRegistry{Registry: publish.NewClient(anonymous, e.host)}

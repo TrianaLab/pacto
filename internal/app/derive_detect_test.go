@@ -37,6 +37,7 @@ func declaredSection(t *testing.T, host string, artifacts []string, files map[st
 // assembled by Pacto with that image pinned, and a folder showing two tools
 // refuses the artifact with the finding.
 func TestArtifactWithoutBuildIsDetected(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	arts := []string{
 		`{name: api, type: image, ref: "oci://` + host + `/acme/payments"}`,
@@ -61,6 +62,7 @@ func TestArtifactWithoutBuildIsDetected(t *testing.T) {
 // TestDetectBuildsRefusals: detection never guesses, so each part it cannot
 // tell refuses that artifact by name.
 func TestDetectBuildsRefusals(t *testing.T) {
+	t.Parallel()
 	host := "r.io"
 	img := `{name: api, type: image, ref: "oci://r.io/acme/payments"}`
 	man := `{name: deploy, type: manifests, ref: "oci://r.io/acme/deploy/payments"}`
@@ -97,6 +99,7 @@ func TestDetectBuildsRefusals(t *testing.T) {
 // TestDeclaredSectionWithoutArtifactsStaysContractOnly: a declared section
 // with no artifacts, or with every build declared, gets nothing detected.
 func TestDeclaredSectionWithoutArtifactsStaysContractOnly(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := declaredSection(t, host, nil, map[string]string{"Dockerfile": "FROM scratch\n", "k8s/deploy.yaml": deployment("r.io/acme/payments:1.0")})
 	r := &buildRun{}

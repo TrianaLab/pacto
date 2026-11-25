@@ -8,7 +8,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -73,6 +72,7 @@ func (e *ciRepoEnv) breakingPayments(t *testing.T) {
 }
 
 func TestCIConsumerFoundByRepositoryDomain(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.breakingPayments(t)
 	e.write(t, map[string]string{"web/pacto.yaml": consumerOf("web", e.host)})
@@ -83,6 +83,7 @@ func TestCIConsumerFoundByRepositoryDomain(t *testing.T) {
 }
 
 func TestCIBlockedNamesConsumers(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.breakingPayments(t)
 	names := []string{"web1", "web2", "web3", "web4"}
@@ -98,6 +99,7 @@ func TestCIBlockedNamesConsumers(t *testing.T) {
 }
 
 func TestCIUnverifiedCarriesReason(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.breakingPayments(t)
 	e.write(t, map[string]string{"web/pacto.yaml": consumerOf("web", e.host)})
@@ -116,6 +118,7 @@ func (e *ciRepoEnv) additiveReports(t *testing.T) {
 }
 
 func TestCIClearNeedsConsumerSource(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.additiveReports(t)
 	p, _ := e.planWith(t, FleetOptions{})
@@ -135,9 +138,10 @@ func TestCIClearNeedsConsumerSource(t *testing.T) {
 }
 
 func TestCIFailedConsumerSourceNeverClear(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.additiveReports(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) }))
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusInternalServerError) }))
 	t.Cleanup(srv.Close)
 	p, _ := e.planWith(t, FleetOptions{EvidenceURLs: []string{srv.URL}})
 	r := row(t, p, "reports")
@@ -155,6 +159,7 @@ type cacheOnlyStore struct {
 func (c cacheOnlyStore) CacheDir() string { return c.dir }
 
 func TestCIEmptyCacheIsNoConsumerSource(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.additiveReports(t)
 	e.svc.BundleStore = cacheOnlyStore{dir: t.TempDir()}
@@ -165,6 +170,7 @@ func TestCIEmptyCacheIsNoConsumerSource(t *testing.T) {
 }
 
 func TestCIInferredChangeNeverClear(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	compose := "services:\n  reports:\n    image: " + e.host + "/acme/reports:1.0\n"
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1, "reports/compose.yaml": compose + "    ports: [\"8080:8080\"]\n"})
@@ -178,6 +184,7 @@ func TestCIInferredChangeNeverClear(t *testing.T) {
 }
 
 func TestCIServiceNameInferredNeverClear(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1, "reports/notes.txt": "a\n"})
 	e.publish(t, "reports", "acme/reports", "1.0.0", nil)
@@ -189,6 +196,7 @@ func TestCIServiceNameInferredNeverClear(t *testing.T) {
 }
 
 func TestCIBaselinePinnedByDigest(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1, "reports/notes.txt": "a\n"})
 	d1 := e.publish(t, "reports", "acme/reports", "1.0.0", nil)
@@ -217,6 +225,7 @@ func TestCIBaselinePinnedByDigest(t *testing.T) {
 }
 
 func TestCIOnResolvedGetsLoadedBundles(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.additiveReports(t)
 	var got []string
@@ -234,13 +243,14 @@ func TestCIOnResolvedGetsLoadedBundles(t *testing.T) {
 }
 
 func TestCIOneSnapshot(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.additiveReports(t)
 	e.write(t, map[string]string{"billing/pacto.yaml": "service: {name: billing, version: 1.0.0}\n", "billing/notes.txt": "a\n"})
 	e.publish(t, "billing", "acme/billing", "1.0.0", nil)
 	e.write(t, map[string]string{"billing/notes.txt": "b\n", "billing/pacto.yaml": "service: {name: billing}\n"})
 	var n atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		n.Add(1)
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -258,6 +268,7 @@ func TestCIOneSnapshot(t *testing.T) {
 }
 
 func TestCIUnchangedRunsNoImpact(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1})
 	e.publish(t, "reports", "acme/reports", "1.0.0", nil)
@@ -268,6 +279,7 @@ func TestCIUnchangedRunsNoImpact(t *testing.T) {
 }
 
 func TestCIImpactErrorUnverified(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.additiveReports(t)
 	// A view that hides services refuses a revision it cannot see: here the
@@ -281,6 +293,7 @@ func TestCIImpactErrorUnverified(t *testing.T) {
 }
 
 func TestRowImpact(t *testing.T) {
+	t.Parallel()
 	local := &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "s"}}}
 	for _, tc := range []struct {
 		name     string
@@ -307,6 +320,7 @@ func TestRowImpact(t *testing.T) {
 }
 
 func TestConsumerEvidence(t *testing.T) {
+	t.Parallel()
 	st := func(id, kind string, status fleet.SourceStatus, n int, advisory bool) fleet.SourceState {
 		return fleet.SourceState{ID: id, Kind: kind, Status: status, RevisionCount: n, Advisory: advisory}
 	}
@@ -331,6 +345,7 @@ func TestConsumerEvidence(t *testing.T) {
 // TestSnapshotInfoListsConsumerSourcesOnly: an advisory source (--detected)
 // never prints as a consumer source, so the header agrees with the row.
 func TestSnapshotInfoListsConsumerSourcesOnly(t *testing.T) {
+	t.Parallel()
 	info := snapshotInfo(&fleet.FleetSnapshot{Sources: []fleet.SourceState{
 		{ID: "local", Kind: "local", Status: fleet.SourceAvailable},
 		{ID: ciChangesSource, Kind: "argument", Status: fleet.SourceAvailable},
@@ -379,10 +394,8 @@ func (m *methodRecorder) reset() {
 // newRecordedCIRepo is newCIRepo over a registry whose requests are counted.
 func newRecordedCIRepo(t *testing.T) (*ciRepoEnv, *methodRecorder) {
 	t.Helper()
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	rec := &methodRecorder{methods: map[string]int{}}
-	freshProbes(t)
-	srv := httptest.NewServer(rec.wrap(registry.New(registry.Logger(log.New(io.Discard, "", 0)))))
+	srv := probedServer(t, rec.wrap(registry.New(registry.Logger(log.New(io.Discard, "", 0)))))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 	reg := publish.NewClient(anonymous, host)
@@ -411,6 +424,7 @@ func TestCIPlanMakesNoWrites(t *testing.T) {
 }
 
 func TestCINeverContactsRepoNamedHost(t *testing.T) {
+	t.Parallel()
 	e, rec := newRecordedCIRepo(t)
 	bundleHost, bundleHits := countingHost(t)
 	imageHost, imageHits := countingHost(t)
@@ -438,6 +452,7 @@ func TestCINeverContactsRepoNamedHost(t *testing.T) {
 }
 
 func TestFencedStore(t *testing.T) {
+	t.Parallel()
 	inner := cacheOnlyStore{BundleStore: fakeStore{}, dir: "/cache"}
 	f := fencedStore{inner: inner, hosts: []string{"r.example"}}
 	ctx := context.Background()
@@ -479,6 +494,7 @@ func (fakeStore) ListTags(context.Context, string) ([]string, error) {
 }
 
 func TestFenceHosts(t *testing.T) {
+	t.Parallel()
 	got := fenceHosts(FleetOptions{CatalogRoots: []string{"./consumers", "oci://r.example/acme/web:1.0.0"}, OCIRefs: []string{"o.example/acme/api:1.0.0"}})
 	if !slices.Equal(got, []string{"r.example", "o.example"}) {
 		t.Fatalf("hosts = %q", got)
@@ -486,6 +502,7 @@ func TestFenceHosts(t *testing.T) {
 }
 
 func TestCISnapshotErrorFailsTheRun(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.additiveReports(t)
 	if _, _, err := e.svc.CIPlan(context.Background(), CIOptions{Root: e.root, Registry: e.host + "/acme", Fleet: FleetOptions{Detected: "k8s:nope"}}); err == nil {
@@ -518,6 +535,7 @@ func (e *ciRepoEnv) policyFailure(t *testing.T) {
 // answer needs no consumer source that answered, while the evidence a clear
 // answer needs is still missing.
 func TestCIBlockedSurvivesNoConsumerSource(t *testing.T) {
+	t.Parallel()
 	t.Run("running consumer, no source answered", func(t *testing.T) {
 		e := newCIRepo(t)
 		e.breakingPayments(t)
@@ -552,6 +570,7 @@ func TestCIBlockedSurvivesNoConsumerSource(t *testing.T) {
 }
 
 func TestCIPlanRefusesABadRegistryFlag(t *testing.T) {
+	t.Parallel()
 	if _, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: t.TempDir(), Registry: "https://u:tok@r.example/acme"}); err == nil || strings.Contains(err.Error(), "tok") {
 		t.Fatalf("err = %v", err)
 	}
@@ -561,6 +580,7 @@ func TestCIPlanRefusesABadRegistryFlag(t *testing.T) {
 // target snapshot beside the registry it plans against, as pacto impact does,
 // and names it as a consumer source.
 func TestCIUsesDefaultTargetSnapshot(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.breakingPayments(t)
 	s := webappSnapshot(snapA, e.host, "^1.0.0", time.Now())
@@ -588,6 +608,7 @@ func TestCIUsesDefaultTargetSnapshot(t *testing.T) {
 // workloads no Pacto targets, so an unrelated linked workload never clears a
 // row, and the plan lists --detected among its consumer sources.
 func TestCILinkedWorkloadsAloneNeverClear(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.additiveReports(t)
 	detected := operatorDir(t, linkedPayload(t, "", time.Now(), linkedWebapp(e.host, "^1.0.0", time.Now())))

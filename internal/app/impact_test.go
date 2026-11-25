@@ -31,6 +31,7 @@ func writeImpactService(t *testing.T, dir, name, version string) {
 }
 
 func TestService_Impact(t *testing.T) {
+	t.Parallel()
 	oldDir := t.TempDir()
 	newDir := t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
@@ -65,6 +66,7 @@ func TestService_Impact(t *testing.T) {
 // dashboard can guarantee the impact result matches the graph the user is viewing
 // rather than a freshly rebuilt, divergent one.
 func TestService_ImpactWithSnapshot_BindsGivenSnapshot(t *testing.T) {
+	t.Parallel()
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
 	writeImpactService(t, newDir, "orders", "2.0.0")
@@ -86,6 +88,7 @@ func TestService_ImpactWithSnapshot_BindsGivenSnapshot(t *testing.T) {
 }
 
 func TestService_Impact_OldPathError(t *testing.T) {
+	t.Parallel()
 	newDir := t.TempDir()
 	writeImpactService(t, newDir, "orders", "2.0.0")
 	svc := NewService(nil, nil)
@@ -96,6 +99,7 @@ func TestService_Impact_OldPathError(t *testing.T) {
 
 // A bad ref fails before the fleet is built, so a fleet error never hides it.
 func TestService_Impact_ResolvesRefsBeforeFleet(t *testing.T) {
+	t.Parallel()
 	newDir := t.TempDir()
 	writeImpactService(t, newDir, "orders", "2.0.0")
 	dup := []ObservationSourceSpec{{ID: "x"}, {ID: "x"}}
@@ -108,6 +112,7 @@ func TestService_Impact_ResolvesRefsBeforeFleet(t *testing.T) {
 }
 
 func TestService_Impact_NewPathError(t *testing.T) {
+	t.Parallel()
 	oldDir := t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
 	svc := NewService(nil, nil)
@@ -117,6 +122,7 @@ func TestService_Impact_NewPathError(t *testing.T) {
 }
 
 func TestService_Impact_FleetError(t *testing.T) {
+	t.Parallel()
 	oldDir := t.TempDir()
 	newDir := t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
@@ -136,6 +142,7 @@ func TestService_Impact_FleetError(t *testing.T) {
 }
 
 func TestService_Impact_WithTraces(t *testing.T) {
+	t.Parallel()
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
 	writeImpactService(t, newDir, "orders", "2.0.0")
@@ -173,6 +180,7 @@ func TestService_Impact_WithTraces(t *testing.T) {
 }
 
 func TestService_Impact_BadTraces(t *testing.T) {
+	t.Parallel()
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
 	writeImpactService(t, newDir, "orders", "2.0.0")
@@ -191,6 +199,7 @@ func TestService_Impact_BadTraces(t *testing.T) {
 }
 
 func TestRevisionDomain(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name, ref, want string
 	}{
@@ -219,6 +228,7 @@ func TestRevisionDomain(t *testing.T) {
 // side, reads as not found instead of diffing it with the server's
 // credentials. A visible service still answers.
 func TestService_ImpactWithSnapshot_RefusesHiddenService(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	write := func(name, version string) string {
 		dir := filepath.Join(root, name+"-"+version)
@@ -270,6 +280,7 @@ func writeImpactConsumer(t *testing.T, dir, name, provider, compat string) {
 // trap is closed: a fleet root holding only the consumers used to leave the
 // changed service out of the graph and answer with no consumers at all.
 func TestService_Impact_AddsNewRevisionWhenNoSourceHoldsIt(t *testing.T) {
+	t.Parallel()
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
 	writeImpactService(t, newDir, "orders", "2.0.0")
@@ -298,6 +309,7 @@ func TestService_Impact_AddsNewRevisionWhenNoSourceHoldsIt(t *testing.T) {
 // TestService_Impact_SecondBuildError covers the rebuild failing after the first
 // build succeeded: a configured source already claims the added source's id.
 func TestService_Impact_SecondBuildError(t *testing.T) {
+	t.Parallel()
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
 	writeImpactService(t, newDir, "orders", "2.0.0")
@@ -311,6 +323,7 @@ func TestService_Impact_SecondBuildError(t *testing.T) {
 }
 
 func TestService_ImpactWithSnapshot_ResolveError(t *testing.T) {
+	t.Parallel()
 	newDir := t.TempDir()
 	writeImpactService(t, newDir, "orders", "2.0.0")
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{})
@@ -326,6 +339,7 @@ func TestService_ImpactWithSnapshot_ResolveError(t *testing.T) {
 // addMissing adds the new revision; without it the answer stays bound to the
 // given snapshot and says SERVICE_NOT_IN_FLEET.
 func TestService_ImpactOnSnapshot(t *testing.T) {
+	t.Parallel()
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
 	writeImpactService(t, newDir, "orders", "2.0.0")
@@ -358,6 +372,7 @@ func TestService_ImpactOnSnapshot(t *testing.T) {
 // A trace edge keeps the end time of its latest span, so impact can tell a
 // call seen today from one seen last week; a span with no time gives none.
 func TestObservedEdgesFromTracesKeepLastSeen(t *testing.T) {
+	t.Parallel()
 	span := func(callee, end string) string {
 		return `{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"checkout"}}]},"scopeSpans":[{"spans":[{"kind":3,` +
 			`"startTimeUnixNano":"` + end + `","endTimeUnixNano":"` + end + `","attributes":[{"key":"peer.service","value":{"stringValue":"` + callee + `"}}]}]}]}`
@@ -395,6 +410,7 @@ func eventFleet(t *testing.T) string {
 }
 
 func TestImpactEventOnSnapshot(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	ctx := context.Background()
 	opts := ImpactEventOptions{Event: impact.Event{Kind: impact.EventUnavailable, Service: "orders"}, Fleet: FleetOptions{LocalRoots: []string{eventFleet(t)}}}
@@ -426,6 +442,7 @@ func TestImpactEventOnSnapshot(t *testing.T) {
 }
 
 func TestParseEventFlag(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		kind, value string
 		want        impact.Event
@@ -458,6 +475,7 @@ func TestParseEventFlag(t *testing.T) {
 // A bare name resolves to the one service of that name in any domain; a name
 // two domains share is refused with their keys.
 func TestImpactEventResolvesABareName(t *testing.T) {
+	t.Parallel()
 	raw := func(domain, name string) fleet.RawRevision {
 		return fleet.RawRevision{Domain: domain, Bundle: &contract.Bundle{FS: fstest.MapFS{},
 			Contract: &contract.Contract{PactoVersion: "2.0", Service: contract.Service{Name: name, Version: "1.0.0"}}}}
@@ -494,6 +512,7 @@ func TestImpactEventResolvesABareName(t *testing.T) {
 }
 
 func TestImpactOnResolvedSeesBothBundles(t *testing.T) {
+	t.Parallel()
 	oldDir, newDir := t.TempDir(), t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
 	writeImpactService(t, newDir, "orders", "2.0.0")
@@ -519,6 +538,7 @@ func TestImpactOnResolvedSeesBothBundles(t *testing.T) {
 // unavailable and removed; an empty or versioned name and a regressed
 // offering are refused.
 func TestParseEventFlagOffering(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		kind, value string
 		want        impact.Event
@@ -546,6 +566,7 @@ func TestParseEventFlagOffering(t *testing.T) {
 // TestImpactEventOfferingSkipsServiceLookup: an offering event names no
 // service, so nothing is resolved and impact answers about the offering.
 func TestImpactEventOfferingSkipsServiceLookup(t *testing.T) {
+	t.Parallel()
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("m", "memory", &fleet.Collection{}))
 	if err != nil {
 		t.Fatal(err)
@@ -560,6 +581,7 @@ func TestImpactEventOfferingSkipsServiceLookup(t *testing.T) {
 // source keys under its domain finds that service's consumers when the caller
 // names the domain, and adds no default-domain copy with none.
 func TestService_ImpactOnSnapshot_Domain(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	oldDir, newDir, webDir := t.TempDir(), t.TempDir(), t.TempDir()
 	writeImpactService(t, oldDir, "orders", "1.0.0")
@@ -614,6 +636,7 @@ func writeNamelessRevision(t *testing.T, parent, version string, dep bool) strin
 // on: a BREAKING change over it never clears, even over a complete fleet in
 // which nothing depends on the inferred name.
 func TestImpactInferredNameNeverClears(t *testing.T) {
+	t.Parallel()
 	oldDir := writeNamelessRevision(t, t.TempDir(), "1.0.0", true)
 	newDir := writeNamelessRevision(t, t.TempDir(), "2.0.0", false)
 	fleetRoot := t.TempDir()
@@ -637,6 +660,7 @@ func TestImpactInferredNameNeverClears(t *testing.T) {
 // An edit stages the new revision in a temporary folder: NewDirName names it
 // from the folder it is a copy of, so both sides infer one name.
 func TestImpactStagedCopyInfersTheRealFolderName(t *testing.T) {
+	t.Parallel()
 	oldDir := writeNamelessRevision(t, t.TempDir(), "1.0.0", true)
 	staged := filepath.Join(t.TempDir(), ".pacto-edit-123")
 	if err := os.MkdirAll(staged, 0o755); err != nil {
@@ -661,6 +685,7 @@ func TestImpactStagedCopyInfersTheRealFolderName(t *testing.T) {
 }
 
 func TestNameInferredFromPrefersNew(t *testing.T) {
+	t.Parallel()
 	declared := &contract.Bundle{}
 	inferred := func(src string) *contract.Bundle {
 		return &contract.Bundle{Inferred: []contract.Inferred{{Field: "service.name", Value: "a", Source: src}}}
@@ -682,6 +707,7 @@ func TestNameInferredFromPrefersNew(t *testing.T) {
 // An old inferred key is never renamed silently: the answer names the
 // successor and carries SUBJECT_REPLACED.
 func TestImpactEventOnReplacedKeyDisclosesAlias(t *testing.T) {
+	t.Parallel()
 	now := time.Now()
 	created, pacto := now.Add(-72*time.Hour), now.Add(-time.Hour)
 	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{},
@@ -707,6 +733,7 @@ func TestImpactEventOnReplacedKeyDisclosesAlias(t *testing.T) {
 // TestImpactEventExternalRefusesTraces: the external answer never reads a
 // trace file, so one is refused instead of silently dropped.
 func TestImpactEventExternalRefusesTraces(t *testing.T) {
+	t.Parallel()
 	_, err := NewService(nil, nil).ImpactEventOnSnapshot(context.Background(),
 		ImpactEventOptions{Event: impact.Event{Kind: impact.EventChanged, External: "stripe"}, Traces: []byte("{}")}, &fleet.FleetSnapshot{})
 	if !errors.Is(err, ErrTracesWithExternal) {
@@ -718,6 +745,7 @@ func TestImpactEventExternalRefusesTraces(t *testing.T) {
 // for changed and unavailable, as written; removing or regressing one, a
 // changed service and an identity Pacto would rewrite are refused.
 func TestParseEventFlagExternal(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		kind, value string
 		want        impact.Event

@@ -19,6 +19,7 @@ func opFixture(name string, spec, status map[string]any) runtime.Object {
 }
 
 func TestDeliveryExplain(t *testing.T) {
+	t.Parallel()
 	failed := opFixture("p1", map[string]any{"type": delivery.TypePromote, "stage": "payments-prod",
 		"params": map[string]any{"from": dlA, "to": dlB}, "actor": map[string]any{"user": "system:serviceaccount:pacto-delivery:promoter"}},
 		map[string]any{"phase": "Concluded", "outcome": "Failed", "reason": "VerifyFailed", "message": "health: 10 of 100 spans failed", "seq": int64(3),
@@ -65,6 +66,7 @@ func wantOrderFrom(t *testing.T, e *delivery.Explanation) {
 }
 
 func TestDeliverySummary(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		status map[string]any
 		want   string
@@ -97,6 +99,7 @@ func decodeStatus(t *testing.T, m map[string]any) delivery.OperationStatus {
 }
 
 func TestDeliveryHistory(t *testing.T) {
+	t.Parallel()
 	spec := func(stage, to string) map[string]any {
 		return map[string]any{"type": delivery.TypePromote, "stage": stage, "params": map[string]any{"from": dlA, "to": to},
 			"actor": map[string]any{"user": "bot"}}
@@ -130,6 +133,7 @@ func TestDeliveryHistory(t *testing.T) {
 
 // A Stage the caller just listed is handed to the history read and not read again.
 func TestDeliveryHistoryOfAListedStage(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	st, err := d.Stage(context.Background(), "prod", "payments-prod")
 	if err != nil {
@@ -147,6 +151,7 @@ func TestDeliveryHistoryOfAListedStage(t *testing.T) {
 // whose CRD has no such selectable field refuses the selector and the whole
 // list is filtered here instead, to the same answer.
 func TestOperationsAreSelectedByField(t *testing.T) {
+	t.Parallel()
 	spec := func(stage string) map[string]any {
 		return map[string]any{"type": delivery.TypePromote, "stage": stage, "params": map[string]any{"from": dlA, "to": dlB},
 			"actor": map[string]any{"user": "bot"}}
@@ -188,6 +193,7 @@ func TestOperationsAreSelectedByField(t *testing.T) {
 }
 
 func TestDeliveryProposeCarriesTheCause(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", nil, nil)
 	cause := &delivery.Cause{Verdict: &delivery.Verdict{Gate: "health", Phase: "verify", Result: delivery.Fail, Citation: map[string]string{"input": "{}"}}}
 	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Name: "p", Cause: cause, OnBehalfOf: "dana"})

@@ -52,6 +52,7 @@ func (e *declareEnv) withClassPolicy(t *testing.T, classes []delivery.SignerClas
 // The verified installation policy's signer rules classify the person who
 // logs in: one it names an agent writes a draft, never a declared version.
 func TestDeclarePolicyClassRuleMakesALoginAnAgent(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withClassPolicy(t, []delivery.SignerClassRule{{Name: "bots", Issuer: personIssuer, Subject: `^ana@acme\.com$`, Class: delivery.ClassAgent}}, false)
 	e.login(personToken("ana@acme.com"))
@@ -64,6 +65,7 @@ func TestDeclarePolicyClassRuleMakesALoginAnAgent(t *testing.T) {
 // A policy that does not verify classifies by the default rule, and the plan
 // says so.
 func TestDeclarePolicyUnverifiedUsesDefaultRule(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withClassPolicy(t, []delivery.SignerClassRule{{Name: "bots", Issuer: personIssuer, Subject: `^ana@acme\.com$`, Class: delivery.ClassAgent}}, true)
 	p, _ := e.plan(t, e.req())

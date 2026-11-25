@@ -25,6 +25,7 @@ func usageFixture() (*Service, func(func(*UsageOptions)) UsageOptions) {
 }
 
 func TestUsageEvidence(t *testing.T) {
+	t.Parallel()
 	svc, with := usageFixture()
 	set, err := svc.UsageEvidence(with(func(o *UsageOptions) {
 		o.Environment = "production"
@@ -57,6 +58,7 @@ func TestUsageEvidence(t *testing.T) {
 }
 
 func TestUsageEvidence_Rejects(t *testing.T) {
+	t.Parallel()
 	svc, with := usageFixture()
 	for name, opts := range map[string]UsageOptions{
 		"both names":                 with(func(o *UsageOptions) { o.Dependency = "postgresql" }),
@@ -77,6 +79,7 @@ func TestUsageEvidence_Rejects(t *testing.T) {
 
 // A provider scope can be granted through ResourceUsage alone, and still needs a provider kind.
 func TestTrustConfigScopeRequiresProviderKind(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := (&Service{}).GenerateKey(dir, "", "edgekey", false); err != nil {
 		t.Fatal(err)
@@ -100,6 +103,7 @@ func TestTrustConfigScopeRequiresProviderKind(t *testing.T) {
 }
 
 func TestUnscopedProvisioningKeysCoverUsage(t *testing.T) {
+	t.Parallel()
 	ts := evidenceenvelope.MapTrustStore{
 		"usage":  {AllowedObservationKinds: []string{string(evidence.ResourceUsage)}},
 		"scoped": {AllowedObservationKinds: []string{string(evidence.ResourceUsage)}, ProviderRepos: []string{"ghcr.io/acme/platform/postgresql"}},
@@ -126,6 +130,7 @@ func (f scopedFixture) usage(t *testing.T, base, producer, configuration string,
 // speaks v3 until usage is stored, and a usage report keeps its own record next
 // to the same resource's provisioning record.
 func TestUsageDoesNotReplaceProvisioning(t *testing.T) {
+	t.Parallel()
 	f := newScopedFixture(t, testutil.ReferrersOptions{})
 	host := strings.TrimPrefix(strings.SplitN(f.contractRef, "/orders@", 2)[0], "oci://")
 	both := "ResourceProvisioned, ResourceUsage"

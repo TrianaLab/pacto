@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io/fs"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -45,6 +44,7 @@ func (e *declareEnv) springbootTags(t *testing.T) []string {
 }
 
 func TestDeclareTemplatePlanDraftsGoldenPath(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	p, d := e.plan(t, e.templateReq())
 	if p.Service != "springboot-service" || p.Version != firstDeclaration || p.BundleRepo != e.host+"/acme/springboot-service" || p.InferredFrom != "" ||
@@ -89,6 +89,7 @@ func templatePlanReadsNoWorkload(t *testing.T, e *declareEnv, p *DeclarePlan) {
 // TestDeclareTemplateSummary: the title stands in for a missing
 // description, cut to 200 characters; with neither, no summary.
 func TestDeclareTemplateSummary(t *testing.T) {
+	t.Parallel()
 	tpl := springboot()
 	tpl.Summary, tpl.Title = "", strings.Repeat("é", 250)
 	if got := string(templateContract(tpl)); !strings.Contains(got, "summary: '"+strings.Repeat("é", 200)+"'\n") {
@@ -101,6 +102,7 @@ func TestDeclareTemplateSummary(t *testing.T) {
 }
 
 func TestDeclareTemplatePublishesContractOnly(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.login(personToken("ana@acme.com"))
 	res := e.declare(t, e.templateReq())
@@ -125,6 +127,7 @@ func TestDeclareTemplatePublishesContractOnly(t *testing.T) {
 }
 
 func TestDeclareTemplateKeyWritesDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	dir := t.TempDir()
 	keyFiles(t, dir)
@@ -138,6 +141,7 @@ func TestDeclareTemplateKeyWritesDraft(t *testing.T) {
 }
 
 func TestDeclareTemplateOwnerLeftAsNote(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	p, d := e.plan(t, e.templateReq())
 	if !slices.Contains(p.Notes, "Backstage names team:platform-team as owner: declare service.owner in a later version") ||
@@ -154,7 +158,7 @@ func TestDeclareTemplateOwnerLeftAsNote(t *testing.T) {
 // backstageStub serves body as every by-query page.
 func backstageStub(t *testing.T, status int, body string) string {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(status)
 		_, _ = w.Write([]byte(body))
 	}))
@@ -166,6 +170,7 @@ const templatePage = `{"items":[{"apiVersion":"scaffolder.backstage.io/v1beta3",
 	`"metadata":{"name":"springboot-service","namespace":"default","title":"Spring Boot","description":"Spring"},"spec":{"owner":"group:default/platform-team"}}],"pageInfo":{}}`
 
 func TestDeclareTemplateFoundInCatalog(t *testing.T) {
+	t.Parallel()
 	got, err := (&Service{}).InferredTemplate(t.Context(), backstageStub(t, 200, templatePage), "", templateSubject)
 	if err != nil || got.Name != "springboot-service" || got.Summary != "Spring" || got.OwnerKey != "team:platform-team" || !got.Acceptable {
 		t.Fatalf("%v %+v", err, got)
@@ -173,6 +178,7 @@ func TestDeclareTemplateFoundInCatalog(t *testing.T) {
 }
 
 func TestDeclareTemplateNotFound(t *testing.T) {
+	t.Parallel()
 	_, err := (&Service{}).InferredTemplate(t.Context(), backstageStub(t, 200, templatePage), "", "template:default/other")
 	if de := refusal(t, err); de.Code != codeTemplateNotFound || !strings.Contains(de.Message, "no template default/other in the catalog at 127.0.0.1") ||
 		strings.Contains(de.Message, "partial") || !strings.HasPrefix(de.CLI, "pacto fleet entities --template --backstage-url http://127.0.0.1") {
@@ -189,6 +195,7 @@ func TestDeclareTemplateNotFound(t *testing.T) {
 // TestDeclareTemplatePastListCap: a template past the listing's cap is still
 // found.
 func TestDeclareTemplatePastListCap(t *testing.T) {
+	t.Parallel()
 	items := make([]string, 0, fleet.MaxInferredTemplates+5)
 	for i := range fleet.MaxInferredTemplates + 5 {
 		items = append(items, fmt.Sprintf(`{"apiVersion":"scaffolder.backstage.io/v1beta3","kind":"Template","metadata":{"name":"t%03d","namespace":"default"}}`, i))
@@ -201,6 +208,7 @@ func TestDeclareTemplatePastListCap(t *testing.T) {
 }
 
 func TestDeclareTemplateCatalogUnset(t *testing.T) {
+	t.Parallel()
 	_, err := (&Service{}).InferredTemplate(t.Context(), "", "", templateSubject)
 	if de := refusal(t, err); de.Code != codeTemplateCatalogUnset || !strings.Contains(de.Message, "pass --backstage-url") ||
 		de.CLI != "pacto declare "+templateSubject+" --backstage-url <backstage-url> --registry <registry>" {
@@ -214,6 +222,7 @@ func TestDeclareTemplateCatalogUnset(t *testing.T) {
 }
 
 func TestDeclareTemplateNameInvalid(t *testing.T) {
+	t.Parallel()
 	// Bad_Name is a name the catalog may hold but the fold skips: never "not found".
 	for _, s := range []string{"template:springboot-service", "template:/x", "template:default/", "springboot-service", "template:default/Bad_Name"} {
 		if _, err := (&Service{}).InferredTemplate(t.Context(), "https://catalog.acme.io", "", s); refusal(t, err).Code != codeTemplateNameInvalid {
@@ -229,6 +238,7 @@ func TestDeclareTemplateNameInvalid(t *testing.T) {
 }
 
 func TestDeclareTemplateCatalogUnavailable(t *testing.T) {
+	t.Parallel()
 	_, err := (&Service{}).InferredTemplate(t.Context(), backstageStub(t, 401, ""), "s3cret", templateSubject)
 	if de := refusal(t, err); de.Code != codeTemplateCatalogUnavailable || !strings.HasPrefix(de.Message, "the catalog at 127.0.0.1") ||
 		strings.Contains(de.Message, "s3cret") {
@@ -248,6 +258,7 @@ func (e *declareEnv) agentTemplate(t *testing.T) {
 }
 
 func TestDeclareTemplateFromDraftRereadsCatalog(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.agentTemplate(t)
 	req := e.templateReq()
@@ -273,6 +284,7 @@ func TestDeclareTemplateFromDraftRereadsCatalog(t *testing.T) {
 // template's name is no draft of the golden path, and a missing draft names
 // the template command.
 func TestDeclareTemplateFromDraftOtherSubject(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: "dev"}, Fields: []contract.Inferred{},
 		Declaration: &contract.InferredDeclaration{State: contract.DeclarationDraft, Asker: contract.InferredSigner{Issuer: contract.SignerUnsigned, Class: contract.SignerClassAgent}}}
@@ -291,6 +303,7 @@ func TestDeclareTemplateFromDraftOtherSubject(t *testing.T) {
 }
 
 func TestDeclareTemplateRefusesExistingRepo(t *testing.T) {
+	t.Parallel()
 	for name, yaml := range map[string]string{
 		"workload":    "pactoVersion: \"2.5\"\nservice:\n  name: springboot-service\n  version: 1.2.0\nworkload: service\n",
 		"golden path": "pactoVersion: \"2.5\"\nservice:\n  name: springboot-service\n  version: 1.2.0\n  template: {}\n",
@@ -311,6 +324,7 @@ func TestDeclareTemplateRefusesExistingRepo(t *testing.T) {
 }
 
 func TestDeclareTemplateRegistryUnreadable(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.templateReq()
 	req.Store = &faultyRegistry{Registry: e.reg, tags: errors.New("denied")}

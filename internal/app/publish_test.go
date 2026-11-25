@@ -17,13 +17,14 @@ import (
 	"errors"
 	"io"
 	"log"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
+	"github.com/secure-systems-lab/go-securesystemslib/encrypted"
 	"github.com/sigstore/sigstore-go/pkg/root"
 	"github.com/sigstore/sigstore/pkg/cryptoutils"
 	"github.com/sigstore/sigstore/pkg/signature"
@@ -95,8 +96,7 @@ var anonymous = authn.NewMultiKeychain()
 
 func publishRegistry(t *testing.T) (string, publish.Registry) {
 	t.Helper()
-	freshProbes(t)
-	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
+	srv := probedServer(t, registry.New(registry.Logger(log.New(io.Discard, "", 0))))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 	return host, publish.NewClient(anonymous, host)
@@ -132,6 +132,7 @@ func publishService(f *fakeRun, reg publish.Registry) *Service {
 // TestPublishPlan: --plan lists what is missing, reads the revision from .git
 // and builds nothing: it only asks buildx and git what would refuse a build.
 func TestPublishPlan(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	f := &fakeRun{}
 	dir := writePublishBundle(t, host, "")
@@ -151,6 +152,7 @@ func TestPublishPlan(t *testing.T) {
 // that does not open, a checkout with uncommitted changes, no buildx builder
 // and a build program that is not there.
 func TestPublishPreflights(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	failed := func(f *fakeRun, svc *Service, dir string, opts PublishOptions) map[string]string {
 		t.Helper()
@@ -189,6 +191,7 @@ func TestPublishPreflights(t *testing.T) {
 // TestPublishPlanChecksTheBuilders: the plan says which build cannot run
 // here before anything is built or pushed.
 func TestPublishPlanChecksTheBuilders(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	failed := func(_ *fakeRun, svc *Service, dir string, opts PublishOptions) map[string]string {
 		t.Helper()
@@ -283,24 +286,76 @@ func signingKey(t *testing.T, dir string) crypto.PublicKey {
 	return k
 }
 
-// keyFiles writes cosign.key and cosign.pub into dir.
+// keyFiles writes cosign.key and cosign.pub into dir, encrypted with the
+// COSIGN_PASSWORD TestMain sets. The n-th call in a test writes the n-th key
+// of a pool made once per process, so two calls in one test still give two
+// identities: making a key is a scrypt run (about two seconds under -race),
+// and opening one is another, which is why the pool uses the cheapest scrypt
+// parameters the format accepts.
 func keyFiles(t *testing.T, dir string) crypto.PublicKey {
 	t.Helper()
-	priv, pub, err := cryptoutils.GeneratePEMEncodedECDSAKeyPair(elliptic.P256(), cryptoutils.StaticPasswordFunc([]byte("pw")))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("COSIGN_PASSWORD", "pw")
+	priv, pub := testKey(t)
 	_ = os.WriteFile(filepath.Join(dir, "cosign.key"), priv, 0o600)
 	_ = os.WriteFile(filepath.Join(dir, "cosign.pub"), pub, 0o600)
 	k, _ := cryptoutils.UnmarshalPEMToPublicKey(pub)
 	return k
 }
 
+var testKeys struct {
+	sync.Mutex
+	pems [][2][]byte
+	uses map[*testing.T]int
+}
+
+// testKey is the next pool key for t, made on first use.
+func testKey(t *testing.T) (priv, pub []byte) {
+	testKeys.Lock()
+	defer testKeys.Unlock()
+	if testKeys.uses == nil {
+		testKeys.uses = map[*testing.T]int{}
+	}
+	n := testKeys.uses[t]
+	if n == 0 {
+		t.Cleanup(func() { testKeys.Lock(); delete(testKeys.uses, t); testKeys.Unlock() })
+	}
+	testKeys.uses[t] = n + 1
+	for len(testKeys.pems) <= n {
+		k, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+		if err != nil {
+			t.Fatal(err)
+		}
+		der, _ := cryptoutils.MarshalPrivateKeyToDER(k)
+		enc, err := encrypted.EncryptWithCustomKDFParameters(der, []byte(testKeyPassword), encrypted.Legacy)
+		if err != nil {
+			t.Fatal(err)
+		}
+		pubPEM, _ := cryptoutils.MarshalPublicKeyToPEM(k.Public())
+		testKeys.pems = append(testKeys.pems, [2][]byte{cryptoutils.PEMEncode(cryptoutils.EncryptedSigstorePrivateKeyPEMType, enc), pubPEM})
+	}
+	return testKeys.pems[n][0], testKeys.pems[n][1]
+}
+
+// testKeyPassword encrypts every test key.
+const testKeyPassword = "pw"
+
+// TestMain fixes the environment every test reads, once, so the tests that
+// only need it as it is set here call no t.Setenv and may run in parallel: the
+// test keys' password, and no ambient OIDC token or delivery trust file (a CI
+// runner or a workstation may have either). A test that sets one of them with
+// t.Setenv runs serially, and its cleanup restores the value set here.
+func TestMain(m *testing.M) {
+	_ = os.Setenv("COSIGN_PASSWORD", testKeyPassword)
+	for _, env := range []string{"SIGSTORE_ID_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", TrustEnv} {
+		_ = os.Unsetenv(env)
+	}
+	os.Exit(m.Run())
+}
+
 // TestPublishRunsTheTools: publish builds with docker buildx and the declared
 // command, attaches the build's SBOM and signs every digest with sigstore-go,
 // so each verifies under the public key, then a second run signs nothing.
 func TestPublishRunsTheTools(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	f := &fakeRun{}
 	svc := publishService(f, reg)
@@ -386,6 +441,7 @@ func keyPolicy(pub crypto.PublicKey) publish.BundleVerifier {
 // the signed statement, so an attestation by the right key over the right
 // digest is told apart from a signature whatever its referrer says.
 func TestBundleVerifierReturnsTheSignedPredicate(t *testing.T) {
+	t.Parallel()
 	_, key, _ := ed25519.GenerateKey(rand.Reader)
 	kp, _ := signing.FromPrivateKey(key)
 	d := sha256.Sum256([]byte("artifact"))
@@ -421,6 +477,7 @@ func independentlyVerified(t *testing.T, dir, ref string) {
 }
 
 func TestPublishRefusals(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	ctx := context.Background()
 	f := &fakeRun{}
@@ -457,6 +514,7 @@ func TestPublishRefusals(t *testing.T) {
 // TestPublishUnresolvablePath: when the absPath seam fails, a plan has no
 // revision and a --sign-key cannot be resolved.
 func TestPublishUnresolvablePath(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	ctx := context.Background()
 	noAbs := publishService(&fakeRun{}, reg)
@@ -485,6 +543,7 @@ func pushImage(t *testing.T, reg publish.Registry, repo string) string {
 // TestExecToolsSignKeyed: a key file and a KMS key sign once, keep a valid
 // signature, and a failing key or log surfaces.
 func TestExecToolsSignKeyed(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	host, reg := publishRegistry(t)
 	dir := t.TempDir()
@@ -519,6 +578,7 @@ func TestExecToolsSignKeyed(t *testing.T) {
 }
 
 func TestExecToolsSignKMS(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	host, reg := publishRegistry(t)
 	tools := newExecTools(t.TempDir(), nil, reg)
@@ -571,8 +631,7 @@ func TestExecToolsSignFailures(t *testing.T) {
 		}
 	}
 	// The transparency log is on by default; a log that fails stops signing.
-	freshProbes(t)
-	down := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadRequest) }))
+	down := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusBadRequest) }))
 	defer down.Close()
 	old := rekorURL
 	rekorURL = down.URL
@@ -648,6 +707,7 @@ func TestExecToolsSignKeyless(t *testing.T) {
 // TestExecToolsSBOM: an SBOM is read only when this publish built its image
 // and the build wrote the file; a file left from an earlier build is refused.
 func TestExecToolsSBOM(t *testing.T) {
+	t.Parallel()
 	ctx := t.Context()
 	dir := t.TempDir()
 	tools := newExecTools(dir, (&fakeRun{}).run, nil)
@@ -684,6 +744,7 @@ func TestExecToolsSBOM(t *testing.T) {
 // TestSBOMsIgnored: an SBOM written inside the contract directory must be
 // left out by .pactoignore, itself or by its folder.
 func TestSBOMsIgnored(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("x"), 0o644)
 	c := &contract.Publish{Artifacts: []contract.PublishArtifact{
@@ -712,6 +773,7 @@ func TestSBOMsIgnored(t *testing.T) {
 }
 
 func TestExecRun(t *testing.T) {
+	t.Parallel()
 	out, err := execRun(context.Background(), t.TempDir(), []string{"X=1"}, "sh", "-c", "echo $X")
 	if err != nil || strings.TrimSpace(string(out)) != "1" {
 		t.Fatalf("%q %v", out, err)
@@ -731,6 +793,7 @@ func TestExecRun(t *testing.T) {
 // TestPublishRefusesAnEnvironmentFailure: publish, and publish --plan, report
 // a version whose values break an environment as invalid.
 func TestPublishRefusesAnEnvironmentFailure(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := writeEnvironmentBundle(t, "publish:\n  bundle: oci://"+host+"/pacto/svc\n")
 	for _, plan := range []bool{true, false} {
@@ -746,6 +809,7 @@ func TestPublishRefusesAnEnvironmentFailure(t *testing.T) {
 // check, so publish refuses; an optional one and an unreachable provider are
 // warnings the passed check names.
 func TestPublishChecksGuarantees(t *testing.T) {
+	t.Parallel()
 	provider, err := contract.Parse(strings.NewReader(guaranteeProvider))
 	if err != nil {
 		t.Fatal(err)
@@ -810,6 +874,7 @@ func TestPublishChecksGuarantees(t *testing.T) {
 func envOf(m map[string]string) func(string) string { return func(k string) string { return m[k] } }
 
 func TestCISourceGitHub(t *testing.T) {
+	t.Parallel()
 	got := ciSource(envOf(map[string]string{"GITHUB_SERVER_URL": "https://github.com", "GITHUB_REPOSITORY": "acme/payments", "CI_PROJECT_URL": "https://gitlab.com/acme/payments"}))
 	if got != "https://github.com/acme/payments" {
 		t.Fatalf("got %q", got)
@@ -817,6 +882,7 @@ func TestCISourceGitHub(t *testing.T) {
 }
 
 func TestCISourceGitLab(t *testing.T) {
+	t.Parallel()
 	got := ciSource(envOf(map[string]string{"GITHUB_REPOSITORY": "acme/payments", "CI_PROJECT_URL": "https://gitlab.com/acme/payments"}))
 	if got != "https://gitlab.com/acme/payments" {
 		t.Fatalf("got %q", got)
@@ -824,6 +890,7 @@ func TestCISourceGitLab(t *testing.T) {
 }
 
 func TestCISourceNone(t *testing.T) {
+	t.Parallel()
 	if got := ciSource(envOf(nil)); got != "" {
 		t.Fatalf("got %q", got)
 	}

@@ -51,6 +51,7 @@ func detectionState(t *testing.T, snap *fleet.FleetSnapshot) (fleet.SourceState,
 }
 
 func TestFleetOptionsDetectedFile(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "detected.json")
 	if err := os.WriteFile(path, detectedJSON(t), 0o600); err != nil {
 		t.Fatal(err)
@@ -66,6 +67,7 @@ func TestFleetOptionsDetectedFile(t *testing.T) {
 }
 
 func TestFleetOptionsDetectedK8s(t *testing.T) {
+	t.Parallel()
 	cm := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "v1", "kind": "ConfigMap",
 		"metadata": map[string]any{"name": "pacto-operator-detected", "namespace": "pacto-system", "labels": map[string]any{detect.ManagedByLabel: detect.ManagedBy}},
 		"data":     map[string]any{detect.ConfigMapKey: string(detectedJSON(t))}}}
@@ -84,6 +86,7 @@ func TestFleetOptionsDetectedK8s(t *testing.T) {
 }
 
 func TestFleetOptionsDetectedK8sClientError(t *testing.T) {
+	t.Parallel()
 	svc := detectedService(t)
 	svc.sys.newDynamic = func() (dynamic.Interface, error) { return nil, errors.New("loading kubeconfig: none") }
 	snap, err := svc.Fleet(context.Background(), FleetOptions{Detected: "k8s:pacto-system/pacto-operator-detected"})
@@ -101,6 +104,7 @@ func TestFleetOptionsDetectedK8sClientError(t *testing.T) {
 // TestCheckDetectedRef: a k8s: ref that names no single ConfigMap is a usage
 // error, never an unavailable source; a file path passes.
 func TestCheckDetectedRef(t *testing.T) {
+	t.Parallel()
 	for _, ref := range []string{"k8s:pacto-system", "k8s:/name", "k8s:ns/", "k8s:ns/a/b"} {
 		if err := CheckDetectedRef(ref); err == nil || !strings.Contains(err.Error(), "k8s:<namespace>/<name>") {
 			t.Errorf("%s: err = %v", ref, err)
@@ -117,6 +121,7 @@ func TestCheckDetectedRef(t *testing.T) {
 }
 
 func TestFleetOptionsNoDetectedNoSource(t *testing.T) {
+	t.Parallel()
 	svc := detectedService(t)
 	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
 	svc.sys.kubeContext = func() string { return "" }

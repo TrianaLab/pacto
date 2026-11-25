@@ -53,6 +53,7 @@ func TestAcceptAsAgentWritesUnsignedDraft(t *testing.T) {
 }
 
 func TestAcceptDraftSignsAsPerson(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, true)
 	opts := e.proposedOpts()
 	opts.Fields = []string{"dependencies[ledger].compatibility=^2.4.0"}
@@ -70,6 +71,7 @@ func TestAcceptDraftSignsAsPerson(t *testing.T) {
 }
 
 func TestAcceptDraftOfBreak(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opts := e.trust()
 	opts.Signing = e.signing()
@@ -83,6 +85,7 @@ func TestAcceptDraftOfBreak(t *testing.T) {
 }
 
 func TestAcceptDraftStale(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	draft := e.agentDraft(t, e.proposedOpts())
 	e.publishBundle(t, e.repo, "1.7.0", e.reportsFiles("1.7.0", true), nil)
@@ -153,6 +156,7 @@ func TestAcceptDraftSignatureChecked(t *testing.T) {
 }
 
 func TestAcceptDraftNotFound(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	draft := e.agentDraft(t, e.proposedOpts())
 	// A draft in another repository, an unknown tag, a draft for another

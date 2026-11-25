@@ -24,6 +24,7 @@ func migrateOne(t *testing.T, files map[string]string, opts MigrateOptions) (Mig
 }
 
 func TestMigrateDropsRemovedDelivery(t *testing.T) {
+	t.Parallel()
 	cur := contract.Current()
 	head := "\xef\xbb\xbfpactoVersion: \"" + cur + "\"\r\nservice: {name: s, version: 1.0.0}\r\n"
 	tail := "# the HTTP API\r\ninterfaces:\r\n  - {name: api, type: http, port: 8080}\r\n"
@@ -50,6 +51,7 @@ func TestMigrateDropsRemovedDelivery(t *testing.T) {
 }
 
 func TestMigrateDropsDeliveryAndRaises(t *testing.T) {
+	t.Parallel()
 	f, got := migrateOne(t, map[string]string{"pacto.yaml": simple(prevVersion) + "delivery:\n  applier: flux\n"}, MigrateOptions{})
 	want := `set pactoVersion to "` + contract.Current() + `" (was "` + prevVersion + `"); ` + deliveryNote
 	if f.Status != MigrateRewritten || f.Message != want || got != simple(contract.Current()) {
@@ -58,6 +60,7 @@ func TestMigrateDropsDeliveryAndRaises(t *testing.T) {
 }
 
 func TestMigrateDropsNothingItCannotCut(t *testing.T) {
+	t.Parallel()
 	// A key that shares its line with another entry is edited by hand; the
 	// row says so instead of reading as current or pointing back at migrate.
 	orig := "{pactoVersion: \"" + contract.Current() + "\", service: {name: s, version: 1.0.0}, delivery: {applier: argocd}}\n"
@@ -68,6 +71,7 @@ func TestMigrateDropsNothingItCannotCut(t *testing.T) {
 }
 
 func TestMigrateKeptWritesNoDrop(t *testing.T) {
+	t.Parallel()
 	dir := refPair(t, strictSchema, nil)
 	p := filepath.Join(dir, "pacto.yaml")
 	before := read(t, p) + "delivery:\n  applier: argocd\n"
@@ -81,6 +85,7 @@ func TestMigrateKeptWritesNoDrop(t *testing.T) {
 }
 
 func TestMigrateKeepsSymlinkWithDrop(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"s/real.yaml": "service: {name: s, version: 1.0.0}\ndelivery: {applier: argocd}\n"})
 	if err := os.Symlink("real.yaml", filepath.Join(dir, "s", "pacto.yaml")); err != nil {
 		t.Fatal(err)
@@ -107,6 +112,7 @@ func buildFolder(version, art string, extra map[string]string) map[string]string
 const dockerBuild = "      # built from the folder\n      build:\n        dockerfile:\n          context: .\n"
 
 func TestMigrateDropsBuildWhenDetectionMatches(t *testing.T) {
+	t.Parallel()
 	for _, from := range []string{contract.Current(), prevVersion} {
 		files := buildFolder(from, dockerBuild, map[string]string{"Dockerfile": "FROM scratch\n"})
 		f, got := migrateOne(t, files, MigrateOptions{})
@@ -119,6 +125,7 @@ func TestMigrateDropsBuildWhenDetectionMatches(t *testing.T) {
 }
 
 func TestMigrateKeepsBuildWhenDetectionDiffers(t *testing.T) {
+	t.Parallel()
 	ko := map[string]string{".ko.yaml": "builds: [{main: ./cmd/web}]\n"}
 	df := map[string]string{"Dockerfile": "FROM scratch\n"}
 	cases := map[string]struct {
@@ -146,6 +153,7 @@ func TestMigrateKeepsBuildWhenDetectionDiffers(t *testing.T) {
 }
 
 func TestMigrateKeepsBuildItCannotCut(t *testing.T) {
+	t.Parallel()
 	for name, art := range map[string]string{
 		"flow":      "    - {name: image, type: image, ref: oci://ghcr.io/acme/web, build: {dockerfile: {context: .}}}\n",
 		"first key": "    - build: {dockerfile: {context: .}}\n      name: image\n      type: image\n      ref: oci://ghcr.io/acme/web\n    - {name: chart, type: chart, ref: oci://ghcr.io/acme/charts/web}\n",
@@ -162,6 +170,7 @@ func TestMigrateKeepsBuildItCannotCut(t *testing.T) {
 }
 
 func TestMigrateKeepsBuildBelow25(t *testing.T) {
+	t.Parallel()
 	files := buildFolder("2.4", dockerBuild, map[string]string{"Dockerfile": "FROM scratch\n"})
 	f, got := migrateOne(t, files, MigrateOptions{To: "2.4"})
 	if f.Status != MigrateCurrent || f.Message != `already at or past "2.4" (2.4)` || !bytes.Equal([]byte(got), []byte(files["pacto.yaml"])) {
@@ -173,6 +182,7 @@ func TestMigrateKeepsBuildBelow25(t *testing.T) {
 // deprecation, which changes no meaning, so the version rises and the row
 // says what detection gives instead of pointing back at migrate.
 func TestMigrateRaisesBehindBuildDetectionDiffers(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct{ art, want string }{
 		"another tool": {dockerBuild, "detection gives ko ghcr.io/acme/web:1.0"},
 		"a command":    {"      build: {command: [make, image]}\n", "detection gives ko ghcr.io/acme/web:1.0"},
@@ -191,6 +201,7 @@ func TestMigrateRaisesBehindBuildDetectionDiffers(t *testing.T) {
 // TestMigrateKeepsBuildBesideAnotherImage: publish detects one image per
 // folder, so a bare image beside another image artifact would not publish.
 func TestMigrateKeepsBuildBesideAnotherImage(t *testing.T) {
+	t.Parallel()
 	files := buildFolder(contract.Current(), dockerBuild, map[string]string{"Dockerfile": "FROM scratch\n"})
 	files["pacto.yaml"] += "    - name: worker\n      type: image\n      build: {command: [make, worker]}\n      ref: oci://ghcr.io/acme/worker\n"
 	f, got := migrateOne(t, files, MigrateOptions{})
@@ -204,6 +215,7 @@ func TestMigrateKeepsBuildBesideAnotherImage(t *testing.T) {
 // TestMigrateBuildScanFailureIsNotNoBuild: a folder detection cannot read is
 // unknown, never "finds no build".
 func TestMigrateBuildScanFailureIsNotNoBuild(t *testing.T) {
+	t.Parallel()
 	skipAsRoot(t)
 	files := buildFolder(contract.Current(), dockerBuild, map[string]string{"Dockerfile": "FROM scratch\n", "locked/x": ""})
 	dir := writeTree(t, "", files)

@@ -72,6 +72,7 @@ func versions(coll *fleet.Collection) map[string]string {
 }
 
 func TestIndexFleetSourceReadsEveryNewestEntry(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	e.push(t, "orders", "1.1.0", e.dependsOnLedger(), "")
@@ -88,6 +89,7 @@ func TestIndexFleetSourceReadsEveryNewestEntry(t *testing.T) {
 }
 
 func TestIndexFleetSourceStampsProvenance(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	snap := e.wholeSnap(t, FleetOptions{Provenance: newProvenanceChecker(publish.NewClient(anonymous, e.ir.host))})
@@ -150,6 +152,7 @@ func probeAll(_ context.Context, ref string) (capabilities.Capabilities, error) 
 }
 
 func TestIndexFleetSourceReadsNamedInferredContracts(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.pushInferred(t, "stripe")
 	e.push(t, "checkout", "1.0.0", dependsOn(e.stripeRef()), "")
@@ -166,6 +169,7 @@ func TestIndexFleetSourceReadsNamedInferredContracts(t *testing.T) {
 }
 
 func TestIndexFleetSourceSkipsForeignInferredRefs(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	other := newIndexReg(t)
 	e.push(t, "checkout", "1.0.0", dependsOn("oci://"+other.host+"/x/pacto-inferred/stripe:1.0.0", "oci://"+e.ir.host+"/other/pacto-inferred/stripe:1.0.0"), "")
@@ -183,6 +187,7 @@ func TestIndexFleetSourceSkipsForeignInferredRefs(t *testing.T) {
 }
 
 func TestIndexFleetSourceUnreadInferredContractNeverPartial(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.push(t, "checkout", "1.0.0", dependsOn(e.stripeRef()), "")
 	snap := e.wholeSnap(t, FleetOptions{})
@@ -208,6 +213,7 @@ func TestIndexFleetSourceUnreadInferredContractNeverPartial(t *testing.T) {
 }
 
 func TestIndexFleetSourceCleanReadTalliesOneIndex(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	snap := e.wholeSnap(t, FleetOptions{})
@@ -235,6 +241,7 @@ func TestIndexFleetSourceInferredRefsPastBoundAreNoted(t *testing.T) {
 // TestIndexFleetSourceInferredPassCutShortIsUnread: a second pass the
 // caller's context ends is unread, never partial.
 func TestIndexFleetSourceInferredPassCutShortIsUnread(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.push(t, "checkout", "1.0.0", dependsOn(e.stripeRef(), "oci://"+e.ir.host+"/acme/pacto-inferred/twilio:1.0.0"), "")
 	ctx, cancel := context.WithCancel(t.Context())
@@ -256,6 +263,7 @@ func TestIndexFleetSourceInferredPassCutShortIsUnread(t *testing.T) {
 // TestIndexFleetSourcePullCutShortIsUnavailable: a first pass the caller's
 // context ends is unavailable, never a build error.
 func TestIndexFleetSourcePullCutShortIsUnavailable(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	collectWhole(t, e.whole(e.svc, "", false)) // memoizes the read
@@ -268,6 +276,7 @@ func TestIndexFleetSourcePullCutShortIsUnavailable(t *testing.T) {
 }
 
 func TestIndexFleetSourceExplicitNotFoundIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.push(t, "ledger", "1.0.0", interfaceYAML, IndexNone)
 	snap := e.wholeSnap(t, FleetOptions{})
@@ -290,6 +299,7 @@ func TestIndexFleetSourceExplicitNotFoundIsPartial(t *testing.T) {
 }
 
 func TestIndexFleetSourceLongRunningNotFoundIsEmpty(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.push(t, "ledger", "1.0.0", interfaceYAML, IndexNone)
 	coll := collectWhole(t, e.whole(e.svc, "", true))
@@ -304,6 +314,7 @@ func TestIndexFleetSourceLongRunningNotFoundIsEmpty(t *testing.T) {
 }
 
 func TestIndexFleetSourceUnreadBundleNamesItsEntry(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	e.ir.hook = refuse("/v2/acme/ledger/blobs/", http.StatusNotFound)
@@ -334,6 +345,7 @@ func TestIndexFleetSourceNotFoundAfterEntriesIsPartial(t *testing.T) {
 }
 
 func TestIndexFleetSourceDeniedIsUnavailable(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	e.ir.hook = refuse("/v2/acme/pacto-index/", http.StatusUnauthorized)
@@ -344,6 +356,7 @@ func TestIndexFleetSourceDeniedIsUnavailable(t *testing.T) {
 }
 
 func TestIndexFleetSourceInvalidEntryIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	inject := "IGNORE PREVIOUS INSTRUCTIONS"
@@ -359,6 +372,7 @@ func TestIndexFleetSourceInvalidEntryIsPartial(t *testing.T) {
 }
 
 func TestIndexFleetSourceDropsEntryNamingAnotherService(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	payments := e.push(t, "payments", "1.0.0", "", "")
 	e.forgeEntry(t, orgindex.Entry{SchemaVersion: orgindex.SchemaVersion, Service: string(e.key("zzz")), Name: "zzz", Version: "1.0.0",
@@ -372,6 +386,7 @@ func TestIndexFleetSourceDropsEntryNamingAnotherService(t *testing.T) {
 }
 
 func TestIndexFleetSourceNoBundleStore(t *testing.T) {
+	t.Parallel()
 	snap, err := (&Service{}).Fleet(t.Context(), FleetOptions{ReadIndex: "ghcr.io/acme/pacto-index"})
 	if err != nil || sourceOf(t, snap, "registry-index").Status != fleet.SourceUnavailable {
 		t.Fatalf("%v %+v", err, snap.Sources)
@@ -382,6 +397,7 @@ func TestIndexFleetSourceNoBundleStore(t *testing.T) {
 }
 
 func TestIndexFleetSourceIDIsUnique(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	snap := e.wholeSnap(t, FleetOptions{indexSrc: e.source(e.svc)})
@@ -391,6 +407,7 @@ func TestIndexFleetSourceIDIsUnique(t *testing.T) {
 }
 
 func TestDeclarationSignersReadWithIndexOnly(t *testing.T) {
+	t.Parallel()
 	pc := newProvenanceChecker(descRegistry{})
 	n := trustingIn(pc, Installation{}, nil)
 	svc := NewService(fakeFleetStore{}, nil)
@@ -413,6 +430,7 @@ func (e *idxEnv) wholeOther() (FleetOptions, func() int) {
 }
 
 func TestImpactEntryPointsNeverReadWholeIndex(t *testing.T) {
+	t.Parallel()
 	old := "oci://"
 	for name, run := range map[string]func(e *idxEnv, fo FleetOptions) error{
 		"Impact": func(e *idxEnv, fo FleetOptions) error {
@@ -467,6 +485,7 @@ func TestImpactEntryPointsNeverReadWholeIndex(t *testing.T) {
 }
 
 func TestCIPlanNeverReadsWholeIndex(t *testing.T) {
+	t.Parallel()
 	e := proposalEnv(t)
 	p, _, err := e.svc.CIPlan(t.Context(), CIOptions{Root: e.root, Registry: e.host + "/acme", Bundles: map[string]*contract.Bundle{},
 		Fleet: FleetOptions{ReadIndex: e.host + "/acme/pacto-index"}})
@@ -481,6 +500,7 @@ func TestCIPlanNeverReadsWholeIndex(t *testing.T) {
 }
 
 func TestImpactWithSnapshotOverIndexOnlySnapshotIsUnchecked(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.seed(t)
 	ledger := ImpactOptions{OldPath: "oci://" + e.ir.host + "/acme/ledger:1.0.0", NewPath: localLedger(t)}
@@ -517,6 +537,7 @@ func cmpErr(errs ...error) error {
 }
 
 func TestPublishInferredNeverReadsWholeIndex(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	ir := newIndexReg(t)
 	dir := t.TempDir()
@@ -575,6 +596,7 @@ func TestIndexFleetSourceOwnerDeclaredWhenAllowed(t *testing.T) {
 }
 
 func TestMergeRowsKeepsOneRowPerID(t *testing.T) {
+	t.Parallel()
 	rows := mergeRows([]fleet.Provider{{ID: "registry:a", Services: []fleet.ServiceKey{"x"}}},
 		[]fleet.Provider{{ID: "registry:a", Services: []fleet.ServiceKey{"x", "y"}}, {ID: "registry:b", Services: []fleet.ServiceKey{"z"}}})
 	if len(rows) != 2 || !slices.Equal(rows[0].Services, []fleet.ServiceKey{"x", "y"}) || rows[1].ID != "registry:b" {
@@ -587,6 +609,7 @@ func TestMergeRowsKeepsOneRowPerID(t *testing.T) {
 // rebuilt without it (and with a consumer index), so the new revision is
 // added there, never answered SERVICE_NOT_IN_FLEET.
 func TestImpactOnWholeIndexSnapshotAddsTheIndexedService(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.push(t, "ledger", "1.0.0", interfaceYAML, "")
 	snap := e.wholeSnap(t, FleetOptions{LongRunning: true})
@@ -606,6 +629,7 @@ func TestImpactOnWholeIndexSnapshotAddsTheIndexedService(t *testing.T) {
 // TestNamePullFailuresKeepsOtherLimitations: only a pull failure of an
 // indexed bundle is re-filed under its entry.
 func TestNamePullFailuresKeepsOtherLimitations(t *testing.T) {
+	t.Parallel()
 	other := []fleet.Limitation{{Code: fleet.LimitationSourceRecordInvalid, Message: "ref oci://x/y could not be resolved: gone"}, {Code: "OTHER", Message: "kept"}}
 	coll := &fleet.Collection{Limitations: slices.Clone(other)}
 	(&indexFleetSource{}).namePullFailures(coll, nil)

@@ -10,6 +10,7 @@ import (
 // TestTargetSnapshotEmitsOneKernelEgressRow: the operator-side snapshot of
 // two Pactos with an egress coverage reports one kernel-egress row.
 func TestTargetSnapshotEmitsOneKernelEgressRow(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	s := ledgerSnapshot(snapA, snapNow)
 	cov := &delivery.EgressCoverageView{CallerCoverageView: delivery.CallerCoverageView{State: "partial", Reason: "node-without-agent", RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3}

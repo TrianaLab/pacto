@@ -15,6 +15,7 @@ import (
 // TestLifecycleByVersion: a version is resolved over the artifacts the
 // service's Stages know, and each Stage says what happened to it there.
 func TestLifecycleByVersion(t *testing.T) {
+	t.Parallel()
 	d, _ := statusFixture(t, opFixture("ship", map[string]any{"type": delivery.TypePromote, "stage": "payments-prod",
 		"params": map[string]any{"from": dlC, "to": dlA}, "actor": map[string]any{"user": "bot"}},
 		map[string]any{"phase": "Concluded", "outcome": "Succeeded", "verification": "Verified", "seq": int64(1),
@@ -40,6 +41,7 @@ func TestLifecycleByVersion(t *testing.T) {
 
 // TestLifecycleRefusals: what the query does not name is an error.
 func TestLifecycleRefusals(t *testing.T) {
+	t.Parallel()
 	d, _ := statusFixture(t)
 	ctx := context.Background()
 	if _, err := d.Lifecycle(ctx, delivery.LifecycleQuery{Service: "payments", Version: "9.9.9"}); err == nil ||
@@ -57,6 +59,7 @@ func TestLifecycleRefusals(t *testing.T) {
 // TestLifecycleForbiddenNamespace: a namespace the caller cannot list makes
 // the answer partial and is named; a named one is not walked around.
 func TestLifecycleForbiddenNamespace(t *testing.T) {
+	t.Parallel()
 	d, c := statusFixture(t, obj("v1", "Namespace", "", "prod", nil), obj("v1", "Namespace", "", "test", nil))
 	c.PrependReactor("list", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		if ns := a.GetNamespace(); ns == "" || ns == "test" {

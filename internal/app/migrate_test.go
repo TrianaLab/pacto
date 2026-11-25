@@ -60,6 +60,7 @@ func skipAsRoot(t *testing.T) {
 }
 
 func TestMigrateRaisesBehind(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": simple(prevVersion)})
 	f := oneRow(t, migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir}}))
 	want := `set pactoVersion to "` + contract.Current() + `" (was "` + prevVersion + `")`
@@ -72,6 +73,7 @@ func TestMigrateRaisesBehind(t *testing.T) {
 }
 
 func TestMigrateRewritesOnlyVersionToken(t *testing.T) {
+	t.Parallel()
 	orig := "\xef\xbb\xbf# the payments service\r\npactoVersion: '2.3' # raised by pacto migrate\r\nservice: {name: s, version: 1.0.0}\r\n"
 	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": orig})
 	if f := oneRow(t, migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir}})); f.Status != MigrateRewritten {
@@ -84,6 +86,7 @@ func TestMigrateRewritesOnlyVersionToken(t *testing.T) {
 }
 
 func TestMigrateKeepsWhenRaiseAddsFinding(t *testing.T) {
+	t.Parallel()
 	dir := refPair(t, strictSchema, nil)
 	before := read(t, filepath.Join(dir, "pacto.yaml"))
 	f := oneRow(t, migrate(t, NewService(&mockBundleStore{}, nil), MigrateOptions{Roots: []string{dir}}))
@@ -96,6 +99,7 @@ func TestMigrateKeepsWhenRaiseAddsFinding(t *testing.T) {
 }
 
 func TestMigrateKeepsWhenCheckCannotTell(t *testing.T) {
+	t.Parallel()
 	failing := &mockBundleStore{PullFn: func(context.Context, string) (*contract.Bundle, error) { return nil, errors.New("registry down") }}
 	cases := map[string]struct {
 		svc  *Service
@@ -131,6 +135,7 @@ func TestMigrateKeepsWhenCheckCannotTell(t *testing.T) {
 }
 
 func TestMigrateKeepsUnknownVersion(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": simple("3.0")})
 	f := oneRow(t, migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir}}))
 	if f.Status != MigrateKept || !strings.HasPrefix(f.Message, "kept at 3.0: ") || read(t, filepath.Join(dir, "s", "pacto.yaml")) != simple("3.0") {
@@ -139,6 +144,7 @@ func TestMigrateKeepsUnknownVersion(t *testing.T) {
 }
 
 func TestMigrateManualFor1x(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": simple("1.0")})
 	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir}})
 	f := oneRow(t, r)
@@ -149,6 +155,7 @@ func TestMigrateManualFor1x(t *testing.T) {
 }
 
 func TestMigrateAlreadyCurrent(t *testing.T) {
+	t.Parallel()
 	cases := map[string]string{
 		simple(contract.Current()):             "already current (" + contract.Current() + ")",
 		"service: {name: s, version: 1.0.0}\n": "already current (no pactoVersion; read as " + contract.Current() + ")",
@@ -163,6 +170,7 @@ func TestMigrateAlreadyCurrent(t *testing.T) {
 }
 
 func TestMigrateToOlderTarget(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"old/pacto.yaml": simple("2.0"), "cur/pacto.yaml": simple(contract.Current())})
 	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir}, To: prevVersion})
 	if r.To != prevVersion || len(r.Files) != 2 {
@@ -178,6 +186,7 @@ func TestMigrateToOlderTarget(t *testing.T) {
 }
 
 func TestMigrateRejectsUnknownTarget(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": simple(prevVersion)})
 	for _, to := range []string{"9.9", "1.0"} {
 		r, err := NewService(nil, nil).Migrate(context.Background(), MigrateOptions{Roots: []string{dir}, To: to})
@@ -188,6 +197,7 @@ func TestMigrateRejectsUnknownTarget(t *testing.T) {
 }
 
 func TestMigrateDryRunWritesNothing(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"a/pacto.yaml": simple(prevVersion), "b/pacto.yaml": simple("1.0")})
 	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir}, DryRun: true})
 	if !r.DryRun || r.Rewritten != 1 || r.Manual != 1 || read(t, filepath.Join(dir, "a", "pacto.yaml")) != simple(prevVersion) {
@@ -196,6 +206,7 @@ func TestMigrateDryRunWritesNothing(t *testing.T) {
 }
 
 func TestMigrateKeepsSymlink(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"s/real.yaml": simple(prevVersion)})
 	link := filepath.Join(dir, "s", "pacto.yaml")
 	if err := os.Symlink("real.yaml", link); err != nil {
@@ -211,6 +222,7 @@ func TestMigrateKeepsSymlink(t *testing.T) {
 }
 
 func TestMigrateKeepsFileMode(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": simple(prevVersion)})
 	p := filepath.Join(dir, "s", "pacto.yaml")
 	if err := os.Chmod(p, 0o640); err != nil {
@@ -225,6 +237,7 @@ func TestMigrateKeepsFileMode(t *testing.T) {
 }
 
 func TestMigrateRefusesReadOnlyFile(t *testing.T) {
+	t.Parallel()
 	skipAsRoot(t)
 	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": simple(prevVersion)})
 	p := filepath.Join(dir, "s", "pacto.yaml")
@@ -244,6 +257,7 @@ func TestMigrateRefusesReadOnlyFile(t *testing.T) {
 }
 
 func TestMigrateWriteFailures(t *testing.T) {
+	t.Parallel()
 	boom := errors.New("boom")
 	cases := map[string]struct {
 		set  func(t *testing.T, svc *Service, dir string)
@@ -285,6 +299,7 @@ func TestMigrateWriteFailures(t *testing.T) {
 }
 
 func TestMigrateUnreadable(t *testing.T) {
+	t.Parallel()
 	skipAsRoot(t)
 	dir := writeTree(t, "", map[string]string{
 		"a/pacto.yaml":        simple(prevVersion),
@@ -316,6 +331,7 @@ func TestMigrateUnreadable(t *testing.T) {
 }
 
 func TestMigrateMissingRoot(t *testing.T) {
+	t.Parallel()
 	root := filepath.Join(t.TempDir(), "nope")
 	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{root}})
 	if f := oneRow(t, r); f.Path != root || f.Status != MigrateFailed || f.Message != "cannot read: no such file or directory" || r.NotFound != nil {
@@ -324,6 +340,7 @@ func TestMigrateMissingRoot(t *testing.T) {
 }
 
 func TestMigrateWalkErrors(t *testing.T) {
+	t.Parallel()
 	// A root .pactoignore that cannot be read fails the whole walk of that root.
 	dir := writeTree(t, "", map[string]string{".pactoignore/x": "", "s/pacto.yaml": simple(prevVersion)})
 	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir}})
@@ -355,6 +372,7 @@ func TestMigrateNoContractsFound(t *testing.T) {
 }
 
 func TestMigrateReportsSkipped(t *testing.T) {
+	t.Parallel()
 	deep := "d/1/2/3/4/5/6/7/8/pacto.yaml"
 	dir := writeTree(t, "", map[string]string{".pactoignore": "archive/\n", "archive/old/pacto.yaml": simple(prevVersion), deep: simple(prevVersion)})
 	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir}})
@@ -370,6 +388,7 @@ func TestMigrateReportsSkipped(t *testing.T) {
 }
 
 func TestMigrateDeduplicatesOverlappingRoots(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"payments/pacto.yaml": simple(prevVersion)})
 	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{dir, filepath.Join(dir, "payments")}, DryRun: true})
 	if f := oneRow(t, r); f.Path != filepath.Join(dir, "payments", "pacto.yaml") || r.NotFound != nil {
@@ -378,6 +397,7 @@ func TestMigrateDeduplicatesOverlappingRoots(t *testing.T) {
 }
 
 func TestMigrateDeterministic(t *testing.T) {
+	t.Parallel()
 	files := map[string]string{"a/pacto.yaml": simple(prevVersion), "b/pacto.yaml": simple("1.0"), "c/pacto.yaml": simple(contract.Current()), "d/pacto.yaml": simple("3.0")}
 	one, two := writeTree(t, "", files), writeTree(t, "", files)
 	migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{one}})
@@ -394,6 +414,7 @@ func TestMigrateDeterministic(t *testing.T) {
 }
 
 func TestMigrateSummary(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		r    MigrateResult
 		want string
@@ -409,6 +430,7 @@ func TestMigrateSummary(t *testing.T) {
 }
 
 func TestMigrateDryRunPredictsReadOnlyRefusal(t *testing.T) {
+	t.Parallel()
 	skipAsRoot(t)
 	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": simple(prevVersion)})
 	if err := os.Chmod(filepath.Join(dir, "s", "pacto.yaml"), 0o444); err != nil {
@@ -421,6 +443,7 @@ func TestMigrateDryRunPredictsReadOnlyRefusal(t *testing.T) {
 }
 
 func TestMigrateRoots(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"s/pacto.yaml": simple(prevVersion), "s/notes.md": "x\n"})
 	cases := map[string]MigratedFile{
 		filepath.Join(dir, "s", "pacto.yaml"): {Path: filepath.Join(dir, "s", "pacto.yaml"), Status: MigrateRewritten},
@@ -438,6 +461,7 @@ func TestMigrateRoots(t *testing.T) {
 // TestMigrateExplicitRootOverridesEarlierCut: a folder an earlier root's
 // .pactoignore cuts and a later root names is migrated, not also skipped.
 func TestMigrateExplicitRootOverridesEarlierCut(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"ign/.pactoignore": "sub/\n", "ign/sub/pacto.yaml": simple(prevVersion)})
 	ign := filepath.Join(dir, "ign")
 	r := migrate(t, NewService(nil, nil), MigrateOptions{Roots: []string{ign, filepath.Join(ign, "sub")}, DryRun: true})

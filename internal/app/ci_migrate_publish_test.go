@@ -59,6 +59,7 @@ func (e *ciPubEnv) ciPublishAt(t *testing.T, revision string, bundles map[string
 // TestPublishUsesGivenBundle: Publish with a Bundle packs that bundle, not
 // the folder on disk, and its checks read the given contract.
 func TestPublishUsesGivenBundle(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "1.0.0", "", "")})
 	dir := filepath.Join(e.root, "payments")
@@ -88,6 +89,7 @@ func TestPublishUsesGivenBundle(t *testing.T) {
 }
 
 func TestCIMigratedLabelMatchesBytes(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", ""))})
 	r := pubRow(t, e.ciPublish(t, nil), "legacy")
@@ -107,6 +109,7 @@ func TestCIMigratedLabelMatchesBytes(t *testing.T) {
 // TestCIKeptLabelMatchesBytes: raising this contract would add a finding,
 // so it publishes as written.
 func TestCIKeptLabelMatchesBytes(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	keptLegacy(t, e)
 	r := pubRow(t, e.ciPublish(t, nil), "legacy")
@@ -149,6 +152,7 @@ func TestCIMigratedTwiceSameDigest(t *testing.T) {
 // migrated bundle's: the next run verifies that signature on that digest
 // and finds the service unchanged.
 func TestCIPublishSignsMigratedDigest(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", ""))})
 	bundles := map[string]*contract.Bundle{}
@@ -167,6 +171,7 @@ func TestCIPublishSignsMigratedDigest(t *testing.T) {
 }
 
 func TestCILockSeesMigratedDigest(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", ""))})
 	r := pubRow(t, e.ciPublishAt(t, "r1", nil), "legacy")
@@ -183,6 +188,7 @@ func TestCILockSeesMigratedDigest(t *testing.T) {
 // TestCIMigrationAloneUnchanged: a baseline an earlier CLI published as
 // written reads unchanged after the CLI starts migrating; nothing is pushed.
 func TestCIMigrationAloneUnchanged(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", ""))})
 	e.publishAs(t, "legacy", "r1")
@@ -196,6 +202,7 @@ func TestCIMigrationAloneUnchanged(t *testing.T) {
 // TestCIMigratedBaselineUnchanged: a baseline this path published, migrated
 // bytes and record, reads unchanged at another commit.
 func TestCIMigratedBaselineUnchanged(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", ""))})
 	if r := pubRow(t, e.ciPublishAt(t, "r1", nil), "legacy"); r.State != ci.StatePublished {
@@ -211,6 +218,7 @@ func TestCIMigratedBaselineUnchanged(t *testing.T) {
 // migrated bytes; the version rule judges the interface the change adds,
 // and the pactoVersion change adds no bump of its own.
 func TestCIChangedServicePublishesMigrated(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", ""))})
 	e.publishAs(t, "legacy", "r1")
@@ -243,6 +251,7 @@ func TestCIPlanModeMigrationNoWrites(t *testing.T) {
 // TestCIMigrationLeavesFolderUntouched: neither a plan nor a publish writes
 // the folder it migrates.
 func TestCIMigrationLeavesFolderUntouched(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", "")), "legacy/k8s/deploy.yaml": deployment("ghcr.io/acme/legacy:1")})
 	old := time.Now().Add(-time.Hour).Truncate(time.Second)
@@ -280,6 +289,7 @@ func TestCIMigrationLeavesFolderUntouched(t *testing.T) {
 // verifies that baseline as the publisher's, so the row fails with the fix
 // (raise pactoVersion, which derives a section) and never reads unchanged.
 func TestCIPublishUnchangedBehindWithoutSectionFails(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	y := "pactoVersion: \"2.4\"\nservice:\n  name: legacy\n  version: 1.0.0\n"
 	e.write(t, map[string]string{"legacy/pacto.yaml": y})

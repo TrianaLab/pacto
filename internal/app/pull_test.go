@@ -11,6 +11,7 @@ import (
 )
 
 func TestPull_Success(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	output := filepath.Join(dir, "pulled")
 	store := &mockBundleStore{}
@@ -66,6 +67,7 @@ func TestPull_DefaultOutput(t *testing.T) {
 }
 
 func TestPull_NilStore(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.Pull(context.Background(), PullOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0"})
 	if err == nil {
@@ -74,6 +76,7 @@ func TestPull_NilStore(t *testing.T) {
 }
 
 func TestPull_StoreError(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			return nil, fmt.Errorf("pull failed")
@@ -87,6 +90,7 @@ func TestPull_StoreError(t *testing.T) {
 }
 
 func TestPull_RejectsLocalRef(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	_, err := svc.Pull(context.Background(), PullOptions{Ref: "../local-path"})
@@ -96,6 +100,7 @@ func TestPull_RejectsLocalRef(t *testing.T) {
 }
 
 func TestPull_NoTag_ResolvesLatest(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	output := filepath.Join(dir, "pulled")
 	store := &mockBundleStore{
@@ -114,6 +119,7 @@ func TestPull_NoTag_ResolvesLatest(t *testing.T) {
 }
 
 func TestPull_NoTag_ListTagsError(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
 			return nil, fmt.Errorf("list failed")
@@ -127,6 +133,7 @@ func TestPull_NoTag_ListTagsError(t *testing.T) {
 }
 
 func TestPull_RejectsUnsafeServiceName(t *testing.T) {
+	t.Parallel()
 	// A remote-controlled service name with a traversal sequence must be refused
 	// before it is used as the default output directory.
 	store := &mockBundleStore{
@@ -144,6 +151,7 @@ func TestPull_RejectsUnsafeServiceName(t *testing.T) {
 }
 
 func TestPull_ExtractError(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			b := testBundle()

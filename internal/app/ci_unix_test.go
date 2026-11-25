@@ -11,6 +11,7 @@ import (
 )
 
 func TestCIPlanNotesUnreadableFolder(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root reads every folder")
 	}
@@ -35,6 +36,7 @@ func TestCIPlanNotesUnreadableFolder(t *testing.T) {
 }
 
 func TestCIIncompleteFolderUnverified(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("root reads every folder")
 	}

@@ -16,6 +16,7 @@ func migrationNotes(r ci.Row) []string {
 }
 
 func TestCIPlanMigratedLine(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", ""))})
 	cur := contract.Current()
@@ -36,6 +37,7 @@ func TestCIPlanMigratedLine(t *testing.T) {
 // it does not resolve today, which fails; it is kept and published as
 // written, with one note naming why.
 func TestCIPlanKeptLine(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	keptLegacy(t, e)
 	r := pubRow(t, e.ciPublish(t, nil), "legacy")
@@ -51,6 +53,7 @@ func TestCIPlanKeptLine(t *testing.T) {
 }
 
 func TestCIPlanUnchangedBehindLine(t *testing.T) {
+	t.Parallel()
 	cur := contract.Current()
 	written := &contract.Bundle{}
 	for _, tc := range []struct {
@@ -84,6 +87,7 @@ func TestCIPlanUnchangedBehindLine(t *testing.T) {
 }
 
 func TestCIPlanCurrentPrintsNoLine(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "1.0.0", "", "")})
 	p, _, err := e.svc.CIPlan(t.Context(), CIOptions{Root: e.root, Registry: e.host + "/acme"})
@@ -101,6 +105,7 @@ func TestCIPlanCurrentPrintsNoLine(t *testing.T) {
 // TestCIMigrationNeverChangesExit: a repository that is clear apart from one
 // migrated and one kept contract exits 0 in plan and publish mode.
 func TestCIMigrationNeverChangesExit(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{
 		"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", "")),
@@ -119,6 +124,7 @@ func TestCIMigrationNeverChangesExit(t *testing.T) {
 // (publish.bundle outside the registry) says what it would publish, not
 // what it publishes.
 func TestCIPlanUnreadBaselineLine(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"legacy/pacto.yaml": asBehind(e.contract("legacy", "1.0.0", "", ""))})
 	p, _, err := e.svc.CIPlan(t.Context(), CIOptions{Root: e.root, Registry: "other.example/acme"})
@@ -135,6 +141,7 @@ func TestCIPlanUnreadBaselineLine(t *testing.T) {
 // 2.5 with no publish section fails with the reason the raise was refused,
 // never advice to make that raise.
 func TestCIPublishKeptWithoutSectionNamesKeptReason(t *testing.T) {
+	t.Parallel()
 	cur := contract.Current()
 	b := &contract.Bundle{Contract: &contract.Contract{PactoVersion: keptFrom}}
 	reason := "ENVIRONMENT_VALUES_MISSING at environments[0] from " + cur

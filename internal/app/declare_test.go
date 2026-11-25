@@ -39,6 +39,7 @@ func rangeOf(t *testing.T, p *DeclarePlan, dep string) DeclaredRange {
 }
 
 func TestPlanFirstDeclaration(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	p, d := e.plan(t, e.req("ledger"))
 	if p.Version != firstDeclaration || p.Deploy != "none" || p.State != contract.DeclarationDeclared || p.Baseline != nil ||
@@ -74,6 +75,7 @@ func refusal(t *testing.T, err error) *DeclareError {
 }
 
 func TestPlanFirstDeclarationWithoutPublishSection(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	p, d := e.plan(t, e.req())
 	if d.bundle.Contract.Publish != nil || !p.Publish.Ready || len(p.Publish.Items) != 1 || p.Publish.Items[0].Name != publish.BundleItem {
@@ -82,6 +84,7 @@ func TestPlanFirstDeclarationWithoutPublishSection(t *testing.T) {
 }
 
 func TestPlanMissingRepositoryIsFirstDeclaration(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.pushImage(t, e.host+"/acme/other", "1.0.0") // the registry holds other repositories only
 	p, _ := e.plan(t, e.req())
@@ -130,6 +133,7 @@ func (e *declareEnv) withBaseline(t *testing.T) (bundle, deploy string) {
 const ledgerDependency = "dependencies:\n  - name: ledger\n    ref: oci://reg.io/acme/contracts/ledger\n    required: true\n    compatibility: unknown\n"
 
 func TestPlanWithBaselineBumps(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	bundle, deploy := e.withBaseline(t)
 	req := e.req()
@@ -146,6 +150,7 @@ func TestPlanWithBaselineBumps(t *testing.T) {
 }
 
 func TestPlanWithBaselineReplacesDeclaredVersion(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	req := e.req()
@@ -159,6 +164,7 @@ func TestPlanWithBaselineReplacesDeclaredVersion(t *testing.T) {
 }
 
 func TestPlanBaselineWrittenIntoWorkloadFolder(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	var scratch string
@@ -181,6 +187,7 @@ func TestPlanBaselineWrittenIntoWorkloadFolder(t *testing.T) {
 }
 
 func TestPlanBaselineHigherUnverifiedTagOccupies(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	e.publishBundle(t, e.host+"/acme/invoices", "1.6.0", e.invoicesBaseline("1.6.0", ""), nil)
@@ -193,6 +200,7 @@ func TestPlanBaselineHigherUnverifiedTagOccupies(t *testing.T) {
 }
 
 func TestPlanUnchangedWritesNothing(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	_, d := e.plan(t, e.req())
 	person := e.signer(t, testutil.Token("ana@acme.com", personIssuer)) // a token with an email claim needs email_verified
@@ -213,6 +221,7 @@ func TestPlanUnchangedWritesNothing(t *testing.T) {
 }
 
 func TestPlanUnverifiedTagsOnly(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.publishBundle(t, e.host+"/acme/invoices", "1.0.0", e.invoicesBaseline("1.0.0", ""), nil)
 	e.publishBundle(t, e.host+"/acme/invoices", "2.0.0-rc.1", e.invoicesBaseline("2.0.0-rc.1", ""), nil)
@@ -229,6 +238,7 @@ func TestPlanUnverifiedTagsOnly(t *testing.T) {
 }
 
 func TestPlanBaselineFromUnknownSignerIgnored(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	eve := e.signer(t, testutil.Token("eve@evil.example", personIssuer))
 	e.publishBundle(t, e.host+"/acme/invoices", "9.9.0", e.invoicesBaseline("9.9.0", ""), &eve)
@@ -240,6 +250,7 @@ func TestPlanBaselineFromUnknownSignerIgnored(t *testing.T) {
 }
 
 func TestPlanBundleRepoMismatchRefused(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	ci := e.signer(t, acmeCIToken())
 	files := e.invoicesBaseline("1.4.0", "")
@@ -251,6 +262,7 @@ func TestPlanBundleRepoMismatchRefused(t *testing.T) {
 }
 
 func TestPlanBaselineBelow25Refused(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	ci := e.signer(t, acmeCIToken())
 	e.publishBundle(t, e.host+"/acme/invoices", "1.4.0", map[string]string{"pacto.yaml": "pactoVersion: \"2.3\"\nservice:\n  name: invoices\n  version: 1.4.0\n"}, &ci)
@@ -275,6 +287,7 @@ func TestPlanAmbientTokenPlansDraft(t *testing.T) {
 }
 
 func TestPlanAgentPlansUnsignedDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Agent = true
@@ -285,6 +298,7 @@ func TestPlanAgentPlansUnsignedDraft(t *testing.T) {
 }
 
 func TestPlanKeyPlansDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	dir := t.TempDir()
 	keyFiles(t, dir)
@@ -301,6 +315,7 @@ func TestPlanKeyPlansDraft(t *testing.T) {
 }
 
 func TestPlanNoRegistryRefused(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Registry = ""
@@ -311,6 +326,7 @@ func TestPlanNoRegistryRefused(t *testing.T) {
 }
 
 func TestPlanWorkloadNotFound(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Service = "missing"
@@ -320,6 +336,7 @@ func TestPlanWorkloadNotFound(t *testing.T) {
 }
 
 func TestPlanWorkloadAmbiguous(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t, append(billing(time.Now()), kubeDeployment("other", "invoices", ""))...)
 	req := e.req()
 	req.Namespace = ""
@@ -329,6 +346,7 @@ func TestPlanWorkloadAmbiguous(t *testing.T) {
 }
 
 func TestPlanAlreadyDeclared(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t, append(billing(time.Now()), kubePacto("billing", "invoices", "1.0.0"))...)
 	if _, _, err := e.svc.PlanDeclare(t.Context(), e.req()); refusal(t, err).Code != codeAlreadyDeclared {
 		t.Fatal(err)
@@ -336,6 +354,7 @@ func TestPlanAlreadyDeclared(t *testing.T) {
 }
 
 func TestPlanNeedsACluster(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Dynamic = nil
@@ -345,6 +364,7 @@ func TestPlanNeedsACluster(t *testing.T) {
 }
 
 func TestOwnerRuleNewOwnerStrippedFromClusterDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	p, d := e.plan(t, e.req())
 	i := slices.IndexFunc(d.record.Fields, func(f contract.Inferred) bool { return f.Field == "service.owner" })
@@ -358,6 +378,7 @@ func TestOwnerRuleNewOwnerStrippedFromClusterDraft(t *testing.T) {
 }
 
 func TestAcceptRewritesUnknownOnly(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	_, d := e.plan(t, e.req("ledger", "ledger"))
 	raw := string(d.raw)
@@ -368,6 +389,7 @@ func TestAcceptRewritesUnknownOnly(t *testing.T) {
 }
 
 func TestAcceptWithoutProposalRefused(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	if _, _, err := e.svc.PlanDeclare(t.Context(), e.req("fraud")); refusal(t, err).Code != codeRangeNotProposed {
 		t.Fatal(err)
@@ -379,6 +401,7 @@ func TestAcceptWithoutProposalRefused(t *testing.T) {
 }
 
 func TestDeclareProposalStaysUnknown(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	p, d := e.plan(t, e.req())
 	for _, r := range p.Ranges {
@@ -392,6 +415,7 @@ func TestDeclareProposalStaysUnknown(t *testing.T) {
 }
 
 func TestPlanInferredFromAndCluster(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	p, d := e.plan(t, e.req())
 	if p.InferredFrom != "k8s:billing/Deployment/invoices" || p.Cluster != "3f1c-uid" || d.record.Declaration.InferredFrom != p.InferredFrom || d.record.Declaration.Cluster != "3f1c-uid" {
@@ -422,6 +446,7 @@ func noOwner(t *testing.T, e *declareEnv) string {
 }
 
 func TestPlanFromDir(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req("ledger")
 	req.Dir = noOwner(t, e)
@@ -432,6 +457,7 @@ func TestPlanFromDir(t *testing.T) {
 }
 
 func TestPlanFromDirWithoutClusterRecordRefused(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Dir = t.TempDir()
@@ -447,6 +473,7 @@ func TestPlanFromDirWithoutClusterRecordRefused(t *testing.T) {
 }
 
 func TestDirClusterFactsReRead(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Dir = noOwner(t, e)
@@ -492,6 +519,7 @@ func TestDirClusterFactsReRead(t *testing.T) {
 // A re-read that finds the workload already has a contract refuses, as the
 // cluster path does: it is no failed read.
 func TestPlanFromDirAlreadyDeclaredRefused(t *testing.T) {
+	t.Parallel()
 	dir := noOwner(t, newDeclareEnv(t))
 	e := newDeclareEnv(t, append(billing(time.Now()), kubePacto("billing", "invoices", "1.0.0"))...)
 	req := e.req()
@@ -514,6 +542,7 @@ func (d deployHeadFails) Head(ctx context.Context, ref string) (*publish.Remote,
 // A baseline deploy artifact that cannot be read refuses the plan: the
 // signed record never says "none" for it.
 func TestPlanBaselineDeployUnreadableRefused(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	e.svc.sys.publishRegistry = func() publish.Registry { return deployHeadFails{e.reg} }
@@ -532,6 +561,7 @@ func (referrersFail) Referrers(context.Context, string, string, string) ([]strin
 // A tag whose signatures could not be read is signed by someone unknown,
 // never by nobody.
 func TestPlanUnreadSignaturesAreUnknown(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.publishBundle(t, e.host+"/acme/invoices", "1.0.0", e.invoicesBaseline("1.0.0", ""), nil)
 	e.svc.sys.publishRegistry = func() publish.Registry { return referrersFail{e.reg} }
@@ -561,6 +591,7 @@ func walkBundle(t *testing.T, b *contract.Bundle) map[string]string {
 }
 
 func TestDeclarationBundleHasNoManifests(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	_, d := e.plan(t, e.req())
 	files := walkBundle(t, d.bundle)
@@ -570,6 +601,7 @@ func TestDeclarationBundleHasNoManifests(t *testing.T) {
 }
 
 func TestDeclarationBundleHoldsNoLiteral(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	_, d := e.plan(t, e.req())
 	for p, c := range walkBundle(t, d.bundle) {
@@ -580,6 +612,7 @@ func TestDeclarationBundleHoldsNoLiteral(t *testing.T) {
 }
 
 func TestDeclarationBundleCarriesInterfaceFiles(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Dir = noOwner(t, e)
@@ -597,6 +630,7 @@ func TestDeclarationBundleCarriesInterfaceFiles(t *testing.T) {
 }
 
 func TestDeclarationBundleHonoursPactoignore(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Dir = noOwner(t, e)
@@ -619,6 +653,7 @@ func writeFolder(t *testing.T, files fs.FS) string {
 }
 
 func TestDeclarationBundleValidates(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	_, d := e.plan(t, e.req())
 	dir := writeFolder(t, d.files)
@@ -639,6 +674,7 @@ func TestDeclarationBundleValidates(t *testing.T) {
 }
 
 func TestDeclarationBundleDeterministic(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	_, d := e.plan(t, e.req())
 	dir := writeFolder(t, d.files)
@@ -655,6 +691,7 @@ func TestDeclarationBundleDeterministic(t *testing.T) {
 }
 
 func TestIntentDigestIgnoresObservedFacts(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	p, d := e.plan(t, e.req())
 	observed := *p
@@ -668,6 +705,7 @@ func TestIntentDigestIgnoresObservedFacts(t *testing.T) {
 }
 
 func TestIntentDigestChangesWithAccept(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	a, _ := e.plan(t, e.req())
 	b, _ := e.plan(t, e.req("ledger"))
@@ -677,6 +715,7 @@ func TestIntentDigestChangesWithAccept(t *testing.T) {
 }
 
 func TestIntentDigestIgnoresSigner(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	person, _ := e.plan(t, e.req("ledger"))
 	req := e.req("ledger")
@@ -688,6 +727,7 @@ func TestIntentDigestIgnoresSigner(t *testing.T) {
 }
 
 func TestPlanReadsNoSecret(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.plan(t, e.req("ledger"))
 	configmaps := 0
@@ -709,6 +749,7 @@ func TestPlanReadsNoSecret(t *testing.T) {
 }
 
 func TestPlanLeavesNoScratch(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	var scratch []string
 	e.svc.sys.mkdirTemp = func(dir, pattern string) (string, error) {
@@ -772,6 +813,7 @@ func (e *declareEnv) faulty(f *faultyRegistry) {
 }
 
 func TestPlanRegistryUnreadable(t *testing.T) {
+	t.Parallel()
 	for name, f := range map[string]*faultyRegistry{"tags": {tags: errors.New("down")}, "head": {head: errors.New("down")}, "pull": {failPull: 1}} {
 		e := newDeclareEnv(t)
 		e.withBaseline(t)
@@ -783,6 +825,7 @@ func TestPlanRegistryUnreadable(t *testing.T) {
 }
 
 func TestPlanBaselineVanishedTagSkipped(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	e.publishBundle(t, e.host+"/acme/invoices", "1.6.0", e.invoicesBaseline("1.6.0", ""), nil)
@@ -793,6 +836,7 @@ func TestPlanBaselineVanishedTagSkipped(t *testing.T) {
 }
 
 func TestPlanDeriveFails(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	req := e.req()
@@ -804,6 +848,7 @@ func TestPlanDeriveFails(t *testing.T) {
 }
 
 func TestPlanTrustedRootUnreadable(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	req := e.req()
@@ -814,6 +859,7 @@ func TestPlanTrustedRootUnreadable(t *testing.T) {
 }
 
 func TestPlanClusterReadFails(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.dyn.PrependReactor("list", "*", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		if slices.Contains([]string{"deployments", "statefulsets", "daemonsets", "cronjobs"}, a.GetResource().Resource) {
@@ -833,6 +879,7 @@ func unreadCluster(e *declareEnv) {
 }
 
 func TestPlanFromDirInvalidContract(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Dir = noOwner(t, e)
@@ -855,6 +902,7 @@ func TestPlanFromDirInvalidContract(t *testing.T) {
 }
 
 func TestPlanScratchUnwritable(t *testing.T) {
+	t.Parallel()
 	if os.Getuid() == 0 {
 		t.Skip("root writes anywhere")
 	}
@@ -875,6 +923,7 @@ func TestPlanScratchUnwritable(t *testing.T) {
 }
 
 func TestPlanWriteFails(t *testing.T) {
+	t.Parallel()
 	for _, marker := range []string{"version: 1.4.0", "version: 0.1.0"} {
 		e := newDeclareEnv(t)
 		if marker == "version: 1.4.0" {
@@ -893,6 +942,7 @@ func TestPlanWriteFails(t *testing.T) {
 }
 
 func TestPlanRekorNotice(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Signing.RekorURL = signing.PublicRekor
@@ -903,6 +953,7 @@ func TestPlanRekorNotice(t *testing.T) {
 }
 
 func TestBaselineDeployNone(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	base := &contract.Bundle{Contract: &contract.Contract{Publish: &contract.Publish{Deploy: "manifests", Artifacts: []contract.PublishArtifact{
 		{Name: "api", Ref: "oci://" + e.host + "/acme/invoices-api"}, {Name: "manifests", Ref: "oci://" + e.host + "/acme/deploy/invoices"}}}}}
@@ -919,6 +970,7 @@ func TestBaselineDeployNone(t *testing.T) {
 }
 
 func TestDeclarationBundleUnreadableFile(t *testing.T) {
+	t.Parallel()
 	if os.Getuid() == 0 {
 		t.Skip("root reads anything")
 	}
@@ -931,6 +983,7 @@ func TestDeclarationBundleUnreadableFile(t *testing.T) {
 }
 
 func TestIntentDigestSortsAccepted(t *testing.T) {
+	t.Parallel()
 	p := &DeclarePlan{Service: "invoices", Version: "0.1.0"}
 	a := contract.InferredAcceptance{Field: "dependencies[a].compatibility", Range: "^1.0.0"}
 	b := contract.InferredAcceptance{Field: "dependencies[b].compatibility", Range: "^2.0.0"}
@@ -940,6 +993,7 @@ func TestIntentDigestSortsAccepted(t *testing.T) {
 }
 
 func TestPublisherRules(t *testing.T) {
+	t.Parallel()
 	if publisherRules("") != nil || publisherRules("{") != nil || publisherRules(`{"registry":"ghcr.io"}`) != nil || len(publisherRules(`{"registry":"ghcr.io/acme"}`)) != 1 {
 		t.Fatal("publisher rules")
 	}

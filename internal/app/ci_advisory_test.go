@@ -39,6 +39,7 @@ func (e *ciRepoEnv) droppedResponseField(t *testing.T, declared string) {
 }
 
 func TestCIInferredPossibleBreakStaysUnverified(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.droppedResponseField(t, "")
 	p, res := e.planWith(t, FleetOptions{TargetStateFiles: []string{targets(t, "other")}, Index: IndexNone})
@@ -53,6 +54,7 @@ func TestCIInferredPossibleBreakStaysUnverified(t *testing.T) {
 }
 
 func TestCIDeclaredInterfaceBreakIsBreaking(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.droppedResponseField(t, interfaceYAML)
 	p, _ := e.planWith(t, FleetOptions{TargetStateFiles: []string{targets(t, "other")}, Index: IndexNone})
@@ -62,6 +64,7 @@ func TestCIDeclaredInterfaceBreakIsBreaking(t *testing.T) {
 }
 
 func TestPublishBumpIgnoresInferredAdvisory(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.droppedResponseField(t, "")
 	p, _ := e.planWith(t, FleetOptions{TargetStateFiles: []string{targets(t, "other")}, Index: IndexNone})

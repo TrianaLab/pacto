@@ -96,6 +96,7 @@ func (e *declareEnv) withCluster(c *gitopsCluster) {
 }
 
 func TestResolveSignedProvenanceFromBaseline(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	req := e.req()
@@ -127,6 +128,7 @@ func (e *declareEnv) signedImage(t *testing.T, repos ...string) string {
 }
 
 func TestResolveSignedProvenanceFromImage(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withCluster(&gitopsCluster{pages: map[string]string{"deployments|billing": invoicesWorkload(e.signedImage(t, "https://github.com/acme/elsewhere"), nil, nil)}})
 	p, _ := e.plan(t, e.req())
@@ -139,6 +141,7 @@ func TestResolveSignedProvenanceFromImage(t *testing.T) {
 // TestSignedProvenanceNeedsNoAllowlist: a CI certificate naming any
 // repository answers, with no map or rule naming it.
 func TestSignedProvenanceNeedsNoAllowlist(t *testing.T) {
+	t.Parallel()
 	a := resolveRepository(repoInputs{ImageSigners: []delivery.PublisherIdentity{ciID("https://git.example.org/nobody/listed")}})
 	if a.Repo == nil || a.Repo.URL != "https://git.example.org/nobody/listed" || a.Repo.Rung != contract.RepositoryRungSigned {
 		t.Fatalf("%+v", a)
@@ -146,6 +149,7 @@ func TestSignedProvenanceNeedsNoAllowlist(t *testing.T) {
 }
 
 func TestAmbiguousSignedProvenanceGivesNothing(t *testing.T) {
+	t.Parallel()
 	two := []delivery.PublisherIdentity{ciID("https://github.com/acme/a"), ciID("https://github.com/acme/b"), ciID("https://github.com/acme/a")}
 	a := resolveRepository(repoInputs{ImageSigners: two})
 	if a.Repo != nil || len(a.Tried) != 4 || a.Tried[0].Reason != "2 signed repositories" {
@@ -158,6 +162,7 @@ func TestAmbiguousSignedProvenanceGivesNothing(t *testing.T) {
 }
 
 func TestPersonSignatureNamesNoRepository(t *testing.T) {
+	t.Parallel()
 	person := delivery.PublisherIdentity{Issuer: "https://accounts.example", Subject: "ana@acme.com", Repository: invoicesRepo}
 	a := resolveRepository(repoInputs{Baseline: &person, ImageSigners: []delivery.PublisherIdentity{person}})
 	if a.Repo != nil || a.Tried[0].Reason != "baseline: its signer names no repository; image: no CI signature names a repository" {
@@ -176,6 +181,7 @@ func TestPersonSignatureNamesNoRepository(t *testing.T) {
 }
 
 func TestNoReferrerReasonNamesLegacyTags(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	img := e.signedImage(t)
 	e.withCluster(&gitopsCluster{pages: map[string]string{"deployments|billing": invoicesWorkload(img, nil, nil)}})
@@ -197,6 +203,7 @@ func (m modeRegistry) Mode(context.Context, string, string) (capabilities.Referr
 }
 
 func TestImageProvenanceWithoutReferrersAPIIsAReason(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	img := e.signedImage(t)
 	ref, _ := name.ParseReference(img)
@@ -240,6 +247,7 @@ func TestImageReadTimeoutIsAReason(t *testing.T) {
 }
 
 func TestImageSignersReasons(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	pl := &declarePlanner{reg: e.reg, req: e.req(), rec: &contract.InferredRecord{}}
 	for image, want := range map[string]string{
@@ -264,6 +272,7 @@ func TestImageSignersReasons(t *testing.T) {
 }
 
 func TestImageDigestsFromRecord(t *testing.T) {
+	t.Parallel()
 	d1, d2, d3 := "sha256:"+strings.Repeat("1", 64), "sha256:"+strings.Repeat("2", 64), "sha256:"+strings.Repeat("3", 64)
 	pl := &declarePlanner{rec: &contract.InferredRecord{Fields: []contract.Inferred{{Field: "service.owner", Value: "x"},
 		{Field: "image.digest[a]", Value: d1 + ", " + d2}, {Field: "image.digest[b]", Value: d1 + ", " + d3}}}}
@@ -286,6 +295,7 @@ func TestImageDigestsFromRecord(t *testing.T) {
 }
 
 func TestContainerOf(t *testing.T) {
+	t.Parallel()
 	for from, want := range map[string]string{
 		"Deployment spec.template.spec.containers[name=web].image":               "web",
 		"CronJob spec.jobTemplate.spec.template.spec.containers[name=job].image": "job",
@@ -313,6 +323,7 @@ func (r imageSourceFails) ImageSource(ctx context.Context, ref string) (string, 
 // A digest the registry fails to read never stops the label rung from
 // reading the next one.
 func TestImageLabelReadsPastAFailedDigest(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	bad := "sha256:" + strings.Repeat("b", 64)
 	pl := &declarePlanner{reg: imageSourceFails{labelled{e.reg, "https://github.com/acme/invoices"}, bad}, req: e.req(),
@@ -347,6 +358,7 @@ func planGitOps(t *testing.T, pages map[string]string) (*DeclarePlan, *declarati
 }
 
 func TestResolveGitOpsArgo(t *testing.T) {
+	t.Parallel()
 	p, d, _ := planGitOps(t, map[string]string{
 		"deployments|billing": argoTracked("reg.io/acme/invoices:1"),
 		"applications|argocd": argoApp("argocd", `{"source":{"repoURL":"git@github.com:Acme/Invoices.git","path":"deploy/"}}`),
@@ -364,6 +376,7 @@ func TestResolveGitOpsArgo(t *testing.T) {
 // TestResolveGitOpsArgoInArgocdNamespace: the Application lives in argocd,
 // which the first read of billing never lists.
 func TestResolveGitOpsArgoInArgocdNamespace(t *testing.T) {
+	t.Parallel()
 	p, _, c := planGitOps(t, map[string]string{
 		"deployments|billing": argoTracked("reg.io/acme/invoices:1"),
 		"applications|argocd": argoApp("argocd", `{"source":{"repoURL":"https://github.com/acme/invoices"}}`),
@@ -377,6 +390,7 @@ func TestResolveGitOpsArgoInArgocdNamespace(t *testing.T) {
 }
 
 func TestResolveGitOpsFluxKustomization(t *testing.T) {
+	t.Parallel()
 	p, _, _ := planGitOps(t, map[string]string{
 		"deployments|billing": invoicesWorkload("reg.io/acme/invoices:1",
 			map[string]string{"kustomize.toolkit.fluxcd.io/name": "apps", "kustomize.toolkit.fluxcd.io/namespace": "flux-system"}, nil),
@@ -393,6 +407,7 @@ func TestResolveGitOpsFluxKustomization(t *testing.T) {
 // TestResolveGitOpsFluxInFluxSystem: the Kustomization and its
 // GitRepository live in flux-system.
 func TestResolveGitOpsFluxInFluxSystem(t *testing.T) {
+	t.Parallel()
 	p, _, c := planGitOps(t, map[string]string{
 		"deployments|billing": invoicesWorkload("reg.io/acme/invoices:1",
 			map[string]string{"kustomize.toolkit.fluxcd.io/name": "apps", "kustomize.toolkit.fluxcd.io/namespace": "flux-system"}, nil),
@@ -409,6 +424,7 @@ func TestResolveGitOpsFluxInFluxSystem(t *testing.T) {
 }
 
 func TestResolveGitOpsFluxHelmRelease(t *testing.T) {
+	t.Parallel()
 	p, _, _ := planGitOps(t, map[string]string{
 		"deployments|billing": invoicesWorkload("reg.io/acme/invoices:1",
 			map[string]string{"helm.toolkit.fluxcd.io/name": "invoices", "helm.toolkit.fluxcd.io/namespace": "flux-system"}, nil),
@@ -423,6 +439,7 @@ func TestResolveGitOpsFluxHelmRelease(t *testing.T) {
 }
 
 func TestAmbiguousGitOpsGivesNothing(t *testing.T) {
+	t.Parallel()
 	a := resolveRepository(repoInputs{GitOps: []fleet.InferredRepository{{URL: "https://github.com/acme/a"}, {URL: "https://github.com/acme/b"}, {URL: "not a url"}}})
 	if a.Repo != nil || a.Tried[1] != (RungNote{Rung: contract.RepositoryRungGitOps, Reason: "2 GitOps repositories"}) {
 		t.Fatalf("%+v", a)
@@ -430,6 +447,7 @@ func TestAmbiguousGitOpsGivesNothing(t *testing.T) {
 }
 
 func TestFolderFromGitOpsOnlyForSameRepository(t *testing.T) {
+	t.Parallel()
 	base := ciID(invoicesRepo)
 	a := resolveRepository(repoInputs{Baseline: &base, GitOps: []fleet.InferredRepository{{URL: "https://github.com/acme/platform", Path: "apps/invoices"}}})
 	if a.Repo.Folder != "." || a.Repo.FolderRung != contract.FolderRungDefault {
@@ -447,6 +465,7 @@ func TestFolderFromGitOpsOnlyForSameRepository(t *testing.T) {
 }
 
 func TestFolderDefaultIsRoot(t *testing.T) {
+	t.Parallel()
 	base := ciID(invoicesRepo)
 	if a := resolveRepository(repoInputs{Baseline: &base}); a.Repo.Folder != "." || a.Repo.FolderRung != contract.FolderRungDefault {
 		t.Fatalf("%+v", a.Repo)
@@ -454,6 +473,7 @@ func TestFolderDefaultIsRoot(t *testing.T) {
 }
 
 func TestNoAnswerNoBlock(t *testing.T) {
+	t.Parallel()
 	a := resolveRepository(repoInputs{})
 	want := []RungNote{{contract.RepositoryRungSigned, "baseline: no published baseline; image: no CI signature names a repository"},
 		{contract.RepositoryRungGitOps, "no GitOps source lists this workload"},
@@ -470,6 +490,7 @@ func TestNoAnswerNoBlock(t *testing.T) {
 }
 
 func TestNormalizeRepoURL(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		"https://github.com/acme/invoices":           invoicesRepo,
 		"https://GitHub.COM/acme/invoices/":          invoicesRepo,
@@ -497,6 +518,7 @@ func TestNormalizeRepoURL(t *testing.T) {
 // TestNormalizedURLAlwaysParses: every URL normalizeRepoURL answers is one a
 // record holds.
 func TestNormalizedURLAlwaysParses(t *testing.T) {
+	t.Parallel()
 	for _, in := range []string{invoicesRepo, "git@GitLab.com:g/s/p.git", "ssh://h.example:2222/x", "http://localhost:3000/o/r", "https://h/o/r.git.git", "https://h/a%20b"} {
 		u, ok := normalizeRepoURL(in)
 		if !ok {
@@ -509,6 +531,7 @@ func TestNormalizedURLAlwaysParses(t *testing.T) {
 }
 
 func TestSignerLabel(t *testing.T) {
+	t.Parallel()
 	for in, want := range map[string]string{
 		invoicesWF: "workflow release.yml@refs/heads/main",
 		"https://gitlab.com/acme/invoices//.gitlab-ci.yml@refs/heads/main": "pipeline .gitlab-ci.yml@refs/heads/main",
@@ -522,6 +545,7 @@ func TestSignerLabel(t *testing.T) {
 }
 
 func TestRepositoryText(t *testing.T) {
+	t.Parallel()
 	r := &contract.InferredSourceRepository{URL: invoicesRepo, Rung: contract.RepositoryRungSigned, Signer: invoicesWF, Folder: "deploy", FolderRung: contract.RepositoryRungGitOps}
 	if got := RepositoryText(r); got != "github.com/acme/invoices (signed provenance, workflow release.yml@refs/heads/main), folder: deploy/ (GitOps source)" {
 		t.Errorf("%q", got)
@@ -533,6 +557,7 @@ func TestRepositoryText(t *testing.T) {
 }
 
 func TestCollectWithDirReadsNoWorkload(t *testing.T) {
+	t.Parallel()
 	pl := &declarePlanner{s: &Service{sys: sysDeps{newK8s: func(string) (k8sclient.K8sClient, error) {
 		t.Fatal("a --dir run read the cluster for the repository")
 		return nil, nil
@@ -543,6 +568,7 @@ func TestCollectWithDirReadsNoWorkload(t *testing.T) {
 }
 
 func TestCollectPicksTheDraftedWorkload(t *testing.T) {
+	t.Parallel()
 	other := strings.Replace(argoTracked("reg.io/acme/other:1"), `"name":"invoices"`, `"name":"invoices-v2"`, 1)
 	p, _, _ := planGitOps(t, map[string]string{
 		"deployments|billing": other + "," + invoicesWorkload("reg.io/acme/invoices:1", nil, nil),
@@ -559,6 +585,7 @@ func TestCollectPicksTheDraftedWorkload(t *testing.T) {
 }
 
 func TestCollectWorkloadListFails(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	errs := map[string]error{}
 	for _, r := range []string{"deployments", "statefulsets", "daemonsets", "cronjobs"} {
@@ -572,6 +599,7 @@ func TestCollectWorkloadListFails(t *testing.T) {
 }
 
 func TestGitOpsNamespaces(t *testing.T) {
+	t.Parallel()
 	for _, c := range []struct {
 		w    fleet.RawInferredService
 		want []string
@@ -592,6 +620,7 @@ func TestGitOpsNamespaces(t *testing.T) {
 // Applications in argocd: the reason names where Pacto looked and what to
 // pass instead.
 func TestCollectForbiddenGitOpsNamespaceIsAReason(t *testing.T) {
+	t.Parallel()
 	p, _, _ := func() (*DeclarePlan, *declaration, *gitopsCluster) {
 		e := newDeclareEnv(t)
 		c := &gitopsCluster{pages: map[string]string{"deployments|billing": argoTracked("reg.io/acme/invoices:1")},
@@ -610,6 +639,7 @@ func TestCollectForbiddenGitOpsNamespaceIsAReason(t *testing.T) {
 // caller's restricted view: what it dropped never answers, and the
 // service's own cluster client is never built.
 func TestHTTPPlanUsesViewerRepositories(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		t.Fatal("an HTTP plan built the service's own cluster client")
@@ -660,6 +690,7 @@ func (c imageReadCounter) Referrers(ctx context.Context, repo, digest, at string
 // registry credential, so the image is never read on the server, inside the
 // installation's registry or outside it.
 func TestHTTPPlanNeverReadsImageWithServerIdentity(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	img := e.signedImage(t, invoicesRepo)
 	ref, _ := name.ParseReference(img)
@@ -681,6 +712,7 @@ func TestHTTPPlanNeverReadsImageWithServerIdentity(t *testing.T) {
 // without a repository answer is decided alike: its state, signer, version,
 // publish plan and intent digest.
 func TestRepositoryAnswerNeverChangesGate(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	without, _ := e.plan(t, req)
@@ -712,6 +744,7 @@ func (r layerFailsAfter) Layer(ctx context.Context, repo, digest string) ([]byte
 // TestPartialSignerReadGivesNothing: a signature left unread may name
 // another repository, so the image's signers answer only from a complete read.
 func TestPartialSignerReadGivesNothing(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	img := e.signedImage(t, "https://github.com/acme/a", "https://github.com/acme/b")
 	e.withCluster(&gitopsCluster{pages: map[string]string{"deployments|billing": invoicesWorkload(img, nil, nil)}})
@@ -727,6 +760,7 @@ func TestPartialSignerReadGivesNothing(t *testing.T) {
 // TestSeveralGitOpsFoldersFallToDefault: one repository listed with two
 // paths names no folder; the plan says so.
 func TestSeveralGitOpsFoldersFallToDefault(t *testing.T) {
+	t.Parallel()
 	in := repoInputs{GitOps: []fleet.InferredRepository{{URL: invoicesRepo, Path: "base"}, {URL: invoicesRepo + ".git", Path: "overlays/prod"}, {URL: invoicesRepo, Path: "base/"}}}
 	if a := resolveRepository(in); a.Repo == nil || a.Repo.Folder != "." || a.Repo.FolderRung != contract.FolderRungDefault {
 		t.Fatalf("%+v", a.Repo)
@@ -746,6 +780,7 @@ func TestSeveralGitOpsFoldersFallToDefault(t *testing.T) {
 // TestFailedSecondReadNamesOnlyWhatWasRead: a second read over the GitOps
 // namespaces that fails never claims it read them.
 func TestFailedSecondReadNamesOnlyWhatWasRead(t *testing.T) {
+	t.Parallel()
 	w := &fleet.RawInferredService{Namespace: "billing", RepositoryUnknown: "Applications outside the namespaces this source reads"}
 	got := gitopsUnread(w, []string{"billing", "argocd", "flux-system"}, "forbidden")
 	if got != "Applications outside the namespaces this source reads (namespaces read: billing; argocd, flux-system not read: forbidden; pass --repository <url>)" {
@@ -780,6 +815,7 @@ func (c *vanishingCluster) ListPage(ctx context.Context, gvr schema.GroupVersion
 // TestCommandReplaysGitHost: every command the plan prints keeps the
 // person's --git-host.
 func TestCommandReplaysGitHost(t *testing.T) {
+	t.Parallel()
 	req := DeclareRequest{Service: "invoices", Registry: "r", PR: true, GitHost: "gitea"}
 	if got := req.command(""); got != "pacto declare invoices --registry r --pr --git-host gitea" {
 		t.Fatalf("%q", got)
@@ -794,6 +830,7 @@ func TestCommandReplaysGitHost(t *testing.T) {
 // the repository from the workload it names, and a refusal's command names
 // the draft, not its scratch folder.
 func TestFromDraftReadsTheWorkloadForTheRepository(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.agentDraft(t)
 	e.login(personToken("ana@acme.com"))

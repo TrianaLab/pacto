@@ -6,7 +6,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -36,6 +35,7 @@ func writeLocalBundle(t *testing.T, dir, name string) {
 }
 
 func TestService_Fleet(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalBundle(t, filepath.Join(root, "svc-a"), "svc-a")
 
@@ -76,6 +76,7 @@ func TestService_Fleet(t *testing.T) {
 }
 
 func TestFleetDisclosesUncheckedFreshness(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalBundle(t, filepath.Join(root, "svc-a"), "svc-a")
 	targetState := filepath.Join(t.TempDir(), "targets.yaml")
@@ -103,6 +104,7 @@ func TestFleetDisclosesUncheckedFreshness(t *testing.T) {
 }
 
 func TestSourceID(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		kind     string
 		i, total int
@@ -122,6 +124,7 @@ func TestSourceID(t *testing.T) {
 }
 
 func TestService_Fleet_MultipleSourcesGetSuffixedIDs(t *testing.T) {
+	t.Parallel()
 	r1 := t.TempDir()
 	writeLocalBundle(t, filepath.Join(r1, "svc-a"), "svc-a")
 	r2 := t.TempDir()
@@ -142,7 +145,8 @@ func TestService_Fleet_MultipleSourcesGetSuffixedIDs(t *testing.T) {
 }
 
 func TestService_Fleet_EvidenceURLs(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	t.Parallel()
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"schemaVersion":"pacto.dev/evidence-source/v2","health":{"status":"ready","subjects":1},"targets":[{"subject":"svc-a","producer":"prod-eu","compliance":"Compliant","coverage":{"evaluated":3,"required":5},"evidenceAt":"2026-07-29T11:00:00Z","acceptedAt":"2026-07-29T11:00:00Z"}]}`))
 	}))
 	defer srv.Close()
@@ -171,9 +175,10 @@ func TestService_Fleet_EvidenceURLs(t *testing.T) {
 }
 
 func TestService_Fleet_EvidenceURL_Unavailable(t *testing.T) {
+	t.Parallel()
 	// An Evidence Server nobody could reach is a failing source (a limitation), not
 	// a build abort and not an environment with no targets.
-	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	srv := probedServer(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	url := srv.URL
 	srv.Close()
 
@@ -234,6 +239,7 @@ func bundleForFleet(name string) *contract.Bundle {
 }
 
 func TestService_Fleet_OCIRefs(t *testing.T) {
+	t.Parallel()
 	store := fakeFleetStore{bundles: map[string]*contract.Bundle{"ghcr.io/x/a:1.0.0": bundleForFleet("a")}}
 	svc := NewService(store, nil)
 	snap, err := svc.Fleet(context.Background(), FleetOptions{OCIRefs: []string{"ghcr.io/x/a:1.0.0"}})
@@ -248,6 +254,7 @@ func TestService_Fleet_OCIRefs(t *testing.T) {
 }
 
 func TestService_Fleet_OCIRefs_NoStore(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	snap, err := svc.Fleet(context.Background(), FleetOptions{OCIRefs: []string{"ghcr.io/x/a:1.0.0"}})
 	if err != nil {
@@ -259,6 +266,7 @@ func TestService_Fleet_OCIRefs_NoStore(t *testing.T) {
 }
 
 func TestService_Fleet_Cache(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeCacheBundle(t, dir, "ghcr.io/org/svc/1.0.0/bundle.tar.gz")
 	store := fakeFleetCacheStore{
@@ -276,6 +284,7 @@ func TestService_Fleet_Cache(t *testing.T) {
 }
 
 func TestService_Fleet_Cache_NoStore(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	snap, err := svc.Fleet(context.Background(), FleetOptions{IncludeCache: true})
 	if err != nil {
@@ -287,6 +296,7 @@ func TestService_Fleet_Cache_NoStore(t *testing.T) {
 }
 
 func TestService_Fleet_Cache_StoreWithoutCacheDir(t *testing.T) {
+	t.Parallel()
 	// A store lacking CacheDir() resolves to "" (bundleStoreCacheDir fallback);
 	// the cache source then finds nothing but does not fail.
 	svc := NewService(fakeFleetStore{}, nil)
@@ -389,6 +399,7 @@ func (f *fakeFleetK8sClient) ClusterIdentity(_ context.Context, contextName stri
 }
 
 func TestService_Fleet_IncludeK8s(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
@@ -413,6 +424,7 @@ func TestService_Fleet_IncludeK8s(t *testing.T) {
 }
 
 func TestService_Fleet_IncludeK8s_ClientError(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
 	svc.sys.kubeContext = func() string { return "" } // exercise the "k8s" id fallback
@@ -437,6 +449,7 @@ func TestService_Fleet_IncludeK8s_ClientError(t *testing.T) {
 // Identity here is a function of position by construction — which is precisely why
 // declarative configuration carries explicit ids instead.
 func TestTraceFileSources(t *testing.T) {
+	t.Parallel()
 	if got := TraceFileSources(nil); got != nil {
 		t.Errorf("TraceFileSources(nil) = %+v, want nil", got)
 	}
@@ -454,6 +467,7 @@ func TestTraceFileSources(t *testing.T) {
 }
 
 func TestService_Fleet_DisallowPartial(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.Fleet(context.Background(), FleetOptions{
 		TargetStateFiles: []string{filepath.Join(t.TempDir(), "missing.yaml")},
@@ -465,7 +479,8 @@ func TestService_Fleet_DisallowPartial(t *testing.T) {
 }
 
 func TestFleetMiraSources(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	t.Parallel()
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write([]byte(`{"map":{"nodes":[{"key":"1","name":"payments"},{"key":"2","name":"orders"}],"edges":[{"from":"2","to":"1","calls":3}]},"stats":{"rows_scanned":6}}`))
 	}))
 	defer srv.Close()
@@ -500,6 +515,7 @@ func TestFleetMiraSources(t *testing.T) {
 }
 
 func TestFleetRejectsBadMiraURL(t *testing.T) {
+	t.Parallel()
 	snap, err := NewService(nil, nil).Fleet(context.Background(), FleetOptions{MiraURLs: []string{"https://user:pw@mira.example"}})
 	if err == nil || snap != nil || strings.Contains(err.Error(), "pw") {
 		t.Fatalf("snap=%v err=%v, want no snapshot and an error without the password", snap, err)
@@ -507,6 +523,7 @@ func TestFleetRejectsBadMiraURL(t *testing.T) {
 }
 
 func TestLiveK8sRegistersWorkloadSource(t *testing.T) {
+	t.Parallel()
 	svc := k8sService("eu-prod-ctx")
 	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
@@ -532,6 +549,7 @@ func TestLiveK8sRegistersWorkloadSource(t *testing.T) {
 }
 
 func TestLiveK8sSourcesIncludeMesh(t *testing.T) {
+	t.Parallel()
 	srcs := liveK8sSources("uid-1", nil, &fakeFleetK8sClient{}, nil, nil, &fleetsrc.MeshMemo{}, time.Now)
 	var ids []string
 	for _, s := range srcs {
@@ -543,6 +561,7 @@ func TestLiveK8sSourcesIncludeMesh(t *testing.T) {
 }
 
 func TestUnreachableClusterMarksBothSourcesUnavailable(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) { return nil, errors.New("no cluster") }
 	svc.sys.kubeContext = func() string { return "" }
@@ -558,6 +577,7 @@ func TestUnreachableClusterMarksBothSourcesUnavailable(t *testing.T) {
 }
 
 func TestWorkloadOfDeclaredTargetNotInferred(t *testing.T) {
+	t.Parallel()
 	svc := k8sService("")
 	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
@@ -584,6 +604,7 @@ func TestWorkloadOfDeclaredTargetNotInferred(t *testing.T) {
 }
 
 func TestFleetK8sProviderRows(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
@@ -610,6 +631,7 @@ func TestFleetK8sProviderRows(t *testing.T) {
 }
 
 func TestFleetK8sGroupingRows(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	svc.sys.newK8s = func(string) (k8sclient.K8sClient, error) {
 		return &fakeFleetK8sClient{
@@ -640,6 +662,7 @@ func TestFleetK8sGroupingRows(t *testing.T) {
 }
 
 func TestConsumerSourcesOrder(t *testing.T) {
+	t.Parallel()
 	all := FleetOptions{
 		LocalRoots:         []string{"."},
 		TargetStateFiles:   []string{"t.yaml"},

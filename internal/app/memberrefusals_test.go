@@ -24,6 +24,7 @@ import (
 // environments first, read over one member list; a restricted reader's
 // hidden members keep the environment.
 func TestMemberPlans(t *testing.T) {
+	t.Parallel()
 	eu, us := newMember(memberA, "eu-prod"), newMember(memberB, "us-prod")
 	e := newPlanEnv(t, eu, us)
 	e.publishTaking(t, us, e.clock, "prod", "qa")
@@ -49,6 +50,7 @@ func TestMemberPlans(t *testing.T) {
 // a hub with none: the plans say partial and why, and with no plan to say
 // it one partial plan does.
 func TestMemberPlansUnreadIsPartial(t *testing.T) {
+	t.Parallel()
 	eu := newMember(memberA, "eu-prod")
 	e := newPlanEnv(t, eu)
 	e.tagPage.Store(true)
@@ -91,6 +93,7 @@ func refusalsEnv(t *testing.T) (*joinEnv, member, member) {
 // TestMemberRefusals: the requests a member refused and those its gates
 // rejected, never one it applied, holds or has not answered.
 func TestMemberRefusals(t *testing.T) {
+	t.Parallel()
 	e, eu, _ := refusalsEnv(t)
 	r := e.svc.MemberRefusals(t.Context(), e.planOpts())
 	if len(r.Refusals) != 2 || r.Hidden != 0 || len(r.Unreadable) != 0 {
@@ -110,6 +113,7 @@ func TestMemberRefusals(t *testing.T) {
 // no live channel reviews for (counted), nor the namespace of an Operation
 // that member's review hides from them.
 func TestMemberRefusalsRestricted(t *testing.T) {
+	t.Parallel()
 	e, eu, _ := refusalsEnv(t)
 	opts := e.planOpts()
 	opts.Restrict = func(_, ns string) bool { return ns != "billing" }

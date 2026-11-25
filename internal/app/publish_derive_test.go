@@ -70,6 +70,7 @@ func derivedFolder(t *testing.T) (dir, host string, reg *countingRegistry, svc *
 // TestPublishDerivedVersionRecorded: the published pacto.yaml declares the
 // derived version and its record says where it came from.
 func TestPublishDerivedVersionRecorded(t *testing.T) {
+	t.Parallel()
 	dir, host, reg, svc := derivedFolder(t)
 	ctx := context.Background()
 	base, err := reg.Head(ctx, host+"/pacto/payments:1.4.2")
@@ -109,6 +110,7 @@ func TestPublishDerivedVersionRecorded(t *testing.T) {
 // TestPublishedIsUnchangedAgainstFolder: right after a derived publish, plan
 // mode's comparator reads the folder as what was published.
 func TestPublishedIsUnchangedAgainstFolder(t *testing.T) {
+	t.Parallel()
 	dir, host, reg, svc := derivedFolder(t)
 	ctx := context.Background()
 	if _, err := svc.Publish(ctx, PublishOptions{Path: dir, Revision: "r2"}); err != nil {
@@ -130,6 +132,7 @@ func TestPublishedIsUnchangedAgainstFolder(t *testing.T) {
 // TestPublishUnchangedFromNewCommitWritesNothing: the same folder published
 // again from a later commit is unchanged, with nothing written.
 func TestPublishUnchangedFromNewCommitWritesNothing(t *testing.T) {
+	t.Parallel()
 	dir, _, reg, svc := derivedFolder(t)
 	ctx := context.Background()
 	first, err := svc.Publish(ctx, PublishOptions{Path: dir, Revision: "r2"})
@@ -152,6 +155,7 @@ func TestPublishUnchangedFromNewCommitWritesNothing(t *testing.T) {
 // TestPublishDeclaredBelowFloorStillFails: a declared version keeps today's
 // rule and its refusal.
 func TestPublishDeclaredBelowFloorStillFails(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	svc := publishService(&fakeRun{}, reg)
 	dir := t.TempDir()
@@ -170,6 +174,7 @@ func TestPublishDeclaredBelowFloorStillFails(t *testing.T) {
 // TestPublishDeclaredFirstVersionAsWritten: a declared first version
 // publishes as written, with no record field.
 func TestPublishDeclaredFirstVersionAsWritten(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := t.TempDir()
 	signingKey(t, dir)
@@ -183,6 +188,7 @@ func TestPublishDeclaredFirstVersionAsWritten(t *testing.T) {
 // TestPublishDerivedFirstVersion: an empty repository gives 1.0.0, recorded
 // against the bare repository.
 func TestPublishDerivedFirstVersion(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := t.TempDir()
 	signingKey(t, dir)
@@ -200,6 +206,7 @@ func TestPublishDerivedFirstVersion(t *testing.T) {
 // TestPublishDeriveFailures: no signer means no verified baseline, and a
 // derive error is the publish's error.
 func TestPublishDeriveFailures(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -233,6 +240,7 @@ func TestPublishDeriveFailures(t *testing.T) {
 // TestPinDerivedFailures: a contract the version cannot be pinned into, or
 // whose record cannot be extended, is an error.
 func TestPinDerivedFailures(t *testing.T) {
+	t.Parallel()
 	host := "example.com"
 	b := &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "payments"}, Publish: &contract.Publish{Bundle: "oci://" + host + "/x"}},
 		RawYAML: []byte("pactoVersion: \"2.5\"\nservice: {name: payments}\n")}
@@ -272,6 +280,7 @@ func (walkFailFS) Open(name string) (fs.File, error) {
 // shallow clone the commit times decide, and with no baseline time a note
 // says what was not checked.
 func TestSuperseded(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	d := publish.Derived{Baseline: "1.4.2", BaselineRevision: "abc", BaselineCreated: "2026-11-01T00:00:00Z"}
 	run := func(answers map[string]string) runner {
@@ -315,6 +324,7 @@ func TestSuperseded(t *testing.T) {
 // TestLoadAndValidateFullDeriveVersion: publish may leave service.version
 // to derive, and pactoVersion is still pinned; push may not.
 func TestLoadAndValidateFullDeriveVersion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeDerivedBundle(t, dir, "example.com", "", "")
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: payments\n"), 0o644)
@@ -331,6 +341,7 @@ func TestLoadAndValidateFullDeriveVersion(t *testing.T) {
 // the deploy artifact its version published, once it verifies, so --propose
 // has a digest to propose; one missing or unsigned gives a note instead.
 func TestPublishUnchangedNamesTheDeployArtifact(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	svc := publishService(&fakeRun{}, reg)
 	ctx := context.Background()
@@ -466,6 +477,7 @@ func TestDeriveCountsDeclarationNoPolicyNote(t *testing.T) {
 }
 
 func TestDeriveSkipsForgedDeclaration(t *testing.T) {
+	t.Parallel()
 	e, dir, svc, _ := declaredFolder(t, true, false)
 	_, err := svc.Publish(t.Context(), PublishOptions{Path: dir, Revision: "r2", declTrust: e.trustingAcme(t)})
 	if err == nil || !strings.Contains(err.Error(), "no verifiable baseline in ") {
@@ -474,6 +486,7 @@ func TestDeriveSkipsForgedDeclaration(t *testing.T) {
 }
 
 func TestDeriveDeclarationNeedsPublisherIdentity(t *testing.T) {
+	t.Parallel()
 	e, dir, svc, _ := declaredFolder(t, false, true)
 	refs := &refCounter{Registry: e.reg}
 	svc.sys.publishRegistry = func() publish.Registry { return refs }
@@ -527,6 +540,7 @@ func (f *deriveFaults) Tags(ctx context.Context, repo string) ([]string, error) 
 }
 
 func TestDeriveDeclarationCheckUnreadIsError(t *testing.T) {
+	t.Parallel()
 	for _, f := range []*deriveFaults{{pull: true, tags: -1 << 20}, {}} {
 		e, dir, svc, _ := declaredFolder(t, true, true)
 		f.Registry = e.reg

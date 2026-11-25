@@ -11,7 +11,6 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -42,8 +41,7 @@ type pushEnv struct {
 // newPushEnv serves h and opens no organization index unless a test sets one.
 func newPushEnv(t *testing.T, h http.Handler) *pushEnv {
 	t.Helper()
-	freshProbes(t)
-	srv := httptest.NewServer(h)
+	srv := probedServer(t, h)
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 	reg := publish.NewClient(anonymous, host)
@@ -81,6 +79,7 @@ func plainRegistry() http.Handler { return registry.New(registry.Logger(log.New(
 // without, the pushed digest verifies with the key, and a second push signs
 // nothing more.
 func TestPushSignKeySignsDigest(t *testing.T) {
+	t.Parallel()
 	for name, h := range map[string]http.Handler{"referrers": testutil.NewReferrersRegistry(testutil.ReferrersOptions{}), "tags": plainRegistry()} {
 		t.Run(name, func(t *testing.T) {
 			e := newPushEnv(t, h)
@@ -108,6 +107,7 @@ func TestPushSignKeySignsDigest(t *testing.T) {
 // TestPushSignKeySignsUnchanged: a bundle pushed unsigned is signed by a push
 // of the same directory with a key, which writes nothing else.
 func TestPushSignKeySignsUnchanged(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	ctx := context.Background()
 	opts := PushOptions{Ref: "oci://" + e.host + "/acme/svc", Path: writeTestBundle(t), Index: IndexNone}
@@ -130,6 +130,7 @@ func TestPushSignKeySignsUnchanged(t *testing.T) {
 // TestPushSignKeyInsideBundleRefused: a key inside the pushed directory is
 // refused before anything is pushed, unless .pactoignore keeps it out.
 func TestPushSignKeyInsideBundleRefused(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	ctx := context.Background()
 	dir := writeTestBundle(t)
@@ -156,6 +157,7 @@ func TestPushSignKeyInsideBundleRefused(t *testing.T) {
 // and its manifest says when it was pushed; the same directory again is
 // unchanged, and a contribution pushed by digest is refused.
 func TestPushSetsCreatedAnnotation(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	ctx := context.Background()
 	now := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
@@ -185,6 +187,7 @@ func TestPushSetsCreatedAnnotation(t *testing.T) {
 // <name>_<version>, or whose version no OCI tag can hold, is refused before
 // anything is pushed.
 func TestPushContributionRefusesForeignTag(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	ctx := context.Background()
 	repo := e.host + "/acme/pacto-inferred/my-idp/services"
@@ -209,6 +212,7 @@ func TestPushContributionRefusesForeignTag(t *testing.T) {
 // TestPushToContributionWritesNoIndex: a contribution never reaches the
 // organization index, and the result says so.
 func TestPushToContributionWritesNoIndex(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	e.svc.sys.refusalRepo = func(r string) (*remote.Repository, error) {
 		t.Errorf("a contribution opened the index %s", r)
@@ -227,6 +231,7 @@ func TestPushToContributionWritesNoIndex(t *testing.T) {
 // TestPushContributionRefusesIndexFlag: --index names no index for a
 // contribution; none is what it gets anyway.
 func TestPushContributionRefusesIndexFlag(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	ctx := context.Background()
 	opts := PushOptions{Ref: "oci://" + e.host + "/acme/pacto-inferred/my-idp/services", Path: writeContribution(t), Index: e.host + "/acme/pacto-index"}
@@ -248,6 +253,7 @@ func (failingSigner) Sign(context.Context, string, []byte) ([]byte, error) {
 // TestPushSignFailureExitsWithDigest: a signature that fails after the push
 // names the pushed digest so the producer runs the push again.
 func TestPushSignFailureExitsWithDigest(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	ctx := context.Background()
 	opts := e.signed(PushOptions{Ref: "oci://" + e.host + "/acme/svc", Path: writeTestBundle(t), Index: IndexNone}, filepath.Join(t.TempDir(), "k.key"))
@@ -283,6 +289,7 @@ func (r writeFailRegistry) Tag(ctx context.Context, repo, digest, tag string) er
 // TestPushContributionWriteFails: a contribution the registry refuses to
 // store or tag fails the push.
 func TestPushContributionWriteFails(t *testing.T) {
+	t.Parallel()
 	for _, fail := range []writeFailRegistry{{write: true}, {tag: true}} {
 		e := newPushEnv(t, plainRegistry())
 		fail.Registry = e.reg
@@ -299,6 +306,7 @@ func TestPushContributionWriteFails(t *testing.T) {
 // folder; a folder Pacto cannot read or an override it cannot apply is
 // refused before anything is pushed.
 func TestPushContributionKeepsItsRecord(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	dir := writeContribution(t)
 	export := []byte(`{"checkout":["ledger"]}`)
@@ -337,6 +345,7 @@ func TestPushContributionKeepsItsRecord(t *testing.T) {
 // its created time and signature once its record is half a freshness window
 // old, so a producer that keeps pushing never reads stale.
 func TestPushContributionRenewsAgingRecord(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	ctx := context.Background()
 	now := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
@@ -381,6 +390,7 @@ func writeContributionRecord(t *testing.T, dir, dep string) {
 // fields changed under the same version and cited files is a conflict, never
 // unchanged.
 func TestPushContributionChangedRecordConflicts(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	ctx := context.Background()
 	dir := writeContribution(t)
@@ -399,6 +409,7 @@ func TestPushContributionChangedRecordConflicts(t *testing.T) {
 // more than its name and version, by its pacto.yaml or by --set, is refused
 // before anything is pushed, with the reason every reader would give.
 func TestPushContributionRefusesDeclaredFields(t *testing.T) {
+	t.Parallel()
 	e := newPushEnv(t, plainRegistry())
 	ctx := context.Background()
 	repo := e.host + "/acme/pacto-inferred/my-idp/services"

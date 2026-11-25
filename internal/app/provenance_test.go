@@ -66,14 +66,7 @@ func provenanceTestRegistryOf(t *testing.T, referrers bool) *provRegistry {
 	t.Helper()
 	p := &provRegistry{}
 	inner := registry.New(registry.WithReferrersSupport(referrers), registry.Logger(log.New(io.Discard, "", 0)))
-	// Only the registry without referrers gets a fresh prober: a stale native
-	// answer for its port is what breaks it, and the external catalog tests
-	// leave a check reading the prober running past their end, so swapping it
-	// under them is a race.
-	if !referrers {
-		freshProbes(t)
-	}
-	p.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	p.srv = probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		p.requests.Add(1)
 		if f := p.fail.Load(); f != nil && (*f)(r) {
 			// A status the client does not retry, so a failure costs no backoff.
@@ -187,6 +180,7 @@ func wantStatus(t *testing.T, p *fleet.BundleProvenance, status, reason string) 
 }
 
 func TestProvenanceUnsigned(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := contract.OCIScheme + pushImage(t, reg.client, reg.host+"/app")
 	p := checkerFor(reg).Check(t.Context(), "oci", ref, keylessContract(provIdentity))
@@ -249,6 +243,7 @@ func TestProvenanceUnsignedAndUnknown(t *testing.T) {
 // TestSignatureOfInstallationSources: a rule, pin or policy accept is
 // verified, with its source.
 func TestSignatureOfInstallationSources(t *testing.T) {
+	t.Parallel()
 	id := &delivery.PublisherIdentity{Subject: provWorkflow, Issuer: provIssuer}
 	for _, src := range []string{delivery.PublisherSourceRule, delivery.PublisherSourcePin, delivery.PublisherSourcePolicy} {
 		sig := signatureOf(delivery.PublisherVerdict{Verdict: delivery.VerdictAccepted, Source: src, Identity: id, Reason: "signed by x"},
@@ -264,6 +259,7 @@ func TestSignatureOfInstallationSources(t *testing.T) {
 
 // TestBundleSignatureJSONKeepsFields: every key a client reads keeps its name.
 func TestBundleSignatureJSONKeepsFields(t *testing.T) {
+	t.Parallel()
 	b, _ := json.Marshal(fleet.BundleSignature{Status: "verified", Source: "rule", Signer: "s", Issuer: "i", ExpectedSigner: "e", ExpectedIssuer: "f", Bundles: 1, Reason: "r"})
 	for _, k := range []string{`"status"`, `"source"`, `"signer"`, `"issuer"`, `"expectedSigner"`, `"expectedIssuer"`, `"bundles"`, `"reason"`} {
 		if !strings.Contains(string(b), k) {
@@ -352,6 +348,7 @@ func TestProvenanceRootUnavailable(t *testing.T) {
 }
 
 func TestProvenanceRegistryDown(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := contract.OCIScheme + pushImage(t, reg.client, reg.host+"/app")
 	reg.failWhen(func(*http.Request) bool { return true })
@@ -372,6 +369,7 @@ func TestProvenanceLayerReadFails(t *testing.T) {
 }
 
 func TestProvenanceNoDigest(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	for _, ref := range []string{"oci://" + reg.host + "/app:1.0.0", reg.host + "/app@nope"} {
 		p := checkerFor(reg).Check(t.Context(), "oci", ref, nil)
@@ -386,6 +384,7 @@ func TestProvenanceNoDigest(t *testing.T) {
 }
 
 func TestProvenanceBudgetSpent(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := contract.OCIScheme + pushImage(t, reg.client, reg.host+"/app")
 	before := reg.requests.Load()
@@ -447,6 +446,7 @@ func TestProvenanceMemo(t *testing.T) {
 }
 
 func TestProvenanceCreatedAnnotation(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := contract.OCIScheme + pushImage(t, reg.client, reg.host+"/app")
 	const evidence = "application/vnd.pacto.evidence.record.v1+json"
@@ -473,6 +473,7 @@ func TestProvenanceCreatedAnnotation(t *testing.T) {
 // TestProvenanceArtifactTypeFallback: a referrer without an artifact type is
 // listed by its media type.
 func TestProvenanceArtifactTypeFallback(t *testing.T) {
+	t.Parallel()
 	pc := newProvenanceChecker(descRegistry{{MediaType: types.OCIManifestSchema1, Digest: v1.Hash{Algorithm: "sha256", Hex: strings.Repeat("b", 64)}}})
 	p := pc.Check(t.Context(), "oci", "oci://r.example/app@sha256:"+strings.Repeat("a", 64), nil)
 	if p.Referrers.Items[0].ArtifactType != string(types.OCIManifestSchema1) {
@@ -506,12 +507,14 @@ func (d descRegistry) ReferrerDescriptors(context.Context, string, string) ([]v1
 
 // TestNewProvenanceChecker: the CLI's checker is ready to use.
 func TestNewProvenanceChecker(t *testing.T) {
+	t.Parallel()
 	if p := NewProvenanceChecker(); p.reg == nil || p.now == nil || p.memo == nil {
 		t.Fatalf("checker %+v", p)
 	}
 }
 
 func TestCapReason(t *testing.T) {
+	t.Parallel()
 	if got := capReason(strings.Repeat("é", 300)); len([]rune(got)) != provenanceMaxReason+1 {
 		t.Fatalf("capped to %d runes", len([]rune(got)))
 	}
@@ -520,6 +523,7 @@ func TestCapReason(t *testing.T) {
 // TestFleetWiresProvenance: the OCI source's revisions carry the checker's
 // result; without a checker they carry none.
 func TestFleetWiresProvenance(t *testing.T) {
+	t.Parallel()
 	store := fakeFleetStore{bundles: map[string]*contract.Bundle{"ghcr.io/x/a:1.0.0": bundleForFleet("a")}}
 	svc := NewService(store, nil)
 	for _, pc := range []*ProvenanceChecker{nil, newProvenanceChecker(descRegistry{})} {

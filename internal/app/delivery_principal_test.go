@@ -29,6 +29,7 @@ func asAgent(c *dynamicfake.FakeDynamicClient) {
 // that names nobody, itself or a service account before it reaches the
 // cluster, with the code a client shows and the flag that fixes it.
 func TestProposeAgentNeedsOnBehalfOf(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for behalf, code := range map[string]string{"": "NoPrincipal", agentUser: "SelfPrincipal", "system:serviceaccount:a:b": "NotAPerson"} {
 		d, c, _ := deliveryFixture(t, agentUser, nil, nil)
@@ -52,6 +53,7 @@ func TestProposeAgentNeedsOnBehalfOf(t *testing.T) {
 // TestPlanAgentWithoutPrincipalStillPlans: a plan is a preview and names
 // nobody, so it is never refused for that.
 func TestPlanAgentWithoutPrincipalStillPlans(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, agentUser, nil, nil)
 	if plan, _, err := d.Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB}); err != nil || plan.IntentDigest == "" {
 		t.Fatalf("plan: %+v %v", plan, err)
@@ -61,6 +63,7 @@ func TestPlanAgentWithoutPrincipalStillPlans(t *testing.T) {
 // TestUndoPlanAsAgentNeedsNoPrincipal: an agent reads what undoing a change
 // would take without naming anyone.
 func TestUndoPlanAsAgentNeedsNoPrincipal(t *testing.T) {
+	t.Parallel()
 	applied := map[string]any{"phase": "Concluded", "outcome": "Succeeded", "pointer": map[string]any{"before": dlC, "after": dlA}}
 	e := newRecordEnv(t, opFixture("ship", shipSpec(dlA), applied))
 	e.twoRecords()
@@ -73,6 +76,7 @@ func TestUndoPlanAsAgentNeedsNoPrincipal(t *testing.T) {
 // TestProgressAsAgentNeedsNoPrincipal: progress plans the candidate as the
 // caller, and an agent caller names nobody.
 func TestProgressAsAgentNeedsNoPrincipal(t *testing.T) {
+	t.Parallel()
 	d, c := statusFixture(t)
 	asAgent(c)
 	ri := c.Resource(gvrStages).Namespace("prod")

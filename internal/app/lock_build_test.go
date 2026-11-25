@@ -27,6 +27,7 @@ func rootBundleWithDep() *contract.Bundle {
 }
 
 func TestBuildLockCapturesDigest(t *testing.T) {
+	t.Parallel()
 	authContract := &contract.Contract{Service: contract.Service{Name: "auth", Version: "1.2.0"}}
 	store := &testutil.MockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.2.0"}, nil },
@@ -64,6 +65,7 @@ func TestBuildLockCapturesDigest(t *testing.T) {
 
 // TestBuildLockDependsOn covers transitive deps and dependsOn population.
 func TestBuildLockDependsOn(t *testing.T) {
+	t.Parallel()
 	// root -> auth -> db. auth's lock entry lists db in dependsOn.
 	//
 	// The digests are real-shaped because the lock builder pins before it pulls:
@@ -128,6 +130,7 @@ func TestBuildLockDependsOn(t *testing.T) {
 
 // TestBuildLockLocalDep covers the local-dependency branch (contentHash via HashFS).
 func TestBuildLockLocalDep(t *testing.T) {
+	t.Parallel()
 	// The dep fetcher loads local bundles from disk via loadLocalBundle, so we
 	// drive the local branch through a fetched node by injecting a node whose
 	// ref is local. We use a store-free service and a local dep on disk.
@@ -165,6 +168,7 @@ func TestBuildLockLocalDep(t *testing.T) {
 // TestBuildLockReferences covers config AND policy reference entries. The
 // referenced bundles are fetched (transitive closure), so Version is populated.
 func TestBuildLockReferences(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
 		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
@@ -209,6 +213,7 @@ func TestBuildLockReferences(t *testing.T) {
 
 // TestBuildLockLocalReference covers the local-reference branch (contentHash).
 func TestBuildLockLocalReference(t *testing.T) {
+	t.Parallel()
 	dir := testutil.WriteTestBundle(t)
 	store := &testutil.MockBundleStore{}
 	s := NewService(store, nil)
@@ -232,6 +237,7 @@ func TestBuildLockLocalReference(t *testing.T) {
 }
 
 func TestBuildLockConflict(t *testing.T) {
+	t.Parallel()
 	store := conflictStore()
 	s := NewService(store, nil)
 	_, err := s.buildLock(context.Background(), "testdata/root", conflictRootBundle(), nil)
@@ -334,6 +340,7 @@ func splitCycleRootBundle() *contract.Bundle {
 // cycle pass must mark a back-edge so buildLock fails closed with
 // LOCK_UNRESOLVED — on every run, not by scheduling luck.
 func TestBuildLockSplitCycleFailsClosed(t *testing.T) {
+	t.Parallel()
 	for i := 0; i < 50; i++ {
 		s := NewService(splitCycleStore(), nil)
 		_, err := s.buildLock(context.Background(), "testdata/root", splitCycleRootBundle(), nil)
@@ -350,6 +357,7 @@ func TestBuildLockSplitCycleFailsClosed(t *testing.T) {
 // TestBuildLockUnresolvedFailedEdge covers a required dep whose fetch fails:
 // the graph records Error and a nil Node, and buildLock must fail closed.
 func TestBuildLockUnresolvedFailedEdge(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			return nil, fmt.Errorf("registry unreachable")
@@ -376,6 +384,7 @@ func TestBuildLockUnresolvedFailedEdge(t *testing.T) {
 // by name, which the lock cannot follow, fails closed naming the dependency
 // rather than an empty ref.
 func TestBuildLockByNameDependencyNamesTheDependency(t *testing.T) {
+	t.Parallel()
 	s := NewService(&testutil.MockBundleStore{}, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
 		PactoVersion: "2.5",
@@ -395,6 +404,7 @@ func TestBuildLockByNameDependencyNamesTheDependency(t *testing.T) {
 // TestBuildLockUnresolvedDigestError covers the resolveDigest error path:
 // the node resolves (fetched) but the subsequent digest resolution fails.
 func TestBuildLockUnresolvedDigestError(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			return &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "auth", Version: "1.0.0"}}}, nil
@@ -420,6 +430,7 @@ func TestBuildLockUnresolvedDigestError(t *testing.T) {
 // TestBuildLockUnresolvedReferenceDigestError covers the reference OCI digest
 // error path (a reference whose digest resolution fails fails closed).
 func TestBuildLockUnresolvedReferenceDigestError(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
 			return "", fmt.Errorf("manifest not found")
@@ -442,6 +453,7 @@ func TestBuildLockUnresolvedReferenceDigestError(t *testing.T) {
 // TestBuildLockUnresolvedFailedReferenceLoad covers a local reference whose
 // bundle fails to load (non-existent path) -> fails closed with UnresolvedError.
 func TestBuildLockUnresolvedReferenceLoadError(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
@@ -461,6 +473,7 @@ func TestBuildLockUnresolvedReferenceLoadError(t *testing.T) {
 // TestBuildLockUnresolvedHashError covers the HashFS error branch: a resolved
 // local dependency whose FS walk errors (unreadable subdirectory) fails closed.
 func TestBuildLockUnresolvedHashError(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("permission-based FS walk error not reproducible as root")
 	}
@@ -491,6 +504,7 @@ func TestBuildLockUnresolvedHashError(t *testing.T) {
 // TestBuildLockTransitiveFailure covers firstFailedEdge recursing into a child
 // node to surface a grandchild's failed edge (root -> auth ok -> db fails).
 func TestBuildLockTransitiveFailure(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
 		PullFn: func(_ context.Context, ref string) (*contract.Bundle, error) {
@@ -529,6 +543,7 @@ func TestBuildLockTransitiveFailure(t *testing.T) {
 // with two resolved OCI deps, the first's digest resolution fails, setting
 // buildErr; the second visit must short-circuit on the guard.
 func TestBuildLockSecondEntryDigestError(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, ref string) (string, error) {
 			if ref == "ghcr.io/acme/a:1.0.0" {
@@ -564,6 +579,7 @@ func TestBuildLockSecondEntryDigestError(t *testing.T) {
 // TestBuildLockLocalReferenceLoadError covers a local reference whose bundle
 // fails to load (non-existent path) -> fails closed.
 func TestBuildLockLocalReferenceLoadError(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{}
 	s := NewService(store, nil)
 	root := &contract.Bundle{Contract: &contract.Contract{
@@ -582,6 +598,7 @@ func TestBuildLockLocalReferenceLoadError(t *testing.T) {
 // TestBuildLockLocalReferenceHashError covers the HashFS error branch for a
 // local reference (unreadable subdirectory in the referenced bundle).
 func TestBuildLockLocalReferenceHashError(t *testing.T) {
+	t.Parallel()
 	if os.Geteuid() == 0 {
 		t.Skip("permission-based FS walk error not reproducible as root")
 	}
@@ -619,6 +636,7 @@ func policyRefContract(name, version string, policyRefs ...string) *contract.Con
 // TestBuildReferenceClosureTransitive covers the transitive OCI jump
 // root -> P -> Q: Q is pinned with both version and digest.
 func TestBuildReferenceClosureTransitive(t *testing.T) {
+	t.Parallel()
 	pContract := policyRefContract("p", "1.0.0", "oci://r/q")
 	qContract := policyRefContract("q", "2.0.0")
 	store := &testutil.MockBundleStore{
@@ -655,6 +673,7 @@ func TestBuildReferenceClosureTransitive(t *testing.T) {
 // (root->p, p->q, q->p) and all three are pinned; the walk simply stops rather
 // than recursing into p a second time.
 func TestBuildReferenceClosureCycle(t *testing.T) {
+	t.Parallel()
 	pContract := policyRefContract("p", "1.0.0", "oci://r/q")
 	qContract := policyRefContract("q", "1.0.0", "oci://r/p")
 	store := &testutil.MockBundleStore{
@@ -681,6 +700,7 @@ func TestBuildReferenceClosureCycle(t *testing.T) {
 // TestBuildReferenceClosureLocalInsideOCIErrors covers a local ref reached
 // inside an OCI-fetched bundle (baseDir == "") -> *lock.UnresolvedError.
 func TestBuildReferenceClosureLocalInsideOCIErrors(t *testing.T) {
+	t.Parallel()
 	pContract := policyRefContract("p", "1.0.0", "../local-policy")
 	store := &testutil.MockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) { return []string{"1.0.0"}, nil },
@@ -701,6 +721,7 @@ func TestBuildReferenceClosureLocalInsideOCIErrors(t *testing.T) {
 // TestBuildReferenceClosureLocalAtRoot covers a local ref at the root: the
 // declaring bundle dir is a real temp dir and ContentHash + Version are set.
 func TestBuildReferenceClosureLocalAtRoot(t *testing.T) {
+	t.Parallel()
 	bundleDir := testutil.WriteTestBundle(t)
 	parent := filepath.Dir(bundleDir)
 	store := &testutil.MockBundleStore{}
@@ -725,6 +746,7 @@ func TestBuildReferenceClosureLocalAtRoot(t *testing.T) {
 // TestBuildReferenceClosureResolveError covers an OCI resolve failure ->
 // *lock.UnresolvedError (fail closed).
 func TestBuildReferenceClosureResolveError(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) { return "", fmt.Errorf("manifest not found") },
 	}
@@ -740,6 +762,7 @@ func TestBuildReferenceClosureResolveError(t *testing.T) {
 // TestBuildReferenceClosurePullError covers an OCI pull failure (digest
 // resolves but Pull fails) -> *lock.UnresolvedError.
 func TestBuildReferenceClosurePullError(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
@@ -759,6 +782,7 @@ func TestBuildReferenceClosurePullError(t *testing.T) {
 // referenceBaseDir returns "" so the closure resolves the root's OCI references
 // with no filesystem base.
 func TestBuildLockOCIRootReferenceBaseDir(t *testing.T) {
+	t.Parallel()
 	store := &testutil.MockBundleStore{
 		ResolveFn: func(_ context.Context, ref string) (string, error) { return "sha256:" + ref, nil },
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
@@ -787,6 +811,7 @@ func TestBuildLockOCIRootReferenceBaseDir(t *testing.T) {
 // own directory). Both p and q must be pinned with a ContentHash (no digest) and
 // the correct Version read from each referenced bundle's contract.
 func TestBuildReferenceClosureLocalTransitive(t *testing.T) {
+	t.Parallel()
 	rootDir := t.TempDir()
 	writeBundleYAML := func(dir, yaml string) {
 		t.Helper()
@@ -848,6 +873,7 @@ func TestBuildReferenceClosureLocalTransitive(t *testing.T) {
 }
 
 func TestBuildVersion(t *testing.T) {
+	t.Parallel()
 	if got := (&Service{}).buildVersion(); got != "dev" {
 		t.Errorf("unset: got %q, want dev", got)
 	}

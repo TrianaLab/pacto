@@ -15,6 +15,7 @@ import (
 )
 
 func TestDoc_Local(t *testing.T) {
+	t.Parallel()
 	path := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	result, err := svc.Doc(context.Background(), DocOptions{Path: path})
@@ -35,6 +36,7 @@ func TestDoc_Local(t *testing.T) {
 // An empty contract's document says where its name comes from and that it
 // declares no version, never a bare "v".
 func TestDoc_EmptyContractMarksInferredNameAndNoVersion(t *testing.T) {
+	t.Parallel()
 	result, err := NewService(nil, nil).Doc(context.Background(), DocOptions{Path: emptyChartDir(t, "")})
 	if err != nil {
 		t.Fatal(err)
@@ -51,6 +53,7 @@ func TestDoc_EmptyContractMarksInferredNameAndNoVersion(t *testing.T) {
 }
 
 func TestDoc_OCIRef(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	result, err := svc.Doc(context.Background(), DocOptions{Path: "oci://ghcr.io/acme/svc:1.0.0"})
@@ -63,6 +66,7 @@ func TestDoc_OCIRef(t *testing.T) {
 }
 
 func TestDoc_WithOutputDir(t *testing.T) {
+	t.Parallel()
 	path := writeTestBundle(t)
 	outDir := filepath.Join(t.TempDir(), "docs")
 	svc := NewService(nil, nil)
@@ -89,6 +93,7 @@ func TestDoc_WithOutputDir(t *testing.T) {
 }
 
 func TestDoc_RejectsUnsafeServiceName(t *testing.T) {
+	t.Parallel()
 	// The output filename embeds the remote-controlled service name; a traversal
 	// sequence must be refused before writing under OutputDir.
 	store := &mockBundleStore{
@@ -109,6 +114,7 @@ func TestDoc_RejectsUnsafeServiceName(t *testing.T) {
 }
 
 func TestDoc_NotFound(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.Doc(context.Background(), DocOptions{Path: "/nonexistent/path"})
 	if err == nil {
@@ -117,6 +123,7 @@ func TestDoc_NotFound(t *testing.T) {
 }
 
 func TestDoc_GenerateError(t *testing.T) {
+	t.Parallel()
 	generateDocHook := func(_ *dashboard.ServiceDetails, _ *graph.Result) (string, error) {
 		return "", fmt.Errorf("generate failed")
 	}
@@ -134,6 +141,7 @@ func TestDoc_GenerateError(t *testing.T) {
 }
 
 func TestDoc_OutputDirError(t *testing.T) {
+	t.Parallel()
 	path := writeTestBundle(t)
 	// Use a path nested under a file to trigger MkdirAll error
 	outDir := filepath.Join(path, "pacto.yaml", "impossible")
@@ -148,6 +156,7 @@ func TestDoc_OutputDirError(t *testing.T) {
 }
 
 func TestDoc_WriteFileError(t *testing.T) {
+	t.Parallel()
 	path := writeTestBundle(t)
 	// Create a read-only directory so MkdirAll succeeds but WriteFile fails
 	outDir := t.TempDir()
@@ -167,6 +176,7 @@ func TestDoc_WriteFileError(t *testing.T) {
 }
 
 func TestDoc_WithConfiguration(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			return &contract.Bundle{
@@ -213,6 +223,7 @@ func TestDoc_WithConfiguration(t *testing.T) {
 // pacto doc runs the configuration-refs stage lenient, like the fleet: a ref
 // it cannot fetch is CONFIG_REF_UNVERIFIED, never a pass.
 func TestDoc_UnreachableConfigRef(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	yaml := "pactoVersion: \"2.4\"\nservice:\n  name: orders\n  version: 1.0.0\nconfigurations:\n  - name: db\n    ref: oci://ghcr.io/acme/pg:16.1.0\n    required: true\n    values:\n      size: small\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(yaml), 0o644); err != nil {

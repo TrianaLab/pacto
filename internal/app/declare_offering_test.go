@@ -118,6 +118,7 @@ func (w *offeringWorld) planRefusal(t *testing.T, req DeclareRequest) *DeclareEr
 }
 
 func TestAcceptOfferingPlanFromContribution(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	from, digest := w.xbucket(t, 2)
 	p, d := w.plan(t, w.offerReq(from))
@@ -150,6 +151,7 @@ func wantAcceptedFolder(t *testing.T, d *declaration, inferredFrom string) {
 }
 
 func TestAcceptOfferingPublishesThroughDeclare(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	w.withOwnerPolicy(t)
 	res := w.accepted(t, 2, "1.0.0")
@@ -171,6 +173,7 @@ func TestAcceptOfferingPublishesThroughDeclare(t *testing.T) {
 }
 
 func TestAcceptRefusesOpenSchema(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	from, _ := w.contribute(t, w.repo, 2, contributionFiles(2, openOffering), w.kp)
 	de := w.planRefusal(t, w.offerReq(from))
@@ -199,6 +202,7 @@ func offeringDir(t *testing.T, name, cfgs string, files map[string]string) strin
 const provisioningCfg = "configurations:\n  - name: provisioning\n    schema: configuration/provisioning.schema.json\n    required: true\n"
 
 func TestAcceptOfferingDirClosesAndAccepts(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	from, digest := w.contribute(t, w.repo, 2, contributionFiles(2, openOffering), w.kp)
 	tuned := strings.Replace(closedOffering, `"maximum":100,"x-pacto-tier":"contract"`, `"maximum":100,"x-pacto-tier":"tunable"`, 1)
@@ -212,6 +216,7 @@ func TestAcceptOfferingDirClosesAndAccepts(t *testing.T) {
 }
 
 func TestAcceptOfferingDirOpenConfigurations(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	from, _ := w.xbucket(t, 2)
 	req := w.offerReq(from)
@@ -235,6 +240,7 @@ func TestAcceptOfferingDirOpenConfigurations(t *testing.T) {
 }
 
 func TestAcceptOfferingFolderWriteFails(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	from, _ := w.xbucket(t, 2)
 	writes := 0
@@ -252,6 +258,7 @@ func TestAcceptOfferingFolderWriteFails(t *testing.T) {
 }
 
 func TestAcceptOfferingVersionRequired(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	req := w.offerReq("oci://" + w.repo + ":xbucket_0.0.0-inferred.2.0")
 	req.Version = ""
@@ -261,6 +268,7 @@ func TestAcceptOfferingVersionRequired(t *testing.T) {
 }
 
 func TestAcceptOfferingVersionConflict(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	for _, v := range []string{"1.0", "1.0.0-rc.1", "1.0.0+build"} {
 		req := w.offerReq("oci://" + w.repo + ":xbucket_0.0.0-inferred.2.0")
@@ -278,6 +286,7 @@ func TestAcceptOfferingVersionConflict(t *testing.T) {
 }
 
 func TestAcceptOfferingSourceInvalid(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	for _, from := range []string{"", "oci://" + w.host + "/acme/xbucket:1.0.0"} {
 		if de := w.planRefusal(t, w.offerReq(from)); de.Code != codeOfferingSourceInvalid || !strings.Contains(de.CLI, "--from <contribution>") && from == "" {
@@ -302,6 +311,7 @@ func TestAcceptOfferingSourceInvalid(t *testing.T) {
 }
 
 func TestAcceptOfferingPullFails(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	from, _ := w.xbucket(t, 2)
 	w.faulty(&faultyRegistry{failPull: 1})
@@ -311,6 +321,7 @@ func TestAcceptOfferingPullFails(t *testing.T) {
 }
 
 func TestAcceptOfferingMismatch(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	_, digest := w.xbucket(t, 2)
 	req := w.offerReq("oci://" + w.repo + "@" + digest) // by digest
@@ -329,6 +340,7 @@ func TestAcceptOfferingMismatch(t *testing.T) {
 }
 
 func TestAcceptOfferingOwnerRequiredFirstTime(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	from, _ := w.xbucket(t, 2)
 	req := w.offerReq(from)
@@ -339,6 +351,7 @@ func TestAcceptOfferingOwnerRequiredFirstTime(t *testing.T) {
 }
 
 func TestAcceptOfferingRepositoryInferred(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	req := w.offerReq("oci://" + w.repo + ":xbucket_0.0.0-inferred.2.0")
 	req.Registry = w.host + "/acme/pacto-inferred/offerings"
@@ -351,6 +364,7 @@ func TestAcceptOfferingRepositoryInferred(t *testing.T) {
 // contribution, after one from a folder that marked a field tunable, names
 // the schema whose marks reset.
 func TestAcceptOfferingNamesUncarriedTiers(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	w.withOwnerPolicy(t)
 	from, _ := w.xbucket(t, 2)
@@ -373,6 +387,7 @@ func TestAcceptOfferingNamesUncarriedTiers(t *testing.T) {
 // TestAcceptOfferingCarriesBaselineChoices: a re-acceptance from a newer
 // contribution keeps the baseline's summary and owner.
 func TestAcceptOfferingCarriesBaselineChoices(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	w.withOwnerPolicy(t)
 	from, _ := w.xbucket(t, 2)
@@ -403,6 +418,7 @@ func TestAcceptOfferingCarriesBaselineChoices(t *testing.T) {
 }
 
 func TestAcceptOfferingAgentDrafts(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	from, _ := w.xbucket(t, 2)
 	req := w.offerReq(from)
@@ -420,6 +436,7 @@ func TestAcceptOfferingAgentDrafts(t *testing.T) {
 }
 
 func TestAcceptOfferingFromDraft(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	w.withOwnerPolicy(t)
 	from, _ := w.xbucket(t, 2)
@@ -438,6 +455,7 @@ func TestAcceptOfferingFromDraft(t *testing.T) {
 }
 
 func TestAcceptOfferingFromDraftNotOffered(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	from, _ := w.xbucket(t, 2)
 	req := w.offerReq(from)
@@ -456,6 +474,7 @@ func TestAcceptOfferingFromDraftNotOffered(t *testing.T) {
 }
 
 func TestAcceptOfferingRefusesUnverifiedProducer(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	from, _ := w.xbucket(t, 2)
 	req := w.offerReq(from)
@@ -477,6 +496,7 @@ func TestAcceptOfferingRefusesUnverifiedProducer(t *testing.T) {
 }
 
 func TestPlanVerifiesProducerWithDetected(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	// A contribution outside the repository the installation advertises.
 	elsewhere := contract.ContributionRepository(w.host+"/acme", "idp-c2")
@@ -526,6 +546,7 @@ func grantFile(t *testing.T, root, producer string, kp *signing.Keypair) string 
 // third-party producer pushed, signed with its key and granted in the trust
 // config, goes through the same acceptance.
 func TestAcceptExternalProducerOffering(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	kp, repo := newKeypair(t), contract.ContributionRepository(w.host+"/acme", "my-idp")
 	from, digest := w.contribute(t, repo, 1, contributionFiles(1, closedOffering), kp)
@@ -539,6 +560,7 @@ func TestAcceptExternalProducerOffering(t *testing.T) {
 }
 
 func TestPlanVerifiesProducerWithGrant(t *testing.T) {
+	t.Parallel()
 	w := newOfferingWorld(t)
 	kp, repo := newKeypair(t), contract.ContributionRepository(w.host+"/acme", "my-idp")
 	from, _ := w.contribute(t, repo, 1, contributionFiles(1, closedOffering), kp)
@@ -555,6 +577,7 @@ func TestPlanVerifiesProducerWithGrant(t *testing.T) {
 }
 
 func TestAcceptOfferingCommandAndAcceptCLI(t *testing.T) {
+	t.Parallel()
 	req := DeclareRequest{Service: "offering:xbucket", From: "oci://r/acme/pacto-inferred/p/services:xbucket_0.0.0-inferred.2.0",
 		Detected: "k8s:pacto-system/pacto-operator-detected", Registry: "r/acme/offerings", Version: "1.0.0", Owner: "team-storage", Dir: "/tmp/x"}
 	want := "pacto declare offering:xbucket --from " + req.From + " --detected k8s:pacto-system/pacto-operator-detected --dir /tmp/x " +

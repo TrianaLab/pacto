@@ -8,6 +8,7 @@ import (
 )
 
 func TestService_ObserveOTel(t *testing.T) {
+	t.Parallel()
 	trace := `{"resourceSpans":[{"resource":{"attributes":[{"key":"service.name","value":{"stringValue":"web"}}]},
 	  "scopeSpans":[{"spans":[{"kind":3,"attributes":[{"key":"peer.service","value":{"stringValue":"payments"}}]}]}]}]}`
 	svc := NewService(nil, nil)
@@ -27,6 +28,7 @@ func TestService_ObserveOTel(t *testing.T) {
 }
 
 func TestService_ObserveOTel_ParseError(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	if _, _, err := svc.ObserveOTel([]byte("{bad"), otelobserver.Options{}); err == nil {
 		t.Fatal("expected parse error")

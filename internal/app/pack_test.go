@@ -41,6 +41,7 @@ func TestPack_Success(t *testing.T) {
 }
 
 func TestPack_CustomOutput(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	bundleDir := writeTestBundle(t)
 	output := filepath.Join(dir, "custom.tar.gz")
@@ -59,6 +60,7 @@ func TestPack_CustomOutput(t *testing.T) {
 }
 
 func TestPack_InvalidContract(t *testing.T) {
+	t.Parallel()
 	dir := writeInvalidBundle(t)
 	svc := NewService(nil, nil)
 	_, err := svc.Pack(context.Background(), PackOptions{Path: dir})
@@ -68,6 +70,7 @@ func TestPack_InvalidContract(t *testing.T) {
 }
 
 func TestPack_FileNotFound(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.Pack(context.Background(), PackOptions{Path: "/nonexistent/dir"})
 	if err == nil {
@@ -76,6 +79,7 @@ func TestPack_FileNotFound(t *testing.T) {
 }
 
 func TestPack_BundleToTarGzError(t *testing.T) {
+	t.Parallel()
 	// Create a valid bundle with an unreadable file to cause BundleToTarGz to fail
 	bundleDir := writeTestBundle(t)
 	unreadable := filepath.Join(bundleDir, "unreadable.txt")
@@ -98,6 +102,7 @@ func TestPack_BundleToTarGzError(t *testing.T) {
 }
 
 func TestPack_WriteError(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	// Try to write to a path that doesn't exist and can't be created
@@ -111,6 +116,7 @@ func TestPack_WriteError(t *testing.T) {
 }
 
 func TestPackImplicitVersionPinned(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: s\n  version: 1.0.0\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -146,6 +152,7 @@ func TestPackImplicitVersionPinned(t *testing.T) {
 }
 
 func TestPackRefusesUndeclaredVersion(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), nil, 0o644); err != nil {
 		t.Fatal(err)
@@ -157,6 +164,7 @@ func TestPackRefusesUndeclaredVersion(t *testing.T) {
 }
 
 func TestRootServiceBundleExcludesPlanFile(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("service:\n  name: s\n  version: 1.0.0\n"), 0o644); err != nil {
 		t.Fatal(err)

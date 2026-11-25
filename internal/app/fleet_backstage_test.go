@@ -21,7 +21,7 @@ import (
 // ledgerCatalog serves one by-query page naming ledger, owned by team-ledger.
 func ledgerCatalog(t *testing.T) *httptest.Server {
 	t.Helper()
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"items":[{"kind":"Component","metadata":{"name":"ledger"},"spec":{"owner":"group:default/team-ledger","system":"payments"}}],"pageInfo":{}}`))
 	}))
 	t.Cleanup(srv.Close)
@@ -29,6 +29,7 @@ func ledgerCatalog(t *testing.T) *httptest.Server {
 }
 
 func TestBackstageSourceAloneWithLocal(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalBundle(t, filepath.Join(root, "ledger"), "ledger")
 	const token = "reader-token-value"
@@ -51,6 +52,7 @@ func TestBackstageSourceAloneWithLocal(t *testing.T) {
 }
 
 func TestNoBackstageURLNoSource(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeLocalBundle(t, filepath.Join(root, "ledger"), "ledger")
 	snap, err := NewService(nil, nil).Fleet(t.Context(), FleetOptions{LocalRoots: []string{root}, BackstageToken: "unused"})
@@ -63,6 +65,7 @@ func TestNoBackstageURLNoSource(t *testing.T) {
 }
 
 func TestFleetRejectsBackstageTokenOverPlainHTTP(t *testing.T) {
+	t.Parallel()
 	const token = "reader-token-value"
 	snap, err := NewService(nil, nil).Fleet(t.Context(), FleetOptions{BackstageURL: "http://backstage.example.com", BackstageToken: token})
 	if err == nil || snap != nil || strings.Contains(err.Error(), token) {
@@ -76,7 +79,7 @@ func TestFleetRejectsBackstageTokenOverPlainHTTP(t *testing.T) {
 func detectedCatalog(t *testing.T, status int) *[]string {
 	t.Helper()
 	var auth []string
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth = append(auth, r.Header.Get("Authorization"))
 		if status != http.StatusOK {
 			w.WriteHeader(status)
@@ -153,6 +156,7 @@ func TestDetectedBackstageExplicitURLWins(t *testing.T) {
 }
 
 func TestDetectedBackstageOffClusterEndpointBuildsNothing(t *testing.T) {
+	t.Parallel()
 	snap := liveFleet(t, FleetOptions{Detected: backstageDetection(t, "http://backstage.example.com:7007"), LiveEdges: fleetsrc.NewLiveEdges(time.Now)})
 	if st := sourceState(snap, backstage.SourceKind); st != nil {
 		t.Fatalf("source = %+v", st)
@@ -176,6 +180,7 @@ func TestDetectedBackstageNotReadByTheCLI(t *testing.T) {
 // dashboard drops the not-detected row, which would advise setting the URL
 // already set; without one the row stays.
 func TestConfiguredBackstageHidesNotDetectedRow(t *testing.T) {
+	t.Parallel()
 	notDetected := writeDetected(t, detect.Backstage(nil, nil))
 	snap := liveFleet(t, FleetOptions{Detected: notDetected, LiveEdges: fleetsrc.NewLiveEdges(time.Now), BackstageURL: ledgerCatalog(t).URL})
 	if slices.Contains(rowsOf(snap, "detection"), "backstage") {
@@ -191,6 +196,7 @@ func TestConfiguredBackstageHidesNotDetectedRow(t *testing.T) {
 // --backstage-url drops the row too, keeps every other row, and still reads
 // no detected catalog.
 func TestCLIConfiguredBackstageHidesNotDetectedRow(t *testing.T) {
+	t.Parallel()
 	notDetected := writeDetected(t, detect.Backstage(nil, nil))
 	snap := liveFleet(t, FleetOptions{Detected: notDetected, BackstageURL: ledgerCatalog(t).URL})
 	if rows := rowsOf(snap, "detection"); slices.Contains(rows, "backstage") {

@@ -30,7 +30,8 @@ import (
 
 const personIssuer = "https://accounts.google.com"
 
-// noAmbient clears every ambient OIDC token source.
+// noAmbient clears every ambient OIDC token source a test set earlier
+// (TestMain unsets them for every test).
 func noAmbient(t *testing.T) {
 	t.Helper()
 	for _, env := range []string{"SIGSTORE_ID_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN"} {
@@ -115,8 +116,7 @@ func TestSignerAmbientHumanMayNotDeclare(t *testing.T) {
 }
 
 func TestSignerAmbientTokenUnreadable(t *testing.T) {
-	noAmbient(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusForbidden) }))
 	defer srv.Close()
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", srv.URL+"/?x=1")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_TOKEN", "t")
@@ -142,7 +142,7 @@ func TestSignerAgentNeverUsesHumanToken(t *testing.T) {
 }
 
 func TestSignerLoginWhenNoAmbient(t *testing.T) {
-	noAmbient(t)
+	t.Parallel()
 	o := sigstoreRoot(t)
 	o.PolicyNote = "no installation signer policy was read (forbidden); readers judge this signature with their own"
 	calls := 0
@@ -158,7 +158,7 @@ func TestSignerLoginWhenNoAmbient(t *testing.T) {
 }
 
 func TestSignerLoginNoPersonWritesDraft(t *testing.T) {
-	noAmbient(t)
+	t.Parallel()
 	o := sigstoreRoot(t)
 	calls := 0
 	c, err := loginService(testutil.TokenWith(map[string]string{"email": "builder@acme.iam.gserviceaccount.com", "iss": personIssuer}), &calls).declareSigner(t.Context(), o, false)
@@ -168,7 +168,7 @@ func TestSignerLoginNoPersonWritesDraft(t *testing.T) {
 }
 
 func TestSignerLoginFailures(t *testing.T) {
-	noAmbient(t)
+	t.Parallel()
 	o := sigstoreRoot(t)
 	calls := 0
 	// A failed login, a token naming nobody and an unreadable trusted root fail the run.
@@ -238,12 +238,13 @@ func deviceIdP(t *testing.T, tokenAnswer func(issuer string) map[string]any) str
 		}
 		write(w, out)
 	})
-	srv = httptest.NewServer(mux)
+	srv = probedServer(t, mux)
 	t.Cleanup(srv.Close)
 	return srv.URL
 }
 
 func TestSignerDeviceUsesOAuthflow(t *testing.T) {
+	t.Parallel()
 	issuer := deviceIdP(t, func(iss string) map[string]any {
 		return map[string]any{"claims": map[string]any{"iss": iss, "aud": sigstoreClient, "sub": "ana", "email": "ana@acme.com",
 			"email_verified": true, "exp": time.Now().Add(time.Minute).Unix(), "iat": time.Now().Unix()}}
@@ -293,13 +294,13 @@ func TestSignerPolicyRuleWins(t *testing.T) {
 }
 
 func TestInstallationSignerIssuerNotListed(t *testing.T) {
+	t.Parallel()
 	p := &delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: "https://other.example", Subjects: `.*@acme\.com`}}}
 	id := delivery.PublisherIdentity{Subject: "ana@acme.com", Issuer: personIssuer, Class: delivery.ClassHuman}
 	if err := checkInstallationSigner(id, p); err == nil || !strings.Contains(err.Error(), "lists no issuer "+personIssuer) {
 		t.Fatal(err)
 	}
 	// The login refuses before it signs.
-	noAmbient(t)
 	o := sigstoreRoot(t)
 	o.Policy = p
 	calls := 0
@@ -309,6 +310,7 @@ func TestInstallationSignerIssuerNotListed(t *testing.T) {
 }
 
 func TestInstallationSignerSubjectNoMatch(t *testing.T) {
+	t.Parallel()
 	p := &delivery.ClassPolicy{Signers: []delivery.PersonSigner{{Issuer: personIssuer, Subjects: `.*@acme\.com`}}}
 	for sub, ok := range map[string]bool{"ana@acme.com": true, "eve@acme.com.evil.io": false, "eve@evil.io": false} {
 		err := checkInstallationSigner(delivery.PublisherIdentity{Subject: sub, Issuer: personIssuer}, p)
@@ -323,6 +325,7 @@ func TestInstallationSignerSubjectNoMatch(t *testing.T) {
 }
 
 func TestInstallationSignerUnreadablePrintsNote(t *testing.T) {
+	t.Parallel()
 	p, _, note := readSignerPolicy(t.Context(), dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()))
 	if p != nil || !strings.HasPrefix(note, "no installation signer policy was read (") || !strings.HasSuffix(note, "); readers judge this signature with their own") {
 		t.Fatalf("%v %q", p, note)
@@ -342,6 +345,7 @@ func policyConfigMap(data map[string]any) *unstructured.Unstructured {
 }
 
 func TestReadSignerPolicyOneGet(t *testing.T) {
+	t.Parallel()
 	cm := policyConfigMap(map[string]any{delivery.PolicyKey: `{"signers":[{"issuer":"` + personIssuer + `","subjects":".*@acme\\.com"}]}`})
 	dyn := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), cm)
 	p, _, note := readSignerPolicy(t.Context(), dyn)
@@ -359,6 +363,7 @@ func TestReadSignerPolicyOneGet(t *testing.T) {
 }
 
 func TestSameSignerMismatch(t *testing.T) {
+	t.Parallel()
 	planned := delivery.PublisherIdentity{Subject: "ana@acme.com", Issuer: personIssuer}
 	if err := sameSigner(planned, []delivery.PublisherIdentity{{Subject: "ana@acme.com", Issuer: personIssuer, Class: delivery.ClassHuman}}); err != nil {
 		t.Fatal(err)
@@ -371,6 +376,7 @@ func TestSameSignerMismatch(t *testing.T) {
 }
 
 func TestSameSignerRefusesTwoSigners(t *testing.T) {
+	t.Parallel()
 	planned := delivery.PublisherIdentity{Subject: "ana@acme.com", Issuer: personIssuer}
 	for _, got := range [][]delivery.PublisherIdentity{nil, {planned, planned}} {
 		if err := sameSigner(planned, got); err == nil || !strings.Contains(err.Error(), "expected exactly one by ana@acme.com") {
@@ -380,6 +386,7 @@ func TestSameSignerRefusesTwoSigners(t *testing.T) {
 }
 
 func TestRekorNoticeForPublicRekorOnly(t *testing.T) {
+	t.Parallel()
 	person := delivery.PublisherIdentity{Subject: "ana@acme.com", Issuer: personIssuer, Class: delivery.ClassHuman}
 	if got := rekorNotice(person, signing.PublicRekor); got != "your email ana@acme.com is recorded in the public Rekor transparency log" {
 		t.Fatal(got)

@@ -86,6 +86,7 @@ func (e *declareEnv) signers(t *testing.T, published string) []delivery.Publishe
 }
 
 func TestDeclareLoginWritesDeclared(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	calls := e.login(personToken("ana@acme.com"))
 	res := e.declare(t, e.req("ledger"))
@@ -103,6 +104,7 @@ func TestDeclareLoginWritesDeclared(t *testing.T) {
 }
 
 func TestDeclareOneSignature(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.login(personToken("ana@acme.com"))
 	res := e.declare(t, e.req())
@@ -114,6 +116,7 @@ func TestDeclareOneSignature(t *testing.T) {
 }
 
 func TestDeclarePrintsPlanBeforeLogin(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	var order []string
 	e.svc.sys.login = func(context.Context, declareLogin) (string, error) {
@@ -195,10 +198,10 @@ func TestDeclareWorkloadIdentityWritesDraft(t *testing.T) {
 }
 
 func TestDeclareKeyWritesDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	dir := t.TempDir()
 	keyFiles(t, dir)
-	t.Setenv("COSIGN_PASSWORD", "pw")
 	req := e.req()
 	req.Signing.Key = filepath.Join(dir, "cosign.key")
 	res := e.declare(t, req)
@@ -211,6 +214,7 @@ func TestDeclareKeyWritesDraft(t *testing.T) {
 }
 
 func TestDeclareAgentUnsignedDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Agent, req.OnBehalfOf = true, "ana"
@@ -225,6 +229,7 @@ func TestDeclareAgentUnsignedDraft(t *testing.T) {
 }
 
 func TestDeclareLoginOfNoPersonWritesDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.login(ciWorkflowToken())
 	res := e.declare(t, e.req())
@@ -237,6 +242,7 @@ func TestDeclareLoginOfNoPersonWritesDraft(t *testing.T) {
 }
 
 func TestDeclareSignerNotAllowedRefused(t *testing.T) {
+	t.Parallel()
 	other := policyConfigMap(map[string]any{delivery.PolicyKey: `{"signers":[{"issuer":"https://other.example","subjects":".*"}]}`})
 	e := newDeclareEnv(t, append(billing(time.Now()), other)...)
 	e.login(personToken("ana@acme.com"))
@@ -247,6 +253,7 @@ func TestDeclareSignerNotAllowedRefused(t *testing.T) {
 }
 
 func TestDeclareCertIdentityMismatchStopsBeforeTag(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	// The token names ana, and the Fulcio issues for mallory.
 	e.login(testutil.TokenWith(map[string]string{"sub": "mallory@acme.com", "email": "ana@acme.com", "email_verified": "true", "iss": personIssuer}))
@@ -257,6 +264,7 @@ func TestDeclareCertIdentityMismatchStopsBeforeTag(t *testing.T) {
 }
 
 func TestDeclareRecordInvalidRefused(t *testing.T) {
+	t.Parallel()
 	// No installation policy is read, and the login's token names no issuer.
 	e := newDeclareEnv(t, billing(time.Now())...)
 	e.login(testutil.TokenWith(map[string]string{"sub": "ana@acme.com", "email": "ana@acme.com", "email_verified": "true"}))
@@ -266,6 +274,7 @@ func TestDeclareRecordInvalidRefused(t *testing.T) {
 }
 
 func TestDeclarePlanStale(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	calls := e.login(personToken("ana@acme.com"))
 	req := e.req("ledger")
@@ -283,6 +292,7 @@ func TestDeclarePlanStale(t *testing.T) {
 }
 
 func TestDeclareIdempotentRerun(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	calls := e.login(personToken("ana@acme.com"))
 	first := e.declare(t, e.req())
@@ -296,6 +306,7 @@ func TestDeclareIdempotentRerun(t *testing.T) {
 }
 
 func TestDeclareVersionConflict(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	calls := e.login(personToken("ana@acme.com"))
 	e.publishBundle(t, e.host+"/acme/invoices", firstDeclaration, e.invoicesBaseline(firstDeclaration, ""), nil)
@@ -329,6 +340,7 @@ func (writeFails) Write(context.Context, string, publish.Artifact) (string, erro
 }
 
 func TestDeclareWriteFails(t *testing.T) {
+	t.Parallel()
 	for _, agent := range []bool{false, true} {
 		e := newDeclareEnv(t)
 		e.login(personToken("ana@acme.com"))
@@ -342,6 +354,7 @@ func TestDeclareWriteFails(t *testing.T) {
 }
 
 func TestDeclareLoginFails(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.svc.sys.login = func(context.Context, declareLogin) (string, error) { return "", errors.New("cancelled") }
 	if _, err := e.svc.Declare(t.Context(), e.req()); err == nil || !strings.Contains(err.Error(), "cancelled") {
@@ -350,6 +363,7 @@ func TestDeclareLoginFails(t *testing.T) {
 }
 
 func TestDeclareNoRegistry(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Registry, req.FromDraft = "", "draft-1"
@@ -360,6 +374,7 @@ func TestDeclareNoRegistry(t *testing.T) {
 }
 
 func TestDeclareWriteError(t *testing.T) {
+	t.Parallel()
 	de := &DeclareError{Code: codeSignerUnverified}
 	for in, want := range map[error]string{
 		nil: "", de: codeSignerUnverified, publish.ErrTagRace: codeVersionConflict, publish.ErrNotReady: codeVersionConflict, errors.New("x"): "",
@@ -435,6 +450,7 @@ func checkAcceptedDraft(t *testing.T, e *declareEnv, draftDigest string) {
 }
 
 func TestFromDraftReReadsClusterFacts(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.agentDraft(t)
 	const stale = "2020-01-01T00:00:00Z"
@@ -462,6 +478,7 @@ func TestFromDraftReReadsClusterFacts(t *testing.T) {
 }
 
 func TestFromDraftShowsUnbackedDeclaredChanges(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.agentDraft(t)
 	files := e.draftFiles(t, "draft-1", func(raw string, _ *contract.InferredRecord) string {
@@ -488,6 +505,7 @@ func TestFromDraftShowsUnbackedDeclaredChanges(t *testing.T) {
 // A plan-only run of --from-draft plans the draft, and its digest is the one
 // a later --yes --intent run accepts.
 func TestFromDraftPlanIntentIsAccepted(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.agentDraft(t)
 	e.login(personToken("ana@acme.com"))
@@ -503,6 +521,7 @@ func TestFromDraftPlanIntentIsAccepted(t *testing.T) {
 }
 
 func TestFromDraftUnbackedUnchecked(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.agentDraft(t)
 	e.login(personToken("ana@acme.com"))
@@ -528,6 +547,7 @@ func TestFromDraftUnbackedUnchecked(t *testing.T) {
 }
 
 func TestFromDraftNotFound(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.login(personToken("ana@acme.com"))
 	for _, tag := range []string{"draft-9", firstDeclaration} {
@@ -549,6 +569,7 @@ func TestFromDraftNotFound(t *testing.T) {
 }
 
 func TestFromDraftRefusesDeclaredRecord(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.login(personToken("ana@acme.com"))
 	res := e.declare(t, e.req())
@@ -599,6 +620,7 @@ func TestFromDraftNeedsAPerson(t *testing.T) {
 }
 
 func TestFromDraftReplansVersion(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.agentDraft(t)
 	e.withBaseline(t) // the baseline moved since the draft
@@ -610,6 +632,7 @@ func TestFromDraftReplansVersion(t *testing.T) {
 }
 
 func TestFromDraftOwnerRuleReapplied(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.agentDraft(t)
 	files := e.draftFiles(t, "draft-1", func(raw string, _ *contract.InferredRecord) string {
@@ -623,6 +646,7 @@ func TestFromDraftOwnerRuleReapplied(t *testing.T) {
 }
 
 func TestFromDraftUnchanged(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.login(personToken("ana@acme.com"))
 	e.declare(t, e.req())
@@ -638,6 +662,7 @@ func TestFromDraftUnchanged(t *testing.T) {
 }
 
 func TestFromDraftFolderFails(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.agentDraft(t, "ledger")
 	e.login(personToken("ana@acme.com"))
@@ -658,6 +683,7 @@ func TestFromDraftFolderFails(t *testing.T) {
 }
 
 func TestDeclareDraftRecordInvalidRefused(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	// A login of no person whose token claims the unsigned issuer.
 	e.login(testutil.TokenWith(map[string]string{"sub": "https://ci.example/acme/invoices", "iss": contract.SignerUnsigned, "ci_config_ref_uri": "ci.example/acme/invoices"}))
@@ -683,6 +709,7 @@ func (e *declareEnv) wantFiles(t *testing.T, tag string, files map[string][]byte
 }
 
 func TestDeclareResultCarriesWrittenFiles(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.login(personToken("ana@acme.com"))
 	first := e.declare(t, e.req())
@@ -703,6 +730,7 @@ func TestDeclareDraftCarriesWrittenFiles(t *testing.T) {
 }
 
 func TestDeclareOnPlanRefuses(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	calls := e.login(personToken("ana@acme.com"))
 	req := e.req()
@@ -713,6 +741,7 @@ func TestDeclareOnPlanRefuses(t *testing.T) {
 }
 
 func TestBundleFilesLeavesMissingOut(t *testing.T) {
+	t.Parallel()
 	got := bundleFiles(fstest.MapFS{DefaultContractPath: {Data: []byte("a")}})
 	if len(got) != 1 || string(got[DefaultContractPath]) != "a" {
 		t.Fatal(got)

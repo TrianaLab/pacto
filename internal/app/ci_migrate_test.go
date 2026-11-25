@@ -38,6 +38,7 @@ func migrateDir(t *testing.T, s *Service, root, rel string) (*contract.Bundle, *
 }
 
 func TestMigrateForCIRaises(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFiles(t, root, map[string]string{"orders/pacto.yaml": behindDoc("orders")})
 	s := &Service{Version: "9.9.9"}
@@ -60,6 +61,7 @@ func TestMigrateForCIRaises(t *testing.T) {
 }
 
 func TestCIMigratedBytesDifferOnlyInVersion(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	doc := behindDoc("orders")
 	writeFiles(t, root, map[string]string{"orders/pacto.yaml": doc})
@@ -76,6 +78,7 @@ func TestCIMigratedBytesDifferOnlyInVersion(t *testing.T) {
 // names the catalog a current folder records, and quotes no value the
 // folder sets.
 func TestMigrateForCICompletesAfterRaise(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	for _, rel := range []string{"orders", "current"} {
 		if err := os.CopyFS(filepath.Join(root, rel), os.DirFS("../discover/testdata/complete")); err != nil {
@@ -109,6 +112,7 @@ func TestMigrateForCICompletesAfterRaise(t *testing.T) {
 // validate as written and is kept, its inferred name and the publish
 // refusal naming it intact.
 func TestMigrateForCIKeepsInferredName(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFiles(t, root, map[string]string{"orders/pacto.yaml": "pactoVersion: \"2.4\"\nservice:\n  version: 1.0.0\n"})
 	b, nb, m := migrateDir(t, &Service{}, root, "orders")
@@ -127,6 +131,7 @@ func TestMigrateForCIKeepsInferredName(t *testing.T) {
 // the bundle holds another k8s/deploy.yaml than the folder completion
 // reads, so the record cites a digest the bundle does not hold.
 func TestMigrateForCIInvalidCompletedRecordKeeps(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFiles(t, root, map[string]string{
 		"orders/pacto.yaml":      strings.Replace(behindDoc("orders"), strconv.Quote(prevVersion), `"2.4"`, 1),
@@ -148,6 +153,7 @@ func TestMigrateForCIInvalidCompletedRecordKeeps(t *testing.T) {
 }
 
 func TestCIKeptPublishesAsWritten(t *testing.T) {
+	t.Parallel()
 	dir := refPair(t, strictSchema, nil)
 	b, nb, m := migrateDir(t, &Service{}, filepath.Dir(dir), "orders")
 	if nb != b || m.State != migrationKept || m.From != "2.3" || m.To != "2.3" || m.Reason != "ENVIRONMENT_VALUES_MISSING at environments[0].file from "+contract.Current() {
@@ -159,6 +165,7 @@ func TestCIKeptPublishesAsWritten(t *testing.T) {
 }
 
 func TestCIUpgradeErrorKeeps(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	escaped := `"` + strings.Replace(prevVersion, ".", `\x2E`, 1) + `"`
 	writeFiles(t, root, map[string]string{"orders/pacto.yaml": "pactoVersion: " + escaped + "\nservice: {name: orders, version: 1.0.0}\n"})
@@ -172,6 +179,7 @@ func TestCIUpgradeErrorKeeps(t *testing.T) {
 // pactoVersion Parse accepts; the parsed one names the migration, and a
 // current one is never reported kept.
 func TestCIBlockScalarVersion(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFiles(t, root, map[string]string{
 		"current/pacto.yaml": "pactoVersion: |-\n  " + contract.Current() + "\nservice: {name: current, version: 1.0.0}\n",
@@ -186,6 +194,7 @@ func TestCIBlockScalarVersion(t *testing.T) {
 }
 
 func TestMigrateForCICurrentUntouched(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFiles(t, root, map[string]string{
 		"current/pacto.yaml": "pactoVersion: " + strconv.Quote(contract.Current()) + "\nservice: {name: current, version: 1.0.0}\n",
@@ -201,6 +210,7 @@ func TestMigrateForCICurrentUntouched(t *testing.T) {
 // TestMigrateForCICopyFailureKeeps: a folder the raise cannot copy keeps
 // its contract as written.
 func TestMigrateForCICopyFailureKeeps(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFiles(t, root, map[string]string{"orders/pacto.yaml": behindDoc("orders")})
 	dir := filepath.Join(root, "orders")
@@ -237,6 +247,7 @@ func (unreadableInfo) IsDir() bool        { return false }
 func (unreadableInfo) Sys() any           { return nil }
 
 func TestAddedFinding(t *testing.T) {
+	t.Parallel()
 	before := validation.ValidationResult{Warnings: []contract.ValidationWarning{{Code: "W", Path: "a"}}}
 	after := validation.ValidationResult{Warnings: []contract.ValidationWarning{{Code: "W", Path: "a"}, {Code: "W", Path: "a"}}}
 	if got := addedFinding(before, before); got != "" {

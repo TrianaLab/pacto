@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/ed25519"
 	"errors"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -150,8 +149,7 @@ func TestAdoptOnlySignedByTheTokenIdentity(t *testing.T) {
 // kept, signed keyless as the CI identity.
 func TestKeepRefusalNilSignKeyless(t *testing.T) {
 	ss := privateSigstore(t, ciWorkflow)
-	freshProbes(t)
-	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
+	srv := probedServer(t, testutil.NewReferrersRegistry(testutil.ReferrersOptions{}))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 	reg := publish.NewClient(anonymous, host)
@@ -185,6 +183,7 @@ func (noReferrers) Referrers(context.Context, string, string, string) ([]string,
 // TestSignReadBackVersusMismatch: a signature read and rejected names the
 // identity; a read-back that failed says only that it could not verify.
 func TestSignReadBackVersusMismatch(t *testing.T) {
+	t.Parallel()
 	key := func() *signing.Keypair {
 		_, k, _ := ed25519.GenerateKey(nil)
 		kp, err := signing.FromPrivateKey(k)

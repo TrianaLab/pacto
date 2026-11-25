@@ -42,6 +42,7 @@ func authStore(digest string) *testutil.MockBundleStore {
 }
 
 func TestLockWritesFile(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := NewService(authStore("sha256:v1"), nil)
 	res, err := s.Lock(context.Background(), LockOptions{Path: dir})
@@ -71,6 +72,7 @@ func TestLockWritesFile(t *testing.T) {
 }
 
 func TestLockResolveError(t *testing.T) {
+	t.Parallel()
 	// Non-existent local dir -> resolveBundle fails.
 	s := NewService(authStore("sha256:v1"), nil)
 	_, err := s.Lock(context.Background(), LockOptions{Path: filepath.Join(t.TempDir(), "nope")})
@@ -80,6 +82,7 @@ func TestLockResolveError(t *testing.T) {
 }
 
 func TestLockBuildError(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	// Store fails to resolve the dep digest -> buildLock returns UnresolvedError.
 	store := &testutil.MockBundleStore{
@@ -97,6 +100,7 @@ func TestLockBuildError(t *testing.T) {
 }
 
 func TestLockOCIRefRejected(t *testing.T) {
+	t.Parallel()
 	s := NewService(authStore("sha256:v1"), nil)
 	_, err := s.Lock(context.Background(), LockOptions{Path: "oci://ghcr.io/acme/root:1.0.0"})
 	if err == nil || !strings.Contains(err.Error(), "local directory") {
@@ -105,6 +109,7 @@ func TestLockOCIRefRejected(t *testing.T) {
 }
 
 func TestLockUpToDateNoop(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := NewService(authStore("sha256:v1"), nil)
 	if _, err := s.Lock(context.Background(), LockOptions{Path: dir}); err != nil {
@@ -124,6 +129,7 @@ func TestLockUpToDateNoop(t *testing.T) {
 }
 
 func TestLockUpdateRepins(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	if _, err := NewService(authStore("sha256:v1"), nil).Lock(context.Background(), LockOptions{Path: dir}); err != nil {
 		t.Fatal(err)
@@ -147,6 +153,7 @@ func TestLockUpdateRepins(t *testing.T) {
 // TestLockInconsistentMergesPins covers the "consistent lock absent / divergent,
 // no --update" path: drift forces a rewrite via mergePreservingPins.
 func TestLockInconsistentMergesPins(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	if _, err := NewService(authStore("sha256:v1"), nil).Lock(context.Background(), LockOptions{Path: dir}); err != nil {
 		t.Fatal(err)
@@ -170,6 +177,7 @@ func TestLockInconsistentMergesPins(t *testing.T) {
 }
 
 func TestLockCheckUpToDate(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := NewService(authStore("sha256:v1"), nil)
 	if _, err := s.Lock(context.Background(), LockOptions{Path: dir}); err != nil {
@@ -188,6 +196,7 @@ func TestLockCheckUpToDate(t *testing.T) {
 }
 
 func TestLockCheckDrift(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	if _, err := NewService(authStore("sha256:v1"), nil).Lock(context.Background(), LockOptions{Path: dir}); err != nil {
 		t.Fatal(err)
@@ -201,6 +210,7 @@ func TestLockCheckDrift(t *testing.T) {
 }
 
 func TestLockCheckMissing(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := NewService(authStore("sha256:v1"), nil)
 	_, err := s.Lock(context.Background(), LockOptions{Path: dir, Check: true})
@@ -225,6 +235,7 @@ func lockState(t *testing.T, dir string) (bool, []byte) {
 }
 
 func TestLockMarshalError(t *testing.T) {
+	t.Parallel()
 	// Force writeFileFn to fail so the write-error path is covered. A failed write
 	// must not leave a partial/corrupt lock on disk.
 	dir := writeRoot(t)
@@ -244,6 +255,7 @@ func TestLockMarshalError(t *testing.T) {
 }
 
 func TestLockMarshalFails(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	beforeExists, before := lockState(t, dir)
 	marshalLockHook := func(_ *lock.Lock) ([]byte, error) { return nil, errors.New("marshal boom") }
@@ -262,6 +274,7 @@ func TestLockMarshalFails(t *testing.T) {
 }
 
 func TestVerifyHardFailsOnDrift(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := NewService(authStore("sha256:v1"), nil)
 	if _, err := s.Lock(context.Background(), LockOptions{Path: dir}); err != nil {
@@ -279,6 +292,7 @@ func TestVerifyHardFailsOnDrift(t *testing.T) {
 }
 
 func TestVerifyNoLockIsNoop(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := NewService(authStore("sha256:v1"), nil)
 	bundle, _ := s.resolveBundle(context.Background(), dir)
@@ -288,6 +302,7 @@ func TestVerifyNoLockIsNoop(t *testing.T) {
 }
 
 func TestVerifyOCIRefIsNoop(t *testing.T) {
+	t.Parallel()
 	s := NewService(authStore("sha256:v1"), nil)
 	if err := s.verifyLockIfPresent(context.Background(), "oci://ghcr.io/acme/root:1.0.0", &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "root"}}}); err != nil {
 		t.Errorf("OCI ref should be a no-op, got %v", err)
@@ -295,6 +310,7 @@ func TestVerifyOCIRefIsNoop(t *testing.T) {
 }
 
 func TestVerifyReadLockParseError(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	// Write a syntactically broken lock so Parse fails (not fs.ErrNotExist).
 	if err := os.WriteFile(filepath.Join(dir, "pacto.lock"), []byte("lockVersion: 99\n"), 0o644); err != nil {
@@ -309,6 +325,7 @@ func TestVerifyReadLockParseError(t *testing.T) {
 }
 
 func TestVerifyBuildError(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	// Valid lock present, but fresh build fails (digest resolution errors).
 	if _, err := NewService(authStore("sha256:v1"), nil).Lock(context.Background(), LockOptions{Path: dir}); err != nil {
@@ -341,6 +358,7 @@ func depLock(name, source, digest, contentHash, constraint string) *lock.Lock {
 }
 
 func TestCompareLocksConsistent(t *testing.T) {
+	t.Parallel()
 	a := depLock("auth", "oci", "sha256:x", "", "^1.0.0")
 	b := depLock("auth", "oci", "sha256:x", "", "^1.0.0")
 	if err := compareLocks(a, b); err != nil {
@@ -349,6 +367,7 @@ func TestCompareLocksConsistent(t *testing.T) {
 }
 
 func TestCompareLocksDepCountChanged(t *testing.T) {
+	t.Parallel()
 	a := depLock("auth", "oci", "sha256:x", "", "^1.0.0")
 	b := &lock.Lock{} // empty
 	err := compareLocks(a, b)
@@ -359,6 +378,7 @@ func TestCompareLocksDepCountChanged(t *testing.T) {
 }
 
 func TestCompareLocksNewDependency(t *testing.T) {
+	t.Parallel()
 	existing := depLock("auth", "oci", "sha256:x", "", "^1.0.0")
 	// fresh has the same count but a different name -> "new dependency".
 	fresh := depLock("db", "oci", "sha256:y", "", "^2.0.0")
@@ -370,6 +390,7 @@ func TestCompareLocksNewDependency(t *testing.T) {
 }
 
 func TestCompareLocksLocalDrift(t *testing.T) {
+	t.Parallel()
 	existing := depLock("auth", "local", "", "hash-old", "")
 	fresh := depLock("auth", "local", "", "hash-new", "")
 	err := compareLocks(existing, fresh)
@@ -380,6 +401,7 @@ func TestCompareLocksLocalDrift(t *testing.T) {
 }
 
 func TestCompareLocksLocalConsistent(t *testing.T) {
+	t.Parallel()
 	existing := depLock("auth", "local", "", "hash", "")
 	fresh := depLock("auth", "local", "", "hash", "")
 	if err := compareLocks(existing, fresh); err != nil {
@@ -388,6 +410,7 @@ func TestCompareLocksLocalConsistent(t *testing.T) {
 }
 
 func TestCompareLocksReferenceByRefDrift(t *testing.T) {
+	t.Parallel()
 	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/cfg", Digest: "sha256:old"},
 	}}
@@ -407,6 +430,7 @@ func TestCompareLocksReferenceByRefDrift(t *testing.T) {
 // counterparts. Matching on (kind, name) alone would compare the root's digest
 // against the transitive one and report drift that does not exist.
 func TestCompareLocksReferenceNameCollision(t *testing.T) {
+	t.Parallel()
 	refs := []lock.Reference{
 		{From: "", Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/a", Digest: "sha256:a"},
 		{From: "config:parent", Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/b", Digest: "sha256:b"},
@@ -423,6 +447,7 @@ func TestCompareLocksReferenceNameCollision(t *testing.T) {
 // and comparing them against each other would report drift between unrelated
 // bundles.
 func TestCompareLocksLocalReferenceSamePathDifferentOccurrences(t *testing.T) {
+	t.Parallel()
 	refs := []lock.Reference{
 		{From: "", Kind: "config", Name: "shared", Source: "local", Path: "./config", ContentHash: "h-root"},
 		{From: "config:child", Kind: "config", Name: "shared", Source: "local", Path: "./config", ContentHash: "h-child"},
@@ -436,6 +461,7 @@ func TestCompareLocksLocalReferenceSamePathDifferentOccurrences(t *testing.T) {
 
 // A lock written under an older schema is stale, not silently reinterpreted.
 func TestCompareLocksOlderSchemaIsStale(t *testing.T) {
+	t.Parallel()
 	existing := &lock.Lock{LockVersion: 1, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/a", Digest: "sha256:a"},
 	}}
@@ -449,6 +475,7 @@ func TestCompareLocksOlderSchemaIsStale(t *testing.T) {
 }
 
 func TestCompareLocksReferenceLocalDrift(t *testing.T) {
+	t.Parallel()
 	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "local", Path: "./cfg", ContentHash: "h-old"},
 	}}
@@ -463,6 +490,7 @@ func TestCompareLocksReferenceLocalDrift(t *testing.T) {
 }
 
 func TestCompareLocksReferenceLocalConsistent(t *testing.T) {
+	t.Parallel()
 	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "local", Path: "./cfg", ContentHash: "h"},
 	}}
@@ -477,6 +505,7 @@ func TestCompareLocksReferenceLocalConsistent(t *testing.T) {
 // TestCompareLocksReferenceCountChanged covers the reference-count StaleError:
 // both locks have equal dependency counts but a different number of references.
 func TestCompareLocksReferenceCountChanged(t *testing.T) {
+	t.Parallel()
 	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/cfg", Digest: "sha256:x"},
 	}}
@@ -491,6 +520,7 @@ func TestCompareLocksReferenceCountChanged(t *testing.T) {
 // TestCompareLocksReferenceNew covers the membership mismatch when counts match
 // but a fresh reference occurrence is absent from the existing set.
 func TestCompareLocksReferenceNew(t *testing.T) {
+	t.Parallel()
 	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{From: "", Kind: "config", Name: "old-scope", Source: "oci", Ref: "oci://r/a", Digest: "sha256:x"},
 	}}
@@ -508,6 +538,7 @@ func TestCompareLocksReferenceNew(t *testing.T) {
 // happens to hash the same. The lock records the declared source, not just the
 // bytes it reached.
 func TestCompareLocksReferenceRepointedIsStale(t *testing.T) {
+	t.Parallel()
 	existing := &lock.Lock{LockVersion: lock.CurrentLockVersion, References: []lock.Reference{
 		{From: "", Kind: "config", Name: "cfg", Source: "oci", Ref: "oci://r/old", Digest: "sha256:x"},
 	}}
@@ -523,6 +554,7 @@ func TestCompareLocksReferenceRepointedIsStale(t *testing.T) {
 // --- mergePreservingPins unit coverage ---
 
 func TestMergePreservingPins(t *testing.T) {
+	t.Parallel()
 	existing := &lock.Lock{Dependencies: []lock.Entry{
 		{Name: "keep", Source: "oci", Constraint: "^1.0.0", Version: "1.0.0", Digest: "sha256:keep"},
 		{Name: "forced", Source: "oci", Constraint: "^1.0.0", Version: "1.0.0", Digest: "sha256:forced-old"},
@@ -574,6 +606,7 @@ func TestMergePreservingPins(t *testing.T) {
 // --- readLockFile coverage ---
 
 func TestReadLockFileNotExist(t *testing.T) {
+	t.Parallel()
 	_, err := readLockFile(filepath.Join(t.TempDir(), "pacto.lock"))
 	if !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("expected fs.ErrNotExist, got %v", err)
@@ -581,6 +614,7 @@ func TestReadLockFileNotExist(t *testing.T) {
 }
 
 func TestReadLockFileParseError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "pacto.lock")
 	if err := os.WriteFile(path, []byte("lockVersion: 99\n"), 0o644); err != nil {
@@ -595,6 +629,7 @@ func TestReadLockFileParseError(t *testing.T) {
 // --- lockCode coverage ---
 
 func TestLockCode(t *testing.T) {
+	t.Parallel()
 	if got := lockCode(&lock.DriftError{Name: "auth", Locked: "a", Current: "b"}); got != "LOCK_DIGEST_MISMATCH" {
 		t.Errorf("lockCode drift: got %q", got)
 	}
@@ -614,6 +649,7 @@ func TestLockCode(t *testing.T) {
 // directory layout -- or a YAML parser's prose -- into a field CI and the
 // operator branch on.
 func TestLockCode_UncodedErrorsNeverLeakTheirMessage(t *testing.T) {
+	t.Parallel()
 	for _, err := range []error{
 		&fs.PathError{Op: "open", Path: "/home/me/svc/pacto.lock", Err: fs.ErrPermission},
 		errors.New("yaml: line 3: mapping values are not allowed in this context"),
@@ -637,6 +673,7 @@ func staleLockNextTo(t *testing.T, dir string) *Service {
 }
 
 func TestGraphVerifiesLock(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := staleLockNextTo(t, dir)
 	_, err := s.Graph(context.Background(), GraphOptions{Path: dir})
@@ -647,6 +684,7 @@ func TestGraphVerifiesLock(t *testing.T) {
 }
 
 func TestGraphNoLockPasses(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := NewService(authStore("sha256:v1"), nil)
 	if _, err := s.Graph(context.Background(), GraphOptions{Path: dir}); err != nil {
@@ -655,6 +693,7 @@ func TestGraphNoLockPasses(t *testing.T) {
 }
 
 func TestDiffVerifiesLockOldSide(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := staleLockNextTo(t, dir)
 	_, err := s.Diff(context.Background(), DiffOptions{OldPath: dir, NewPath: dir})
@@ -665,6 +704,7 @@ func TestDiffVerifiesLockOldSide(t *testing.T) {
 }
 
 func TestDiffVerifiesLockNewSide(t *testing.T) {
+	t.Parallel()
 	oldDir := writeRoot(t)
 	newDir := writeRoot(t)
 	// Only the NEW side has a stale lock; old side is clean.
@@ -680,6 +720,7 @@ func TestDiffVerifiesLockNewSide(t *testing.T) {
 }
 
 func TestDiffNoLockPasses(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := NewService(authStore("sha256:v1"), nil)
 	if _, err := s.Diff(context.Background(), DiffOptions{OldPath: dir, NewPath: dir}); err != nil {
@@ -688,6 +729,7 @@ func TestDiffNoLockPasses(t *testing.T) {
 }
 
 func TestValidateSurfacesLockError(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := staleLockNextTo(t, dir)
 	res, err := s.Validate(context.Background(), ValidateOptions{Path: dir})
@@ -703,6 +745,7 @@ func TestValidateSurfacesLockError(t *testing.T) {
 }
 
 func TestValidateNoLockPasses(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	s := NewService(authStore("sha256:v1"), nil)
 	res, err := s.Validate(context.Background(), ValidateOptions{Path: dir})
@@ -719,6 +762,7 @@ func TestValidateNoLockPasses(t *testing.T) {
 }
 
 func TestPushVerifiesLock(t *testing.T) {
+	t.Parallel()
 	dir := writeRoot(t)
 	// Need a fully valid contract for push's loadAndValidateFull. The minimal
 	// root contract lacks runtime/interfaces, so push would fail validation
@@ -739,6 +783,7 @@ func TestPushVerifiesLock(t *testing.T) {
 }
 
 func TestPushNoLockPasses(t *testing.T) {
+	t.Parallel()
 	full := testutil.WriteTestBundle(t)
 	yaml := string(testutil.ValidPactoYAML()) + "dependencies:\n  - name: auth\n    ref: oci://ghcr.io/acme/auth\n    compatibility: ^1.0.0\n    required: true\n"
 	if err := os.WriteFile(filepath.Join(full, "pacto.yaml"), []byte(yaml), 0o644); err != nil {

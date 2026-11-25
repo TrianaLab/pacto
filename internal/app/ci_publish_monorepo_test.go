@@ -16,6 +16,7 @@ import (
 // derived 1.0.0 with no build (every image is pinned by digest), and the
 // next plan reads both unchanged with exit 0.
 func TestCIPublishMonorepoThenUnchanged(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	if err := os.CopyFS(e.root, os.DirFS("../../examples/demo/monorepo")); err != nil {
 		t.Fatal(err)

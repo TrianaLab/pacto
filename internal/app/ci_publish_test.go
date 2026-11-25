@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -63,7 +62,6 @@ func (h *hookRegistry) Tag(ctx context.Context, repo, digest, tag string) error 
 
 func newCIPub(t *testing.T) *ciPubEnv {
 	t.Helper()
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	host, inner := publishRegistry(t)
 	keys := t.TempDir()
 	keyFiles(t, keys)
@@ -142,7 +140,7 @@ func services(p *ci.Plan) []string {
 
 func TestCIPublishRefusesOnPullRequest(t *testing.T) {
 	var tokens atomic.Int64
-	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { tokens.Add(1) }))
+	srv := probedServer(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { tokens.Add(1) }))
 	t.Cleanup(srv.Close)
 	t.Setenv("SIGSTORE_ID_TOKEN", "")
 	t.Setenv("ACTIONS_ID_TOKEN_REQUEST_URL", srv.URL+"?x=1")
@@ -182,6 +180,7 @@ func ledgerReports(t *testing.T, e *ciPubEnv, compatibility string) {
 }
 
 func TestCIPublishDependencyOrder(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	ledgerReports(t, e, "^1")
 	p := e.ciPublish(t, nil)
@@ -196,6 +195,7 @@ func TestCIPublishDependencyOrder(t *testing.T) {
 }
 
 func TestCIPublishCycleInNameOrder(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{
 		"x/pacto.yaml": e.contract("zeta", "1.0.0", "dependencies:\n  - name: alpha\n    ref: oci://"+e.host+"/acme/alpha\n    compatibility: \"^1\"\n", ""),
@@ -208,6 +208,7 @@ func TestCIPublishCycleInNameOrder(t *testing.T) {
 }
 
 func TestCIPublishFailureBlocksOnlyDependents(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	ledgerReports(t, e, "^1")
 	e.write(t, map[string]string{
@@ -240,6 +241,7 @@ func breakingLedger(t *testing.T, compatibility string) *ci.Plan {
 }
 
 func TestCIPublishBreakingBlocksUnadaptedConsumer(t *testing.T) {
+	t.Parallel()
 	p := breakingLedger(t, "^2")
 	if l := pubRow(t, p, "ledger"); l.State != ci.StatePublished || l.Classification != "BREAKING" {
 		t.Fatalf("ledger %+v", l)
@@ -250,6 +252,7 @@ func TestCIPublishBreakingBlocksUnadaptedConsumer(t *testing.T) {
 }
 
 func TestCIPublishBreakingAdaptedConsumerPublishes(t *testing.T) {
+	t.Parallel()
 	p := breakingLedger(t, "^3")
 	if r := pubRow(t, p, "reports"); r.State != ci.StatePublished || p.Exit != 0 {
 		t.Fatalf("reports %+v", r)
@@ -257,6 +260,7 @@ func TestCIPublishBreakingAdaptedConsumerPublishes(t *testing.T) {
 }
 
 func TestCIPublishUnknownRangeBlocks(t *testing.T) {
+	t.Parallel()
 	p := breakingLedger(t, "unknown")
 	if r := pubRow(t, p, "reports"); r.State != ci.StateBlocked || r.Reason != "depends on ledger 3.0.0, which is BREAKING; its range is unknown" {
 		t.Fatalf("reports %+v", r)
@@ -291,6 +295,7 @@ func racing(t *testing.T, limit int) *ciPubEnv {
 }
 
 func TestCIPublishReplansOnLostRace(t *testing.T) {
+	t.Parallel()
 	e := racing(t, 1)
 	r := pubRow(t, e.ciPublish(t, nil), "payments")
 	if r.State != ci.StatePublished || r.To != "1.4.4" || r.Baseline != "1.4.3" || r.Attempts != 2 || !slices.Contains(r.Notes, "payments 1.4.3 published by another run; re-planned") {
@@ -299,6 +304,7 @@ func TestCIPublishReplansOnLostRace(t *testing.T) {
 }
 
 func TestCIPublishGivesUpAfterThreeAttempts(t *testing.T) {
+	t.Parallel()
 	e := racing(t, 3)
 	r := pubRow(t, e.ciPublish(t, nil), "payments")
 	if r.State != ci.StateFailed || r.Attempts != 3 || !strings.Contains(r.Reason, publish.ErrTagRace.Error()) {
@@ -307,6 +313,7 @@ func TestCIPublishGivesUpAfterThreeAttempts(t *testing.T) {
 }
 
 func TestCIPublishReplanSupersededByNewerRun(t *testing.T) {
+	t.Parallel()
 	e := racing(t, 1)
 	e.run.fail = "git merge-base"
 	r := pubRow(t, e.ciPublish(t, nil), "payments")
@@ -316,6 +323,7 @@ func TestCIPublishReplanSupersededByNewerRun(t *testing.T) {
 }
 
 func TestCIPublishDeclaredVersionNeverReplans(t *testing.T) {
+	t.Parallel()
 	e := racing(t, 1)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "1.4.3", "", "")})
 	r := pubRow(t, e.ciPublish(t, nil), "payments")
@@ -325,6 +333,7 @@ func TestCIPublishDeclaredVersionNeverReplans(t *testing.T) {
 }
 
 func TestCIPublishForeignSignatureNeverReplans(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "", "", e.deployPub("payments"))})
 	// Something unsigned holds 1.0.0, claiming this run's version and revision.
@@ -345,6 +354,7 @@ func TestCIPublishForeignSignatureNeverReplans(t *testing.T) {
 }
 
 func TestCIPublishFinalReadBackCatchesLateOverwrite(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"ledger/pacto.yaml": e.contract("ledger", "1.0.0", "", e.deployPub("ledger"))})
 	bundleRepo := e.host + "/acme/ledger"
@@ -374,6 +384,7 @@ func TestCIPublishFinalReadBackCatchesLateOverwrite(t *testing.T) {
 }
 
 func TestCIPublishStaleRunRefused(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "", "", "")})
 	e.publishAs(t, "payments", "r1") // derived 1.0.0, its record naming r1
@@ -390,6 +401,7 @@ func TestCIPublishStaleRunRefused(t *testing.T) {
 }
 
 func TestCIPublishBehindIsAPlanLine(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	// A declared build is deprecated from 2.5 and still honoured: the raise
 	// keeps its meaning, so the contract publishes as the current version.
@@ -402,6 +414,7 @@ func TestCIPublishBehindIsAPlanLine(t *testing.T) {
 }
 
 func TestCIPublishBehindWithoutPublishFailsThatServiceOnly(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{
 		// An escaped version is not raised in memory: it stays behind.
@@ -418,6 +431,7 @@ func TestCIPublishBehindWithoutPublishFailsThatServiceOnly(t *testing.T) {
 }
 
 func TestCIPublishUnchangedNotRepublished(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "", "", "")})
 	e.publishAs(t, "payments", "r1")
@@ -432,6 +446,7 @@ func TestCIPublishUnchangedNotRepublished(t *testing.T) {
 // pacto ci --publish row agree on the version and the bundle, and an
 // unchanged folder is unchanged in both.
 func TestPublishEqualsOneCIRow(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "1.4.2", "", "")})
 	e.publishAs(t, "payments", "r1")
@@ -455,6 +470,7 @@ func TestPublishEqualsOneCIRow(t *testing.T) {
 }
 
 func TestCIPublishImageFlag(t *testing.T) {
+	t.Parallel()
 	rows := []ci.Row{{Service: "a", Changed: "yes"}, {Service: "b", Changed: "yes"}, {Service: "c", Changed: "no"}}
 	ref := "r.io/x@" + digest64
 	got, err := rowImages(rows, map[string]string{"a": ref})
@@ -480,6 +496,7 @@ func TestCIPublishImageFlag(t *testing.T) {
 // TestCIPublishDerivesASection: a section-less service publishes with the
 // tool its folder uses, signed with --sign-key, under --registry.
 func TestCIPublishDerivesASection(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.svc.withRun(&buildRun{})
 	e.write(t, map[string]string{
@@ -496,6 +513,7 @@ func TestCIPublishDerivesASection(t *testing.T) {
 }
 
 func TestCIPublishRunErrors(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	if _, err := e.svc.CIPublish(t.Context(), CIPublishOptions{CI: CIOptions{Root: filepath.Join(e.root, "nope")}}); err == nil {
 		t.Fatal("a missing root is an error")
@@ -510,6 +528,7 @@ func TestCIPublishRunErrors(t *testing.T) {
 // TestCIPublishUndecidedProviderBlocks: a provider the plan could not judge
 // is not published, and holds the services of the run that depend on it.
 func TestCIPublishUndecidedProviderBlocks(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	ledgerReports(t, e, "^1")
 	e.write(t, map[string]string{"b/pacto.yaml": e.contract("ledger", "1.0.0", "dependencies:\n  - name: x\n    ref: oci://"+e.host+"/acme/x\n", ""), "c/pacto.yaml": "{"})
@@ -523,6 +542,7 @@ func TestCIPublishUndecidedProviderBlocks(t *testing.T) {
 }
 
 func TestToolOf(t *testing.T) {
+	t.Parallel()
 	art := func(a contract.PublishArtifact) *contract.Bundle {
 		return &contract.Bundle{Contract: &contract.Contract{Publish: &contract.Publish{Artifacts: []contract.PublishArtifact{{Name: "m", Type: contract.ArtifactManifests}, a}}}}
 	}
@@ -543,6 +563,7 @@ func TestToolOf(t *testing.T) {
 }
 
 func TestFillRowAlreadyPublished(t *testing.T) {
+	t.Parallel()
 	r := ci.Row{}
 	fillRow(&r, nil, &publish.Result{Plan: publish.Plan{Version: "1.0.0"}}, nil)
 	if r.State != ci.StateUnchanged || r.Reason != "already published" || r.To != "1.0.0" {
@@ -551,12 +572,14 @@ func TestFillRowAlreadyPublished(t *testing.T) {
 }
 
 func TestAcceptsVersion(t *testing.T) {
+	t.Parallel()
 	if !acceptsVersion("", "9.0.0") || acceptsVersion("not a range", "1.0.0") || acceptsVersion("^1", "2.0.0") || !acceptsVersion("^2", "2.1.0") {
 		t.Fatal("acceptsVersion")
 	}
 }
 
 func TestPublishOrderOutsideProvider(t *testing.T) {
+	t.Parallel()
 	rows := []ci.Row{{Service: "b", Dir: "b"}, {Service: "a", Dir: "a"}}
 	dep := &contract.Bundle{Contract: &contract.Contract{Dependencies: []contract.Dependency{{Name: "stripe", Ref: "oci://r.io/stripe"}}}}
 	order, note := publishOrder(rows, map[string]*contract.Bundle{"b": dep})
@@ -571,6 +594,7 @@ type headErr struct{ publish.Registry }
 func (headErr) Head(context.Context, string) (*publish.Remote, error) { return nil, errors.New("down") }
 
 func TestReadBackUnreadable(t *testing.T) {
+	t.Parallel()
 	res := &publish.Result{Plan: publish.Plan{Items: []publish.Item{{Name: "bundle", Ref: "r.io/a:1.0.0"}}}}
 	if err := readBack(t.Context(), headErr{}, res); err == nil || err.Error() != "reading r.io/a:1.0.0 back: down" {
 		t.Fatal(err)
@@ -578,6 +602,7 @@ func TestReadBackUnreadable(t *testing.T) {
 }
 
 func TestExecToolsSigner(t *testing.T) {
+	t.Parallel()
 	tools := newExecTools("", nil, nil)
 	kms := contract.PublishSign{KMS: "awskms:///k"}
 	if tools.signer(kms) != "" {
@@ -602,6 +627,7 @@ func TestExecToolsSigner(t *testing.T) {
 // leave one images record on their bundle, listing the image the deploy
 // pins with where it came from, signed by the publisher.
 func TestPublishRecordsImageDigests(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.svc.withRun(&buildRun{})
 	supplied := e.host + "/other/ledger@" + digest64
@@ -645,6 +671,7 @@ func TestPublishRecordsImageDigests(t *testing.T) {
 // repository its derived section publishes to, <registry>/contracts/<name>,
 // never against the image.
 func TestCIPlanReadsTheDerivedBundleRepository(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{
 		"ledger/pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: ledger\n",
@@ -662,6 +689,7 @@ func TestCIPlanReadsTheDerivedBundleRepository(t *testing.T) {
 // TestDerivedBundleRepoUnreadableFolder: a folder discovery cannot read has
 // no workload image, so its bundle is <registry>/<name>.
 func TestDerivedBundleRepoUnreadableFolder(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{".pactoignore/x": ""})
 	if got := derivedBundleRepo(dir, "r.io/acme", "ledger"); got != "r.io/acme/ledger" {
@@ -675,6 +703,7 @@ func TestDerivedBundleRepoUnreadableFolder(t *testing.T) {
 // measures from the signed 1.2.0 and publishes above the tag it skipped, and
 // the row says the verified baseline.
 func TestCIPublishUnchangedNeedsTheVerifiedBaseline(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "1.2.0", "", "")})
 	e.publishAs(t, "payments", "r1")
@@ -699,6 +728,7 @@ func TestCIPublishUnchangedNeedsTheVerifiedBaseline(t *testing.T) {
 // TestCIPublishUnchangedNeedsTheSignature: a declared version holding this
 // content under another identity's signature is never "unchanged".
 func TestCIPublishUnchangedNeedsTheSignature(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "1.0.0", "", "")})
 	own, err := os.ReadFile(e.key)
@@ -721,6 +751,7 @@ func TestCIPublishUnchangedNeedsTheSignature(t *testing.T) {
 // tag is there but whose deploy artifact, the commit point, never was is not
 // "unchanged".
 func TestCIPublishUnchangedNeedsTheCommitPoint(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"ledger/pacto.yaml": e.contract("ledger", "1.0.0", "", e.deployPub("ledger"))})
 	deploy := e.host + "/acme/deploy/ledger"
@@ -738,6 +769,7 @@ func TestCIPublishUnchangedNeedsTheCommitPoint(t *testing.T) {
 // TestCIPublishRefusedKeepsThePlanModeNote: a row never published keeps
 // saying its derived version was read without verifying the baseline.
 func TestCIPublishRefusedKeepsThePlanModeNote(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "", "", "")})
 	e.publishAs(t, "payments", "r1")
@@ -749,6 +781,7 @@ func TestCIPublishRefusedKeepsThePlanModeNote(t *testing.T) {
 }
 
 func TestDerivedFrom(t *testing.T) {
+	t.Parallel()
 	p := derivedFrom(publish.Plan{Baseline: "1.3.0", Classification: "NON_BREAKING"}, publish.Derived{Baseline: "1.2.0", Classification: "BREAKING"})
 	if p.Baseline != "1.2.0" || p.Classification != "BREAKING" {
 		t.Fatalf("%+v", p)
@@ -767,6 +800,7 @@ func TestDerivedFrom(t *testing.T) {
 // comes from --image goes through publish when it is unchanged too, and
 // publish asks for no image when there is nothing to write.
 func TestCIPublishUnchangedSuppliedImageNeedsNoImage(t *testing.T) {
+	t.Parallel()
 	for name, version := range map[string]string{"derived": "", "declared": "  version: 1.0.0\n"} {
 		t.Run(name, func(t *testing.T) {
 			e := newCIPub(t)
@@ -789,6 +823,7 @@ func TestCIPublishUnchangedSuppliedImageNeedsNoImage(t *testing.T) {
 }
 
 func TestCIPublishWritesIndexEntries(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	ledgerReports(t, e, "^1")
 	e.svc.sys.refusalRepo = anonRepo
@@ -830,6 +865,7 @@ func TestCIPublishWritesIndexEntries(t *testing.T) {
 // TestPublishUnchangedDerivedBackfillsEntry: publishing a derived version
 // again over unchanged content writes the entry the first publish could not.
 func TestPublishUnchangedDerivedBackfillsEntry(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"payments/pacto.yaml": e.contract("payments", "", "", "")})
 	e.svc.sys.refusalRepo = func(string) (*remote.Repository, error) { return nil, errors.New("denied") }
@@ -852,6 +888,7 @@ func TestPublishUnchangedDerivedBackfillsEntry(t *testing.T) {
 // TestCIPublishIndexNoneWritesNothing: --index reaches every publish of the
 // run, so --index none writes no entry.
 func TestCIPublishIndexNoneWritesNothing(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	ledgerReports(t, e, "^1")
 	e.svc.sys.refusalRepo = anonRepo

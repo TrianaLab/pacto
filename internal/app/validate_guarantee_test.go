@@ -18,6 +18,7 @@ func guaranteeConsumer(deps string) string {
 }
 
 func TestValidate_Guarantees(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name      string
 		deps      string

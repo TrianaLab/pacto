@@ -19,6 +19,7 @@ import (
 // user's own manifests and values.yaml are published as written and are not
 // checked here.
 func TestPublishedBundleCarriesNoCredential(t *testing.T) {
+	t.Parallel()
 	host, reg := publishRegistry(t)
 	dir := filepath.Join(t.TempDir(), "checkout")
 	if err := os.CopyFS(dir, os.DirFS("../pactify/testdata/externals")); err != nil {

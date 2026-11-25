@@ -24,6 +24,7 @@ func stageLine(r *ValidateResult) string {
 }
 
 func TestValidateStages_Pass(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	r, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: dir, Readiness: true})
 	if err != nil {
@@ -44,6 +45,7 @@ func TestValidateStages_Pass(t *testing.T) {
 // the load stage at the line yaml names, the closest field is suggested, and
 // every later stage is skipped.
 func TestValidateStages_ParseErrorLocated(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: 1.0.0\nworkload: service\nstate:\n  type: stateless\n  persistance: {}\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -71,6 +73,7 @@ func TestValidateStages_ParseErrorLocated(t *testing.T) {
 // TestValidateStages_SchemaErrorsInFileOrder: the schema layer's errors are
 // located and sorted by position, so Next names the first in the file.
 func TestValidateStages_SchemaErrorsInFileOrder(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: 1.0.0\nworkload: servce\nstate:\n  type: stateless\n  persistence:\n    scope: local\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -98,6 +101,7 @@ func TestValidateStages_SchemaErrorsInFileOrder(t *testing.T) {
 }
 
 func TestValidateStages_Lock(t *testing.T) {
+	t.Parallel()
 	t.Run("an up-to-date lock passes", func(t *testing.T) {
 		dir := writeRoot(t)
 		s := NewService(authStore("sha256:v1"), nil)
@@ -128,6 +132,7 @@ func TestValidateStages_Lock(t *testing.T) {
 }
 
 func TestValidateStages_OCIFile(t *testing.T) {
+	t.Parallel()
 	r, err := NewService(&mockBundleStore{}, nil).Validate(context.Background(), ValidateOptions{Path: "oci://ghcr.io/acme/svc:1.0.0"})
 	if err != nil {
 		t.Fatal(err)
@@ -140,6 +145,7 @@ func TestValidateStages_OCIFile(t *testing.T) {
 // TestValidateStages_MissingDirectory: Next says the path does not exist
 // rather than pointing at a file to fix.
 func TestValidateStages_MissingDirectory(t *testing.T) {
+	t.Parallel()
 	dir := filepath.Join(t.TempDir(), "missing")
 	r, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: dir})
 	if err != nil {
@@ -154,6 +160,7 @@ func TestValidateStages_MissingDirectory(t *testing.T) {
 // found in the merged document, whose lines are not the file's, so they
 // carry no position and Next names the path alone.
 func TestValidateStages_OverridesUnlocated(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("# header\n\npactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: 1.0.0\ninterfaces:\n  - {name: api, type: openapi, ref: missing.yaml}\n"+
 		"workload: service\nstate:\n  type: stateless\n  persistence:\n    scope: local\n    durability: ephemeral\n  dataCriticality: low\n"), 0o644); err != nil {
@@ -182,6 +189,7 @@ func TestValidateStages_OverridesUnlocated(t *testing.T) {
 }
 
 func TestRerunCommand(t *testing.T) {
+	t.Parallel()
 	got := rerunCommand("svc", ValidateOptions{Readiness: true, Closure: true, Overrides: override.Overrides{ValueFiles: []string{"prod.yaml"}, SetValues: []string{"service.version=2.0.0"}}})
 	if want := "pacto validate --readiness --closure -f prod.yaml --set service.version=2.0.0 svc"; got != want {
 		t.Errorf("got %q, want %q", got, want)
@@ -191,6 +199,7 @@ func TestRerunCommand(t *testing.T) {
 // TestNewValidateResult_UnlocatedErrorsLast: an error with no position sorts
 // after every located one.
 func TestNewValidateResult_UnlocatedErrorsLast(t *testing.T) {
+	t.Parallel()
 	raw := []byte("service:\n  name: svc\n")
 	r := newValidateResult("svc", ValidateOptions{}, raw, validation.RanStage("structural", validation.ValidationResult{
 		Errors: []contract.ValidationError{{Code: "LOOSE"}, {Path: "service.name", Code: "AT"}},
@@ -203,6 +212,7 @@ func TestNewValidateResult_UnlocatedErrorsLast(t *testing.T) {
 // TestClosure_RootPoliciesUnresolved: a root whose own policies do not resolve
 // checks its closure for resolution failures only.
 func TestClosure_RootPoliciesUnresolved(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeClosureFile(t, root, "payments/pacto.yaml", closureService("payments", "", "ledger")+"policies:\n  - name: gone\n    ref: ../gone\n")
 	writeClosureFile(t, root, "ledger/pacto.yaml", closureService("ledger", ""))
@@ -216,6 +226,7 @@ func TestClosure_RootPoliciesUnresolved(t *testing.T) {
 }
 
 func TestCheckClosureNode_Unreadable(t *testing.T) {
+	t.Parallel()
 	errs := checkClosureNode(&graph.Node{Name: "ledger", Version: "1.0.0", Ref: "../ledger"}, nil, os.ErrNotExist, nil)
 	if len(errs) != 1 || errs[0].Code != "CLOSURE_DEPENDENCY_UNRESOLVED" || errs[0].Path != "dependencies[ledger@1.0.0]" {
 		t.Errorf("errs = %+v", errs)
@@ -223,6 +234,7 @@ func TestCheckClosureNode_Unreadable(t *testing.T) {
 }
 
 func TestValidationReport_CarriesStages(t *testing.T) {
+	t.Parallel()
 	r, err := NewService(nil, nil).ValidationReport(context.Background(), writeInvalidBundle(t))
 	if err != nil {
 		t.Fatal(err)
@@ -235,6 +247,7 @@ func TestValidationReport_CarriesStages(t *testing.T) {
 // TestValidateStages_Environments: an environment's invalid values fail the
 // environments stage, and the error and Next point into the values file.
 func TestValidateStages_Environments(t *testing.T) {
+	t.Parallel()
 	dir := writeEnvironmentBundle(t, "")
 	r, err := NewService(nil, nil).Validate(context.Background(), ValidateOptions{Path: dir})
 	if err != nil {
@@ -302,6 +315,7 @@ func writeEnvironmentBundle(t *testing.T, extra string) string {
 // environments check, so a version whose values break an environment is
 // never packed or pushed.
 func TestEnvironmentFailureRefusesPackAndPush(t *testing.T) {
+	t.Parallel()
 	dir := writeEnvironmentBundle(t, "")
 	if _, err := NewService(nil, nil).Pack(context.Background(), PackOptions{Path: dir, Output: filepath.Join(t.TempDir(), "b.tar.gz")}); err == nil ||
 		!strings.Contains(err.Error(), "contract validation failed") {
@@ -317,6 +331,7 @@ func TestEnvironmentFailureRefusesPackAndPush(t *testing.T) {
 // pacto.yaml alone, so an error in an environment's file keeps its file,
 // line and column, and Next points at it.
 func TestValidateStages_OverridesKeepEnvironmentPositions(t *testing.T) {
+	t.Parallel()
 	dir := writeEnvironmentBundle(t, "")
 	opts := ValidateOptions{Path: dir, Overrides: override.Overrides{SetValues: []string{"service.version=1.0.1"}}}
 	r, err := NewService(nil, nil).Validate(context.Background(), opts)
@@ -365,6 +380,7 @@ environments:
 // clock, sits on the environments stage, which keeps its status, and reaches
 // ValidationReport (pacto_check).
 func TestValidateWarnsExpiredEnvironment(t *testing.T) {
+	t.Parallel()
 	dir := writeExpiringBundle(t)
 	before := pinnedService(time.Date(2026, 11, 19, 0, 0, 0, 0, time.UTC))
 	r, err := before.Validate(context.Background(), ValidateOptions{Path: dir})
@@ -395,6 +411,7 @@ func TestValidateWarnsExpiredEnvironment(t *testing.T) {
 // keeps its status and reason and still carries the warning; with no
 // environments stage nothing is added.
 func TestWithExpiredEnvironmentsKeepsSkippedStage(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{Environments: []contract.Environment{{Name: "e", File: "f", Lifetime: "temporary", Expires: "2000-01-01T00:00:00Z"}}}
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 	got := withExpiredEnvironments([]validation.Stage{{Name: "environments", Status: validation.StageSkip, Reason: "could not verify: e"}}, c, now)
