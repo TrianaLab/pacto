@@ -50,11 +50,11 @@ type demoDeclarer struct {
 	claimed func([]fleet.RawRevision) error
 }
 
-// demoDraft is one saved draft: its tag, the ranges it requests and whom
-// it was written for.
+// demoDraft is one saved draft: its tag, the ranges it requests, whom it
+// was written for and, for a created service, the intent it was saved from.
 type demoDraft struct {
-	tag, digest, onBehalfOf string
-	accept                  []string
+	tag, digest, onBehalfOf, intent string
+	accept                          []string
 }
 
 func newDemoDeclarer(who func(*http.Request) string) *demoDeclarer {

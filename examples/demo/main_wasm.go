@@ -125,6 +125,9 @@ func main() {
 	declarer := newDemoDeclarer(func(r *http.Request) string { return d.State(r).User })
 	declarer.claimed = refold(src, partners, byRef, &cur, refresh)
 	opts.Declare = declarer
+	// Create a service from the golden path's page (source_create_service.go):
+	// nobody signs, so Save draft keeps a draft-<n> in the tab.
+	opts.CreateService = newDemoCreator(func(r *http.Request) string { return d.State(r).User })
 	// The production cluster is a hub with two members and one pending cluster.
 	opts.ClusterJoins = func(context.Context) (delivery.ClusterJoinList, error) { return demoClusterJoins(), nil }
 	if opts.InstallationConfig, err = demoInstallationConfig(); err != nil {

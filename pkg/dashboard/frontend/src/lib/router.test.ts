@@ -978,4 +978,10 @@ describe('serviceDeclareUrl', () => {
     expect(parseHash(`${signed}&accept=ledger`).params).not.toHaveProperty('accept');
     expect(parseHash('#/fleet/targets/x?declare=1&signed=s').params).toEqual({ kind: 'target', key: 'x' });
   });
+
+  it('round-trips the Create service return through the golden path page', () => {
+    // createReturn (515-S6): back from a signing login the panel resumes the kept inputs.
+    expect(parseHash('#/fleet/services/http-service?create=1&signed=sha256%3Aabc').params).toEqual({ kind: 'service', key: 'http-service', create: '1', signed: 'sha256:abc' });
+    expect(parseHash('#/fleet/externals/x?create=1').params).toEqual({ kind: 'external', key: 'x' });
+  });
 });

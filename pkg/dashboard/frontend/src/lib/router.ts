@@ -282,10 +282,10 @@ function parseFleet(path: string, query: string): Route {
     const params: Record<string, string> = { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) };
     // A service page also keeps its Changes section's filter, page and scroll target,
     // and whether its Declare panel is open (declare=1) and the intent a signing
-    // login came back with (signed); an external system page keeps the same two for
-    // its Claim panel (517-S5).
+    // login came back with (signed), for its Create service panel when create=1
+    // (515-S6); an external system page keeps the same two for its Claim panel (517-S5).
     const qs = new URLSearchParams(query);
-    const own = ent[1] === 'services' ? ['changesKind', 'changesOffset', 'changesLimit', 'section', 'declare', 'signed'] : ent[1] === 'externals' ? ['declare', 'signed'] : [];
+    const own = ent[1] === 'services' ? ['changesKind', 'changesOffset', 'changesLimit', 'section', 'declare', 'create', 'signed'] : ent[1] === 'externals' ? ['declare', 'signed'] : [];
     for (const k of ['correlationID', ...own]) {
       const v = qs.get(k);
       if (v) params[k] = v;

@@ -178,7 +178,7 @@
 {#snippet valueInput(o, x, k, value, set)}
   {@const at = placed.at[k] ?? []}
   <div class="cs-param" data-testid="create-param" data-field={x.path}>
-    <label class="cs-plabel" for={inputId(k)}><bdi>{x.path}</bdi> <span class="t-meta">{boundsText(x)}{x.tier === 'tunable' ? ', varies per environment' : ''}</span></label>
+    <label class="cs-plabel" for={inputId(k)}><bdi>{x.path}</bdi> <span class="t-meta cs-bounds">{boundsText(x)}{x.tier === 'tunable' ? ', varies per environment' : ''}</span></label>
     {#if x.sensitive}
       <p class="t-meta cs-p" id={inputId(k)}>Sensitive: set it through a Secret reference, never here</p>
     {:else if x.enum?.length || x.type === 'boolean'}
@@ -365,6 +365,8 @@
     .cs-at { grid-column: 1 / -1; }
   }
   .cs-plabel { overflow-wrap: anywhere; min-inline-size: 0; }
+  /* The bounds move to the next line whole after a long field name, never split at a range's dash. */
+  .cs-bounds { display: inline-block; }
   .cs-refusal { border-inline-start: 3px solid var(--c-warn-border); padding-inline-start: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-1); min-inline-size: 0; }
   .cs-at { display: flex; flex-direction: column; gap: var(--sp-1); }
   .cs-cmd { display: flex; align-items: center; gap: var(--sp-2); flex-wrap: wrap; min-inline-size: 0; }
