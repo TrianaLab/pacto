@@ -222,7 +222,8 @@ func TestJudgeOwnerSigners(t *testing.T) {
 
 // TestDecideFirstOwner: a created service may name only an owner its creator
 // belongs to, or any owner when the creator is a default approver; nobody
-// else, and nobody at all without a verified policy.
+// else, and nobody at all without a verified policy, which then names no
+// team member as able to create.
 func TestDecideFirstOwner(t *testing.T) {
 	pol := ownerPolicy()
 	payments := OwnerClaim{Owner: contract.Owner{Team: "payments"}, Provenance: "declared"}
@@ -242,7 +243,7 @@ func TestDecideFirstOwner(t *testing.T) {
 		{"agent", PublisherIdentity{Subject: "ana@acme.com", Issuer: githubWeb, Class: ClassAgent}, payments, &pol, OwnerSignerNotPerson, "", "only a person"},
 	} {
 		r := DecideFirstOwner("invoices", c.signer, c.proposed, c.policy, "trust missing", ownerNow)
-		if r.Allowed != (c.code == "") || r.Code != c.code || r.Grant != c.grant || !strings.Contains(r.Message, c.message) || len(r.MayAccept) == 0 {
+		if r.Allowed != (c.code == "") || r.Code != c.code || r.Grant != c.grant || !strings.Contains(r.Message, c.message) || (len(r.MayAccept) == 0) != (c.policy == nil) {
 			t.Errorf("%s: %+v", c.name, r)
 		}
 	}

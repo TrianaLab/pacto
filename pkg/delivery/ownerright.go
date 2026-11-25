@@ -177,8 +177,14 @@ func DecideOwnerRight(service string, signer PublisherIdentity, current, propose
 // why) anyone else is unverified, never allowed; otherwise refused.
 func DecideFirstOwner(service string, signer PublisherIdentity, proposed OwnerClaim, policy *OwnerPolicy, policyFrom string, now time.Time) OwnerRight {
 	team := OwnerClaim{Owner: proposed.Owner, Provenance: ownerDeclared}
+	// Team membership is read from the verified owner policy alone, so
+	// without one no team member can be named as able to create.
+	listed := team
+	if policy == nil {
+		listed.Owner.Team = ""
+	}
 	r := OwnerRight{WorkloadAccess: WorkloadAccess{Resource: "services", Name: service, Source: AccessByRegistryPolicy, At: now.UTC().Format(time.RFC3339)},
-		MayAccept: mayAccept(team, policy)}
+		MayAccept: mayAccept(listed, policy)}
 	switch {
 	case !ReadsAsDecision(signer.Class):
 		r.Code = OwnerSignerNotPerson

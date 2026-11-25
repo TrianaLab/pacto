@@ -572,8 +572,9 @@ func TestCreateOwnerPolicyUnverified(t *testing.T) {
 	e := newCreateEnv(t, nil)
 	e.login(personToken("ana@acme.com"))
 	p, _ := e.plan(t, e.createReq(t))
-	if !slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, "unknown until a verified owner policy is read") }) {
-		t.Fatalf("%v", p.Notes)
+	if !slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, "nobody can be confirmed to create it until a verified owner policy is read") }) ||
+		slices.ContainsFunc(p.Notes, func(n string) bool { return strings.Contains(n, "billing members") }) || len(p.MayAccept) != 0 {
+		t.Fatalf("an unverifiable membership is never named as a right: %v %v", p.Notes, p.MayAccept)
 	}
 	_, err := e.svc.Declare(t.Context(), e.createReq(t))
 	if de := refusal(t, err); de.Code != "OWNER_POLICY_UNVERIFIED" {

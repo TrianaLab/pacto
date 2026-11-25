@@ -688,10 +688,12 @@ func (pl *declarePlanner) createOwner(ctx context.Context) []byte {
 	right := delivery.DecideFirstOwner(pl.plan.Service, pl.choice.Identity, proposed, policy, from, pl.s.env().now())
 	pl.plan.Owner, pl.plan.MayAccept = proposed.Owner.KeyString(), right.MayAccept
 	pl.owned = &ownerCheck{proposed: proposed, policy: policy, from: from, first: true}
-	who := cmp.Or(strings.Join(right.MayAccept, ", "), "the default approvers")
 	if policy == nil {
-		who += " (the default approvers are unknown until a verified owner policy is read)"
+		pl.plan.Notes = append(pl.plan.Notes, "service.owner is "+ownerText(proposed.Owner)+": nobody can be confirmed to create it until a verified owner policy is read, "+
+			"since team membership and the default approvers come from it")
+		return pl.raw
 	}
+	who := cmp.Or(strings.Join(right.MayAccept, ", "), "the default approvers")
 	pl.plan.Notes = append(pl.plan.Notes, "service.owner is "+ownerText(proposed.Owner)+": only a person among "+who+" may create it")
 	return pl.raw
 }
