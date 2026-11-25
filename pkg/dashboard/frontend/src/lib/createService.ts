@@ -16,7 +16,26 @@ export type Parameter = {
   minimum?: number; maximum?: number; exclusiveMinimum?: number; exclusiveMaximum?: number; minLength?: number; maxLength?: number; default?: unknown; sensitive?: boolean;
 };
 /** An offering a create may set values on. */
-export type OfferingView = { offering: string; version?: string; requested?: boolean; classes?: string[] | null; parameters?: Parameter[] | null };
+export type OfferingView = {
+  offering: string; version?: string; requested?: boolean; classes?: string[] | null; parameters?: Parameter[] | null;
+  classesTotal?: number; parametersTotal?: number; parametersTruncated?: boolean;
+};
+
+/** params is an offering's fields, one per path: two provider configurations may
+ *  declare the same path, and the request sets one value per path for both. */
+export function params(o: OfferingView): Parameter[] {
+  const seen = new Set<string>();
+  return (o.parameters ?? []).filter((x) => !seen.has(x.path) && !!seen.add(x.path));
+}
+
+/** perEnvField says a field takes a per-environment value: tunable and not sensitive. */
+export const perEnvField = (x: Parameter) => x.tier === 'tunable' && !x.sensitive;
+
+/** moreText says how many classes or fields the bounded lists leave out, '' for none. */
+export function moreText(shown: number, total: number | undefined, what: string): string {
+  const more = (total ?? 0) - shown;
+  return more > 0 ? `${more} more ${what} not listed` : '';
+}
 /** What a person typed: by offering, then field path, the raw input. */
 export type Typed = Record<string, Record<string, string>>;
 
@@ -24,6 +43,19 @@ export type Typed = Record<string, Record<string, string>>;
  *  signing login started for intent comes back. */
 export function createReturn(pathKey: string, intent: string): string {
   return pagedHash(fleetEntityUrl('service', pathKey), { create: '1', signed: intent });
+}
+
+/** createQueryOf is what a golden path page's route tells its Create service panel:
+ *  the intent a signing login came back with (create=1), or the created draft a
+ *  review link names (create=<service>, draft and repository). */
+export function createQueryOf(params: Record<string, string>): { signed: string; name: string; draft: string; repository: string } {
+  const back = params.create === '1';
+  return {
+    signed: back ? params.signed || '' : '',
+    name: back ? '' : params.create || '',
+    draft: back ? '' : params.draft || '',
+    repository: back ? '' : params.repository || '',
+  };
 }
 
 /** createSignUrl starts the signing login with the plan's one-time ticket. */
@@ -89,12 +121,21 @@ function ownerOf(r: CreateRefusal, key: string, offerings: readonly OfferingView
 }
 
 /** placeRefusals puts each refusal at the input it is about (by fieldKey), and the
- *  ones no input shows in rest (an offering the caller may not consume has no input),
- *  so nothing refused is ever dropped. */
+ *  ones no input shows in rest (an offering the caller may not consume has no input,
+ *  and a per-environment input exists only for a tunable field that is not
+ *  sensitive), so nothing refused is ever dropped. */
 export function placeRefusals(refusals: readonly CreateRefusal[] | null | undefined, offerings: readonly OfferingView[]): { at: Record<string, CreateRefusal[]>; rest: CreateRefusal[] } {
   const at: Record<string, CreateRefusal[]> = {};
   const rest: CreateRefusal[] = [];
-  const put = (k: string, r: CreateRefusal) => { (at[k] ??= []).push(r); };
+  const shown = new Set<string>();
+  for (const o of offerings) {
+    shown.add(fieldKey(o.offering, ''));
+    for (const x of params(o)) {
+      shown.add(fieldKey(o.offering, x.path));
+      if (perEnvField(x)) shown.add(fieldKey(o.offering, x.path, '*')).add(ENV_FIELD);
+    }
+  }
+  const put = (k: string, r: CreateRefusal) => { if (shown.has(k)) (at[k] ??= []).push(r); else rest.push(r); };
   for (const r of refusals ?? []) {
     const f = r.field ?? '';
     let m: RegExpExecArray | null;
@@ -105,6 +146,16 @@ export function placeRefusals(refusals: readonly CreateRefusal[] | null | undefi
     else rest.push(r);
   }
   return { at, rest };
+}
+
+/** offeringRefused says a refusal sits at one of offering's inputs. */
+export function offeringRefused(at: Record<string, CreateRefusal[]>, offering: string): boolean {
+  return Object.keys(at).some((k) => k.startsWith(offering + '\u0000'));
+}
+
+/** perEnvTyped says a per-environment value was typed. */
+export function perEnvTyped(perEnv: Typed): boolean {
+  return Object.values(perEnv).some((o) => Object.values(o ?? {}).some((v) => v !== ''));
 }
 
 /** closestText says the closest valid value a refusal names, and the others an enum

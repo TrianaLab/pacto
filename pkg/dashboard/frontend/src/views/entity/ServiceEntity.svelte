@@ -328,7 +328,8 @@
       <GoldenPathFigure path={key} name={self} version={d.currentRevision?.version ?? ''} hidden={hiddenCreated} />
       <h3 class="t-subsection-title">Create a service from it</h3>
       <!-- Create service (515-S6): with createService false it shows only the commands, as always. -->
-      <CreateServicePanel pathKey={key} pathName={self} pathVersion={d.currentRevision?.version ?? ''} {requested} canCreate={createService && !!gp.instantiate?.ref?.includes('@sha256:')} {portalCreateURL} signed={createQuery.signed ?? ''}>
+      <CreateServicePanel pathKey={key} pathName={self} pathVersion={d.currentRevision?.version ?? ''} {requested} canCreate={createService && !!gp.instantiate?.ref?.includes('@sha256:')} {portalCreateURL} signed={createQuery.signed ?? ''}
+        draftName={createQuery.name ?? ''} draftTag={createQuery.draft ?? ''} draftRepository={createQuery.repository ?? ''}>
         {#snippet commands()}
           <div class="se-create" data-testid="golden-path-create">
             {#if gp.instantiate}

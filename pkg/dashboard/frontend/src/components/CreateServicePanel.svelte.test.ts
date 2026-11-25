@@ -307,13 +307,13 @@ describe('CreateServicePanel', () => {
   it('saves a draft, reviews a draft and reads a stale plan again', async () => {
     const drafts = [{ tag: 'draft-1', digest: 'sha256:' + 'd'.repeat(64), state: 'draft', asker: { class: 'agent' }, onBehalfOf: 'alice', signed: false }, { tag: 'draft-0', state: 'unreadable', asker: {}, signed: false, reason: 'not a bundle' }];
     planFn.mockResolvedValue(answer({ drafts, draftsTotal: 2 }));
-    acceptFn.mockResolvedValueOnce({ draft: true, tag: 'draft-2', acceptUrl: '#/fleet/services/x?create=1' });
+    acceptFn.mockResolvedValueOnce({ draft: true, tag: 'draft-2', acceptUrl: '#/fleet/services/x?create=invoices&draft=draft-2' });
     render();
     await fillAndReview();
     button('Save draft').click();
     await vi.waitFor(() => expect(tid('create-result')).toBeTruthy());
     expect(text(tid('create-result'))).toContain('Saved draft-2');
-    expect(tid('create-result')!.querySelector('a')?.getAttribute('href')).toBe('#/fleet/services/x?create=1');
+    expect(tid('create-result')!.querySelector('a')?.getAttribute('href')).toBe('#/fleet/services/x?create=invoices&draft=draft-2');
     expect(acceptFn).toHaveBeenCalledWith(expect.objectContaining({ mode: 'draft' }));
 
     expect(target.querySelectorAll('[data-testid="create-draft"]').length).toBe(2);
@@ -344,12 +344,108 @@ describe('CreateServicePanel', () => {
   });
 
   it('says why this host writes nothing and notes a partial offerings list', async () => {
-    planFn.mockResolvedValue(answer({ write: { available: false, reason: 'this dashboard has no push credential' } }, { consumableCompleteness: 'partial', notes: ['a note'], policyNote: 'policy' }));
+    planFn.mockResolvedValue(answer({ write: { available: false, reason: 'this dashboard has no push credential' }, consumableCompleteness: 'partial', consumableAsOf: '2026-11-23T10:00:00Z' },
+      { consumableCompleteness: 'partial', notes: ['a note'], policyNote: 'policy' }));
     render();
     await fillAndReview();
     expect(text(tid('create-no-write'))).toBe('this dashboard has no push credential');
-    expect(text(target)).toContain('The offerings list is partial: an offering not listed may exist.');
+    expect(text(tid('create-partial'))).toBe('The offerings list is partial as of 2026-11-23T10:00:00Z: an offering not listed may exist.');
     expect(text(target)).toContain('a note');
     expect(text(target)).toContain('policy');
   });
+
+  it('notes a partial offerings list on a refused plan too', async () => {
+    planFn.mockResolvedValue({ ...answer({ consumableCompleteness: 'partial' }), plan: undefined, refusal: { code: 'ServiceExists', message: 'taken' } });
+    render();
+    await fillAndReview();
+    expect(text(tid('create-partial'))).toContain('The offerings list is partial');
+  });
+
+  it('sends back the planned revision on a write and keeps it across the signing login', async () => {
+    planFn.mockResolvedValue(answer(FRESH));
+    render();
+    await fillAndReview();
+    const sign = tid('create-sign') as HTMLAnchorElement;
+    sign.addEventListener('click', (e) => e.preventDefault());
+    sign.click();
+    expect(JSON.parse(sessionStorage.getItem('pacto-create:sha256:i1')!).revision).toBe(`pacto-create:${ID}:2026-11-23T10:02:11Z`);
+    unmount(comp!);
+    target.innerHTML = '';
+    planFn.mockReset();
+    planFn.mockResolvedValue(answer());
+    acceptFn.mockResolvedValue({ draft: true, tag: 'draft-1' });
+    render();
+    await fillAndReview();
+    button('Save draft').click();
+    await vi.waitFor(() => expect(acceptFn).toHaveBeenCalled());
+    expect(acceptFn.mock.calls[0][0].revision).toBe(`pacto-create:${ID}:2026-11-23T10:02:11Z`);
+  });
+
+  it('shows the values file pacto init reads, in the plan and in the handover', async () => {
+    const valuesFile = { path: 'pacto-create-values.yaml', text: 'configurations:\n  - name: database\n', truncated: false };
+    sessionStorage.setItem('pacto-create:sha256:i1', JSON.stringify({ name: 'invoices', owner: '', namespace: 'team-billing', repository: '', revision: '', once: {}, perEnv: {}, env: '', draft: null }));
+    planFn.mockResolvedValue(answer({ ...FRESH, signedIn: true }, { initCli: 'pacto init invoices --values pacto-create-values.yaml', valuesFile, files: [{ path: 'prod.values.yaml', text: 'database: {storageGi: 50}\n' }], filesTotal: 1 }));
+    acceptFn.mockResolvedValue({ published: 'r@sha256:1', tag: '0.1.0', signed: true, initCli: 'pacto init invoices --values pacto-create-values.yaml', valuesFile, files: [{ path: 'pacto.yaml', text: 'x' }] });
+    render({ signed: 'sha256:i1' });
+    await vi.waitFor(() => expect(tid('create-publish')).toBeTruthy());
+    expect(text(tid('create-files'))).toContain('pacto-create-values.yaml');
+    expect(text(tid('create-files'))).toContain('prod.values.yaml');
+    expect(text(tid('create-yourself'))).toContain('pacto-create-values.yaml');
+    (tid('create-publish') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(tid('create-result')).toBeTruthy());
+    expect(text(tid('create-result'))).toContain('Save it beside the folder first: pacto init reads it');
+    expect(text(tid('create-result'))).toContain('name: database');
+  });
+
+  it('lands a draft review link on that draft: the name filled and Review opening it', async () => {
+    const drafts = [{ tag: 'draft-1', digest: 'sha256:' + 'd'.repeat(64), state: 'draft', asker: { class: 'agent' }, onBehalfOf: ID, signed: false }];
+    planFn.mockResolvedValue(answer({ drafts, draftsTotal: 1 }));
+    render({ draftName: 'invoices', draftTag: 'draft-1', draftRepository: 'ghcr.io/acme/team/invoices', portalCreateURL: 'https://backstage/create' });
+    expect((tid('create-name') as HTMLInputElement).value).toBe('invoices');
+    expect((tid('create-repository') as HTMLInputElement).value).toBe('ghcr.io/acme/team/invoices');
+    expect(text(tid('create-draft-link'))).toContain('Reviewing draft-1 of invoices');
+    type('create-namespace', 'team-billing');
+    (tid('create-review') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(planFn).toHaveBeenCalledTimes(2));
+    expect(planFn.mock.calls[1][0]).toMatchObject({ name: 'invoices', repository: 'ghcr.io/acme/team/invoices', fromDraft: { tag: 'draft-1', digest: drafts[0].digest } });
+    await vi.waitFor(() => expect(text(target)).toContain('Accepting draft-1'));
+  });
+
+  it('refuses per-environment values with no environment named', async () => {
+    planFn.mockResolvedValue(answer());
+    render();
+    await fillAndReview();
+    const envStorage = tid('create-per-env')!.querySelector('[data-field="storageGi"] input') as HTMLInputElement;
+    envStorage.value = '200';
+    envStorage.dispatchEvent(new Event('input', { bubbles: true }));
+    flushSync();
+    (tid('create-review') as HTMLButtonElement).click();
+    flushSync();
+    expect(planFn).toHaveBeenCalledTimes(1);
+    expect(text(tid('create-env-error'))).toBe('Name the environment these values are for');
+    expect(tid('create-env-error')!.getAttribute('role')).toBe('alert');
+    expect(tid('create-env')!.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('opens Add an offering on a refusal there, and shows one input per field path', async () => {
+    const dup = { ...REDIS, parameters: [...REDIS.parameters, { configuration: 'backup', path: 'memoryMi', type: 'integer', tier: 'contract', required: false, sensitive: false }], parametersTotal: 60 };
+    const refusals = [{ code: 'ParameterOutOfRange', message: 'memoryMi 10 is below 64', field: 'configurations[cache].values.memoryMi', closest: 64, mcp: '{"offerings":[{"offering":"redis","values":{"memoryMi":64}}]}' }];
+    planFn.mockResolvedValue(answer({ refusals, offerings: [PG, dup] }, { intentDigest: '' }));
+    render();
+    await fillAndReview();
+    expect((tid('create-other-offerings') as HTMLDetailsElement).open).toBe(true);
+    const redis = q('[data-testid="create-offering"][data-offering="redis"]')!;
+    expect(redis.querySelectorAll('[data-field="memoryMi"]').length).toBe(1);
+    expect(text(redis.querySelector('[data-testid="create-more-fields"]'))).toContain('59 more fields not listed');
+  });
+
+  it('labels no sensitive field: it has no input', async () => {
+    planFn.mockResolvedValue(answer());
+    render();
+    await fillAndReview();
+    const pw = q('[data-testid="create-offering"][data-offering="postgresql"] [data-field="password"]')!;
+    expect(pw.querySelector('label')).toBeNull();
+    expect(text(pw.querySelector('[data-testid="create-sensitive"]'))).toContain('Secret reference');
+  });
 });
+

@@ -2,7 +2,7 @@
   import { tick } from 'svelte';
   import { api } from '../lib/api.ts';
   import { draftLine, draftMark } from '../lib/declare.ts';
-  import { boundsText, closestText, createFieldError, createReturn, createSignUrl, ENV_FIELD, fieldKey, offeringPicks, placeRefusals, signatureText } from '../lib/createService.ts';
+  import { boundsText, closestText, createFieldError, createReturn, createSignUrl, ENV_FIELD, fieldKey, moreText, offeringPicks, offeringRefused, params, perEnvField, perEnvTyped, placeRefusals, signatureText } from '../lib/createService.ts';
   import { zip } from '../lib/zip.ts';
   import { formatCount } from '../lib/format.ts';
   import { hostSignsIn, signIn } from '../lib/session.svelte.ts';
@@ -21,11 +21,14 @@
   // canCreate false (no registry, a read-only host, the doc export) renders no form and
   // the commands (`commands`) expanded, as the page always showed them. With a
   // configured portal (portalCreateURL) "Open in Backstage" leads and the form is second.
-  let { pathKey = '', pathName = '', pathVersion = '', requested = [], canCreate = false, portalCreateURL = '', signed = '', commands = undefined } = $props();
+  // A created draft's review link names the draft (draftTag), its service (draftName)
+  // and its repository when not the default (draftRepository): the form starts with
+  // them and Review opens that draft.
+  let { pathKey = '', pathName = '', pathVersion = '', requested = [], canCreate = false, portalCreateURL = '', signed = '', draftName = '', draftTag = '', draftRepository = '', commands = undefined } = $props();
   const uid = $props.id();
 
   let here = $state(false);
-  const showForm = $derived(canCreate && (!portalCreateURL || here || !!signed));
+  const showForm = $derived(canCreate && (!portalCreateURL || here || !!signed || !!draftTag));
   let name = $state('');
   let owner = $state('');
   let namespace = $state('');
@@ -36,6 +39,9 @@
   let env = $state('');
   let touched = $state(false);
   const fieldError = $derived(createFieldError(name.trim(), owner.trim(), namespace.trim()));
+  // A per-environment value with no environment named would be dropped: refuse it here.
+  const envError = $derived(!env.trim() && perEnvTyped(perEnv) ? 'Name the environment these values are for' : '');
+  let envTouched = $state(false);
 
   let answer = $state(null);
   let error = $state(null);
@@ -61,7 +67,7 @@
   const signHref = $derived(fresh && writes && answer?.signTicket ? createSignUrl(answer.signTicket, pathKey, p.intentDigest) : '');
   const done = $derived(!!result && !result.draft);
   const drafts = $derived(answer?.drafts ?? []);
-  const tunable = $derived(shown.concat(others).flatMap((o) => (o.parameters ?? []).filter((x) => x.tier === 'tunable' && !x.sensitive).map((x) => ({ o, x }))));
+  const tunable = $derived(shown.concat(others).flatMap((o) => params(o).filter(perEnvField).map((x) => ({ o, x }))));
   const zipped = $derived(!!result?.files?.length && !result.files.some((f) => f.truncated) && (result.filesTotal ?? result.files.length) <= result.files.length);
   const keepKey = (intent) => `pacto-create:${intent}`;
 
@@ -89,14 +95,29 @@
 
   async function review(e) {
     e?.preventDefault();
-    touched = true;
-    if (fieldError.field || loading) return;
+    touched = envTouched = true;
+    if (fieldError.field || envError || loading) return;
     result = refusal = null;
     movedText = '';
     await load();
+    // A review link's draft opens once the plan lists it among the person's drafts.
+    const linked = draftTag && !draft ? drafts.find((d) => d.tag === draftTag && d.digest) : null;
+    if (linked) {
+      draft = { tag: linked.tag, digest: linked.digest };
+      await load();
+    }
     await tick();
     planHeading?.focus();
   }
+
+  // A review link fills the name and repository it names, once.
+  let linkedIn = false;
+  $effect(() => {
+    if (linkedIn || !draftTag) return;
+    linkedIn = true;
+    if (!name) name = draftName;
+    if (!repository) repository = draftRepository;
+  });
 
   // Back from a signing login: the inputs it was started with, planned again for that intent.
   let resumed = false;
@@ -115,7 +136,9 @@
   });
 
   function startSign(e) {
-    try { sessionStorage.setItem(keepKey(p.intentDigest), JSON.stringify({ name, owner, namespace, repository, revision, once, perEnv, env, draft })); } catch { /* the person fills the form again */ }
+    // The planned revision rides along, so the plan after the login is the one signed.
+    const kept = { name, owner, namespace, repository, revision: revision.trim() || p.revision, once, perEnv, env, draft };
+    try { sessionStorage.setItem(keepKey(p.intentDigest), JSON.stringify(kept)); } catch { /* the person fills the form again */ }
     if (hostSignsIn()) {
       e.preventDefault();
       signIn(createReturn(pathKey, p.intentDigest), true);
@@ -128,7 +151,8 @@
     movedText = '';
     busy = true;
     try {
-      const out = await api.fleetCreateServiceAccept({ ...inputs(), intentDigest: p.intentDigest, mode });
+      // The write sends back the revision the plan answered, so it publishes the reviewed one.
+      const out = await api.fleetCreateServiceAccept({ ...inputs(), revision: revision.trim() || p.revision || undefined, intentDigest: p.intentDigest, mode });
       if (out.refusal?.code === 'PlanStale' && out.plan) {
         answer = out.plan;
         movedText = 'The plan changed since you read it. Read it again';
@@ -178,15 +202,17 @@
 {#snippet valueInput(o, x, k, value, set)}
   {@const at = placed.at[k] ?? []}
   <div class="cs-param" data-testid="create-param" data-field={x.path}>
-    <label class="cs-plabel" for={inputId(k)}><bdi>{x.path}</bdi> <span class="t-meta cs-bounds">{boundsText(x)}{x.tier === 'tunable' ? ', varies per environment' : ''}</span></label>
     {#if x.sensitive}
-      <p class="t-meta cs-p" id={inputId(k)}>Sensitive: set it through a Secret reference, never here</p>
-    {:else if x.enum?.length || x.type === 'boolean'}
+      <span class="cs-plabel cs-whole"><bdi>{x.path}</bdi> <span class="t-meta cs-bounds" data-testid="create-sensitive">sensitive: set it through a Secret reference, never here</span></span>
+    {:else}
+      <label class="cs-plabel" for={inputId(k)}><bdi>{x.path}</bdi> <span class="t-meta cs-bounds">{boundsText(x)}{x.tier === 'tunable' ? ', varies per environment' : ''}</span></label>
+    {/if}
+    {#if !x.sensitive && (x.enum?.length || x.type === 'boolean')}
       <select class="input" id={inputId(k)} value={value ?? ''} onchange={(e) => set(o.offering, x.path, e.currentTarget.value)} aria-invalid={at.length ? 'true' : undefined} aria-describedby={at.length ? `${inputId(k)}-r` : undefined}>
         <option value="">{x.default !== undefined ? `default (${typeof x.default === 'string' ? x.default : JSON.stringify(x.default)})` : 'as the golden path sets it'}</option>
         {#each x.enum?.length ? x.enum : [true, false] as v, i (i)}{@const s = typeof v === 'string' ? v : JSON.stringify(v)}<option value={s}>{s}</option>{/each}
       </select>
-    {:else}
+    {:else if !x.sensitive}
       <input class="input" id={inputId(k)} value={value ?? ''} oninput={(e) => set(o.offering, x.path, e.currentTarget.value)} inputmode={x.type === 'integer' || x.type === 'number' ? 'decimal' : undefined}
         placeholder={x.default !== undefined ? String(x.default) : ''} autocomplete="off" aria-invalid={at.length ? 'true' : undefined} aria-describedby={at.length ? `${inputId(k)}-r` : undefined} />
     {/if}
@@ -194,13 +220,22 @@
   </div>
 {/snippet}
 
+{#snippet fileText(f, note)}
+  <Fold title={f.path} level={5} meta={f.truncated ? (f.text ? 'truncated' : 'not text') : ''} testid="create-file">
+    {#if note}<p class="t-meta cs-p">{note}</p>{/if}
+    <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long line scrolls inside the box; focus lets a keyboard reader scroll it) -->
+    <pre class="cs-yaml" tabindex="0" aria-label={f.path}><code>{f.text ?? ''}</code></pre>
+  </Fold>
+{/snippet}
+
 {#snippet offering(o)}
   <div class="cs-offering" data-testid="create-offering" data-offering={o.offering}>
-    <p class="cs-p cs-oname"><bdi>{o.offering}</bdi>{#if o.version}{' '}<span class="t-meta">{o.version}</span>{/if}{#if o.classes?.length}{' '}<span class="t-meta">class {o.classes.join(' | ')}</span>{/if}</p>
+    <p class="cs-p cs-oname"><bdi>{o.offering}</bdi>{#if o.version}{' '}<span class="t-meta">{o.version}</span>{/if}{#if o.classes?.length}{' '}<span class="t-meta">class {o.classes.join(' | ')}{(o.classesTotal ?? 0) > o.classes.length ? ` (+${o.classesTotal - o.classes.length} more)` : ''}</span>{/if}</p>
     {#each placed.at[fieldKey(o.offering, '')] ?? [] as r, i (i)}{@render refusalLine(r)}{/each}
-    {#each o.parameters ?? [] as x (x.path)}
+    {#each params(o) as x (x.path)}
       {@render valueInput(o, x, fieldKey(o.offering, x.path), once[o.offering]?.[x.path], setOnce)}
     {/each}
+    {#if moreText(params(o).length, o.parametersTotal, 'fields')}<p class="t-meta cs-p" data-testid="create-more-fields">{moreText(params(o).length, o.parametersTotal, 'fields')}: set them with pacto init --values or pacto_create_service</p>{/if}
     {#if o.guarantees?.length}
       <Fold title="Guarantees" level={5} meta={formatCount(o.guarantees.length)} testid="create-guarantees">
         {#each o.guarantees as g (g.interface)}<p class="cs-p"><bdi>{g.interface}</bdi>: {g.text}</p>{/each}
@@ -225,6 +260,9 @@
         <label class="cs-field"><span>Name</span><input class="input" bind:value={name} required maxlength="63" autocomplete="off" aria-invalid={touched && fieldError.field === 'name' ? 'true' : undefined} aria-describedby={`${uid}-err`} data-testid="create-name" /></label>
         <label class="cs-field"><span>Owner team</span><input class="input" bind:value={owner} maxlength="253" autocomplete="off" aria-invalid={touched && fieldError.field === 'owner' ? 'true' : undefined} aria-describedby={`${uid}-err`} data-testid="create-owner" /></label>
         <label class="cs-field"><span>Namespace</span><input class="input" bind:value={namespace} required maxlength="63" autocomplete="off" aria-invalid={touched && fieldError.field === 'namespace' ? 'true' : undefined} aria-describedby={`${uid}-err`} data-testid="create-namespace" /></label>
+        {#if draftTag && !draft && !result}
+          <p class="cs-p cs-wide" data-testid="create-draft-link">Reviewing <bdi>{draftTag}</bdi> of <bdi>{draftName}</bdi>: name the namespace you create it in, then Review.</p>
+        {/if}
         {#if requested.length && !offerings.length}
           <p class="cs-p cs-wide t-meta" data-testid="create-requested">Offerings it consumes: {requested.join(', ')}. Review to set their values.</p>
         {/if}
@@ -259,20 +297,21 @@
             <div><dt>Revision</dt><dd><bdi title={p.revision}>{p.revision}</bdi></dd></div>
             {#if p.owner}<div><dt>Owner</dt><dd><bdi title={p.owner}>{p.owner}</bdi></dd></div>{/if}
           </dl>
-          {#if p.consumableCompleteness === 'partial'}<p class="t-meta cs-p">The offerings list is partial: an offering not listed may exist.</p>{/if}
           {#each p.notes ?? [] as n, i (i)}<p class="t-meta cs-p">{n}</p>{/each}
           {#if p.policyNote}<p class="t-meta cs-p">{p.policyNote}</p>{/if}
         {/if}
+        {#if offerings.length && answer.consumableCompleteness === 'partial'}<p class="t-meta cs-p" data-testid="create-partial">The offerings list is partial{answer.consumableAsOf ? ` as of ${answer.consumableAsOf}` : ''}: an offering not listed may exist.</p>{/if}
         {#each shown as o (o.offering)}{@render offering(o)}{/each}
         {#if others.length}
-          <Fold title="Add an offering" level={4} meta={formatCount(others.length)} testid="create-other-offerings">
+          <Fold title="Add an offering" level={4} meta={formatCount(others.length)} open={others.some((o) => offeringRefused(placed.at, o.offering))} testid="create-other-offerings">
             {#each others as o (o.offering)}{@render offering(o)}{/each}
           </Fold>
         {/if}
         {#if tunable.length}
-          <Fold title="Vary per environment" level={4} open={!!placed.at[ENV_FIELD] || tunable.some(({ o, x }) => placed.at[fieldKey(o.offering, x.path, '*')])} testid="create-per-env">
+          <Fold title="Vary per environment" level={4} open={!!placed.at[ENV_FIELD] || (envTouched && !!envError) || tunable.some(({ o, x }) => placed.at[fieldKey(o.offering, x.path, '*')])} testid="create-per-env">
             <label class="cs-field" for={inputId(ENV_FIELD)}><span>Environment</span></label>
-            <input class="input" id={inputId(ENV_FIELD)} bind:value={env} maxlength="63" autocomplete="off" data-testid="create-env" aria-invalid={placed.at[ENV_FIELD] ? 'true' : undefined} />
+            <input class="input" id={inputId(ENV_FIELD)} bind:value={env} maxlength="63" autocomplete="off" data-testid="create-env" aria-invalid={placed.at[ENV_FIELD] || (envTouched && envError) ? 'true' : undefined} aria-describedby={`${uid}-env-err`} />
+            <p class="t-meta cs-p" id={`${uid}-env-err`} role={envTouched && envError ? 'alert' : undefined} data-testid="create-env-error">{envTouched ? envError : ''}</p>
             {#each placed.at[ENV_FIELD] ?? [] as r, i (i)}{@render refusalLine(r)}{/each}
             {#each tunable as { o, x } (o.offering + '/' + x.path)}
               {@render valueInput(o, x, fieldKey(o.offering, x.path, '*'), perEnv[o.offering]?.[x.path], setEnv)}
@@ -302,6 +341,13 @@
             <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long line scrolls inside the box; focus lets a keyboard reader scroll it) -->
             <pre class="cs-yaml" tabindex="0" aria-label="pacto.yaml"><code>{p.contract?.text ?? ''}</code></pre>
           </Fold>
+          {#if p.files?.length || p.valuesFile}
+            <Fold title="Files" level={4} meta={formatCount((p.filesTotal ?? p.files?.length ?? 0) + (p.valuesFile ? 1 : 0))} testid="create-files">
+              {#if p.valuesFile}{@render fileText(p.valuesFile, 'Read by pacto init, beside the folder')}{/if}
+              {#each p.files ?? [] as f (f.path)}{@render fileText(f, '')}{/each}
+              {#if (p.filesTotal ?? 0) > (p.files?.length ?? 0)}<p class="t-meta cs-p">{moreText(p.files?.length ?? 0, p.filesTotal, 'files')}</p>{/if}
+            </Fold>
+          {/if}
         {/if}
         {#if drafts.length}
           <Fold title="Your drafts" level={4} meta={formatCount(answer.draftsTotal || drafts.length)} testid="create-drafts">
@@ -328,6 +374,7 @@
             <p class="t-meta cs-p">{result.appearsWithin || 'It shows in the fleet once a fleet source reads the organization index'}, declared at {p?.version ?? '0.1.0'} with nothing delivered.</p>
             {#if result.index}<p class="t-meta cs-p">{result.index}</p>{/if}
             {#if result.initCli}<div class="cs-cmd"><span class="t-meta">Start the folder</span> <CopyableIdentifier value={result.initCli} label="pacto init command" /></div>{/if}
+            {#if result.valuesFile}{@render fileText(result.valuesFile, 'Save it beside the folder first: pacto init reads it')}{/if}
             {#if result.gitCli}<div class="cs-cmd"><span class="t-meta">Optional, with your own Git token</span> <CopyableIdentifier value={result.gitCli} label="gh repo create command" /></div>{/if}
             {#if zipped}
               <button type="button" class="btn btn-sm" onclick={download} data-testid="create-zip">Download zip</button>
@@ -341,6 +388,7 @@
     {#if commands}
       <Fold title="Run it yourself" level={4} testid="create-yourself">
         {#if p?.initCli}<div class="cs-cmd"><span class="t-meta">This plan</span> <CopyableIdentifier value={p.initCli} label="pacto init command" /></div>{/if}
+        {#if p?.valuesFile}{@render fileText(p.valuesFile, 'Save it beside the folder first: pacto init reads it')}{/if}
         {@render commands()}
       </Fold>
     {/if}
@@ -370,6 +418,8 @@
     .cs-at { grid-column: 1 / -1; }
   }
   .cs-plabel { overflow-wrap: anywhere; min-inline-size: 0; }
+  /* A sensitive field has no input: its line takes the whole row. */
+  .cs-whole { grid-column: 1 / -1; }
   /* The bounds move to the next line whole after a long field name, never split at a range's dash. */
   .cs-bounds { display: inline-block; }
   .cs-refusal { border-inline-start: 3px solid var(--c-warn-border); padding-inline-start: var(--sp-2); display: flex; flex-direction: column; gap: var(--sp-1); min-inline-size: 0; }

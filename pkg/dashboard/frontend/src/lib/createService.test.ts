@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { boundsText, closestText, createFieldError, createReturn, createSignUrl, ENV_FIELD, fieldKey, offeringPicks, placeRefusals, signatureText, type OfferingView } from './createService.ts';
+import { boundsText, closestText, createFieldError, createQueryOf, createReturn, createSignUrl, ENV_FIELD, fieldKey, offeringPicks, placeRefusals, signatureText, type OfferingView } from './createService.ts';
 
 const PG: OfferingView = {
   offering: 'postgresql', version: '16.1.0', requested: true, classes: ['small', 'large'],
@@ -17,7 +17,8 @@ describe('placeRefusals', () => {
     const refusals = [
       { code: 'ParameterOutOfRange', message: 'm', field: 'configurations[database].values.storageGi', closest: 500, mcp: '{"offerings":[{"offering":"postgresql","values":{"storageGi":500}}]}' },
       { code: 'ParameterNotDeclared', message: 'm', field: 'configurations[cache].values.size' },
-      { code: 'TierNotTunable', message: 'm', field: 'environments[prod].database.class' },
+      { code: 'TierNotTunable', message: 'contract tier', field: 'environments[prod].database.class' },
+      { code: 'TierNotTunable', message: 'm', field: 'environments[prod].database.storageGi', mcp: '{"offerings":[{"offering":"postgresql"}]}' },
       { code: 'EnvironmentNotDeclared', message: 'm', field: 'environments[qa]' },
       { code: 'OfferingNotConsumable', message: 'absent', field: 'offerings[mysql]' },
       { code: 'ParameterNotDeclared', message: 'm', field: 'offerings[redis]' },
@@ -27,16 +28,28 @@ describe('placeRefusals', () => {
     const { at, rest } = placeRefusals(refusals, [PG, REDIS]);
     expect(at[fieldKey('postgresql', 'storageGi')].map((r) => r.code)).toEqual(['ParameterOutOfRange']);
     expect(at[fieldKey('redis', 'size')].map((r) => r.code)).toEqual(['ParameterNotDeclared']);
-    expect(at[fieldKey('postgresql', 'class', '*')].map((r) => r.code)).toEqual(['TierNotTunable']);
+    // A per-environment input exists only for a tunable field: a contract-tier one is in rest.
+    expect(at[fieldKey('postgresql', 'storageGi', '*')].map((r) => r.code)).toEqual(['TierNotTunable']);
+    expect(at[fieldKey('postgresql', 'class', '*')]).toBeUndefined();
     expect(at[ENV_FIELD].map((r) => r.code)).toEqual(['EnvironmentNotDeclared']);
     expect(at[fieldKey('redis', '')].map((r) => r.code)).toEqual(['ParameterNotDeclared']);
-    expect(rest.map((r) => r.message)).toEqual(['absent', 'ambiguous', 'whole']);
+    expect(rest.map((r) => r.message)).toEqual(['contract tier', 'absent', 'ambiguous', 'whole']);
+    // With no tunable field there is no environment input either.
+    expect(placeRefusals([{ code: 'EnvironmentNotDeclared', message: 'm', field: 'environments[qa]' }], [REDIS]).rest).toHaveLength(1);
     expect(placeRefusals(null, []).rest).toEqual([]);
   });
 
   it('reads a fragment that names no offering as no offering', () => {
     const { rest } = placeRefusals([{ code: 'X', message: 'm', field: 'configurations[a].values.zzz', mcp: '{"offerings":[{}]}' }], [PG]);
     expect(rest).toHaveLength(1);
+  });
+});
+
+describe('createQueryOf', () => {
+  it('reads a signing return and a draft review link apart', () => {
+    expect(createQueryOf({ create: '1', signed: 'sha256:i1', draft: 'draft-9' })).toEqual({ signed: 'sha256:i1', name: '', draft: '', repository: '' });
+    expect(createQueryOf({ create: 'invoices', draft: 'draft-1', repository: 'r/team/invoices' })).toEqual({ signed: '', name: 'invoices', draft: 'draft-1', repository: 'r/team/invoices' });
+    expect(createQueryOf({})).toEqual({ signed: '', name: '', draft: '', repository: '' });
   });
 });
 

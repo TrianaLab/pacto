@@ -1844,7 +1844,7 @@ export function installScaleFixture(): void {
   const DECLARE_INTENT = `sha256:${'b3'.repeat(32)}`;
   const CREATE_INTENT = `sha256:${'c5'.repeat(32)}`;
   const CREATE_PATH = `oci://ghcr.io/${longName('acme')}/http-service@sha256:${'7c'.repeat(32)}`;
-  type CreateParameter = { configuration: string; path: string; type: string; tier: string; enum?: string[]; default?: string; minimum?: number; maximum?: number };
+  type CreateParameter = { configuration: string; path: string; type: string; tier: string; enum?: string[]; default?: string; minimum?: number; maximum?: number; sensitive?: boolean };
   type CreateGuarantee = { interface: string; guarantees: Record<string, string>; text: string };
   const CREATE_OFFERINGS: { offering: string; version: string; requested: boolean; classes: string[]; parameters: CreateParameter[]; guarantees?: CreateGuarantee[] }[] = [
     { offering: 'postgresql', version: '17.0.0', requested: true, classes: ['standard', 'premium', `regional-${'replicated-'.repeat(4)}`],
@@ -1853,6 +1853,7 @@ export function installScaleFixture(): void {
         { configuration: 'provisioning', path: 'storageGi', type: 'integer', tier: 'tunable', minimum: 10, maximum: 500 },
         { configuration: 'provisioning', path: 'backups.retentionDays', type: 'integer', tier: 'tunable', minimum: 1, maximum: 35 },
         { configuration: 'provisioning', path: `maintenance.${'preferredWindow'.repeat(4)}`, type: 'integer', tier: 'contract', minimum: 0, maximum: 23 },
+        { configuration: 'provisioning', path: `credentials.${'administratorPassword'.repeat(3)}`, type: 'string', tier: 'contract', sensitive: true },
       ],
       guarantees: [{ interface: longName('sql'), guarantees: { timeout: '5s', availability: '99.95%' }, text: 'availability 99.95%, timeout 5s' }] },
     ...[0, 1, 2].map((i) => ({ offering: `objectstore-${'archive-'.repeat(6)}${i}`.slice(0, 63), version: `1.${i}.0`, requested: false, classes: [],
@@ -1919,10 +1920,11 @@ export function installScaleFixture(): void {
   // (the requested one tiered, with classes and a long field), long identities and
   // revision; every number over a field's maximum refused at its field with the clamped
   // value and both fixes; 'forbidden' is the 403 a SubjectAccessReview denial gives and
-  // 'refused' a taken name.
+  // 'refused' a taken name; 'draftlink' lists the person's draft-1, which a review link
+  // opens, and 'pull' publishes more files than a zip carries.
   const createServiceAnswer = (body: string | null) => {
     const mode = flags.__pactoCreateService;
-    const b = JSON.parse(body || '{}') as { name?: string; owner?: string; namespace?: string; offerings?: { offering: string; values?: Record<string, unknown> }[] };
+    const b = JSON.parse(body || '{}') as { name?: string; owner?: string; namespace?: string; offerings?: { offering: string; values?: Record<string, unknown> }[]; fromDraft?: { tag: string } };
     const name = b.name || 'invoices';
     const init = `pacto init ${name} --from ${CREATE_PATH} --owner ${b.owner || 'billing'} --registry ghcr.io/${longName('acme')}`;
     if (mode === 'forbidden') return { status: 403, body: { status: 403, title: 'Forbidden', code: 'NotAllowed', detail: `alice may not create services in ${b.namespace || 'team-billing'}` } };
@@ -1941,11 +1943,14 @@ export function installScaleFixture(): void {
     }));
     if (refusals.length) return { status: 200, body: { ...base, refusals } };
     const repo = `ghcr.io/${longName('acme')}/${name}`;
-    return { status: 200, body: { ...base, signTicket: 't'.repeat(43), signedIn: mode === 'published',
+    const drafts = mode === 'draftlink' ? [{ tag: 'draft-1', digest: `sha256:${'d1'.repeat(32)}`, state: 'draft', onBehalfOf: 'alice@acme.io', signed: false, asker: { subject: '', issuer: 'none', class: 'agent' } }] : undefined;
+    const valuesFile = { path: 'pacto-create-values.yaml', text: `configurations:\n  - name: database\n    values: {storageGi: 50, ${'note: a-long-value-'.repeat(8)}}\n` };
+    return { status: 200, body: { ...base, drafts, draftsTotal: drafts?.length, signTicket: 't'.repeat(43), signedIn: mode === 'published' || mode === 'pull', consumableCompleteness: 'partial', consumableAsOf: '2026-11-25T09:00:00Z',
       plan: { service: name, version: '0.1.0', bundleRepo: repo, state: 'declared', owner: b.owner || undefined, intentDigest: CREATE_INTENT,
         signer: { subject: 'alice@acme.io', class: 'human', source: 'login' }, path: CREATE_PATH, pathName: 'http-service', pathVersion: '1.0.0',
         signature: { step: 'signature', status: 'unknown', detail: 'signature not checked: no trust config names a template key; pass --trust or add a role: template key to PACTO_DELIVERY_TRUST' },
-        namespace: b.namespace || 'team-billing', revision: `pacto-create:alice@acme.io:2026-11-25T09:00:00Z`, initCli: init, consumableAsOf: '2026-11-25T09:00:00Z', consumableCompleteness: 'partial',
+        namespace: b.namespace || 'team-billing', revision: `pacto-create:alice@acme.io:2026-11-25T09:00:00Z`, initCli: `${init} --values pacto-create-values.yaml`, valuesFile,
+        files: [{ path: `environments/${longName('production')}.yaml`, text: `database:\n  storageGi: 200\n` }], filesTotal: 1, consumableAsOf: '2026-11-25T09:00:00Z', consumableCompleteness: 'partial',
         notes: [`a created service: every value comes from the golden path ${CREATE_PATH} and the values you set; review pacto.yaml`],
         contract: { text: `pactoVersion: "2.5"\nservice:\n  name: ${name}\n  version: 0.1.0\n  origin:\n    ref: ${CREATE_PATH}\n  summary: ${'An HTTP API on the platform runtime '.repeat(6)}\n` },
         record: { text: 'format: pacto.inferred/v1\nfields: []\n' } } } };
@@ -1955,7 +1960,13 @@ export function installScaleFixture(): void {
     const name = b.name || 'invoices';
     const repo = `ghcr.io/${longName('acme')}/${name}`;
     const init = `pacto init ${name} --from ${CREATE_PATH} --owner billing --registry ghcr.io/${longName('acme')}`;
-    if (b.mode !== 'sign') return { published: `${repo}@sha256:${'e8'.repeat(32)}`, tag: 'draft-1', draft: true };
+    if (b.mode !== 'sign') return { published: `${repo}@sha256:${'e8'.repeat(32)}`, tag: 'draft-1', draft: true, acceptUrl: `#/fleet/services/http-service?create=${name}&draft=draft-1` };
+    const valuesFile = { path: 'pacto-create-values.yaml', text: 'configurations:\n  - name: database\n    values: {storageGi: 50}\n' };
+    if (flags.__pactoCreateService === 'pull') {
+      return { published: `${repo}@sha256:${'e7'.repeat(32)}`, tag: '0.1.0', signed: true, initCli: `${init} --values pacto-create-values.yaml`, valuesFile,
+        pullCli: `pacto pull oci://${repo}@sha256:${'e7'.repeat(32)}`, index: `not indexed in ghcr.io/${longName('acme')}/pacto-index: ${longName('denied')}`, filesTotal: 70,
+        files: [{ path: 'pacto.yaml', text: 'x' }, { path: 'gradle/wrapper/gradle-wrapper.jar', text: '', truncated: true }] };
+    }
     return { published: `${repo}@sha256:${'e7'.repeat(32)}`, tag: '0.1.0', signed: true, initCli: init, gitCli: `gh repo create <org>/${name} --private --clone && cd ${name} && ${init}`,
       pullCli: `pacto pull oci://${repo}@sha256:${'e7'.repeat(32)}`, appearsWithin: 'It shows in the fleet within a minute',
       index: `indexed in ghcr.io/${longName('acme')}/pacto-index`, filesTotal: 2,
@@ -2764,7 +2775,7 @@ export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden' | 'execut
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
 
-export type CreateServiceMode = 'plan' | 'published' | 'forbidden' | 'refused' | 'parameter' | 'portal' | 'off';
+export type CreateServiceMode = 'plan' | 'published' | 'pull' | 'draftlink' | 'forbidden' | 'refused' | 'parameter' | 'portal' | 'off';
 export const CREATE_INTENT = `sha256:${'c5'.repeat(32)}`;
 /** The longest valid service name and namespace the Create service routes type. */
 export const CREATE_NAME = `invoices-${'reconciliation-'.repeat(4)}`.slice(0, 63).replace(/-+$/, '');
@@ -2777,19 +2788,23 @@ const CREATE_NAMESPACE = `team-${'billing-'.repeat(8)}`.slice(0, 63).replace(/-+
  *  flag is read per answer and the init script runs only on a new document. */
 export const createServiceRoute = (mode: Exclude<CreateServiceMode, 'off'>, name = CREATE_NAME, namespace = CREATE_NAMESPACE) => async (page: Page) => {
   await page.addInitScript((m) => { (window as unknown as { __pactoCreateService?: string }).__pactoCreateService = m; }, mode);
-  if (mode === 'published') {
+  const signedBack = mode === 'published' || mode === 'pull';
+  if (signedBack) {
     const kept = JSON.stringify({ name, owner: 'billing', namespace, repository: '', revision: '', once: {}, perEnv: {}, env: '', draft: null });
     await page.addInitScript(([k, v]) => sessionStorage.setItem(k, v), [`pacto-create:${CREATE_INTENT}`, kept]);
   }
   await page.goto('/#/fleet/golden-paths');
   const a = page.locator('main a[href*="/fleet/services/http-service"]').first();
   await expect(a).toBeVisible({ timeout: 30_000 });
-  await page.goto(`/${await a.getAttribute('href')}${mode === 'published' ? `?create=1&signed=${encodeURIComponent(CREATE_INTENT)}` : ''}`);
+  const query = signedBack ? `?create=1&signed=${encodeURIComponent(CREATE_INTENT)}` : mode === 'draftlink' ? `?create=${name}&draft=draft-1` : '';
+  await page.goto(`/${await a.getAttribute('href')}${query}`);
   await page.reload();
   const panel = page.getByTestId('create-service');
   if (mode === 'portal') {
     await expect(panel.getByTestId('create-open-portal')).toBeVisible({ timeout: 30_000 });
-  } else if (mode === 'published') {
+  } else if (mode === 'draftlink') {
+    await expect(panel.getByTestId('create-draft-link')).toBeVisible({ timeout: 30_000 });
+  } else if (signedBack) {
     await panel.getByTestId('create-publish').click({ timeout: 30_000 });
     await expect(panel.getByTestId('create-result')).toBeVisible({ timeout: 30_000 });
   } else {
@@ -3447,6 +3462,9 @@ export const ROUTES: Route[] = [
   { name: 'golden path entity, create service parameter refused', open: createServiceRoute('parameter') },
   { name: 'golden path entity, create service portal', open: createServiceRoute('portal') },
   { name: 'golden path entity, create service published', open: createServiceRoute('published') },
+  { name: 'golden path entity, create service published, pull and not indexed', open: createServiceRoute('pull') },
+  { name: 'golden path entity, create service draft review link', open: createServiceRoute('draftlink') },
+  { name: 'golden path entity, create service forbidden', open: createServiceRoute('forbidden') },
   { name: 'delivery inbox', list: true, hash: '#/delivery/inbox' },
   {
     name: 'delivery inbox, new signer',

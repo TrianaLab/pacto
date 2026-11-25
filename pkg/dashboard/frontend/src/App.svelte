@@ -9,6 +9,7 @@
   import { initScrollRestore } from './lib/scrollRestore.ts';
   import { api } from './lib/api.ts';
   import { entityMiraURL } from './lib/delivery.ts';
+  import { createQueryOf } from './lib/createService.ts';
   import { session as auth, me, loadSession, hostSignsIn, teamGroups, personLabel } from './lib/session.svelte.ts';
   import { consumeSignInLink } from './lib/signInLink.ts';
   import Person from './components/Person.svelte';
@@ -550,7 +551,7 @@
       <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} correlation={route.params.correlationID || ''}
         changesQuery={{ kind: route.params.changesKind || '', offset: route.params.changesOffset || '', limit: route.params.changesLimit || '', section: route.params.section || '' }} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)}
         canDeclare={capabilities?.declare === true} declareQuery={{ open: route.params.declare === '1', signed: route.params.create === '1' ? '' : route.params.signed || '' }}
-        createService={capabilities?.createService === true} portalCreateURL={capabilities?.portalCreateURL || ''} createQuery={{ signed: route.params.create === '1' ? route.params.signed || '' : '' }} />
+        createService={capabilities?.createService === true} portalCreateURL={capabilities?.portalCreateURL || ''} createQuery={createQueryOf(route.params)} />
     {/key}
   {:else if route.view === 'fleet'}
     <LazyView load={loadGraphView} params={route.params} {refreshTick} />

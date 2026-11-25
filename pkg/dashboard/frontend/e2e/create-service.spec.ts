@@ -126,6 +126,29 @@ test.describe('create a service from a golden path', () => {
       expect(errors).toEqual([]);
     });
 
+    test('a draft review link lands on that draft and Review opens it', async ({ page }) => {
+      const errors = watchConsole(page);
+      await createServiceRoute('draftlink', 'invoices', 'team-billing')(page);
+      const panel = page.getByTestId('create-service');
+      await expect(panel.getByTestId('create-draft-link')).toContainText('Reviewing draft-1 of invoices');
+      await expect(panel.getByTestId('create-name')).toHaveValue('invoices');
+      await panel.getByTestId('create-namespace').fill('team-billing');
+      await panel.getByTestId('create-review').click();
+      await expect(panel).toContainText('Accepting draft-1', { timeout: T });
+      expect(errors).toEqual([]);
+    });
+
+    test('a publish past the zip offers pacto pull and the values file, and promises no minute without an index entry', async ({ page }) => {
+      const errors = watchConsole(page);
+      await createServiceRoute('pull', 'invoices', 'team-billing')(page);
+      const result = page.getByTestId('create-service').getByTestId('create-result');
+      await expect(result.getByTestId('create-zip')).toHaveCount(0);
+      await expect(result.getByTestId('create-pull')).toContainText('pacto pull oci://');
+      await expect(result).toContainText('It shows in the fleet once a fleet source reads the organization index');
+      await expect(result).toContainText('pacto-create-values.yaml');
+      expect(errors).toEqual([]);
+    });
+
     test('a configured portal leads with Open in Backstage', async ({ page }) => {
       const errors = watchConsole(page);
       await createServiceRoute('portal')(page);
