@@ -176,6 +176,9 @@ type DeclarePlan struct {
 	IntentDigest string `json:"intentDigest"`
 	// AcceptCLI is the command a person runs to accept a draft.
 	AcceptCLI string `json:"acceptCLI,omitempty"`
+	// AcceptURL is the dashboard page a person reviews and signs a created
+	// draft at; a created draft carries no AcceptCLI.
+	AcceptURL string `json:"acceptURL,omitempty"`
 	// Unchanged is the baseline version when nothing changed since it: the
 	// plan then writes nothing.
 	Unchanged string `json:"unchanged,omitempty"`
@@ -411,7 +414,10 @@ func (s *Service) PlanDeclare(ctx context.Context, req DeclareRequest) (*Declare
 		return nil, nil, &DeclareError{Code: codeTemplateNotFound, Message: "no template " + req.TemplateSubject + " was read: accepting one reads it from the catalog first",
 			CLI: req.command("")}
 	}
-	if req.FromDraft != "" {
+	switch {
+	case req.FromDraft != "" && req.Create != nil:
+		return s.fromCreatedDraft(ctx, req)
+	case req.FromDraft != "":
 		return s.fromDraft(ctx, req)
 	}
 	scratch, err := s.env().mkdirTemp("", "pacto-declare-")
@@ -1498,6 +1504,9 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	res.Plan.Publish = r.Plan
 	res.Executed, res.Draft, res.Signed, res.Tag, res.Published = true, true, signed, tag, d.repo+"@"+r.Digests[publish.BundleItem]
 	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, req.AcceptCLI(res.Plan.Service, tag)
+	if req.Create != nil {
+		res.Plan.AcceptURL = req.acceptURL(d.repo, tag)
+	}
 	res.Files = bundleFiles(d.files)
 	return nil
 }
@@ -1720,7 +1729,7 @@ func readDraft(ctx context.Context, reg publish.Registry, repo string, req Decla
 	}
 	cli := "pacto declare " + req.Service + " --registry " + req.Registry
 	_, offer := req.offered()
-	if _, ok := req.claimed(); ok || offer || req.TemplateSubject != "" {
+	if _, ok := req.claimed(); ok || offer || req.TemplateSubject != "" || req.Create != nil {
 		sub := req
 		sub.FromDraft = ""
 		cli = sub.command("")
@@ -1776,6 +1785,9 @@ func draftSubject(repo string, req DeclareRequest, dr *draftRead, rec *contract.
 			return &DeclareError{Code: codeDraftNotFound, Message: repo + ":" + req.FromDraft + " holds no draft of the golden path " + req.TemplateSubject}
 		}
 		return nil
+	}
+	if ok, err := createdDraftSubject(repo, req, dr, rec); ok {
+		return err
 	}
 	if k, ok := req.claimed(); ok {
 		if rec.Declaration.InferredFrom != contract.ExternalInferredFrom(string(k)) || name != req.claimName() {

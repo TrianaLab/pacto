@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"maps"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing/fstest"
@@ -55,6 +58,10 @@ type CreateFrom struct {
 	// writes its entry to, through the installation's push credential
 	// scoped to it; nil opens it with the process's own credentials.
 	OpenIndex func(repo string) (*remote.Repository, error)
+	// ReviewURL is the dashboard page a created draft is reviewed and signed
+	// at (<dashboard URL>#/fleet/services/<golden path key>), set by a host
+	// that serves one; a written draft's AcceptURL adds its name and tag.
+	ReviewURL string
 }
 
 // OfferingPick is the values a create sets on one offering: once for every
@@ -126,6 +133,9 @@ const maxRevisionBytes = 128
 // The words of a create's refusals and notes.
 const (
 	createdNote       = "a created service: every value comes from the golden path %s and the values set here; review pacto.yaml"
+	createdDraftNote  = "a created service: every value comes from the golden path %s and the values the agent set; review pacto.yaml"
+	createdDraftCLI   = "%s:%s is a created-service draft: review and sign it in the dashboard's Create service, or create the service yourself with pacto init --from"
+	createdDraftExtra = "%s:%s holds content its golden path and values do not produce: create the service again"
 	partialNote       = "the offerings list is partial: an offering not listed may exist"
 	serviceExistsText = "%s is already taken in this registry: pick another name, or adopt your own service with pacto declare"
 	noWorkloadYet     = "a created service has no workload yet"
@@ -195,11 +205,16 @@ func checkCreateInputs(name string, c CreateFrom) error {
 	case c.Owner == "":
 		return &DeclareError{Code: codeOwnerRequired, Message: "a created service names its owner team"}
 	}
-	repo, _, digest := contract.SplitOCIRef(contract.TrimOCIScheme(c.Path))
-	if !strings.HasPrefix(c.Path, contract.OCIScheme) || repo == "" || !strings.HasPrefix(digest, "sha256:") {
+	if !pinnedPath(c.Path) {
 		return &DeclareError{Code: codeGoldenPathNotDeclared, Message: "a service is created only from a declared golden path, pinned by digest"}
 	}
 	return nil
+}
+
+// pinnedPath says ref is an oci://<repo>@sha256: reference.
+func pinnedPath(ref string) bool {
+	repo, _, digest := contract.SplitOCIRef(contract.TrimOCIScheme(ref))
+	return strings.HasPrefix(ref, contract.OCIScheme) && repo != "" && strings.HasPrefix(digest, "sha256:")
 }
 
 // createRepo is the repository a created service publishes to: the
@@ -298,7 +313,7 @@ func (pl *declarePlanner) applyOfferings() (string, error) {
 	}
 	d := &createDoc{c: *pl.req.Create, envFiles: map[string]map[string]any{}}
 	_ = contract.DecodeYAML(raw, &d.doc) // ponytail: InitFrom wrote and validated it
-	if err := d.readEnvFiles(pl.dir); err != nil {
+	if err := d.readEnvFiles(os.DirFS(pl.dir)); err != nil {
 		return "", err
 	}
 	picks := slices.Clone(d.c.Offerings)
@@ -358,11 +373,11 @@ func (d *createDoc) environments() []map[string]any {
 }
 
 // readEnvFiles reads each declared environment's values file.
-func (d *createDoc) readEnvFiles(dir string) error {
+func (d *createDoc) readEnvFiles(fsys fs.FS) error {
 	for _, e := range d.environments() {
 		name, _ := e["name"].(string)
 		file, _ := e["file"].(string)
-		_, values, err := contract.ReadEnvironmentValues(os.DirFS(dir), contract.Environment{Name: name, File: file})
+		_, values, err := contract.ReadEnvironmentValues(fsys, contract.Environment{Name: name, File: file})
 		if err != nil {
 			return fmt.Errorf("reading the values of environment %s: %w", name, err)
 		}
@@ -686,4 +701,173 @@ func allFiles(files map[string]*fstest.MapFile) map[string][]byte {
 		out[name] = f.Data
 	}
 	return out
+}
+
+// acceptURL is the dashboard page a person reviews and signs the created
+// draft tag of repo at, "" when no dashboard serves the review. The
+// repository is named only when it is not the registry's default.
+func (req DeclareRequest) acceptURL(repo, tag string) string {
+	if req.Create.ReviewURL == "" {
+		return ""
+	}
+	q := url.Values{"create": {req.Service}, "draft": {tag}}
+	if def, _ := createRepo(req.Registry, "", req.Service); repo != def {
+		q.Set("repository", repo)
+	}
+	return req.Create.ReviewURL + "?" + q.Encode()
+}
+
+// createdDraft says rec and c are a created draft: no cluster input,
+// nothing inferred from and a digest-pinned golden path origin. A cluster
+// draft keeps its cluster input, so an origin never makes it a created one.
+func createdDraft(rec *contract.InferredRecord, c *contract.Contract) bool {
+	return rec.Inputs.Cluster == nil && rec.Declaration.InferredFrom == "" && c.Service.Origin != nil && pinnedPath(c.Service.Origin.Ref)
+}
+
+// createdDraftSubject checks a draft against a create (ok is true when it
+// decided): a create accepts only a created draft of its service, and any
+// other run refuses a created draft, which has no fleet view to be
+// re-checked against and is signed in the dashboard.
+func createdDraftSubject(repo string, req DeclareRequest, dr *draftRead, rec *contract.InferredRecord) (bool, error) {
+	created := createdDraft(rec, dr.bundle.Contract)
+	switch {
+	case req.Create != nil && created && dr.bundle.Contract.Service.Name == req.Service:
+		return true, nil
+	case req.Create != nil:
+		return true, &DeclareError{Code: codeDraftNotFound, Message: repo + ":" + req.FromDraft + " holds no created draft of " + req.Service}
+	case created:
+		return true, &DeclareError{Code: codeDraftNotFound, Message: fmt.Sprintf(createdDraftCLI, repo, req.FromDraft)}
+	}
+	return false, nil
+}
+
+// fromCreatedDraft plans a person accepting an agent's created draft
+// (Decision 9). The draft's files are never trusted: the create inputs are
+// read from its own contract (owner, the offering values and the values of
+// each environment), the golden path is run again from them against the
+// person's own view, consumable read and owner rule, and every regenerated
+// file but the record must hold what the draft holds. The draft's golden
+// path must be the one the caller resolved.
+func (s *Service) fromCreatedDraft(ctx context.Context, req DeclareRequest) (*DeclarePlan, *declaration, error) {
+	repo, err := createRepo(req.Registry, req.Create.Repository, req.Service)
+	if err != nil {
+		return nil, nil, err
+	}
+	dr, err := readDraft(ctx, s.store(req), repo, req)
+	if err != nil {
+		return nil, nil, err
+	}
+	c := dr.bundle.Contract
+	if c.Service.Origin.Ref != req.Create.Path {
+		return nil, nil, &DeclareError{Code: codeGoldenPathNotDeclared,
+			Message: repo + ":" + req.FromDraft + " was created from another golden path than the one you create from here"}
+	}
+	picks, err := draftPicks(dr.bundle, req.Create.Consumable)
+	if err != nil {
+		return nil, nil, &DeclareError{Code: codeDraftNotFound, Message: fmt.Sprintf(createdDraftExtra, repo, req.FromDraft)}
+	}
+	create := *req.Create
+	create.Owner, create.Repository, create.Offerings = c.Service.Owner.Team, repo, picks
+	sub := req
+	sub.Create, sub.FromDraft = &create, ""
+	plan, d, err := s.PlanDeclare(ctx, sub)
+	switch {
+	case err != nil:
+		return plan, d, err
+	case plan.State != contract.DeclarationDeclared:
+		return plan, nil, &DeclareError{Code: codeSignerNotAllowed, Message: "accepting a draft takes a person's Sigstore login: " + plan.Signer.Why}
+	case !sameFiles(d.files, dr.bundle.FS):
+		return plan, nil, &DeclareError{Code: codeDraftNotFound, Message: fmt.Sprintf(createdDraftExtra, repo, req.FromDraft)}
+	}
+	if i := slices.Index(plan.Notes, fmt.Sprintf(createdNote, create.Path)); i >= 0 {
+		plan.Notes[i] = fmt.Sprintf(createdDraftNote, create.Path)
+	}
+	plan.Notes = append(plan.Notes, dr.signature)
+	// The record is packed again with the person as asker before it is signed.
+	dec := d.record.Declaration
+	dec.Draft = &contract.InferredDraft{Tag: req.FromDraft, Digest: repo + "@" + dr.digest, Asker: dr.dec.Asker, OnBehalfOf: dr.dec.OnBehalfOf}
+	plan.IntentDigest = intentDigest(plan, d.raw, dec.Accepted, dec.Draft.Digest)
+	return plan, d, nil
+}
+
+// draftPicks is the offering values a created draft sets, read from its
+// pacto.yaml and environment files: per offering its configurations' values
+// and each environment's values for them. An offering the caller may not
+// consume is picked under its repository's name, so the run refuses it.
+func draftPicks(b *contract.Bundle, consumable map[string]CreateOffering) ([]OfferingPick, error) {
+	d := &createDoc{c: CreateFrom{Consumable: consumable}, envFiles: map[string]map[string]any{}}
+	_ = contract.DecodeYAML(b.RawYAML, &d.doc) // ponytail: the pulled bundle parsed
+	if err := d.readEnvFiles(b.FS); err != nil {
+		return nil, err
+	}
+	byName := map[string]*OfferingPick{}
+	for _, cfg := range d.configurations() {
+		values, _ := cfg["values"].(map[string]any)
+		cfgName, _ := cfg["name"].(string)
+		envs := map[string]map[string]any{}
+		for env, file := range d.envFiles {
+			if v, ok := file[cfgName].(map[string]any); ok {
+				envs[env] = v
+			}
+		}
+		if configRefRepo(cfg) == "" || len(values) == 0 && len(envs) == 0 {
+			continue
+		}
+		name, _, _ := d.offeringOf(cfg)
+		p := byName[name]
+		if p == nil {
+			p = &OfferingPick{Offering: name, Values: map[string]any{}, Environments: map[string]map[string]any{}}
+			byName[name] = p
+		}
+		maps.Copy(p.Values, values)
+		for env, v := range envs {
+			if p.Environments[env] == nil {
+				p.Environments[env] = map[string]any{}
+			}
+			maps.Copy(p.Environments[env], v)
+		}
+	}
+	out := []OfferingPick{}
+	for _, name := range slices.Sorted(maps.Keys(byName)) {
+		out = append(out, *byName[name])
+	}
+	return out, nil
+}
+
+// sameFiles says a and b hold the same files but the inferred record, each
+// with the same bytes or, for YAML and JSON, the same document.
+func sameFiles(a, b fs.FS) bool {
+	fa, fb := treeFiles(a), treeFiles(b)
+	if len(fa) != len(fb) {
+		return false
+	}
+	for name, x := range fa {
+		y, ok := fb[name]
+		if !ok || !sameDocument(x, y) {
+			return false
+		}
+	}
+	return true
+}
+
+// treeFiles is every file of fsys but the inferred record.
+func treeFiles(fsys fs.FS) map[string][]byte {
+	out := map[string][]byte{}
+	_ = fs.WalkDir(fsys, ".", func(name string, de fs.DirEntry, err error) error {
+		if err == nil && !de.IsDir() && name != contract.InferredRecordFile {
+			out[name], err = fs.ReadFile(fsys, name)
+		}
+		return err
+	})
+	return out
+}
+
+// sameDocument says x and y are the same bytes, or decode to the same YAML
+// document (a re-marshalled pacto.yaml or values file).
+func sameDocument(x, y []byte) bool {
+	if string(x) == string(y) {
+		return true
+	}
+	var dx, dy any
+	return contract.DecodeYAML(x, &dx) == nil && contract.DecodeYAML(y, &dy) == nil && reflect.DeepEqual(dx, dy)
 }

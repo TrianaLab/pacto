@@ -7,13 +7,16 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
+	"gopkg.in/yaml.v3"
 	"k8s.io/apimachinery/pkg/runtime"
 	k8stesting "k8s.io/client-go/testing"
 	"oras.land/oras-go/v2/registry/remote"
@@ -631,16 +634,265 @@ func TestCreateIndexFailureKeepsPublish(t *testing.T) {
 	}
 }
 
-func TestCreateAgentWritesDraftWithoutAcceptCLI(t *testing.T) {
-	e := newCreateEnv(t, nil)
+// agentDraft writes an agent's created draft of invoices on behalf of who,
+// reviewed at the dashboard's golden path page.
+func (e *createEnv) agentDraft(t *testing.T, who string, picks ...OfferingPick) *DeclareResult {
+	t.Helper()
+	req := e.createReq(t, picks...)
+	req.Agent, req.OnBehalfOf, req.Create.Caller, req.Create.ReviewURL = true, who, who, reviewURL
+	return e.declare(t, req)
+}
+
+const reviewURL = "https://dash.example/#/fleet/services/go-http"
+
+// accept is who's request accepting the created draft tag.
+func (e *createEnv) accept(t *testing.T, who, tag string) DeclareRequest {
 	req := e.createReq(t)
-	req.Agent, req.OnBehalfOf = true, "ana@acme.com"
-	res := e.declare(t, req)
-	if !res.Draft || res.Tag != "draft-1" || res.Plan.AcceptCLI != "" || res.Created != nil {
+	req.Create.Caller, req.FromDraft = who, tag
+	return req
+}
+
+func TestCreateAgentWritesDraft(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	res := e.agentDraft(t, "ana@acme.com")
+	if !res.Draft || res.Tag != "draft-1" || res.Plan.AcceptCLI != "" || res.Created != nil ||
+		res.Plan.AcceptURL != reviewURL+"?create=invoices&draft=draft-1" {
 		t.Fatalf("%+v", res)
 	}
 	if tags, _ := e.reg.Tags(t.Context(), e.host+"/acme/invoices"); slices.ContainsFunc(tags, func(tg string) bool { return tg == firstDeclaration }) {
 		t.Fatalf("an agent wrote a version: %v", tags)
+	}
+	_, rec := e.pulled(t, "draft-1")
+	if d := rec.Declaration; d.State != contract.DeclarationDraft || d.OnBehalfOf != "ana@acme.com" || d.InferredFrom != "" || rec.Inputs.Cluster != nil {
+		t.Fatalf("%s", rec.Marshal())
+	}
+	// A repository other than the registry's default is named; no review
+	// page, no URL.
+	req := e.createReq(t)
+	req.Agent, req.OnBehalfOf, req.Create.ReviewURL, req.Create.Repository = true, "ana@acme.com", reviewURL, e.host+"/acme/team/invoices"
+	if got := e.declare(t, req).Plan.AcceptURL; got != reviewURL+"?create=invoices&draft=draft-1&repository="+url.QueryEscape(e.host+"/acme/team/invoices") {
+		t.Fatal(got)
+	}
+	req.Create.ReviewURL = ""
+	if got := e.declare(t, req); got.Tag != "draft-2" || got.Plan.AcceptURL != "" {
+		t.Fatalf("%+v", got.Plan)
+	}
+}
+
+// TestCreatedDraftIsNotAVersion: the fleet's one declaration predicate
+// leaves a created draft out.
+func TestCreatedDraftIsNotAVersion(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.agentDraft(t, "ana@acme.com")
+	_, rec := e.pulled(t, "draft-1")
+	if _, lim, ok := fleet.DeclarationAccepted(nil, rec, nil); ok || lim.Code != fleet.LimitationDeclarationDraftIgnored {
+		t.Fatalf("%+v %v", lim, ok)
+	}
+}
+
+// TestCreatedDraftAccepted: the person's acceptance regenerates the draft
+// from its own values, signs it and cites the draft.
+func TestCreatedDraftAccepted(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	draft := e.agentDraft(t, "ana@acme.com",
+		OfferingPick{Offering: "postgresql", Values: map[string]any{"storageGi": 40}, Environments: map[string]map[string]any{"prod": {"storageGi": 60}}},
+		OfferingPick{Offering: "redis", Values: map[string]any{"memoryMi": 128}})
+	e.withOwnerPolicy(t)
+	e.login(personToken("ana@acme.com"))
+	res := e.declare(t, e.accept(t, "ana@acme.com", "draft-1"))
+	if res.Draft || res.Tag != firstDeclaration || res.Created == nil || res.Plan.AcceptCLI != "" ||
+		!slices.Contains(res.Plan.Notes, "a created service: every value comes from the golden path "+e.path+" and the values the agent set; review pacto.yaml") ||
+		!slices.Contains(res.Plan.Notes, "the draft's signer names no identity Pacto can check: its proposer is asserted") {
+		t.Fatalf("%+v", res.Plan)
+	}
+	b, rec := e.pulled(t, firstDeclaration)
+	d := rec.Declaration
+	if d.State != contract.DeclarationDeclared || d.Asker.Subject != "ana@acme.com" || d.Draft == nil || d.Draft.Tag != "draft-1" ||
+		d.Draft.Digest != draft.Published || d.Draft.OnBehalfOf != "ana@acme.com" {
+		t.Fatalf("%s", rec.Marshal())
+	}
+	if raw := string(b.RawYAML); !strings.Contains(raw, "storageGi: 40") || !strings.Contains(raw, "memoryMi: 128") {
+		t.Fatalf("%s", raw)
+	}
+}
+
+// TestCreatedDraftExtraContentRefused: a hand-pushed draft holding anything
+// its golden path and values do not produce is refused.
+func TestCreatedDraftExtraContentRefused(t *testing.T) {
+	for name, mutate := range map[string]func(doc map[string]any, files map[string]string){
+		"dependency": func(doc map[string]any, _ map[string]string) {
+			doc["dependencies"] = []any{map[string]any{"name": "ledger", "ref": "oci://r.io/ledger:1.0.0", "compatibility": "^1.0.0"}}
+		},
+		"interface": func(doc map[string]any, _ map[string]string) {
+			doc["interfaces"] = []any{map[string]any{"name": "admin", "type": "http", "port": 9000}}
+		},
+		"publish": func(doc map[string]any, _ map[string]string) {
+			doc["publish"] = map[string]any{"bundle": "oci://elsewhere.io/invoices"}
+		},
+		"extra file": func(_ map[string]any, files map[string]string) { files["docs/extra.md"] = "# extra\n" },
+	} {
+		t.Run(name, func(t *testing.T) {
+			e := newCreateEnv(t, nil)
+			e.agentDraft(t, "ana@acme.com")
+			e.pushEdited(t, "draft-2", mutate)
+			e.login(personToken("ana@acme.com"))
+			_, de := e.planRefused(t, e.accept(t, "ana@acme.com", "draft-2"))
+			if want := e.host + "/acme/invoices:draft-2 holds content its golden path and values do not produce: create the service again"; de.Code != codeDraftNotFound || de.Message != want {
+				t.Fatalf("%+v", de)
+			}
+		})
+	}
+}
+
+// pushEdited pushes draft-1's files, edited by mutate, as tag.
+func (e *createEnv) pushEdited(t *testing.T, tag string, mutate func(doc map[string]any, files map[string]string)) {
+	t.Helper()
+	b, _ := e.pulled(t, "draft-1")
+	files := walkBundle(t, b)
+	var doc map[string]any
+	if err := contract.DecodeYAML([]byte(files[DefaultContractPath]), &doc); err != nil {
+		t.Fatal(err)
+	}
+	mutate(doc, files)
+	raw, _ := yaml.Marshal(doc)
+	files[DefaultContractPath] = string(raw)
+	e.publishBundle(t, e.host+"/acme/invoices", tag, files, nil)
+}
+
+// TestCreatedDraftAcceptRechecksValues: the values are judged again against
+// the person's consumable read.
+func TestCreatedDraftAcceptRechecksValues(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.agentDraft(t, "ana@acme.com", OfferingPick{Offering: "postgresql", Values: map[string]any{"storageGi": 400}})
+	e.login(personToken("ana@acme.com"))
+	req := e.accept(t, "ana@acme.com", "draft-1")
+	req.Create.Consumable["postgresql"].Schemas["provisioning"]["properties"].(map[string]any)["storageGi"].(map[string]any)["maximum"] = 300
+	_, de := e.planRefused(t, req)
+	if de.Code != codeParameterOutOfRange || len(de.Refusals) != 1 || de.Refusals[0].Field != "configurations[database].values.storageGi" {
+		t.Fatalf("%+v", de)
+	}
+	// An offering the person may not consume is refused the same way.
+	req = e.accept(t, "ana@acme.com", "draft-1")
+	delete(req.Create.Consumable, "postgresql")
+	if _, de := e.planRefused(t, req); de.Code != codeOfferingNotConsumable {
+		t.Fatalf("%+v", de)
+	}
+}
+
+func TestCreatedDraftAcceptRechecksPath(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.agentDraft(t, "ana@acme.com")
+	req := e.accept(t, "ana@acme.com", "draft-1")
+	req.Create.Path = "oci://" + e.host + "/acme/paths/go-http@" + e.publishBundle(t, e.host+"/acme/paths/go-http", "1.3.0", goldenHTTP(e.host, "2.5", ""), nil)
+	if _, de := e.planRefused(t, req); de.Code != codeGoldenPathNotDeclared || strings.Contains(de.Message, "sha256:") {
+		t.Fatalf("%+v", de)
+	}
+}
+
+// TestCreatedDraftAcceptChecksOwner: the person who signs must belong to
+// the owner team the draft names.
+func TestCreatedDraftAcceptChecksOwner(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.agentDraft(t, "eve@acme.com")
+	e.withOwnerPolicy(t)
+	e.login(personToken("eve@acme.com"))
+	_, err := e.svc.Declare(t.Context(), e.accept(t, "eve@acme.com", "draft-1"))
+	if de := refusal(t, err); de.Code != "OWNER_SIGNER_NOT_ALLOWED" {
+		t.Fatalf("%+v", de)
+	}
+	if tags := e.tags(t); slices.Contains(tags, firstDeclaration) {
+		t.Fatalf("written: %v", tags)
+	}
+}
+
+func TestCreatedDraftAcceptRefusals(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.agentDraft(t, "ana@acme.com")
+	// An agent never accepts a draft.
+	agent := e.accept(t, "ana@acme.com", "draft-1")
+	agent.Agent = true
+	if _, de := e.planRefused(t, agent); de.Code != codeSignerNotAllowed {
+		t.Fatalf("%+v", de)
+	}
+	e.login(personToken("ana@acme.com"))
+	req := e.accept(t, "ana@acme.com", "draft-9")
+	if _, de := e.planRefused(t, req); de.Code != codeDraftNotFound || !strings.HasPrefix(de.CLI, "pacto init invoices") {
+		t.Fatalf("%+v", de)
+	}
+	req.Create.Repository = "elsewhere.io/invoices"
+	if _, de := e.planRefused(t, req); de.Code != codeRepositoryOutsideRegistry {
+		t.Fatalf("%+v", de)
+	}
+	// Another person's draft: the name is taken.
+	if _, de := e.planRefused(t, e.accept(t, "bob@acme.com", "draft-1")); de.Code != codeServiceExists {
+		t.Fatalf("%+v", de)
+	}
+	// An environment file the draft declares but does not hold.
+	e.pushEdited(t, "draft-2", func(doc map[string]any, _ map[string]string) {
+		doc["environments"] = []any{map[string]any{"name": "prod", "file": "environments/missing.yaml"}}
+	})
+	if _, de := e.planRefused(t, e.accept(t, "ana@acme.com", "draft-2")); de.Code != codeDraftNotFound {
+		t.Fatalf("%+v", de)
+	}
+}
+
+// TestCreateAcceptsOnlyCreatedDraft: a create never accepts a cluster draft,
+// and a run that is no create never accepts a created draft.
+func TestCreateAcceptsOnlyCreatedDraft(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.declareEnv.agentDraft(t)
+	e.login(personToken("ana@acme.com"))
+	want := e.host + "/acme/invoices:draft-1 holds no created draft of invoices"
+	if _, de := e.planRefused(t, e.accept(t, "ana@acme.com", "draft-1")); de.Code != codeDraftNotFound || de.Message != want {
+		t.Fatalf("%+v", de)
+	}
+}
+
+func TestCLIDeclareRefusesCreatedDraft(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.agentDraft(t, "ana@acme.com")
+	e.login(personToken("ana@acme.com"))
+	_, de := e.planRefused(t, e.fromDraft("draft-1"))
+	want := e.host + "/acme/invoices:draft-1 is a created-service draft: review and sign it in the dashboard's Create service, or create the service yourself with pacto init --from"
+	if de.Code != codeDraftNotFound || de.Message != want {
+		t.Fatalf("%+v", de)
+	}
+}
+
+func TestDraftPicks(t *testing.T) {
+	raw := "pactoVersion: \"2.5\"\nservice: {name: invoices, version: 0.1.0}\nconfigurations:\n" +
+		"  - {name: local, schema: s.json}\n" +
+		"  - {name: empty, ref: oci://r.io/acme/postgresql:17.0.0}\n" +
+		"  - {name: a, ref: oci://r.io/acme/postgresql:17.0.0, values: {storageGi: 20}}\n" +
+		"  - {name: b, ref: oci://r.io/acme/postgresql:17.0.0}\n" +
+		"  - {name: c, ref: oci://r.io/acme/other:1.0.0, values: {x: 1}}\n" +
+		"environments:\n  - {name: prod, file: prod.yaml}\n"
+	b := &contract.Bundle{RawYAML: []byte(raw), FS: fstest.MapFS{"prod.yaml": {Data: []byte("a: {storageGi: 30}\nb: {class: large}\n")}}}
+	got, err := draftPicks(b, map[string]CreateOffering{"postgresql": {Repository: "r.io/acme/postgresql"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blob, _ := json.Marshal(got)
+	if want := `[{"offering":"other","values":{"x":1}},{"offering":"postgresql","values":{"storageGi":20},"environments":{"prod":{"class":"large","storageGi":30}}}]`; string(blob) != want {
+		t.Fatal(string(blob))
+	}
+}
+
+func TestCreatedDraftSameFiles(t *testing.T) {
+	base := fstest.MapFS{"pacto.yaml": {Data: []byte("a: 1\nb: [x]\n")}, contract.InferredRecordFile: {Data: []byte("r")}, "docs/x.md": {Data: []byte("x")}}
+	for name, c := range map[string]struct {
+		other fstest.MapFS
+		same  bool
+	}{
+		"re-marshalled": {fstest.MapFS{"pacto.yaml": {Data: []byte("b:\n  - x\na: 1\n")}, contract.InferredRecordFile: {Data: []byte("other")}, "docs/x.md": {Data: []byte("x")}}, true},
+		"value":         {fstest.MapFS{"pacto.yaml": {Data: []byte("a: 2\nb: [x]\n")}, "docs/x.md": {Data: []byte("x")}}, false},
+		"renamed":       {fstest.MapFS{"pacto.yaml": {Data: []byte("a: 1\nb: [x]\n")}, "docs/y.md": {Data: []byte("x")}}, false},
+		"extra":         {fstest.MapFS{"pacto.yaml": {Data: []byte("a: 1\nb: [x]\n")}, "docs/x.md": {Data: []byte("x")}, "z": {Data: []byte("z")}}, false},
+		"not yaml":      {fstest.MapFS{"pacto.yaml": {Data: []byte("a: 1\nb: [x]\n")}, "docs/x.md": {Data: []byte(": [")}}, false},
+	} {
+		if got := sameFiles(base, c.other); got != c.same {
+			t.Errorf("%s: %v", name, got)
+		}
 	}
 }
 
