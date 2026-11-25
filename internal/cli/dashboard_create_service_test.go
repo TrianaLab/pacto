@@ -220,14 +220,6 @@ func TestCreateServiceSignTicketBindsIntent(t *testing.T) {
 	back := createIn
 	back.IntentDigest = ans.Plan.IntentDigest
 	expect(t, h.plan(t, back).SignedIn, "back from the login the plan says it is live")
-	// A plan that moved since the login refuses with the fresh plan, and the
-	// login is still unused.
-	moved := createIn
-	moved.Revision = "abc123"
-	out := h.accept(t, moved, "sign", ans.Plan.IntentDigest)
-	expect(t, out.Refusal != nil && out.Refusal.Code == "PlanStale" && out.Plan != nil && out.Plan.Plan.IntentDigest != ans.Plan.IntentDigest &&
-		strings.HasPrefix(out.Refusal.Command, "pacto init invoices"), "%+v", out)
-	expect(t, h.d.live(nil, ""), "a stale accept took the login")
 	h.revision = ans.Plan.Revision
 	pub := h.accept(t, createIn, "sign", ans.Plan.IntentDigest)
 	index := h.repoTags(t, "pacto-index")
@@ -257,9 +249,29 @@ func TestCreateServiceSignNeedsLoginAndOwner(t *testing.T) {
 	h.d.take = func(*http.Request, string) (string, bool) { return "", false }
 	out = h.accept(t, createIn, "sign", intent)
 	expect(t, out.Refusal != nil && out.Refusal.Code == "SignerNotAllowed", "no login: %+v", out)
+}
+
+// A plan that moved since the login refuses with the fresh plan, and the
+// login is still unused.
+func TestCreateServiceAcceptPlanStale(t *testing.T) {
+	h := newCreateHost(t, false, true)
 	h.freshLogin(t, personToken())
-	// No owner policy: the publish refusal reaches the answer word for word.
-	out = h.accept(t, createIn, "sign", intent)
+	h.ownerPolicy(t, "ana@acme.com")
+	ans := h.plan(t, createIn)
+	moved := createIn
+	moved.Revision = "abc123"
+	out := h.accept(t, moved, "sign", ans.Plan.IntentDigest)
+	expect(t, out.Refusal != nil && out.Refusal.Code == "PlanStale" && out.Plan != nil && out.Plan.Plan.IntentDigest != ans.Plan.IntentDigest &&
+		strings.HasPrefix(out.Refusal.Command, "pacto init invoices"), "%+v", out)
+	expect(t, h.d.live(nil, ""), "a stale accept took the login")
+}
+
+// No owner policy: the publish refusal reaches the answer word for word.
+func TestCreateServiceRefusalVerbatim(t *testing.T) {
+	h := newCreateHost(t, false, true)
+	h.freshLogin(t, personToken())
+	intent := h.plan(t, createIn).Plan.IntentDigest
+	out := h.accept(t, createIn, "sign", intent)
 	same := createIn
 	same.Revision = h.revision
 	req := h.c.request(h.req(), h.path, same)
