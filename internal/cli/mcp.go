@@ -151,7 +151,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
 	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
-	cmd.Flags().String("dashboard-url", "", "with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there")
+	cmd.Flags().String("dashboard-url", "", "with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there, and a pacto_create_service draft the page a person signs it at")
 	cmd.Flags().String("stats-read-registry", "", "with --fleet: the stats repository pacto_stats reads; it reads and never records. "+
 		"Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats")
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")

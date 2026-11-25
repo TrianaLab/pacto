@@ -229,6 +229,7 @@ change.
   the platform team grants the caller `create` on
   `services.pacto.trianalab.io`; see
   [Create a service from the dashboard or an agent](golden-paths.md#create-a-service-from-the-dashboard-or-an-agent).
+  The write sends back the plan's `intent_digest` and `revision`.
 - **Calls to your service are read-only by default.** Only `GET` and `HEAD`
   operations become tools unless you pass `--allow-writes`. Each call stops
   after 30 seconds and follows no redirect.

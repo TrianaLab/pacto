@@ -2499,7 +2499,7 @@ pacto mcp [bundle-ref] [flags]
       --base-url string                  base URL for live invocation (overrides the OpenAPI servers[] URL)
       --cache[=true|false]               include every bundle in the local OCI cache as an offline baseline revision
       --context stringArray              kubeconfig context to read live Pacto CRs from, like --k8s for the current one; repeatable, each cluster read once
-      --dashboard-url string             with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there
+      --dashboard-url string             with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there, and a pacto_create_service draft the page a person signs it at
       --declare-registry-config string   with --registry: a Docker config.json with push access to it, the only credential pacto_declare writes drafts with over HTTP; without the two pacto_declare only plans there
       --delivery[=true|false]            expose the Pacto delivery tools over the ambient cluster
       --delivery-namespace string        in --delivery mode: namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer (default "pacto-delivery")
