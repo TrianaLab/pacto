@@ -343,11 +343,18 @@ const testKeyPassword = "pw"
 // test keys' password, and no ambient OIDC token or delivery trust file (a CI
 // runner or a workstation may have either). A test that sets one of them with
 // t.Setenv runs serially, and its cleanup restores the value set here.
+//
+// It also turns off keep-alives on http.DefaultTransport, which the registry
+// clients share: every httptest.Server.Close closes that transport's idle
+// connections, and a parallel test can lose a request on one being reused
+// ("connection broken: CloseIdleConnections called"). With no idle
+// connections there is nothing for a Close to break.
 func TestMain(m *testing.M) {
 	_ = os.Setenv("COSIGN_PASSWORD", testKeyPassword)
 	for _, env := range []string{"SIGSTORE_ID_TOKEN", "ACTIONS_ID_TOKEN_REQUEST_URL", "ACTIONS_ID_TOKEN_REQUEST_TOKEN", TrustEnv} {
 		_ = os.Unsetenv(env)
 	}
+	http.DefaultTransport.(*http.Transport).DisableKeepAlives = true
 	os.Exit(m.Run())
 }
 
