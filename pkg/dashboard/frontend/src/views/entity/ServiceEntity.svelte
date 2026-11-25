@@ -175,7 +175,7 @@
   const STEP_LABEL = { signature: 'Signature', contract: 'Contract', validation: 'Validation', plugin: 'Plugin', published: 'Published', fleet: 'Seen by Pacto', deployed: 'Deployed', provisioning: 'Provisioning' };
   // Unknown is neutral (SPEC 2.2): no evidence never reads as done, nor as a warning.
   const stepStatus = (st) => { const s = creationStatus(st); return [s.word, s.tone]; };
-  // What the golden path requests, for the creation explainer's last station.
+  // What the golden path requests, named by the Create service panel before a review.
   const requested = $derived([...new Set((gp?.requirements?.items ?? []).map((u) => u.offering || u.provider?.label || u.provider?.key).filter(Boolean))]);
   const hiddenCreated = $derived(gp?.hiddenCreatedServices ?? 0);
   const hiddenReqs = $derived(gp?.hiddenRequirements ?? 0);
