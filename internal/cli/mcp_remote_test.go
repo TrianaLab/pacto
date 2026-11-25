@@ -894,3 +894,20 @@ func TestFleetOnlyModesHint(t *testing.T) {
 	expect(t, !fleetOnlyModes(pactomcp.Modes{}, "").DeliveryHidden, "a host with no delivery hides none")
 	expect(t, strings.HasSuffix(m.FleetOnlyHint, "--audience pacto-dashboard --audience https://kubernetes.default.svc"), "hint: %s", m.FleetOnlyHint)
 }
+
+// TestRemoteCreatorRefusesABadTrustConfig: with a registry and the fleet
+// view, pacto_create_service reads the trust file at start, and an
+// unreadable one fails it.
+func TestRemoteCreatorRefusesABadTrustConfig(t *testing.T) {
+	d := deliveryDeps("system:serviceaccount:agents:bot", nil)
+	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k"}, nil }
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+	cmd.SetContext(t.Context())
+	for k, v := range map[string]string{"delivery-trust": filepath.Join(t.TempDir(), "absent"), "fleet": "true", "registry": "ghcr.io/acme",
+		"declare-registry-config": emptyDockerConfig(t)} {
+		expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
+	}
+	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
+	err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", nil, d, &s)
+	expect(t, err != nil && strings.Contains(err.Error(), "absent"), "an unreadable trust file was accepted: %v", err)
+}
