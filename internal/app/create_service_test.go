@@ -14,12 +14,15 @@ import (
 	"testing"
 	"time"
 
+	"k8s.io/apimachinery/pkg/runtime"
+	k8stesting "k8s.io/client-go/testing"
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/plugin"
@@ -42,6 +45,7 @@ const pgSchema = `{"type":"object","additionalProperties":false,"properties":{
 type createEnv struct {
 	*declareEnv
 	path string
+	pg   string // the postgresql offering's digest
 }
 
 // goldenHTTP is the go-http golden path at pactoVersion: a database on the
@@ -59,7 +63,7 @@ func goldenHTTP(host, pactoVersion, extra string) map[string]string {
 func newCreateEnv(t *testing.T, golden map[string]string) *createEnv {
 	t.Helper()
 	e := newDeclareEnv(t)
-	e.publishBundle(t, e.host+"/acme/postgresql", "17.0.0", map[string]string{
+	pg := e.publishBundle(t, e.host+"/acme/postgresql", "17.0.0", map[string]string{
 		"pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: postgresql\n  version: 17.0.0\n  offering: postgresql\n" +
 			"configurations:\n  - name: provisioning\n    schema: configuration/provisioning.schema.json\n    required: true\n",
 		"configuration/provisioning.schema.json": pgSchema,
@@ -69,7 +73,7 @@ func newCreateEnv(t *testing.T, golden map[string]string) *createEnv {
 	}
 	digest := e.publishBundle(t, e.host+"/acme/paths/go-http", "1.2.0", golden, nil)
 	e.svc.BundleStore = oci.NewClient(anonymous, oci.WithInsecureRegistries(e.host))
-	return &createEnv{e, "oci://" + e.host + "/acme/paths/go-http@" + digest}
+	return &createEnv{e, "oci://" + e.host + "/acme/paths/go-http@" + digest, pg}
 }
 
 // consumable is the caller's consumable read: postgresql, and redis with a
@@ -198,15 +202,10 @@ func TestCreateRefusesUnpinnedOrInvalid(t *testing.T) {
 	}
 }
 
-func TestCreateRepositoryRules(t *testing.T) {
-	for _, c := range []struct{ repo, want string }{
-		{"", "r.io/acme/invoices"},
-		{"oci://r.io/acme/team/invoices", "r.io/acme/team/invoices"},
-		{"r.io/other/invoices", ""},
-		{"r.io/acme/payments", ""},
-		{"r.io/acme/invoices:1.0.0", ""},
-		{"r.io/acme/../x/invoices", ""},
-	} {
+// repoCases checks createRepo on cases: want "" is a refusal.
+func repoCases(t *testing.T, cases []struct{ repo, want string }) {
+	t.Helper()
+	for _, c := range cases {
 		got, err := createRepo("oci://r.io/acme/", c.repo, "invoices")
 		if got != c.want || (c.want == "") != (err != nil) {
 			t.Errorf("%q: %q %v", c.repo, got, err)
@@ -214,6 +213,42 @@ func TestCreateRepositoryRules(t *testing.T) {
 		if err != nil && refusal(t, err).Code != codeRepositoryOutsideRegistry {
 			t.Errorf("%q: %v", c.repo, err)
 		}
+	}
+}
+
+// TestCreateRepositoryOutsideRegistry: the push goes only under the
+// installation registry, never to a repository a caller steers elsewhere.
+func TestCreateRepositoryOutsideRegistry(t *testing.T) {
+	repoCases(t, []struct{ repo, want string }{
+		{"", "r.io/acme/invoices"},
+		{"oci://r.io/acme/team/invoices", "r.io/acme/team/invoices"},
+		{"r.io/other/invoices", ""},
+		{"other.io/acme/invoices", ""},
+		{"r.io/acme/invoices:1.0.0", ""},
+		{"r.io/acme/invoices@sha256:" + strings.Repeat("0", 64), ""},
+		{"r.io/acme/../x/invoices", ""},
+	})
+	e := newCreateEnv(t, nil)
+	req := e.createReq(t)
+	req.Create.Repository = "evil.io/acme/invoices"
+	if p, de := e.planRefused(t, req); de.Code != codeRepositoryOutsideRegistry || p.IntentDigest != "" {
+		t.Fatalf("%+v", de)
+	}
+}
+
+// TestCreateRepositoryNameMismatch: the repository ends in the service name.
+func TestCreateRepositoryNameMismatch(t *testing.T) {
+	repoCases(t, []struct{ repo, want string }{
+		{"r.io/acme/team/invoices", "r.io/acme/team/invoices"},
+		{"r.io/acme/payments", ""},
+		{"r.io/acme/invoices/payments", ""},
+		{"r.io/acme/invoices-v2", ""},
+	})
+	e := newCreateEnv(t, nil)
+	req := e.createReq(t)
+	req.Create.Repository = e.host + "/acme/payments"
+	if p, de := e.planRefused(t, req); de.Code != codeRepositoryOutsideRegistry || p.IntentDigest != "" {
+		t.Fatalf("%+v", de)
 	}
 }
 
@@ -391,12 +426,23 @@ func TestCreatePartialConsumableReadsUnknown(t *testing.T) {
 	if de.Code != codeOfferingUnknown || !strings.Contains(de.Message, "Pacto could not confirm kafka is consumable: the offerings list is partial") {
 		t.Fatalf("%+v", de)
 	}
-	// A partial read still plans what it lists, and says it is partial.
-	req = e.createReq(t)
+	if tags, _ := e.reg.Tags(t.Context(), e.host+"/acme/invoices"); len(tags) != 0 {
+		t.Fatalf("written: %v", tags)
+	}
+}
+
+// TestCreateConsumablePartialNote: a partial read still plans what it
+// lists, and says it is partial.
+func TestCreateConsumablePartialNote(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	req := e.createReq(t)
 	req.Create.ConsumablePartial = true
 	p, _ := e.plan(t, req)
 	if p.Create.ConsumableCompleteness != "partial" || !slices.Contains(p.Notes, partialNote) {
 		t.Fatalf("%+v", p)
+	}
+	if p, _ := e.plan(t, e.createReq(t)); slices.Contains(p.Notes, partialNote) {
+		t.Fatalf("a complete read noted partial: %v", p.Notes)
 	}
 }
 
@@ -863,5 +909,238 @@ func TestCreateBundleHoldsNoSensitiveValue(t *testing.T) {
 	}{de, res})
 	if strings.Contains(string(answer), "hunter2") || strings.Contains(de.Error(), "hunter2") || len(e.tags(t)) != 0 {
 		t.Fatalf("%s %v", answer, e.tags(t))
+	}
+}
+
+// TestCreatedRecordHasNoInferredFrom: a created record names no workload
+// and no cluster, and is a valid declaration.
+func TestCreatedRecordHasNoInferredFrom(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	_, d := e.plan(t, e.createReq(t))
+	rec := d.record
+	if rec.Declaration == nil || rec.Declaration.InferredFrom != "" || rec.Declaration.Cluster != "" || rec.Inputs.Cluster != nil || rec.Inputs.Discovery == "" {
+		t.Fatalf("%s", rec.Marshal())
+	}
+	if err := validDeclaration(d.bundle); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestCreateSkipsWorkloadRead: a create never reads a workload; the only
+// cluster reads are the installation's policy ConfigMaps.
+func TestCreateSkipsWorkloadRead(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.dyn.PrependReactor("*", "*", func(a k8stesting.Action) (bool, runtime.Object, error) {
+		if r := a.GetResource().Resource; r != "configmaps" {
+			t.Errorf("a create read %s %s", a.GetVerb(), r)
+		}
+		return false, nil, nil
+	})
+	if p, _ := e.plan(t, e.createReq(t)); !slices.ContainsFunc(p.RepositoryTried, func(r RungNote) bool { return r.Reason == noWorkloadYet }) {
+		t.Fatalf("%+v", p.RepositoryTried)
+	}
+}
+
+// TestCreateSignatureUnknownWithoutTemplateKey: with no template key the
+// path's signature step reads Unknown, never verified, and still plans.
+func TestCreateSignatureUnknownWithoutTemplateKey(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	for _, trust := range []*delivery.TrustConfig{nil, {}} {
+		req := e.createReq(t)
+		req.Create.Trust = trust
+		p, _ := e.plan(t, req)
+		if sig := p.Create.Signature; sig.Status != fleet.StepStatusUnknown || sig.Detail != noTemplateKey || p.IntentDigest == "" {
+			t.Fatalf("%+v", sig)
+		}
+	}
+}
+
+// TestCreateServiceExists: a version already in the repository refuses
+// ServiceExists before any login, and writes nothing.
+func TestCreateServiceExists(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.publishBundle(t, e.host+"/acme/invoices", "1.0.0", e.invoicesBaseline("1.0.0", ""), nil)
+	logins := e.login(personToken("ana@acme.com"))
+	_, err := e.svc.Declare(t.Context(), e.createReq(t))
+	if de := refusal(t, err); de.Code != codeServiceExists || *logins != 0 {
+		t.Fatalf("%+v logins=%d", de, *logins)
+	}
+	if tags := e.tags(t); !slices.Equal(tags, []string{"1.0.0"}) {
+		t.Fatalf("written: %v", tags)
+	}
+}
+
+// TestRefusedCreateHasNoIntent: whatever refuses a create, the plan holds
+// no intent digest a caller could execute.
+func TestRefusedCreateHasNoIntent(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	for name, req := range map[string]DeclareRequest{
+		"out of range":   e.createReq(t, OfferingPick{Offering: "postgresql", Values: map[string]any{"storageGi": 900}}),
+		"sensitive":      e.createReq(t, OfferingPick{Offering: "postgresql", Values: map[string]any{"dbPassword": "x"}}),
+		"not consumable": e.createReq(t, OfferingPick{Offering: "mysql"}),
+		"environment":    e.createReq(t, OfferingPick{Offering: "postgresql", Environments: map[string]map[string]any{"qa": {"storageGi": 20}}}),
+	} {
+		if p, de := e.planRefused(t, req); p == nil || p.IntentDigest != "" || len(de.Refusals) == 0 {
+			t.Errorf("%s: %+v %+v", name, p, de)
+		}
+	}
+}
+
+// TestEnvironmentNotDeclared: a value for an environment the golden path
+// does not declare is refused at that environment.
+func TestEnvironmentNotDeclared(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	_, de := e.planRefused(t, e.createReq(t, OfferingPick{Offering: "postgresql", Environments: map[string]map[string]any{"staging": {"storageGi": 20}}}))
+	if len(de.Refusals) != 1 || de.Code != codeEnvironmentNotDeclared {
+		t.Fatalf("%+v", de)
+	}
+	if r := de.Refusals[0]; r.Code != codeEnvironmentNotDeclared || r.Field != "environments[staging]" || r.Message != "the golden path declares no environment staging" {
+		t.Fatalf("%+v", r)
+	}
+}
+
+// TestCreateKeepsStringTypedValue: a string that reads as a number or a
+// bool stays a string in the bundle and in the InitCLI replay.
+func TestCreateKeepsStringTypedValue(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	for _, v := range []string{"16", "true"} {
+		p, d := e.plan(t, e.createReq(t, OfferingPick{Offering: "postgresql", Values: map[string]any{"version": v}}))
+		if got, ok := d.bundle.Contract.Configurations[0].Values["version"].(string); !ok || got != v {
+			t.Fatalf("%q: %#v", v, d.bundle.Contract.Configurations[0].Values["version"])
+		}
+		if !strings.HasSuffix(p.Create.InitCLI, " --values "+createValuesFile) || !strings.Contains(p.Create.ValuesFile, "version: \""+v+"\"") {
+			t.Fatalf("%q: %+v", v, p.Create)
+		}
+	}
+}
+
+// scopedWrites records the repositories a create writes to.
+type scopedWrites struct {
+	publish.Registry
+	wrote *[]string
+}
+
+func (s scopedWrites) Write(ctx context.Context, repo string, a publish.Artifact) (string, error) {
+	*s.wrote = append(*s.wrote, repo)
+	return s.Registry.Write(ctx, repo, a)
+}
+
+func (s scopedWrites) Tag(ctx context.Context, repo, digest, tag string) error {
+	*s.wrote = append(*s.wrote, repo)
+	return s.Registry.Tag(ctx, repo, digest, tag)
+}
+
+func (s scopedWrites) PutSigTag(ctx context.Context, repo, digest string, art ocireferrer.Artifact) (string, error) {
+	*s.wrote = append(*s.wrote, repo)
+	return s.Registry.PutSigTag(ctx, repo, digest, art)
+}
+
+// TestCreatePushScopeHoldsRepoAndIndexOnly: a published create writes the
+// chosen repository through the push client and opens only the repository
+// and the installation index, where its entry lands.
+func TestCreatePushScopeHoldsRepoAndIndexOnly(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	t.Setenv("PACTO_INSECURE_REGISTRIES", e.host)
+	e.withOwnerPolicy(t)
+	e.login(personToken("ana@acme.com"))
+	repo, index := e.host+"/acme/invoices", e.host+"/acme/"+orgindex.RepositoryName
+	var wrote, opened []string
+	req := e.createReq(t)
+	req.Store = scopedWrites{e.reg, &wrote}
+	req.Create.OpenIndex = func(r string) (*remote.Repository, error) {
+		opened = append(opened, r)
+		return anonRepo(r)
+	}
+	res := e.declare(t, req)
+	if len(wrote) == 0 || len(opened) == 0 || !strings.HasPrefix(res.Created.Index, "indexed as "+index+":") {
+		t.Fatalf("wrote %v opened %v %+v", wrote, opened, res.Created)
+	}
+	for _, r := range wrote {
+		if r != repo {
+			t.Errorf("wrote %s", r)
+		}
+	}
+	for _, r := range opened {
+		if r != repo && r != index {
+			t.Errorf("opened %s", r)
+		}
+	}
+}
+
+// TestCreateIndexEntryWithNestedRepository: a repository nested under the
+// registry is indexed in the registry's one installation index.
+func TestCreateIndexEntryWithNestedRepository(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	t.Setenv("PACTO_INSECURE_REGISTRIES", e.host)
+	e.withOwnerPolicy(t)
+	e.login(personToken("ana@acme.com"))
+	index := e.host + "/acme/" + orgindex.RepositoryName
+	var opened []string
+	req := e.createReq(t)
+	req.Create.Repository = e.host + "/acme/team/invoices"
+	req.Create.OpenIndex = func(r string) (*remote.Repository, error) {
+		opened = append(opened, r)
+		return anonRepo(r)
+	}
+	res := e.declare(t, req)
+	if !strings.HasPrefix(res.Created.Index, "indexed as "+index+":") || !slices.Contains(opened, index) || slices.Contains(opened, e.host+"/acme/team/"+orgindex.RepositoryName) {
+		t.Fatalf("%+v %v", res.Created, opened)
+	}
+	svc := NewService(oci.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), oci.WithInsecureRegistries(e.host)), nil)
+	svc.sys.refusalRepo = anonRepo
+	coll := collectWhole(t, &indexFleetSource{svc: svc, repo: index})
+	if len(coll.Revisions) != 1 || !strings.Contains(coll.Revisions[0].ResolvedRef+coll.Revisions[0].RequestedRef, "/acme/team/invoices") {
+		t.Fatalf("%+v", coll.Revisions)
+	}
+}
+
+// TestOfferingNotConsumableForInferred: an offering the fleet holds only as
+// inferred never reaches the caller's consumable read, so a create cannot
+// pick it, worded as for an offering that is not there.
+func TestOfferingNotConsumableForInferred(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	b, err := e.reg.Pull(t.Context(), e.host+"/acme/postgresql@"+e.pg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	rev := fleet.RawRevision{Bundle: b, Domain: e.host + "/acme", RequestedRef: "oci://" + e.host + "/acme/postgresql:17.0.0", Digest: e.pg,
+		Provenance: &fleet.BundleProvenance{Source: "oci", Signature: fleet.BundleSignature{Status: fleet.SignatureVerified, Source: "rule",
+			Signer: "https://github.com/acme/pg/.github/workflows/publish.yml@refs/heads/main", Issuer: "https://token.actions.githubusercontent.com"}}}
+	// consumable is the caller's read: the offerings the fleet lists as
+	// consumable, with the inferred provider marked so when inferred.
+	consumable := func(inferred bool) map[string]CreateOffering {
+		snap, err := fleet.Build(t.Context(), fleet.BuildOptions{Now: time.Now}, fleet.NewMemorySource("oci", "oci", &fleet.Collection{Revisions: []fleet.RawRevision{rev}}))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, s := range snap.Services {
+			if inferred && s.Name == "postgresql" {
+				s.Declaration = fleet.DeclarationInferred // ponytail: as a contribution-backed service reads (pkg/fleet TestContributedOfferingNotConsumable)
+			}
+		}
+		l, err := fleet.NewQuery(snap).Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Consumable: true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, all := map[string]CreateOffering{}, e.consumable(t)
+		for _, row := range l.Entities {
+			if o, ok := all[row.Offering]; ok {
+				out[row.Offering] = o
+			}
+		}
+		return out
+	}
+	req := e.createReq(t)
+	if req.Create.Consumable = consumable(false); len(req.Create.Consumable) != 1 {
+		t.Fatalf("the accepted offering is not consumable: %v", req.Create.Consumable)
+	}
+	e.plan(t, req)
+	req.Create.Consumable = consumable(true)
+	_, de := e.planRefused(t, req)
+	absent := e.createReq(t)
+	delete(absent.Create.Consumable, "postgresql")
+	_, de2 := e.planRefused(t, absent)
+	if len(req.Create.Consumable) != 0 || de.Code != codeOfferingNotConsumable || de.Refusals[0].Message != de2.Refusals[0].Message {
+		t.Fatalf("%v %+v %+v", req.Create.Consumable, de, de2)
 	}
 }

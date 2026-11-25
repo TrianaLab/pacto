@@ -231,6 +231,29 @@ func TestDashboardDraftAuditLine(t *testing.T) {
 	}
 }
 
+// TestCreateAuditLine: a create's write logs one audit line naming how it
+// came, who, the service, the namespace the caller was reviewed in, the tag
+// and the bundle; a declaration logs its workload's namespace.
+func TestCreateAuditLine(t *testing.T) {
+	for _, c := range []struct {
+		req      app.DeclareRequest
+		verb, ns string
+	}{
+		{app.DeclareRequest{Service: "invoices", Create: &app.CreateFrom{Namespace: "team-billing"}}, "create", "team-billing"},
+		{app.DeclareRequest{Service: "invoices", Namespace: "billing"}, "declare", "billing"},
+	} {
+		var buf bytes.Buffer
+		ctx := logging.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, nil)))
+		auditDeclare(ctx, "dashboard", "ana@acme.com", c.req, "invoices", "0.1.0", "r.io/acme/invoices@sha256:1")
+		line := buf.String()
+		expect(t, strings.Count(line, "\n") == 1, "lines %q", line)
+		for _, want := range []string{"declaration written", "via=dashboard", "verb=" + c.verb, "actor=ana@acme.com", "service=invoices", "namespace=" + c.ns,
+			"tag=0.1.0", "published=r.io/acme/invoices@sha256:1"} {
+			expect(t, strings.Contains(line, want), "audit line %q lacks %q", line, want)
+		}
+	}
+}
+
 func TestServerDraftIdempotent(t *testing.T) {
 	h := newDeclareHost(t, false, true)
 	p := h.plan(t, dashboard.DeclareInput{Accept: []string{"ledger"}})

@@ -552,7 +552,7 @@ func runDeclare(ctx context.Context, svc *app.Service, req app.DeclareRequest, v
 	if refusal, err := dashRefusal(err); err != nil || refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, err
 	}
-	auditDeclare(ctx, via, who, req.Service, res.Plan.Service, res.Tag, res.Published)
+	auditDeclare(ctx, via, who, req, res.Plan.Service, res.Tag, res.Published)
 	return &dashboard.DeclareAcceptAnswer{Published: res.Published, Tag: res.Tag, Draft: res.Draft, Signed: res.Signed, Command: res.Plan.AcceptCLI}, nil
 }
 
@@ -802,10 +802,15 @@ func pushWriter(push gcrauthn.Keychain, repo string) publish.Registry {
 	return publish.NewScopedClient(push, oci.NewPushScope("", repo), nil, oci.EnvInsecureRegistries()...)
 }
 
-// auditDeclare logs one declaration write: who, what and where. subject is
-// the request's: a claim (external:<identity>) logs claim as its verb.
-func auditDeclare(ctx context.Context, via, who, subject, service, tag, published string) {
-	verb := "declare"
+// auditDeclare logs one declaration write: who, what and where. The subject
+// is the request's: a claim (external:<identity>) logs claim as its verb. The
+// namespace is the workload's, or for a create the one the caller was
+// reviewed in.
+func auditDeclare(ctx context.Context, via, who string, req app.DeclareRequest, service, tag, published string) {
+	subject, namespace, verb := req.Service, req.Namespace, "declare"
+	if req.Create != nil {
+		namespace, verb = req.Create.Namespace, "create"
+	}
 	if _, ok := fleet.ParseExternalSubject(subject); ok {
 		verb = "claim"
 	}
@@ -813,5 +818,5 @@ func auditDeclare(ctx context.Context, via, who, subject, service, tag, publishe
 		verb = "accept-offering"
 	}
 	logging.LoggerFromContext(ctx).Info("declaration written", slog.String("via", via), slog.String("verb", verb), slog.String("subject", subject), slog.String("actor", who),
-		slog.String("service", service), slog.String("tag", tag), slog.String("published", published))
+		slog.String("service", service), slog.String("namespace", namespace), slog.String("tag", tag), slog.String("published", published))
 }
