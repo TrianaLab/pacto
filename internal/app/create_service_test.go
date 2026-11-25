@@ -6,10 +6,12 @@ import (
 	"crypto/rand"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"maps"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -72,6 +74,11 @@ func newCreateEnv(t *testing.T, golden map[string]string) *createEnv {
 			"configurations:\n  - name: provisioning\n    schema: configuration/provisioning.schema.json\n    required: true\n",
 		"configuration/provisioning.schema.json": pgSchema,
 	}, nil)
+	e.publishBundle(t, e.host+"/acme/redis", "7.0.0", map[string]string{
+		"pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: redis\n  version: 7.0.0\n  offering: redis\n" +
+			"configurations:\n  - name: provisioning\n    schema: schema.json\n    required: true\n",
+		"schema.json": `{"type":"object","additionalProperties":false,"properties":{"memoryMi":{"type":"integer","minimum":64,"x-pacto-tier":"tunable"}}}`,
+	}, nil)
 	if golden == nil {
 		golden = goldenHTTP(e.host, "2.4", "")
 	}
@@ -84,15 +91,10 @@ func newCreateEnv(t *testing.T, golden map[string]string) *createEnv {
 // consume snippet the golden path does not request.
 func (e *createEnv) consumable(t *testing.T) map[string]CreateOffering {
 	t.Helper()
-	var schema map[string]any
-	if err := json.Unmarshal([]byte(pgSchema), &schema); err != nil {
-		t.Fatal(err)
-	}
 	redis := "oci://" + e.host + "/acme/redis:7.0.0"
 	return map[string]CreateOffering{
-		"postgresql": {Repository: "oci://" + e.host + "/acme/postgresql", Schemas: map[string]map[string]any{"provisioning": schema}},
-		"redis": {Repository: e.host + "/acme/redis", Schemas: map[string]map[string]any{"provisioning": {"type": "object", "additionalProperties": false,
-			"properties": map[string]any{"memoryMi": map[string]any{"type": "integer", "minimum": 64, "x-pacto-tier": "tunable"}}}},
+		"postgresql": {Repository: "oci://" + e.host + "/acme/postgresql"},
+		"redis": {Repository: e.host + "/acme/redis",
 			Snippet: &fleet.ConsumeSnippet{Entries: fleet.ConsumeEntries{Dependency: &contract.Dependency{Name: "redis", Ref: redis, Compatibility: "^7.0.0"},
 				Configurations: []fleet.ConsumeConfiguration{{Configuration: contract.Configuration{Name: "cache", Ref: redis, ProviderConfiguration: "provisioning", Required: true}}}}}},
 	}
@@ -284,6 +286,30 @@ func TestCreateRevisionRules(t *testing.T) {
 	}
 }
 
+// TestCreateDefaultRevisionKeepsTheIntent: the default revision names the
+// plan's clock, so a write in a later second keeps the reviewed intent,
+// whether it sends the planned revision back or none; the planned one is
+// what gets published when it is sent back.
+func TestCreateDefaultRevisionKeepsTheIntent(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.at()
+	p, _ := e.plan(t, e.createReq(t))
+	e.svc.sys.now = func() time.Time { return createNow.Add(2 * time.Second) }
+	later, _ := e.plan(t, e.createReq(t))
+	back := e.createReq(t)
+	back.Create.Revision = p.Create.Revision
+	sent, d := e.plan(t, back)
+	if later.IntentDigest != p.IntentDigest || sent.IntentDigest != p.IntentDigest || d.input.Revision != p.Create.Revision {
+		t.Fatalf("%s %s %s %s", p.IntentDigest, later.IntentDigest, sent.IntentDigest, d.input.Revision)
+	}
+	e.withOwnerPolicy(t)
+	e.login(personToken("ana@acme.com"))
+	back.IntentDigest = p.IntentDigest
+	if res := e.declare(t, back); res.Tag != firstDeclaration {
+		t.Fatalf("%+v", res)
+	}
+}
+
 func TestCreateServiceExistsHiddenRevealsNoDetail(t *testing.T) {
 	e := newCreateEnv(t, nil)
 	e.publishBundle(t, e.host+"/acme/invoices", "1.0.0", e.invoicesBaseline("1.0.0", ""), nil)
@@ -357,11 +383,6 @@ func TestCreateSetsRequestedOfferingValues(t *testing.T) {
 
 func TestCreateAppendsAcceptedOffering(t *testing.T) {
 	e := newCreateEnv(t, nil)
-	e.publishBundle(t, e.host+"/acme/redis", "7.0.0", map[string]string{
-		"pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: redis\n  version: 7.0.0\n  offering: redis\n" +
-			"configurations:\n  - name: provisioning\n    schema: schema.json\n    required: true\n",
-		"schema.json": `{"type":"object","additionalProperties":false,"properties":{"memoryMi":{"type":"integer","minimum":64}}}`,
-	}, nil)
 	_, d := e.plan(t, e.createReq(t, OfferingPick{Offering: "redis", Values: map[string]any{"memoryMi": 128}}))
 	c := d.bundle.Contract
 	if len(c.Dependencies) != 1 || c.Dependencies[0].Name != "redis" || len(c.Configurations) != 2 || c.Configurations[1].Name != "cache" ||
@@ -460,12 +481,71 @@ func TestCreateOfferingWithoutConfiguration(t *testing.T) {
 	if _, de := e.planRefused(t, req); de.Code != codeParameterNotDeclared || de.Refusals[0].Field != "offerings[queue]" {
 		t.Fatalf("%+v", de)
 	}
-	// A provider schema the read did not carry reads as not consumable.
+}
+
+// goldenRef is the go-http golden path whose database references ref,
+// selecting provider configuration sel with values.
+func (e *createEnv) goldenRef(t *testing.T, ref, sel, values string) {
+	t.Helper()
+	golden := map[string]string{"pacto.yaml": "pactoVersion: \"2.4\"\nservice:\n  name: go-http\n  version: 1.2.0\n  owner: {team: platform}\n  template: {}\n" +
+		"configurations:\n  - name: database\n    ref: " + ref + "\n    configuration: " + sel + "\n    values: " + values + "\n    required: true\n"}
+	e.path = "oci://" + e.host + "/acme/paths/go-http@" + e.publishBundle(t, e.host+"/acme/paths/go-http", "3.0.0", golden, nil)
+}
+
+// pgProvider publishes a postgresql provider at repo and version whose
+// required provisioning caps storageGi at max, beside an optional tuning.
+func (e *createEnv) pgProvider(t *testing.T, repo, version string, maxGi int) {
+	t.Helper()
+	e.publishBundle(t, repo, version, map[string]string{
+		"pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: " + path.Base(repo) + "\n  version: " + version + "\n  offering: postgresql\n" +
+			"configurations:\n  - name: provisioning\n    schema: p.json\n    required: true\n  - name: tuning\n    schema: t.json\n",
+		"p.json": fmt.Sprintf(`{"type":"object","additionalProperties":false,"properties":{"storageGi":{"type":"integer","maximum":%d,"x-pacto-tier":"tunable"}}}`, maxGi),
+		"t.json": `{"type":"object","additionalProperties":false,"properties":{"maxConnections":{"type":"integer","maximum":200,"x-pacto-tier":"tunable"}}}`,
+	}, nil)
+}
+
+// TestCreateChecksTheSchemaTheRefSelects: values are checked against the
+// provider configuration and revision the contract references, whichever
+// consumable provider it is, never another configuration's or revision's.
+func TestCreateChecksTheSchemaTheRefSelects(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.pgProvider(t, e.host+"/acme/pg-b", "1.0.0", 1000)
+	e.pgProvider(t, e.host+"/acme/postgresql", "16.0.0", 100)
+	// An optional provider configuration, named by the selector.
+	e.goldenRef(t, "oci://"+e.host+"/acme/pg-b:1.0.0", "tuning", "{maxConnections: 100}")
+	req := e.createReq(t)
+	req.Create.Consumable["postgresql"] = CreateOffering{Repository: e.host + "/acme/postgresql", Repositories: []string{e.host + "/acme/postgresql", e.host + "/acme/pg-b"}}
+	e.plan(t, req) // pg-b is a consumable provider too
+	req.Create.Offerings = []OfferingPick{{Offering: "postgresql", Values: map[string]any{"maxConnections": 500}}}
+	if _, de := e.planRefused(t, req); de.Code != codeParameterOutOfRange || de.Refusals[0].Field != "configurations[database].values.maxConnections" {
+		t.Fatalf("checked against another configuration: %+v", de)
+	}
+	// An older revision of the offering keeps its own bound.
+	e.goldenRef(t, "oci://"+e.host+"/acme/postgresql:16.0.0", "provisioning", "{storageGi: 50}")
+	req = e.createReq(t, OfferingPick{Offering: "postgresql", Values: map[string]any{"storageGi": 300}})
+	if _, de := e.planRefused(t, req); de.Code != codeParameterOutOfRange {
+		t.Fatalf("checked against the newest revision: %+v", de)
+	}
+	// A provider that is not consumable is refused.
 	req = e.createReq(t)
-	req.Create.Consumable["postgresql"] = CreateOffering{Repository: e.host + "/acme/postgresql", Schemas: map[string]map[string]any{"a": {}, "b": {}}}
+	e.goldenRef(t, "oci://"+e.host+"/acme/pg-b:1.0.0", "tuning", "{maxConnections: 100}")
+	req.Create.Path = e.path
 	if _, de := e.planRefused(t, req); de.Code != codeOfferingNotConsumable {
 		t.Fatalf("%+v", de)
 	}
+}
+
+// TestCreateLeavesSchemaLibraryRefs: a configuration whose ref reaches no
+// offering (a shared schema library) is not judged as an offering.
+func TestCreateLeavesSchemaLibraryRefs(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.publishBundle(t, e.host+"/acme/schemas/logging", "1.0.0", map[string]string{
+		"pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: logging\n  version: 1.0.0\n" +
+			"configurations:\n  - name: standard\n    schema: s.json\n",
+		"s.json": `{"type":"object","properties":{"level":{"type":"string"}}}`,
+	}, nil)
+	e.goldenRef(t, "oci://"+e.host+"/acme/schemas/logging:1.0.0", "standard", "{level: info}")
+	e.plan(t, e.createReq(t))
 }
 
 func TestCreateEnvironmentWithoutFile(t *testing.T) {
@@ -765,13 +845,15 @@ func (e *createEnv) pushEdited(t *testing.T, tag string, mutate func(doc map[str
 }
 
 // TestCreatedDraftAcceptRechecksValues: the values are judged again against
-// the person's consumable read.
+// the offering's schema and the person's consumable read.
 func TestCreatedDraftAcceptRechecksValues(t *testing.T) {
 	e := newCreateEnv(t, nil)
 	e.agentDraft(t, "ana@acme.com", OfferingPick{Offering: "postgresql", Values: map[string]any{"storageGi": 400}})
+	e.pushEdited(t, "draft-2", func(doc map[string]any, _ map[string]string) {
+		doc["configurations"].([]any)[0].(map[string]any)["values"].(map[string]any)["storageGi"] = 900
+	})
 	e.login(personToken("ana@acme.com"))
-	req := e.accept(t, "ana@acme.com", "draft-1")
-	req.Create.Consumable["postgresql"].Schemas["provisioning"]["properties"].(map[string]any)["storageGi"].(map[string]any)["maximum"] = 300
+	req := e.accept(t, "ana@acme.com", "draft-2")
 	_, de := e.planRefused(t, req)
 	if de.Code != codeParameterOutOfRange || len(de.Refusals) != 1 || de.Refusals[0].Field != "configurations[database].values.storageGi" {
 		t.Fatalf("%+v", de)
@@ -878,7 +960,9 @@ func TestDraftPicks(t *testing.T) {
 		t.Fatal(err)
 	}
 	blob, _ := json.Marshal(got)
-	if want := `[{"offering":"other","values":{"x":1}},{"offering":"postgresql","values":{"storageGi":20},"environments":{"prod":{"class":"large","storageGi":30}}}]`; string(blob) != want {
+	// A ref to no consumable offering is the golden path's own or content
+	// it never had, never a pick.
+	if want := `[{"offering":"postgresql","values":{"storageGi":20},"environments":{"prod":{"class":"large","storageGi":30}}}]`; string(blob) != want {
 		t.Fatal(string(blob))
 	}
 }
@@ -928,7 +1012,7 @@ func TestCreateHelpers(t *testing.T) {
 	if _, _, ok := envField("values.x"); ok {
 		t.Fatal("not an environment field")
 	}
-	if r := createRefusal(validationRefusal("values", nil), 0, "db", "pg", "pacto init"); r.Field != "configurations[db]" || r.CLI != "pacto init" {
+	if r := createRefusal(validationRefusal("values", nil), 0, "db", "pg", "pacto init"); r.Field != "configurations[db]" || r.CLI != "" {
 		t.Fatalf("%+v", r)
 	}
 	if r := createRefusal(validationRefusal("environments[prod].values.size", 5), 0, "db", "pg", "x"); r.Field != "environments[prod].db.size" ||
@@ -993,19 +1077,18 @@ func failOn(p string, n int, suffix string, at int) error {
 }
 
 func TestCreateDocEdges(t *testing.T) {
-	schema := map[string]any{"type": "object", "additionalProperties": false, "properties": map[string]any{"size": map[string]any{"type": "integer"}}}
 	d := &createDoc{doc: map[string]any{
 		"dependencies":   []any{map[string]any{"name": "redis"}},
 		"configurations": []any{map[string]any{"name": "local", "schema": "s.json"}, "not a map", map[string]any{"name": "db", "ref": "oci://r.io/pg:1", "configuration": "other", "values": map[string]any{"size": 1}}},
 		"environments":   []any{map[string]any{"name": "dev"}, "not a map"},
 	}, envFiles: map[string]map[string]any{"dev": {}}, c: CreateFrom{Consumable: map[string]CreateOffering{
-		"pg": {Repository: "r.io/pg", Schemas: map[string]map[string]any{"provisioning": schema}},
+		"pg": {Repository: "r.io/pg"},
 	}}}
 	// A dependency of the snippet's name is kept; a configuration with no
-	// ref is never an offering's; one schema answers any provider name.
+	// ref is never an offering's, nor is a ref that reaches no offering.
 	d.appendOffering(CreateOffering{Snippet: &fleet.ConsumeSnippet{Entries: fleet.ConsumeEntries{Dependency: &contract.Dependency{Name: "redis"}}}})
 	d.appendOffering(CreateOffering{})
-	d.check("pacto init")
+	d.check(validation.ConfigRefs{}, "pacto init")
 	if len(d.doc["dependencies"].([]any)) != 1 || len(d.refusals) != 0 {
 		t.Fatalf("%+v %+v", d.doc, d.refusals)
 	}
@@ -1399,5 +1482,83 @@ func TestOfferingNotConsumableForInferred(t *testing.T) {
 	_, de2 := e.planRefused(t, absent)
 	if len(req.Create.Consumable) != 0 || de.Code != codeOfferingNotConsumable || de.Refusals[0].Message != de2.Refusals[0].Message {
 		t.Fatalf("%v %+v %+v", req.Create.Consumable, de, de2)
+	}
+}
+
+// TestCreateOwnDraftsPastTheListedFew: a caller with more of their own
+// drafts than are listed still owns the name, and a draft that does not
+// read is unknown, never someone else's.
+func TestCreateOwnDraftsPastTheListedFew(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	repo := e.host + "/acme/invoices"
+	for i := 1; i <= MaxListedDrafts+1; i++ {
+		e.draftOf(t, repo, fmt.Sprintf("draft-%d", i), "ana@acme.com")
+	}
+	p, _ := e.plan(t, e.createReq(t))
+	if len(p.Drafts) != MaxListedDrafts || p.DraftsTotal != MaxListedDrafts+1 {
+		t.Fatalf("%d of %d", len(p.Drafts), p.DraftsTotal)
+	}
+	e.publishBundle(t, repo, fmt.Sprintf("draft-%d", MaxListedDrafts+2), map[string]string{"pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: invoices\n  version: 0.1.0\n"}, nil)
+	if _, de := e.planRefused(t, e.createReq(t)); de.Code != codeRegistryUnreadable {
+		t.Fatalf("an unreadable draft read as taken: %+v", de)
+	}
+}
+
+// TestCreatedDraftWithValuelessOfferingAccepted: an offering the agent
+// added with nothing set is added again when the draft is accepted.
+func TestCreatedDraftWithValuelessOfferingAccepted(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.agentDraft(t, "ana@acme.com", OfferingPick{Offering: "redis"})
+	e.withOwnerPolicy(t)
+	e.login(personToken("ana@acme.com"))
+	if res := e.declare(t, e.accept(t, "ana@acme.com", "draft-1")); res.Tag != firstDeclaration {
+		t.Fatalf("%+v", res)
+	}
+}
+
+// TestCreateMergesNestedValues: a nested value set leaves its siblings as
+// the golden path sets them, once and per environment; a pick with no
+// values writes no empty values.
+func TestCreateMergesNestedValues(t *testing.T) {
+	cfg := map[string]any{"name": "db", "ref": "oci://r.io/pg:1", "values": map[string]any{"storage": map[string]any{"sizeGi": 20, "class": "ssd"}}}
+	d := &createDoc{doc: map[string]any{"configurations": []any{cfg}}, envFiles: map[string]map[string]any{"prod": {"db": map[string]any{"storage": map[string]any{"sizeGi": 50, "class": "ssd"}}}},
+		c: CreateFrom{Consumable: map[string]CreateOffering{"pg": {Repository: "r.io/pg"}}}}
+	d.pick(OfferingPick{Offering: "pg", Values: map[string]any{"storage": map[string]any{"sizeGi": 30}},
+		Environments: map[string]map[string]any{"prod": {"storage": map[string]any{"sizeGi": 60}}}})
+	got := cfg["values"].(map[string]any)["storage"].(map[string]any)
+	prod := d.envFiles["prod"]["db"].(map[string]any)["storage"].(map[string]any)
+	if got["sizeGi"] != 30 || got["class"] != "ssd" || prod["sizeGi"] != 60 || prod["class"] != "ssd" {
+		t.Fatalf("%v %v", got, prod)
+	}
+	bare := map[string]any{"name": "other", "ref": "oci://r.io/pg:1"}
+	d.doc["configurations"] = []any{bare}
+	d.pick(OfferingPick{Offering: "pg"})
+	if _, ok := bare["values"]; ok {
+		t.Fatalf("an empty values map was written: %v", bare)
+	}
+}
+
+// TestCreateRefusalCLIRunsAsGiven: a refusal's pacto init fix names no
+// values file, and an offering the golden path does not request gets none.
+func TestCreateRefusalCLIRunsAsGiven(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	_, de := e.planRefused(t, e.createReq(t, OfferingPick{Offering: "postgresql", Values: map[string]any{"storageGi": 900}},
+		OfferingPick{Offering: "redis", Values: map[string]any{"memoryMi": 10}}))
+	for _, r := range de.Refusals {
+		switch r.Field {
+		case "configurations[database].values.storageGi":
+			if strings.Contains(r.CLI, "--values") || !strings.HasSuffix(r.CLI, " --set 'configurations[0].values.storageGi=500'") {
+				t.Errorf("%+v", r)
+			}
+		case "configurations[cache].values.memoryMi":
+			if r.CLI != "" || r.MCP == "" {
+				t.Errorf("an appended offering's fix named pacto init: %+v", r)
+			}
+		default:
+			t.Errorf("%+v", r)
+		}
+	}
+	if len(de.Refusals) != 2 {
+		t.Fatalf("%+v", de.Refusals)
 	}
 }

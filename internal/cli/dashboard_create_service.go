@@ -122,28 +122,26 @@ func picksOf(in []dashboard.CreateServiceOffering) []app.OfferingPick {
 }
 
 // consumableOfferings is the caller's consumable-offerings read on their
-// restricted view q, by offering, with the closed schema of each required
-// configuration of its provider (OfferingSchema answers only those); partial
-// when the read is not complete; and when it was taken.
+// restricted view q, by offering, with every consumable provider's
+// repository; partial when the read is not complete; and when it was taken.
 func consumableOfferings(q *fleet.Query) (map[string]app.CreateOffering, bool, string) {
 	list, providers := consumableRead(q)
 	out := map[string]app.CreateOffering{}
-	for name, p := range providers {
-		o := app.CreateOffering{Repository: p.Snippet.Ref, Snippet: p.Snippet, Schemas: map[string]map[string]any{}}
-		for _, cfg := range q.SnapshotForSerialization().Revisions[fleet.RevisionKey(p.Revision.Key)].Contract.Configurations {
-			if doc, err := q.OfferingSchema(p.Revision.Key, cfg.Name); err == nil {
-				o.Schemas[cfg.Name] = doc
-			}
+	for _, e := range list.Entities {
+		p := providers[e.Key]
+		o := app.CreateOffering{Repository: p.Snippet.Ref, Snippet: p.Snippet}
+		for _, other := range e.Consumable.Providers {
+			o.Repositories = append(o.Repositories, other.Snippet.Ref)
 		}
-		out[name] = o
+		out[e.Key] = o
 	}
 	partial := list.Meta.Completeness != fleet.CompletenessComplete || list.Truncated
 	return out, partial, list.Meta.AsOf.UTC().Format(time.RFC3339)
 }
 
 // consumableRead is the consumable offerings list of q and, per offering,
-// the provider a create consumes: the first by service key. ponytail: one
-// provider per offering; a provider pick when an offering has several.
+// the provider a pick appends: the first by service key. A configuration
+// may reference any consumable provider (CreateOffering.Repositories).
 func consumableRead(q *fleet.Query) (*fleet.EntityList, map[string]fleet.ConsumableProvider) {
 	list, _ := q.Entities(fleet.EntityFilter{Kinds: []fleet.EntityKind{fleet.KindOffering}, Consumable: true, Limit: fleet.MaxEntityLimit}) // ponytail: a fixed valid filter
 	out := map[string]fleet.ConsumableProvider{}

@@ -73,13 +73,19 @@ type OfferingPick struct {
 }
 
 // CreateOffering is one offering a caller may consume: the provider
-// repository its configurations reference, its consume snippet (appended
-// when the golden path does not request it) and the closed schema of each of
-// its required configurations, by name.
+// repository a pick appends, every consumable provider's repository (a
+// configuration may reference any of them) and the consume snippet appended
+// when the golden path does not request the offering. Values are checked
+// against the schema the contract's own ref selects, never one read here.
 type CreateOffering struct {
-	Repository string
-	Snippet    *fleet.ConsumeSnippet
-	Schemas    map[string]map[string]any
+	Repository   string
+	Repositories []string
+	Snippet      *fleet.ConsumeSnippet
+}
+
+// provides says repo is one of o's consumable providers.
+func (o CreateOffering) provides(repo string) bool {
+	return slices.ContainsFunc(append([]string{o.Repository}, o.Repositories...), func(r string) bool { return contract.TrimOCIScheme(r) == repo })
 }
 
 // CreateRefusal is one refused input of a create: its code, what happened,
@@ -181,7 +187,7 @@ func (pl *declarePlanner) fromGoldenPath(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	valuesFile, err := pl.applyOfferings()
+	valuesFile, err := pl.applyOfferings(ctx)
 	if err != nil {
 		return err
 	}
@@ -270,11 +276,16 @@ func (pl *declarePlanner) createTaken(ctx context.Context) error {
 	pl.tags = tags
 	taken := len(semver.Filter(tags)) > 0
 	if !taken {
-		drafts, total := pl.drafts(ctx)
+		// Ownership is decided over every draft, never the listed few, and a
+		// draft that does not read is unknown, never someone else's.
+		drafts, _ := pl.draftsUpTo(ctx, -1)
+		if slices.ContainsFunc(drafts, func(d DraftView) bool { return d.State == draftUnreadable }) {
+			return &DeclareError{Code: codeRegistryUnreadable, Message: "a draft in " + pl.repo() + " could not be read, so Pacto cannot tell whether the name is yours: try again"}
+		}
 		caller := pl.req.Create.Caller
 		own := slices.DeleteFunc(drafts, func(d DraftView) bool { return caller == "" || d.OnBehalfOf != caller && d.Asker.Subject != caller })
-		taken = len(own) != total
-		pl.plan.Drafts, pl.plan.DraftsTotal = own, len(own)
+		taken = len(own) != len(drafts)
+		pl.plan.Drafts, pl.plan.DraftsTotal = own[:min(len(own), MaxListedDrafts)], len(own)
 	}
 	if taken {
 		pl.plan.Drafts, pl.plan.DraftsTotal = nil, 0
@@ -296,6 +307,9 @@ type createDoc struct {
 	doc      map[string]any
 	envFiles map[string]map[string]any // environment -> configuration -> values
 	refusals []CreateRefusal
+	// pathConfigs is how many configurations the golden path itself
+	// declares; a pick appends after them.
+	pathConfigs int
 	// changed is a pick applied; raised is pactoVersion raised to 2.5.
 	changed, raised bool
 }
@@ -307,7 +321,7 @@ type createDoc struct {
 // against the offering's closed schema. Every refusal is collected; any
 // refuses the plan with nothing written. It returns the values file InitCLI
 // reads, empty when nothing was set.
-func (pl *declarePlanner) applyOfferings() (string, error) {
+func (pl *declarePlanner) applyOfferings(ctx context.Context) (string, error) {
 	file := filepath.Join(pl.dir, DefaultContractPath)
 	raw, err := os.ReadFile(file)
 	if err != nil {
@@ -318,12 +332,17 @@ func (pl *declarePlanner) applyOfferings() (string, error) {
 	if err := d.readEnvFiles(os.DirFS(pl.dir)); err != nil {
 		return "", err
 	}
+	d.pathConfigs = len(d.configurations())
 	picks := slices.Clone(d.c.Offerings)
 	slices.SortFunc(picks, func(a, b OfferingPick) int { return strings.Compare(a.Offering, b.Offering) })
 	for _, p := range picks {
 		d.pick(p)
 	}
-	d.check(pl.req.command(""))
+	refs, err := pl.resolveRefs(ctx, d)
+	if err != nil {
+		return "", err
+	}
+	d.check(refs, pl.req.createInit(false))
 	if len(d.refusals) > 0 {
 		return "", refusedCreate(d.refusals)
 	}
@@ -348,6 +367,21 @@ func refusedCreate(refusals []CreateRefusal) error {
 		msgs[i] = r.Field + ": " + r.Message
 	}
 	return &DeclareError{Code: refusals[0].Code, Message: strings.Join(msgs, "; "), Refusals: refusals}
+}
+
+// resolveRefs resolves every configuration ref of the edited document to
+// the revision and configuration it selects, as the contract validator does.
+func (pl *declarePlanner) resolveRefs(ctx context.Context, d *createDoc) (validation.ConfigRefs, error) {
+	c, err := contract.Parse(strings.NewReader(pactify.MarshalContract(d.doc)))
+	if err != nil {
+		return nil, err
+	}
+	var resolver validation.BundleResolver
+	if pl.s.BundleStore != nil {
+		resolver = pl.s.PolicyResolver(pl.dir)
+	}
+	refs, _ := validation.ResolveConfigRefs(ctx, c, os.DirFS(pl.dir), validation.ConfigRefOptions{Resolver: resolver, Now: pl.s.env().now()})
+	return refs, nil
 }
 
 // configurations is the document's configurations as maps.
@@ -395,16 +429,16 @@ func configRefRepo(cfg map[string]any) string {
 	return repo
 }
 
-// offeringOf is the consumable offering whose provider repository the
-// configuration references, and whether there is one.
-func (d *createDoc) offeringOf(cfg map[string]any) (string, CreateOffering, bool) {
+// offeringOf is the consumable offering one of whose providers the
+// configuration references, "" for none.
+func (d *createDoc) offeringOf(cfg map[string]any) string {
 	repo := configRefRepo(cfg)
 	for _, name := range slices.Sorted(maps.Keys(d.c.Consumable)) {
-		if o := d.c.Consumable[name]; contract.TrimOCIScheme(o.Repository) == repo {
-			return name, o, true
+		if d.c.Consumable[name].provides(repo) {
+			return name
 		}
 	}
-	return path.Base(repo), CreateOffering{}, false
+	return ""
 }
 
 // pick applies one offering's values: refused when the offering is not one
@@ -428,18 +462,32 @@ func (d *createDoc) pick(p OfferingPick) {
 	d.changed = true
 	for _, cfg := range cfgs {
 		values, _ := cfg["values"].(map[string]any)
-		if values == nil {
+		if values == nil && len(p.Values) > 0 {
 			values = map[string]any{}
+			cfg["values"] = values
 		}
-		maps.Copy(values, p.Values)
-		cfg["values"] = values
+		mergeValues(values, p.Values)
 		d.pickEnvironments(cfg, p)
+	}
+}
+
+// mergeValues sets every leaf of src in dst, descending into the maps both
+// hold, so a nested value set leaves its siblings as the golden path sets
+// them.
+func mergeValues(dst, src map[string]any) {
+	for k, v := range src {
+		sub, ok := v.(map[string]any)
+		if have, isMap := dst[k].(map[string]any); ok && isMap {
+			mergeValues(have, sub)
+			continue
+		}
+		dst[k] = v
 	}
 }
 
 // requesting is the document's configurations that reference o.
 func (d *createDoc) requesting(o CreateOffering) []map[string]any {
-	return slices.DeleteFunc(d.configurations(), func(cfg map[string]any) bool { return configRefRepo(cfg) != contract.TrimOCIScheme(o.Repository) })
+	return slices.DeleteFunc(d.configurations(), func(cfg map[string]any) bool { return !o.provides(configRefRepo(cfg)) })
 }
 
 // pickEnvironments sets p's per-environment values for cfg in the
@@ -457,7 +505,7 @@ func (d *createDoc) pickEnvironments(cfg map[string]any, p OfferingPick) {
 		if values == nil {
 			values = map[string]any{}
 		}
-		maps.Copy(values, p.Environments[env])
+		mergeValues(values, p.Environments[env])
 		file[name] = values
 	}
 }
@@ -501,39 +549,65 @@ func (d *createDoc) notConsumable(name string) CreateRefusal {
 		Message: name + " is not an offering you may consume here: pacto fleet offerings --consumable lists those you may"}
 }
 
-// check judges every configuration that references an offering against the
-// offering's closed schema, its values once and per environment.
-func (d *createDoc) check(initCLI string) {
-	seen := map[string]bool{}
+// check judges every configuration whose ref reaches an offering against
+// the schema that ref selects (the revision and provider configuration the
+// contract names), its values once and per environment. A ref that reaches
+// no offering, such as a shared schema library, is the contract validator's;
+// one that does not read is unknown and refused.
+func (d *createDoc) check(refs validation.ConfigRefs, initCLI string) {
+	refuse := func(r CreateRefusal) {
+		if !slices.ContainsFunc(d.refusals, func(x CreateRefusal) bool { return x.Field == r.Field }) {
+			d.refusals = append(d.refusals, r)
+		}
+	}
 	for i, cfg := range d.configurations() {
-		if configRefRepo(cfg) == "" {
+		repo := configRefRepo(cfg)
+		if repo == "" {
 			continue
 		}
-		name, o, ok := d.offeringOf(cfg)
-		if !ok {
-			if !seen[name] && !slices.ContainsFunc(d.refusals, func(r CreateRefusal) bool { return r.Field == "offerings["+name+"]" }) {
-				d.refusals = append(d.refusals, d.notConsumable(name))
+		cfgName, _ := cfg["name"].(string)
+		r := refs[cfgName]
+		if r.Offering == nil {
+			if r.Err != nil {
+				refuse(CreateRefusal{Code: codeOfferingUnknown, Field: "configurations[" + cfgName + "]",
+					Message: "Pacto could not read " + repo + ", so it cannot tell whether it is an offering you may consume: try again"})
 			}
-			seen[name] = true
 			continue
 		}
-		d.checkConfiguration(i, cfg, name, o, initCLI)
+		name := r.Offering.Service.Offering
+		o, ok := d.c.Consumable[name]
+		if !ok || r.Provider == r.Offering && !o.provides(repo) {
+			refuse(d.notConsumable(name))
+			continue
+		}
+		schema, err := refSchema(r)
+		if err != nil {
+			refuse(CreateRefusal{Code: codeOfferingUnknown, Field: "configurations[" + cfgName + "]",
+				Message: "Pacto could not read the schema configuration " + cfgName + " selects in offering " + name + ", so its values are not checked: try again"})
+			continue
+		}
+		d.checkConfiguration(i, cfgName, name, schema, cfg, initCLI)
 	}
 }
 
-// checkConfiguration checks configuration i, which references offering
-// name, and rewrites each refusal's field into its stable form.
-func (d *createDoc) checkConfiguration(i int, cfg map[string]any, name string, o CreateOffering, initCLI string) {
-	cfgName, _ := cfg["name"].(string)
-	provider, _ := cfg["configuration"].(string)
-	schema := o.Schemas[cmp.Or(provider, cfgName)]
-	if schema == nil && len(o.Schemas) == 1 {
-		schema = slices.Collect(maps.Values(o.Schemas))[0]
+// refSchema is the schema document r selects.
+func refSchema(r validation.ResolvedConfigRef) (map[string]any, error) {
+	if r.Err != nil || r.ProviderFS == nil {
+		return nil, cmp.Or(r.Err, fs.ErrNotExist)
 	}
-	if schema == nil {
-		d.refusals = append(d.refusals, d.notConsumable(name))
-		return
+	data, err := fs.ReadFile(r.ProviderFS, r.SchemaPath)
+	var doc map[string]any
+	if err == nil {
+		err = json.Unmarshal(data, &doc)
 	}
+	return doc, err
+}
+
+// checkConfiguration checks configuration i (named cfgName, of offering
+// name) against schema and rewrites each refusal's field into its stable
+// form. Only a configuration the golden path itself declares gets a pacto
+// init fix: an appended one is not in the folder pacto init writes.
+func (d *createDoc) checkConfiguration(i int, cfgName, name string, schema, cfg map[string]any, initCLI string) {
 	values, _ := cfg["values"].(map[string]any)
 	perEnv := map[string]map[string]any{}
 	for env, file := range d.envFiles {
@@ -541,23 +615,30 @@ func (d *createDoc) checkConfiguration(i int, cfg map[string]any, name string, o
 			perEnv[env] = v
 		}
 	}
+	if i >= d.pathConfigs {
+		initCLI = ""
+	}
 	for _, r := range validation.CheckOfferingValues(schema, values, perEnv) {
 		d.refusals = append(d.refusals, createRefusal(r, i, cfgName, name, initCLI))
 	}
 }
 
 // createRefusal is a value check's refusal of configuration i (named
-// cfgName, of offering) in the stable field form, with both fixes.
+// cfgName, of offering) in the stable field form, with both fixes. The CLI
+// fix is set only when it runs as given: a closest value for a value the
+// golden path's folder holds (initCLI is "" otherwise), never a values file.
 func createRefusal(r validation.OfferingValueRefusal, i int, cfgName, offering, initCLI string) CreateRefusal {
 	code := cmp.Or(offeringValueCodes[r.Code], string(r.Code))
-	out := CreateRefusal{Code: code, Message: r.Message, Closest: r.Closest, Allowed: r.Allowed, CLI: initCLI}
+	out := CreateRefusal{Code: code, Message: r.Message, Closest: r.Closest, Allowed: r.Allowed}
 	key, inValues := strings.CutPrefix(r.Field, "values.")
 	env, envKey, inEnv := envField(r.Field)
 	switch {
 	case inValues:
 		out.Field = "configurations[" + cfgName + "].values." + key
+		if r.Closest != nil && initCLI != "" {
+			out.CLI = initCLI + " --set " + shellquote.Quote(fmt.Sprintf("configurations[%d].values.%s=%v", i, key, r.Closest))
+		}
 		if r.Closest != nil {
-			out.CLI += " --set " + shellquote.Quote(fmt.Sprintf("configurations[%d].values.%s=%v", i, key, r.Closest))
 			out.MCP = mcpPick(OfferingPick{Offering: offering, Values: nested(key, r.Closest)})
 		}
 	case inEnv:
@@ -633,13 +714,21 @@ func (d *createDoc) valuesFile() string {
 
 // createIntent binds every input of a create: the path, owner, namespace,
 // repository, revision and the picks in offering order.
+// A pacto-create: revision is the caller's own default (createRevision
+// refuses anyone else's) and is bound as the default: its time is the plan's
+// clock, so a write in a later second, or one that sends no revision back,
+// keeps the plan it reviewed.
 func createIntent(c CreateFrom) string {
 	picks := slices.Clone(c.Offerings)
 	slices.SortFunc(picks, func(a, b OfferingPick) int { return strings.Compare(a.Offering, b.Offering) })
+	rev := c.Revision
+	if strings.HasPrefix(rev, createRevisionPrefix) {
+		rev = ""
+	}
 	data, _ := json.Marshal(struct {
 		Path, Owner, Namespace, Repository, Revision string
 		Offerings                                    []OfferingPick
-	}{c.Path, c.Owner, c.Namespace, c.Repository, c.Revision, picks}) // ponytail: decoded values always marshal
+	}{c.Path, c.Owner, c.Namespace, c.Repository, rev, picks}) // ponytail: decoded values always marshal
 	return string(data)
 }
 
@@ -647,11 +736,16 @@ func createIntent(c CreateFrom) string {
 // every token quoted: name, path, owner, the registry the repository sits
 // in and, when values were set, the values file.
 func (req DeclareRequest) createCommand() string {
+	return req.createInit(len(req.Create.Offerings) > 0)
+}
+
+// createInit is createCommand, naming the values file only when values.
+func (req DeclareRequest) createInit(values bool) string {
 	c := req.Create
 	repo := cmp.Or(c.Repository, strings.TrimSuffix(req.Registry, "/")+"/"+req.Service)
 	parts := []string{"pacto", "init", shellquote.Quote(req.Service), "--from", shellquote.Quote(c.Path), "--owner", shellquote.Quote(c.Owner),
 		"--registry", shellquote.Quote(path.Dir(repo))}
-	if len(c.Offerings) > 0 {
+	if values {
 		parts = append(parts, "--values", CreateValuesFile)
 	}
 	return strings.Join(parts, " ")
@@ -796,8 +890,7 @@ func (s *Service) fromCreatedDraft(ctx context.Context, req DeclareRequest) (*De
 
 // draftPicks is the offering values a created draft sets, read from its
 // pacto.yaml and environment files: per offering its configurations' values
-// and each environment's values for them. An offering the caller may not
-// consume is picked under its repository's name, so the run refuses it.
+// and each environment's values for them.
 func draftPicks(b *contract.Bundle, consumable map[string]CreateOffering) ([]OfferingPick, error) {
 	d := &createDoc{c: CreateFrom{Consumable: consumable}, envFiles: map[string]map[string]any{}}
 	_ = contract.DecodeYAML(b.RawYAML, &d.doc) // ponytail: the pulled bundle parsed
@@ -814,10 +907,14 @@ func draftPicks(b *contract.Bundle, consumable map[string]CreateOffering) ([]Off
 				envs[env] = v
 			}
 		}
-		if configRefRepo(cfg) == "" || len(values) == 0 && len(envs) == 0 {
+		// Every configuration of a consumable offering is a pick, a pick with
+		// no values included, so an offering the agent added with nothing set
+		// is added again. Any other ref is the golden path's own, or content
+		// it never had, which the regenerated folder leaves out.
+		name := d.offeringOf(cfg)
+		if name == "" {
 			continue
 		}
-		name, _, _ := d.offeringOf(cfg)
 		p := byName[name]
 		if p == nil {
 			p = &OfferingPick{Offering: name, Values: map[string]any{}, Environments: map[string]map[string]any{}}
