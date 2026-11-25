@@ -222,6 +222,39 @@ func (q *Query) consumableProvider(s *ServiceRecord) (ConsumableProvider, exclus
 	return p, exclusion{}
 }
 
+// OfferingSchema is the parsed schema of configuration, a required
+// configuration of the revision revisionKey, read from the bundle the
+// snapshot keeps (a ref'd one from the revision its edge resolves to): the
+// whole closed parameter space a value is checked against, which
+// Parameters bounds and masks. It answers only for the revision a caller may
+// consume, the newest of a consumable provider in this query's view; any
+// other revision, hidden or absent, is the same NotFoundError.
+func (q *Query) OfferingSchema(revisionKey, configuration string) (map[string]any, error) {
+	missing := &NotFoundError{Kind: "consumable offering schema", ID: revisionKey + "#" + configuration}
+	rev := q.snap.Revisions[RevisionKey(revisionKey)]
+	if rev == nil || rev.Contract == nil {
+		return nil, missing
+	}
+	s := q.snap.Services[rev.ServiceKey]
+	if s == nil {
+		return nil, missing
+	}
+	if p, ex := q.consumableProvider(s); ex.reason != "" || p.Revision.Key != revisionKey {
+		return nil, missing
+	}
+	i := slices.IndexFunc(rev.Contract.Configurations, func(c contract.Configuration) bool { return c.Name == configuration && c.Required })
+	if i < 0 {
+		return nil, missing
+	}
+	from, path := rev, rev.Contract.Configurations[i].Schema
+	if rev.Contract.Configurations[i].Ref != "" {
+		from, path = refSchemaFile(q.snap, rev, configuration)
+	}
+	// ponytail: consumableProvider read and parsed this schema just now.
+	doc, _ := schemaDoc(from, path)
+	return doc, nil
+}
+
 // unreadableNewest is the acceptance-unknown exclusion of a newest revision
 // that is missing, could not be read or failed validation.
 func unreadableNewest(newest *ContractRevision) exclusion {

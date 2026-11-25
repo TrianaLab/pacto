@@ -297,7 +297,7 @@ func (s *Service) indexSeen(repo string) bool {
 // readIndex lists the index, then reads and confirms each service's newest
 // entry.
 func (s *Service) readIndex(ctx context.Context, candidates []string) *indexRead {
-	repo, note, tags, err := s.indexRepository(ctx, candidates)
+	repo, note, tags, err := s.indexRepository(ctx, s.env().refusalRepo, candidates)
 	rd := &indexRead{repo: repo, note: note, status: impact.IndexRead}
 	switch {
 	case errors.Is(err, errIndexNotFound):

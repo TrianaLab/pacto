@@ -15,6 +15,8 @@ import (
 var ownerRightCallers = map[string][]string{
 	// The declare-time check (pacto declare, pacto_declare, the dashboard).
 	"delivery.DecideOwnerRight(": {"internal/app/declare.go"},
+	// A created service's first owner (pacto_create_service, the dashboard).
+	"delivery.DecideFirstOwner(": {"internal/app/create_service.go", "internal/app/declare.go"},
 	// The fleet's owner pass over published bundles, and the operator's
 	// OwnerVerified condition over running ones.
 	"publish.VerifyOwnerRight(": {"integrations/kubernetes/internal/controller/owner.go", "internal/app/ownerright.go"},

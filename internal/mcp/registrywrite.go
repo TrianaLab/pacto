@@ -88,6 +88,23 @@ const (
 	RefusalTemplateNameInvalid        WriteRefusal = "TemplateNameInvalid"
 	RefusalTemplateNameTaken          WriteRefusal = "TemplateNameTaken"
 	RefusalTemplateSourceUnverified   WriteRefusal = "TemplateSourceUnverified"
+	// The create-a-service codes: a name the registry already holds, a
+	// golden path the caller's view does not declare, a repository outside
+	// the installation registry, an offering the caller may not consume (or
+	// cannot be confirmed on a partial read), a value outside the offering's
+	// closed parameter space, and an environment the golden path does not
+	// declare.
+	RefusalServiceExists             WriteRefusal = "ServiceExists"
+	RefusalGoldenPathNotDeclared     WriteRefusal = "GoldenPathNotDeclared"
+	RefusalRepositoryOutsideRegistry WriteRefusal = "RepositoryOutsideRegistry"
+	RefusalOfferingNotConsumable     WriteRefusal = "OfferingNotConsumable"
+	RefusalOfferingUnknown           WriteRefusal = "OfferingUnknown"
+	RefusalParameterNotDeclared      WriteRefusal = "ParameterNotDeclared"
+	RefusalParameterOutOfRange       WriteRefusal = "ParameterOutOfRange"
+	RefusalParameterSensitive        WriteRefusal = "ParameterSensitive"
+	RefusalClassNotOffered           WriteRefusal = "ClassNotOffered"
+	RefusalTierNotTunable            WriteRefusal = "TierNotTunable"
+	RefusalEnvironmentNotDeclared    WriteRefusal = "EnvironmentNotDeclared"
 	// The owner rule's codes, defined once in pkg/delivery.
 	RefusalOwnerSignerNotPerson  WriteRefusal = delivery.OwnerSignerNotPerson
 	RefusalOwnerSignerNotAllowed WriteRefusal = delivery.OwnerSignerNotAllowed
@@ -107,6 +124,9 @@ var writeRefusals = []WriteRefusal{
 	RefusalOfferingSchemaOpen, RefusalOfferingSourceInvalid, RefusalOfferingSourceUnverified, RefusalOfferingMismatch, RefusalVersionRequired,
 	RefusalTemplateNotFound, RefusalTemplateCatalogUnset, RefusalTemplateCatalogUnavailable, RefusalTemplateNameInvalid, RefusalTemplateNameTaken,
 	RefusalTemplateSourceUnverified,
+	RefusalServiceExists, RefusalGoldenPathNotDeclared, RefusalRepositoryOutsideRegistry, RefusalOfferingNotConsumable, RefusalOfferingUnknown,
+	RefusalParameterNotDeclared, RefusalParameterOutOfRange, RefusalParameterSensitive, RefusalClassNotOffered, RefusalTierNotTunable,
+	RefusalEnvironmentNotDeclared,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }
 

@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -192,5 +193,58 @@ func TestConsumableComposedSchemaExcluded(t *testing.T) {
 	p := spaceOf(t, csmSpaceRev(`{"type":"object","additionalProperties":false,"properties":{"size":{"oneOf":[{"const":"s"},{"const":"m"}]}}}`))
 	if x := paramAt(t, p, "size"); len(x.Enum) != 2 {
 		t.Errorf("size = %+v", x)
+	}
+}
+
+// TestOfferingSchemaOnlyForConsumableProvider: the whole schema of a required
+// configuration of a consumable provider's newest revision, local or ref'd;
+// any other revision or configuration, and a provider the view hides, read as
+// the same not found.
+func TestOfferingSchemaOnlyForConsumableProvider(t *testing.T) {
+	q := csmFleet(t, nil, csmSpaceRev(csmPGSchema))
+	key := string(q.snap.Services[NewServiceKeyDomain(csmDomain, "pg")].Revisions[0])
+	doc, err := q.OfferingSchema(key, "db")
+	if err != nil || doc["additionalProperties"] != false || len(doc["properties"].(map[string]any)) != 5 {
+		t.Fatalf("%v %v", err, doc)
+	}
+	notFound := func(q *Query, key, cfg string) {
+		t.Helper()
+		var nf *NotFoundError
+		if _, err := q.OfferingSchema(key, cfg); !errors.As(err, &nf) || nf.ID != key+"#"+cfg {
+			t.Errorf("%s#%s: %v", key, cfg, err)
+		}
+	}
+	notFound(q, key, "extra")   // not required
+	notFound(q, key, "nothing") // not declared
+	notFound(q, "nowhere", "db")
+	// A revision of no consumable provider: an unaccepted one.
+	unaccepted := csmFleet(t, nil, csmRev("pg", "17.0.0", "postgresql", csmProv(SignatureUnsigned, "")))
+	notFound(unaccepted, string(unaccepted.snap.Services[NewServiceKeyDomain(csmDomain, "pg")].Revisions[0]), "db")
+	// An older revision of a consumable provider.
+	older := csmSpaceRev(csmPGSchema)
+	newer := csmSpaceRev(csmPGSchema)
+	newer.Bundle.Contract.Service.Version = "17.1.0"
+	q2 := csmFleet(t, nil, older, newer)
+	answered := 0
+	for _, rk := range q2.snap.Services[NewServiceKeyDomain(csmDomain, "pg")].Revisions {
+		if _, err := q2.OfferingSchema(string(rk), "db"); err == nil {
+			answered++
+		}
+	}
+	if answered != 1 {
+		t.Errorf("%d of two revisions answered, want only the newest", answered)
+	}
+	// A revision whose service record is gone (a corrupt snapshot).
+	q.snap.Revisions["orphan"] = &ContractRevision{Contract: &contract.Contract{}, ServiceKey: "gone"}
+	notFound(q, "orphan", "db")
+	// A ref'd schema is read from the revision its edge resolves to.
+	cfg := svc24("pg-config", "1.0.0", "")
+	cfg.Configurations = []contract.Configuration{{Name: "db", Schema: "config/schema.json"}}
+	cfgRev := ociRev(csmDomain, cfg, fstest.MapFS{"config/schema.json": {Data: []byte(csmPGSchema)}})
+	r := csmRev("pg", "17.0.0", "postgresql", csmRule())
+	r.Bundle.Contract.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://" + csmDomain + "/pg-config@" + testDigest(csmDomain, "pg-config", "1.0.0"), Required: true}}
+	q3 := csmFleet(t, nil, r, cfgRev)
+	if doc, err := q3.OfferingSchema(string(q3.snap.Services[NewServiceKeyDomain(csmDomain, "pg")].Revisions[0]), "db"); err != nil || doc["type"] != "object" {
+		t.Errorf("ref: %v %v", err, doc)
 	}
 }

@@ -219,3 +219,31 @@ func TestJudgeOwnerSigners(t *testing.T) {
 		t.Errorf("why: %+v", r)
 	}
 }
+
+// TestDecideFirstOwner: a created service may name only an owner its creator
+// belongs to, or any owner when the creator is a default approver; nobody
+// else, and nobody at all without a verified policy.
+func TestDecideFirstOwner(t *testing.T) {
+	pol := ownerPolicy()
+	payments := OwnerClaim{Owner: contract.Owner{Team: "payments"}, Provenance: "declared"}
+	for _, c := range []struct {
+		name        string
+		signer      PublisherIdentity
+		proposed    OwnerClaim
+		policy      *OwnerPolicy
+		code, grant string
+		message     string
+	}{
+		{"member", human(githubWeb, "ana@acme.com"), payments, &pol, "", "first-owner", "allowed to set service.owner of invoices (first-owner)"},
+		{"approver", human(google, "admin@acme.com"), billing, &pol, "", "default-approver:platform-admins", ""},
+		{"non member", human(githubWeb, "ana@acme.com"), billing, &pol, OwnerSignerNotAllowed, "",
+			"a new service names an owner its creator belongs to: only billing members or default approvers (platform-admins) may create one owned by team billing"},
+		{"no policy", human(githubWeb, "ana@acme.com"), payments, nil, OwnerPolicyUnverified, "", "trust missing"},
+		{"agent", PublisherIdentity{Subject: "ana@acme.com", Issuer: githubWeb, Class: ClassAgent}, payments, &pol, OwnerSignerNotPerson, "", "only a person"},
+	} {
+		r := DecideFirstOwner("invoices", c.signer, c.proposed, c.policy, "trust missing", ownerNow)
+		if r.Allowed != (c.code == "") || r.Code != c.code || r.Grant != c.grant || !strings.Contains(r.Message, c.message) || len(r.MayAccept) == 0 {
+			t.Errorf("%s: %+v", c.name, r)
+		}
+	}
+}
