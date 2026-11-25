@@ -448,3 +448,16 @@ func TestCreateServicePublishHandsOverValuesFile(t *testing.T) {
 	expect(t, pub.Tag == "0.1.0" && strings.HasSuffix(pub.InitCLI, "--values "+app.CreateValuesFile) && pub.ValuesFile != nil &&
 		pub.ValuesFile.Path == app.CreateValuesFile && strings.Contains(pub.ValuesFile.Text, "storageGB: 40"), "%+v", pub)
 }
+
+// TestCreateServicePlanPartialOfferings: the answer says the offerings read
+// is partial even when the plan is refused.
+func TestCreateServicePlanPartialOfferings(t *testing.T) {
+	h := newCreateHost(t, true, true)
+	snap := *h.path.View.SnapshotForSerialization()
+	snap.Completeness = fleet.CompletenessPartial
+	h.path.View = fleet.NewQuery(&snap)
+	in := createIn
+	in.Offerings = []dashboard.CreateServiceOffering{{Offering: "postgresql", Values: map[string]any{"storageGB": 900}}}
+	ans := h.plan(t, in)
+	expect(t, ans.Plan == nil && ans.ConsumableCompleteness == string(fleet.CompletenessPartial) && ans.ConsumableAsOf != "", "%+v", ans)
+}

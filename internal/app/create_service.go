@@ -345,11 +345,7 @@ func (pl *declarePlanner) applyOfferings(ctx context.Context) (string, error) {
 	for _, p := range picks {
 		d.pick(p)
 	}
-	refs, err := pl.resolveRefs(ctx, d)
-	if err != nil {
-		return "", err
-	}
-	d.check(refs, pl.req.createInit(false))
+	d.check(pl.resolveRefs(ctx, d), pl.req.createInit(false))
 	if len(d.refusals) > 0 {
 		return "", refusedCreate(d.refusals)
 	}
@@ -378,17 +374,12 @@ func refusedCreate(refusals []CreateRefusal) error {
 
 // resolveRefs resolves every configuration ref of the edited document to
 // the revision and configuration it selects, as the contract validator does.
-func (pl *declarePlanner) resolveRefs(ctx context.Context, d *createDoc) (validation.ConfigRefs, error) {
-	c, err := contract.Parse(strings.NewReader(pactify.MarshalContract(d.doc)))
-	if err != nil {
-		return nil, err
-	}
-	var resolver validation.BundleResolver
-	if pl.s.BundleStore != nil {
-		resolver = pl.s.PolicyResolver(pl.dir)
-	}
-	refs, _ := validation.ResolveConfigRefs(ctx, c, os.DirFS(pl.dir), validation.ConfigRefOptions{Resolver: resolver, Now: pl.s.env().now()})
-	return refs, nil
+// A golden path with a ref was already resolved by InitFrom, which needs the
+// bundle store to.
+func (pl *declarePlanner) resolveRefs(ctx context.Context, d *createDoc) validation.ConfigRefs {
+	c, _ := contract.Parse(strings.NewReader(pactify.MarshalContract(d.doc))) // ponytail: the document InitFrom wrote and validated, edited only in its values
+	refs, _ := validation.ResolveConfigRefs(ctx, c, os.DirFS(pl.dir), validation.ConfigRefOptions{Resolver: pl.s.PolicyResolver(pl.dir), Now: pl.s.env().now()})
+	return refs
 }
 
 // configurations is the document's configurations as maps.
@@ -599,15 +590,13 @@ func (d *createDoc) check(refs validation.ConfigRefs, initCLI string) {
 
 // refSchema is the schema document r selects.
 func refSchema(r validation.ResolvedConfigRef) (map[string]any, error) {
-	if r.Err != nil || r.ProviderFS == nil {
-		return nil, cmp.Or(r.Err, fs.ErrNotExist)
+	if r.Err != nil {
+		return nil, r.Err
 	}
-	data, err := fs.ReadFile(r.ProviderFS, r.SchemaPath)
+	data, _ := fs.ReadFile(r.ProviderFS, r.SchemaPath) // ponytail: the resolver read and compiled it
 	var doc map[string]any
-	if err == nil {
-		err = json.Unmarshal(data, &doc)
-	}
-	return doc, err
+	_ = json.Unmarshal(data, &doc)
+	return doc, nil
 }
 
 // checkConfiguration checks configuration i (named cfgName, of offering

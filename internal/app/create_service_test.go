@@ -1571,3 +1571,25 @@ func TestCreateRefusalCLIRunsAsGiven(t *testing.T) {
 		t.Fatalf("%+v", de.Refusals)
 	}
 }
+
+// TestCreateRefThatDoesNotReadIsUnknown: a ref Pacto cannot read, or whose
+// offering's selected configuration has no schema, is refused as unknown,
+// never checked against something else.
+func TestCreateRefThatDoesNotReadIsUnknown(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	req := e.createReq(t, OfferingPick{Offering: "queue"}, OfferingPick{Offering: "redis"})
+	missing := "oci://" + e.host + "/acme/queue:1.0.0"
+	req.Create.Consumable["queue"] = CreateOffering{Repository: e.host + "/acme/queue", Snippet: &fleet.ConsumeSnippet{Entries: fleet.ConsumeEntries{
+		Configurations: []fleet.ConsumeConfiguration{{Configuration: contract.Configuration{Name: "jobs", Ref: missing}}}}}}
+	redis := req.Create.Consumable["redis"]
+	redis.Snippet.Entries.Configurations[0].ProviderConfiguration = "nope"
+	_, de := e.planRefused(t, req)
+	got := map[string]string{}
+	for _, r := range de.Refusals {
+		got[r.Field] = r.Code + ": " + r.Message
+	}
+	if !strings.HasPrefix(got["configurations[jobs]"], codeOfferingUnknown+": Pacto could not read "+e.host+"/acme/queue") ||
+		!strings.HasPrefix(got["configurations[cache]"], codeOfferingUnknown+": Pacto could not read the schema configuration cache selects in offering redis") {
+		t.Fatalf("%+v", got)
+	}
+}

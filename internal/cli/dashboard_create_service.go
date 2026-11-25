@@ -198,10 +198,10 @@ func (c *dashboardCreator) Plan(r *http.Request, p dashboard.CreateServicePath, 
 	}
 	ans := &dashboard.CreateServiceAnswer{Signing: c.mode(r), Write: dashboard.DeclareWrite{Available: c.CanWrite()}, Offerings: offeringViews(p.View, p.Requests),
 		ConsumableCompleteness: string(fleet.CompletenessComplete)}
-	if _, partial, asOf := consumableOfferings(p.View); partial {
-		ans.ConsumableCompleteness, ans.ConsumableAsOf = string(fleet.CompletenessPartial), asOf
-	} else {
-		ans.ConsumableAsOf = asOf
+	_, partial, asOf := consumableOfferings(p.View)
+	ans.ConsumableAsOf = asOf
+	if partial {
+		ans.ConsumableCompleteness = string(fleet.CompletenessPartial)
 	}
 	if !ans.Write.Available {
 		ans.Write.Reason = noPushCredential
