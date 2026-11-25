@@ -158,6 +158,44 @@ An agent creates a service the same way with `pacto_create` and `from`,
 `from` works only when `pacto mcp` runs over stdio, beside the agent and under
 its own credentials.
 
+## Create a service from the dashboard or an agent
+
+With a registry, the dashboard's golden path page carries **Create service**:
+
+1. Name the service and pick its owner team, namespace and repository, then
+   set the values of each
+   [offering you may consume](platform-offerings.md#offerings-you-may-consume).
+2. **Review** shows `0.1.0`, contract only, nothing delivered. A refused value
+   shows at its field with the closest valid value.
+3. **Sign as** publishes it signed by your fresh login. The service shows in
+   the fleet within a minute.
+4. Take the handover: a `pacto init --from` command, a zip of the files and an
+   optional `gh repo create` command that runs with your own Git token. Pacto
+   holds no Git token.
+
+Infrastructure comes only through offerings, planned and checked against each
+offering's closed parameter space. With a Backstage connection configured,
+**Open in Backstage** comes first. Without a registry, the page shows only the
+commands under **Run it yourself**.
+
+An agent calls `pacto_create_service` on the dashboard's `/mcp` endpoint. It
+plans with `dry_run` and writes only a `draft-<n>`, which a person reviews and
+signs in the dashboard.
+
+Both review the caller for `create` on the virtual resource
+`services.pacto.trianalab.io` in the target namespace, named by the service. A
+default install lets nobody create until the platform team grants it:
+
+```sh
+kubectl create role pacto-service-creator --verb=create --resource=services.pacto.trianalab.io -n team-billing
+kubectl create rolebinding pacto-service-creator --role=pacto-service-creator --user=oidc:alice@acme.com -n team-billing
+```
+
+Add `--resource-name=invoices` to grant a single name. A name already taken
+reads as taken, even when that service is hidden from you. The
+[reference](golden-paths-reference.md#create-service) lists the inputs and
+refusals.
+
 ## Plan its delivery
 
 `--delivery` also plans the Pacto resource from the new contract, as
@@ -218,18 +256,5 @@ new service to start with.
 
 ## Follow the creation
 
-`pacto init --from` ends with the step list: signature, contract, validation,
-each plugin, delivery with `--delivery`, publishing, the fleet, deployment and
-provisioning. A step is
-`done` only when Pacto established it. Publishing, the fleet and deployment
-stay `unknown` at creation, since no source has observed the new service yet.
-
-Once a fleet source reads the service, `pacto fleet entity service gift-cards`
-and the dashboard show its declared origin, the golden path revision whose
-content digest matches and the same steps as a checklist derived from what the
-fleet observes. `pacto fleet entities --created-from http-service` and
-`pacto_fleet_entities` with `created_from` list every service created from a
-path.
-
-The [golden paths reference](golden-paths-reference.md) lists how each
-checklist step is derived.
+The [reference](golden-paths-reference.md#follow-the-creation) lists the
+steps and the fleet's checklist.

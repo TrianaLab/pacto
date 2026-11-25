@@ -142,7 +142,7 @@ structured contract entries in `entries` (`dependency`, `configurations` and
 `policy`), so an agent can add them without parsing YAML. The dependency `ref`
 is the provider's registry repository without a tag or
 digest. A deprecated current revision adds a comment saying so. A provider
-that is not published to a registry has no snippet.
+no registry publishes has no snippet.
 
 ## Offerings you may consume
 
@@ -174,7 +174,7 @@ An invalid newest revision reads `acceptance-unknown`. Inferred and contributed 
 `OFFERING_NOT_CONSUMABLE` counts the known exclusions per reason.
 `OFFERING_ACCEPTANCE_UNKNOWN` counts the providers Pacto could not check and
 makes the answer `partial`, so a missing offering means unknown. Discovered,
-user-authored and starter offerings are read by the same rule. A person
+user-authored and starter offerings follow the same rule. A person
 turns an inferred offering into one you may consume with
 [Accept an inferred offering](inferred-offerings.md#accept-an-inferred-offering).
 
@@ -195,8 +195,8 @@ other versions. An OCI-sourced fleet lists what the registry holds, and
 A provider adapter reports the state of a resource a consumer asked for as
 [`ResourceProvisioned`](provider-reports.md#provisioning-reports) evidence: a signed
 EvidenceSet through an Evidence Server, or an unsigned report in a v2
-target-state file. Pacto joins reports onto the offering's uses at query
-time, one status per environment, with the provider, external reference, producer, signing key,
+target-state file. Pacto joins reports onto the offering's uses,
+one status per environment, with the provider, external reference, producer, signing key,
 source, report time and `verified`, true only for signed reports. Every
 environment the consumer's current revision declares has a status. A use whose
 consumer points more than one configuration or dependency at the provider has
@@ -250,7 +250,7 @@ here and in the offerings you may consume, and never names them; see
 
 ## Environment values
 
-Under a tiered offering schema (`x-pacto-tier`), a consumer's environment
-files may change only `tunable` fields;
+A consumer's environment files change only `tunable` fields of a tiered
+offering schema (`x-pacto-tier`);
 [Offering parameters](contract-reference/environments.md#offering-parameters)
 lists the refusal codes.

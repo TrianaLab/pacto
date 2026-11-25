@@ -115,7 +115,8 @@ logs no line.
 Every mode except `--root` carries these four,
 [`pacto_declare`](#declare-a-running-service) and
 [`pacto_accept`](#accept-proposed-ranges-and-breaks) over stdio. Over HTTP only
-`pacto_schema` and a planning `pacto_declare`.
+`pacto_schema`, a planning `pacto_declare` and, with a registry,
+`pacto_create_service`.
 
 | Tool | Description |
 |------|-------------|
@@ -123,6 +124,7 @@ Every mode except `--root` carries these four,
 | `pacto_edit` | Edit an existing contract, including its configuration references, environments and their values and the service lifecycle. Supports dry run. |
 | `pacto_check` | Validate a contract and return errors, warnings and suggestions. A contract with an older `pactoVersion` gets the info warning `CONTRACT_BEHIND` and a suggestion that says whether raising it keeps the contract's meaning. Like `pacto validate`, it returns `contractCompleteness`: each of the eight [sections](operational-graph-tallies.md#contract-completeness) as declared, inferred, missing, unknown or not applicable, with `percentComplete`. |
 | `pacto_schema` | Return the full JSON Schema reference. |
+| `pacto_create_service` | Plan a new service from a declared golden path in the caller's view, at `0.1.0` with nothing delivered, every offering value checked against the offering's closed parameter space. HTTP only, with a registry. A write needs `dry_run: false` and the plan's `intent_digest`, and leaves a `draft-<n>` on behalf of the reviewed caller that a person signs in the dashboard. See [the inputs and refusals](golden-paths-reference.md#create-service). |
 
 **Structured inputs are JSON-encoded strings.** Every input that carries structure has the MCP wire type `string`, and the value is JSON serialised into a string:
 
