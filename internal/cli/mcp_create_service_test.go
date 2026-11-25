@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/spf13/viper"
 
@@ -291,4 +292,34 @@ func TestDashboardMCPServesCreateService(t *testing.T) {
 func TestFleetOnlyAuthoringDropsCreateService(t *testing.T) {
 	a := fleetOnlyAuthoring(pactomcp.Authoring{CreateService: remoteCreator{}, Declare: remoteDeclarer{}})
 	expect(t, a.CreateService == nil && a.Declare == nil, "%+v", a)
+}
+
+// afterKeychain answers its first n registry reads, then errors.
+type afterKeychain struct{ n int }
+
+func (k *afterKeychain) Resolve(gcrauthn.Resource) (gcrauthn.Authenticator, error) {
+	if k.n == 0 {
+		return nil, errors.New("keychain down")
+	}
+	k.n--
+	return gcrauthn.Anonymous, nil
+}
+
+// TestCreateServiceExecuteWriteFails: a push credential the registry
+// rejects on the versions listing refuses as RegistryUnreadable; one that
+// fails past it, on the drafts listing, answers the error. Neither writes.
+func TestCreateServiceExecuteWriteFails(t *testing.T) {
+	h := newCreateHost(t, false, true)
+	c, ctx := h.creator(t, true), callerCtx("alice@acme.com", newSelfReviewed(true), &bytes.Buffer{})
+	a := h.createArgs()
+	p := planCreate(t, c, ctx, a)
+	a.IntentDigest, a.Revision = p.IntentDigest, p.Create.Revision
+	c.push = &afterKeychain{n: 1}
+	raw, refused, err := c.Execute(ctx, a)
+	expect(t, err == nil && refused != nil && refused.Code == pactomcp.WriteRefusal("RegistryUnreadable") && strings.Contains(refused.Message, "keychain down"),
+		"%s %+v %v", raw, refused, err)
+	c.push = &afterKeychain{n: 2}
+	raw, refused, err = c.Execute(ctx, a)
+	expect(t, refused == nil && err != nil && strings.Contains(err.Error(), "keychain down"), "%s %+v %v", raw, refused, err)
+	expect(t, len(h.repoTags(t, "invoices")) == 0, "a draft was written")
 }

@@ -991,6 +991,13 @@ func TestCreatedDraftSameFiles(t *testing.T) {
 		if got := sameFiles(base, c.other); got != c.same {
 			t.Errorf("%s: %v", name, got)
 		}
+		files := map[string][]byte{}
+		for f, m := range c.other {
+			files[f] = m.Data
+		}
+		if got := SameDraftFiles(files, base); got != c.same {
+			t.Errorf("SameDraftFiles %s: %v", name, got)
+		}
 	}
 }
 
