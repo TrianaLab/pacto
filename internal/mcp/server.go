@@ -45,7 +45,11 @@ const remoteAuthoringSentence = "Over this HTTP server only pacto_schema is offe
 func baseFor(a Authoring) string {
 	switch {
 	case a.Remote:
-		return remoteInstructions + writeSentences(Authoring{Declare: a.Declare}, remoteDeclareSentence, "")
+		out := remoteInstructions + writeSentences(Authoring{Declare: a.Declare}, remoteDeclareSentence, "")
+		if a.CreateService != nil {
+			out += " " + createServiceSentence
+		}
+		return out
 	}
 	return stdioInstructions + writeSentences(a, declareSentence, acceptSentence)
 }
@@ -113,7 +117,9 @@ type FromRequest struct {
 //
 // Declare, when set, registers pacto_declare: over stdio it plans and writes
 // drafts, over HTTP it plans with the caller's own credentials only. Accept,
-// when set, registers pacto_accept the same way.
+// when set, registers pacto_accept the same way. CreateService, when set,
+// registers pacto_create_service over HTTP only: the command layer sets it
+// only when the server has a registry.
 type Authoring struct {
 	Validate           Validator
 	Init               Initializer
@@ -122,6 +128,7 @@ type Authoring struct {
 	CatalogUnavailable string
 	Declare            Declarer
 	Accept             Acceptor
+	CreateService      CreateServicer
 }
 
 // newBareServer builds a server with no tools registered at all. A mode whose
@@ -166,6 +173,9 @@ func registerTools(server *mcpsdk.Server, version string, a Authoring, opts Edit
 	}
 	if a.Accept != nil && !a.Remote {
 		registerAccept(server, a.Accept)
+	}
+	if a.CreateService != nil && a.Remote {
+		registerCreateService(server, a.CreateService)
 	}
 }
 

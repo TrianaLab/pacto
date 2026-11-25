@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
@@ -355,6 +356,9 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	detected, _ := cmd.Flags().GetString("detected")
 	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
 	rm.authoring = remoteAuthoring(svc, ociRefs, rm.modes.Fleet, registry, push, detected, policyNS)
+	if rm.authoring.CreateService, err = remoteCreatorFor(cmd, svc, rm.modes.Fleet, registry, push); err != nil {
+		return err
+	}
 	if rm.delivery != nil {
 		policy := rm.delivery(nil) // only its trust and policy namespace are read
 		id := baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace)
@@ -366,6 +370,22 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	}
 	s.remoteAuthoring = true
 	return nil
+}
+
+// remoteCreatorFor is pacto_create_service for pacto mcp --transport http
+// with registry, checking golden paths against the --delivery-trust template
+// keys loaded once here (an unreadable trust file fails startup); nil
+// without a registry, which never reads the trust file for it.
+func remoteCreatorFor(cmd *cobra.Command, svc *app.Service, fleet *pactomcp.FleetMode, registry string, push gcrauthn.Keychain) (pactomcp.CreateServicer, error) {
+	if registry == "" {
+		return nil, nil
+	}
+	path, _ := cmd.Flags().GetString("delivery-trust")
+	trust, err := app.DeliveryTrust(path)
+	if err != nil {
+		return nil, err
+	}
+	return newRemoteCreator(svc, fleet, registry, push, trust), nil
 }
 
 // remoteMCP builds an HTTP MCP server whose callers the apiserver names per
@@ -426,10 +446,10 @@ func (rm remoteMCP) middleware() (func(http.Handler) http.Handler, error) {
 	return rc.middleware, nil
 }
 
-// fleetOnlyAuthoring is the authoring a for a caller with no client: pacto_declare and
-// pacto_accept read the caller's own client, so neither is registered.
+// fleetOnlyAuthoring is the authoring a for a caller with no client: pacto_declare,
+// pacto_accept and pacto_create_service read the caller's own client, so none is registered.
 func fleetOnlyAuthoring(a pactomcp.Authoring) pactomcp.Authoring {
-	a.Declare, a.Accept = nil, nil
+	a.Declare, a.Accept, a.CreateService = nil, nil, nil
 	return a
 }
 

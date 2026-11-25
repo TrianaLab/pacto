@@ -292,6 +292,12 @@ type remoteFleet struct {
 // newRemoteFleet takes the server's auth from a, else w.fa.
 func newRemoteFleet(t *testing.T, a ...mcpAuth) *remoteFleet {
 	t.Helper()
+	return newRemoteFleetFlags(t, nil, a...)
+}
+
+// newRemoteFleetFlags is newRemoteFleet with more pacto mcp flags set.
+func newRemoteFleetFlags(t *testing.T, flags map[string]string, a ...mcpAuth) *remoteFleet {
+	t.Helper()
 	w := &remoteFleet{fa: &fakeMCPAuth{exchange: true}, reviewed: authn.Person{User: "alice", Groups: []string{"team-a"}}, readers: map[string]bool{"alice": true}}
 	d := defaultDeps()
 	d.clusterConfig = func() (*rest.Config, error) {
@@ -329,6 +335,9 @@ func newRemoteFleet(t *testing.T, a ...mcpAuth) *remoteFleet {
 	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 	cmd.SetContext(context.Background())
 	for k, v := range map[string]string{"fleet": "true", "local": root, "transport": "http", "auth-issuer": "https://idp", "oidc-username-claim": "email"} {
+		expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
+	}
+	for k, v := range flags {
 		expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
 	}
 	s := mcpServe{auth: authOr(w.fa, a), issuer: "https://idp", resource: "https://mcp.example/mcp"}
