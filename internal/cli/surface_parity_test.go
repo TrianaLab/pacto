@@ -548,6 +548,9 @@ var excludedRoutes = map[string]string{
 	"GET /api/session":                            "the sign-in state and CSRF token of the dashboard's own pages; the CLI and MCP authenticate on every call",
 	"GET /api/sources":                            "the dashboard's Data sources page; the CLI and MCP report each source's status in every fleet answer",
 	"POST /api/refresh":                           "rebuilds the dashboard's long-lived snapshot; the CLI and MCP build a fresh snapshot on every call",
+	// ponytail: P6 maps these in createServiceRows() with pacto_create_service and drops both entries.
+	"POST /api/fleet/services":        "story 515-S6 P6 maps the create-service routes in createServiceRows() when pacto_create_service lands",
+	"POST /api/fleet/services/accept": "story 515-S6 P6 maps the create-service routes in createServiceRows() when pacto_create_service lands",
 }
 
 // ownFlags are the flags of c the mapping covers: its non-inherited flags
