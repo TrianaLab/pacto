@@ -174,29 +174,25 @@ With a registry, the dashboard's golden path page carries **Create service**:
    optional `gh repo create` command that runs with your own Git token. Pacto
    holds no Git token.
 
-Infrastructure comes only through offerings, planned and checked against each
-offering's closed parameter space. With a Backstage connection configured,
-**Open in Backstage** comes first. Without a registry, the page shows only the
-commands under **Run it yourself**.
+Infrastructure comes only through offerings, checked against their closed
+parameter spaces. With Backstage configured, **Open in Backstage** comes
+first. Without a registry, the page shows only **Run it yourself**.
 
-An agent calls `pacto_create_service` on the dashboard's `/mcp` endpoint. It
-plans with `dry_run` and writes only a `draft-<n>`, which a person reviews and
-signs in the dashboard.
+An agent calls `pacto_create_service` on the dashboard's `/mcp`: it plans with
+`dry_run` and writes only a `draft-<n>`, which a person signs.
 
-Both review the caller for `create` on the virtual resource
-`services.pacto.trianalab.io` in the namespace the caller names, named by the
-service. Nothing records that namespace on the service, so a grant in any
-namespace passes the review: grant it only to the people who may create
-services, and narrow it to names with `--resource-name`. A default install lets
-nobody create until the platform team grants it:
+Both review the caller for `create` on `services.pacto.trianalab.io`, named by
+the service, in the namespace the caller names. Nothing records that namespace
+on the service, so a grant in any namespace passes: grant it only to people who
+may create services. A default install lets nobody create until granted:
 
 ```sh
 kubectl create role pacto-service-creator --verb=create --resource=services.pacto.trianalab.io -n team-billing
 kubectl create rolebinding pacto-service-creator --role=pacto-service-creator --user=oidc:alice@acme.com -n team-billing
 ```
 
-Add `--resource-name=invoices` to grant a single name. A name already taken
-reads as taken, even when that service is hidden from you. The
+Add `--resource-name=invoices` to grant a single name. A taken name reads as
+taken, even when hidden from you. The
 [reference](golden-paths-reference.md#create-service) lists the inputs and
 refusals.
 

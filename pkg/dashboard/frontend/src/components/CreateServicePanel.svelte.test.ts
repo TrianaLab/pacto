@@ -448,4 +448,3 @@ describe('CreateServicePanel', () => {
     expect(text(pw.querySelector('[data-testid="create-sensitive"]'))).toContain('Secret reference');
   });
 });
-
