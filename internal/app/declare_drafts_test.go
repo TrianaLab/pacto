@@ -271,3 +271,16 @@ func TestClusterDraftWithOriginStaysClusterDraft(t *testing.T) {
 		t.Fatalf("%+v", res)
 	}
 }
+
+// TestClusterDraftAcceptUnchanged: accepting a plain cluster draft with a
+// person's login publishes the first declaration exactly as before created
+// drafts existed: no draft and no accept URL.
+func TestClusterDraftAcceptUnchanged(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.agentDraft(t)
+	e.login(personToken("ana@acme.com"))
+	res := e.declare(t, e.fromDraft("draft-1"))
+	if res.Tag != firstDeclaration || res.Draft || res.Plan.AcceptURL != "" {
+		t.Fatalf("%+v", res)
+	}
+}
