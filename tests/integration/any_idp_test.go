@@ -158,7 +158,7 @@ func TestFakePrivateIDPEndToEnd(t *testing.T) {
 	}
 
 	// A second run against the same registry and Evidence Server: the
-	// wall-clock sequence base never replays.
+	// sequence never replays, even within the second the first run started.
 	runScript()
 
 	fleetArgs := []string{"--local", "", "--evidence-url", evidenceURL}

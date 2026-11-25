@@ -17,14 +17,14 @@ if [ ! -f "$KEY" ]; then
   echo "acme-portal: hand $KEYS/acme-portal__acme-portal-2026.pub to the platform for its trust grant, then run again"
   exit 0
 fi
-# Ingest refuses a sequence no greater than the producer's last, across runs.
-seq=$(( $(date +%s) * 1000 ))
+# Ingest refuses a sequence no greater than the producer's last, even from a run in the same second.
+last=$(cat "$KEYS/sequence" 2>/dev/null || echo 0); seq=$(( $(date +%s) * 1000 > last ? $(date +%s) * 1000 : last ))
 
 # send signs one EvidenceSet and posts it to the Evidence Server.
 send() {
   seq=$((seq + 1))
   pacto evidence sign "$1" --key "$KEY" --key-id acme-portal-2026 --producer acme-portal \
-    --sequence "$seq" > envelope.json
+    --sequence "$seq" > envelope.json && echo "$seq" > "$KEYS/sequence"
   pacto evidence send envelope.json --url "$EVIDENCE_URL/api/evidence/v1/envelopes"
 }
 
