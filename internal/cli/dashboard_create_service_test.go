@@ -8,6 +8,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"errors"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -146,7 +147,7 @@ func TestCreateServicePlan(t *testing.T) {
 		"init":      strings.HasPrefix(p.InitCLI, "pacto init invoices --from"),
 		"intent":    p.IntentDigest != "",
 		"signature": p.Signature.Step == fleet.StepSignature,
-		"complete":  p.ConsumableCompleteness == string(fleet.CompletenessComplete),
+		"complete":  p.ConsumableCompleteness == string(fleet.CompletenessComplete) && ans.ConsumableCompleteness == string(fleet.CompletenessComplete) && ans.ConsumableAsOf != "",
 		"contract":  strings.Contains(p.Contract.Text, "name: invoices"),
 		// The person cannot sign here: the plan is a draft on their behalf.
 		"draft": p.State == contract.DeclarationDraft && ans.Signing.Mode == signModeNone && ans.SignTicket == "",
@@ -154,6 +155,7 @@ func TestCreateServicePlan(t *testing.T) {
 	o := ans.Offerings
 	expect(t, len(o) == 1 && o[0].Offering == "postgresql" && o[0].Requested, "offerings %+v", o)
 	expect(t, slices.Equal(o[0].Classes, []string{"small", "large"}) && len(o[0].Parameters) > 0, "offering %+v", o[0])
+	expect(t, !slices.ContainsFunc(p.Files, func(f dashboard.CreateServiceFile) bool { return f.Path == "pacto.yaml" }), "pacto.yaml has its own fold: %+v", p.Files)
 	set := createIn
 	set.Offerings = []dashboard.CreateServiceOffering{{Offering: "postgresql", Values: map[string]any{"storageGB": 40}}}
 	vf := h.plan(t, set).Plan.ValuesFile
@@ -385,6 +387,64 @@ func TestOfferingViewsRequestedFirst(t *testing.T) {
 	expect(t, len(other) == 1 && other[0].Offering == "postgresql" && !other[0].Requested, "%+v", other)
 	asked := offeringViews(q, []string{"postgresql"})
 	expect(t, len(asked) == 1 && asked[0].Requested, "%+v", asked)
+	expect(t, asked[0].ParametersTotal == len(asked[0].Parameters) && asked[0].ClassesTotal == len(asked[0].Classes), "totals %+v", asked[0])
 	expect(t, len(asked[0].Guarantees) == 1 && asked[0].Guarantees[0].Interface == "sql" && asked[0].Guarantees[0].Text != "",
 		"the offering carries its provider's guarantees: %+v", asked[0].Guarantees)
+}
+
+// TestSameDraftComparesEveryFileOfACreate: a create's draft is the same
+// draft only when every file matches, the environment values files
+// included, never pacto.yaml alone.
+func TestSameDraftComparesEveryFileOfACreate(t *testing.T) {
+	h := newCreateHost(t, false, true)
+	p := h.plan(t, createIn)
+	out := h.accept(t, createIn, "draft", p.Plan.IntentDigest)
+	_, digest, _ := strings.Cut(out.Published, "@")
+	req := h.c.request(h.req(), h.path, createIn)
+	req.Store = pushWriter(h.d.push, h.w.host+"/acme/invoices")
+	pl := &app.DeclarePlan{BundleRepo: h.w.host + "/acme/invoices", Drafts: []app.DraftView{{Tag: "draft-1", Digest: digest, OnBehalfOf: "ana@acme.com"}}}
+	b, err := req.Store.Pull(t.Context(), pl.BundleRepo+"@"+digest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := filesDecl{}
+	_ = fs.WalkDir(b.FS, ".", func(name string, de fs.DirEntry, err error) error {
+		if err == nil && !de.IsDir() {
+			files[name], err = fs.ReadFile(b.FS, name)
+		}
+		return err
+	})
+	expect(t, sameDraft(t.Context(), req, pl, files, "ana@acme.com") == "draft-1", "the same files are the same draft")
+	files["prod.values.yaml"] = []byte("database: {storageGB: 50}\n")
+	expect(t, sameDraft(t.Context(), req, pl, files, "ana@acme.com") == "", "other environment values are another draft")
+}
+
+// TestCreatePlanViewCarriesFiles: the plan shows every other file it would
+// publish (the environment values files among them) and the values file.
+func TestCreatePlanViewCarriesFiles(t *testing.T) {
+	plan := &app.DeclarePlan{Create: &app.CreatePlan{ValuesFile: "configurations: []\n"}}
+	decl := filesDecl{"pacto.yaml": []byte("x"), contract.InferredRecordFile: []byte("r"), "prod.values.yaml": []byte("database: {storageGB: 50}\n")}
+	v := createPlanView(dashboard.CreateServicePath{}, plan, decl)
+	expect(t, v.FilesTotal == 1 && v.Files[0].Path == "prod.values.yaml" && v.ValuesFile != nil && v.ValuesFile.Path == app.CreateValuesFile, "%+v", v)
+}
+
+// TestCreateFilesBinaryIsNotZipped: a file that is not UTF-8 text is carried
+// as truncated with no text, so the page offers pacto pull.
+func TestCreateFilesBinaryIsNotZipped(t *testing.T) {
+	out, _ := createFiles(map[string][]byte{"gradle-wrapper.jar": {0x50, 0x4b, 0x03, 0x04, 0xff, 0xfe}, "a.txt": []byte("text")})
+	expect(t, out[0].Path == "a.txt" && !out[0].Truncated && out[1].Truncated && out[1].Text == "", "%+v", out)
+}
+
+// TestCreateServicePublishHandsOverValuesFile: a published create that set
+// a value hands over the values file its pacto init reads.
+func TestCreateServicePublishHandsOverValuesFile(t *testing.T) {
+	h := newCreateHost(t, false, true)
+	h.freshLogin(t, personToken())
+	h.ownerPolicy(t, "ana@acme.com")
+	in := createIn
+	in.Offerings = []dashboard.CreateServiceOffering{{Offering: "postgresql", Values: map[string]any{"storageGB": 40}}}
+	ans := h.plan(t, in)
+	pub := h.accept(t, in, "sign", ans.Plan.IntentDigest)
+	expect(t, pub.Tag == "0.1.0" && strings.HasSuffix(pub.InitCLI, "--values "+app.CreateValuesFile) && pub.ValuesFile != nil &&
+		pub.ValuesFile.Path == app.CreateValuesFile && strings.Contains(pub.ValuesFile.Text, "storageGB: 40"), "%+v", pub)
 }

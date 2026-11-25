@@ -168,7 +168,8 @@ With a registry, the dashboard's golden path page carries **Create service**:
 2. **Review** shows `0.1.0`, contract only, nothing delivered. A refused value
    shows at its field with the closest valid value.
 3. **Sign as** publishes it signed by your fresh login. The service shows in
-   the fleet within a minute.
+   the fleet within a minute of its organization index entry being written;
+   the answer says when the entry was not written.
 4. Take the handover: a `pacto init --from` command, a zip of the files and an
    optional `gh repo create` command that runs with your own Git token. Pacto
    holds no Git token.
@@ -183,8 +184,11 @@ plans with `dry_run` and writes only a `draft-<n>`, which a person reviews and
 signs in the dashboard.
 
 Both review the caller for `create` on the virtual resource
-`services.pacto.trianalab.io` in the target namespace, named by the service. A
-default install lets nobody create until the platform team grants it:
+`services.pacto.trianalab.io` in the namespace the caller names, named by the
+service. Nothing records that namespace on the service, so a grant in any
+namespace passes the review: grant it only to the people who may create
+services, and narrow it to names with `--resource-name`. A default install lets
+nobody create until the platform team grants it:
 
 ```sh
 kubectl create role pacto-service-creator --verb=create --resource=services.pacto.trianalab.io -n team-billing

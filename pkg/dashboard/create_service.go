@@ -11,7 +11,7 @@ import (
 
 // ServiceCreator plans and carries out creating a service from a declared
 // golden path for the person behind a request: the host reviews them in the
-// target namespace, signs with their fresh login or saves a draft, and writes
+// namespace they name, signs with their fresh login or saves a draft, and writes
 // only into the created service's repository and the organization index. The
 // route has already resolved the golden path in the viewer's restricted view
 // and refused callers with no identity, so nothing the request names is
@@ -95,28 +95,35 @@ type CreateServiceOfferingView struct {
 	Classes    []string                    `json:"classes"`
 	Parameters []fleet.OfferingParameter   `json:"parameters"`
 	Guarantees []fleet.ConsumableGuarantee `json:"guarantees,omitempty" doc:"What each interface of the offering's provider promises; empty when it declares none"`
+	// The totals behind the bounded classes and parameters.
+	ClassesTotal        int  `json:"classesTotal"`
+	ClassesTruncated    bool `json:"classesTruncated,omitempty"`
+	ParametersTotal     int  `json:"parametersTotal"`
+	ParametersTruncated bool `json:"parametersTruncated,omitempty" doc:"More fields than are listed: set the rest with pacto init --values or pacto_create_service"`
 }
 
 // CreateServicePlan is what a create would publish, signed by whom.
 type CreateServicePlan struct {
-	Service      string             `json:"service"`
-	Version      string             `json:"version"`
-	BundleRepo   string             `json:"bundleRepo"`
-	State        string             `json:"state" doc:"declared for a person's login, else draft"`
-	Owner        string             `json:"owner,omitempty"`
-	MayAccept    []string           `json:"mayAccept,omitempty" doc:"Who may create the service with this owner"`
-	Signer       DeclareSigner      `json:"signer"`
-	PolicyNote   string             `json:"policyNote,omitempty"`
-	IntentDigest string             `json:"intentDigest"`
-	Notes        []string           `json:"notes,omitempty"`
-	Path         string             `json:"path" doc:"The golden path's digest-pinned reference"`
-	PathName     string             `json:"pathName"`
-	PathVersion  string             `json:"pathVersion"`
-	Signature    fleet.CreationStep `json:"signature" doc:"The golden path's signature step, checked against the installation's template keys"`
-	Namespace    string             `json:"namespace"`
-	Revision     string             `json:"revision"`
-	InitCLI      string             `json:"initCli" doc:"The pacto init that recreates the folder on your machine"`
-	ValuesFile   *CreateServiceFile `json:"valuesFile,omitempty" doc:"The values file InitCLI reads"`
+	Service      string              `json:"service"`
+	Version      string              `json:"version"`
+	BundleRepo   string              `json:"bundleRepo"`
+	State        string              `json:"state" doc:"declared for a person's login, else draft"`
+	Owner        string              `json:"owner,omitempty"`
+	MayAccept    []string            `json:"mayAccept,omitempty" doc:"Who may create the service with this owner"`
+	Signer       DeclareSigner       `json:"signer"`
+	PolicyNote   string              `json:"policyNote,omitempty"`
+	IntentDigest string              `json:"intentDigest"`
+	Notes        []string            `json:"notes,omitempty"`
+	Path         string              `json:"path" doc:"The golden path's digest-pinned reference"`
+	PathName     string              `json:"pathName"`
+	PathVersion  string              `json:"pathVersion"`
+	Signature    fleet.CreationStep  `json:"signature" doc:"The golden path's signature step, checked against the installation's template keys"`
+	Namespace    string              `json:"namespace"`
+	Revision     string              `json:"revision"`
+	InitCLI      string              `json:"initCli" doc:"The pacto init that recreates the folder on your machine"`
+	ValuesFile   *CreateServiceFile  `json:"valuesFile,omitempty" doc:"The values file InitCLI reads"`
+	Files        []CreateServiceFile `json:"files,omitempty" doc:"Every other file it would publish, the environment values files included"`
+	FilesTotal   int                 `json:"filesTotal,omitempty"`
 	// ConsumableAsOf and ConsumableCompleteness are the consumable read's.
 	ConsumableAsOf         string      `json:"consumableAsOf,omitempty"`
 	ConsumableCompleteness string      `json:"consumableCompleteness"`
@@ -127,16 +134,19 @@ type CreateServicePlan struct {
 // CreateServiceAnswer is a create plan, the offerings it may set values on
 // and what this person can do with it here.
 type CreateServiceAnswer struct {
-	Plan        *CreateServicePlan          `json:"plan,omitempty" doc:"Absent when the plan was refused"`
-	Offerings   []CreateServiceOfferingView `json:"offerings" doc:"The offerings you may consume, the requested ones first"`
-	Drafts      []DeclareDraft              `json:"drafts,omitempty" doc:"Your own drafts of this service, newest first"`
-	DraftsTotal int                         `json:"draftsTotal,omitempty"`
-	Signing     DeclareSigning              `json:"signing"`
-	Write       DeclareWrite                `json:"write"`
-	SignTicket  string                      `json:"signTicket,omitempty" doc:"Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>"`
-	SignedIn    bool                        `json:"signedIn,omitempty"`
-	Refusal     *DeclareRefusal             `json:"refusal,omitempty"`
-	Refusals    []CreateServiceRefusal      `json:"refusals,omitempty" doc:"Every refused input, each at its field; a refused plan has no intent digest"`
+	Plan      *CreateServicePlan          `json:"plan,omitempty" doc:"Absent when the plan was refused"`
+	Offerings []CreateServiceOfferingView `json:"offerings" doc:"The offerings you may consume, the requested ones first"`
+	// ConsumableCompleteness and ConsumableAsOf are the offerings read's.
+	ConsumableCompleteness string                 `json:"consumableCompleteness"`
+	ConsumableAsOf         string                 `json:"consumableAsOf,omitempty"`
+	Drafts                 []DeclareDraft         `json:"drafts,omitempty" doc:"Your own drafts of this service, newest first"`
+	DraftsTotal            int                    `json:"draftsTotal,omitempty"`
+	Signing                DeclareSigning         `json:"signing"`
+	Write                  DeclareWrite           `json:"write"`
+	SignTicket             string                 `json:"signTicket,omitempty" doc:"Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page>"`
+	SignedIn               bool                   `json:"signedIn,omitempty"`
+	Refusal                *DeclareRefusal        `json:"refusal,omitempty"`
+	Refusals               []CreateServiceRefusal `json:"refusals,omitempty" doc:"Every refused input, each at its field; a refused plan has no intent digest"`
 }
 
 // CreateServiceAcceptAnswer is what accepting a create plan wrote, the
@@ -148,12 +158,13 @@ type CreateServiceAcceptAnswer struct {
 	Signed        bool                   `json:"signed,omitempty"`
 	AcceptURL     string                 `json:"acceptUrl,omitempty" doc:"The page a person reviews and signs the draft at"`
 	InitCLI       string                 `json:"initCli,omitempty" doc:"The pacto init that recreates the folder on your machine"`
+	ValuesFile    *CreateServiceFile     `json:"valuesFile,omitempty" doc:"The values file InitCLI reads, beside it"`
 	GitCLI        string                 `json:"gitCli,omitempty" doc:"Makes the repository with your own Git token; Pacto holds none"`
 	PullCLI       string                 `json:"pullCli,omitempty" doc:"Pulls the published bundle"`
 	Files         []CreateServiceFile    `json:"files,omitempty" doc:"The published files, at most 64 of at most 64 KiB each"`
 	FilesTotal    int                    `json:"filesTotal,omitempty"`
 	Index         string                 `json:"index,omitempty" doc:"Where the organization index entry went, or why it was not written: the publish stands either way"`
-	AppearsWithin string                 `json:"appearsWithin,omitempty" doc:"How soon the fleet shows the service declared at 0.1.0"`
+	AppearsWithin string                 `json:"appearsWithin,omitempty" doc:"How soon the fleet shows the service declared at 0.1.0; empty when its index entry was not written"`
 	Refusal       *DeclareRefusal        `json:"refusal,omitempty"`
 	Refusals      []CreateServiceRefusal `json:"refusals,omitempty"`
 	Plan          *CreateServiceAnswer   `json:"plan,omitempty" doc:"The fresh plan of a PlanStale refusal"`
@@ -229,6 +240,9 @@ func (s *Server) creatablePath(ctx context.Context, key string) (CreateServicePa
 		return CreateServicePath{}, err
 	}
 	p, why := q.CreatablePath(fleet.ServiceKey(key))
+	if why == fleet.UnconfirmedCreatablePath {
+		return CreateServicePath{}, Refuse(http.StatusNotFound, "GoldenPathUnknown", why)
+	}
 	if why != "" {
 		return CreateServicePath{}, Refuse(http.StatusNotFound, "GoldenPathNotDeclared", why)
 	}

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -531,6 +532,20 @@ func TestDeclareAcceptFromDraftNeedsAPerson(t *testing.T) {
 	expect(t, out.Refusal != nil && out.Refusal.Code == "SignerNotAllowed" && !slices.Contains(h.tags(t), "0.1.0"), "answer %+v", out)
 }
 
+// rawDecl is a declaration holding only pacto.yaml.
+type rawDecl string
+
+func (r rawDecl) Contract() []byte         { return []byte(r) }
+func (rawDecl) Record() []byte             { return nil }
+func (r rawDecl) Files() map[string][]byte { return map[string][]byte{"pacto.yaml": []byte(r)} }
+
+// filesDecl is a declaration holding files.
+type filesDecl map[string][]byte
+
+func (f filesDecl) Contract() []byte         { return f["pacto.yaml"] }
+func (filesDecl) Record() []byte             { return nil }
+func (f filesDecl) Files() map[string][]byte { return maps.Clone(f) }
+
 func TestSameDraftComparesContract(t *testing.T) {
 	h := newDeclareHost(t, false, true)
 	p := h.plan(t, dashboard.DeclareInput{})
@@ -538,9 +553,9 @@ func TestSameDraftComparesContract(t *testing.T) {
 	_, digest, _ := strings.Cut(out.Published, "@")
 	req := app.DeclareRequest{Store: pushWriter(h.d.push, h.w.host+"/acme/invoices")}
 	pl := &app.DeclarePlan{BundleRepo: h.w.host + "/acme/invoices", Drafts: []app.DraftView{{Tag: "draft-1", Digest: digest, OnBehalfOf: "ana@acme.com"}}}
-	expect(t, sameDraft(t.Context(), req, pl, []byte("pactoVersion: \"2.5\"\n"), "ana@acme.com") == "", "another pacto.yaml is another draft")
+	expect(t, sameDraft(t.Context(), req, pl, rawDecl("pactoVersion: \"2.5\"\n"), "ana@acme.com") == "", "another pacto.yaml is another draft")
 	pl.Drafts[0].Digest = "sha256:" + strings.Repeat("0", 64)
-	expect(t, sameDraft(t.Context(), req, pl, nil, "ana@acme.com") == "", "an unreadable draft is no match")
+	expect(t, sameDraft(t.Context(), req, pl, rawDecl(""), "ana@acme.com") == "", "an unreadable draft is no match")
 	_, err := plannedLogin(t.Context())
 	expect(t, err != nil, "a plan never signs")
 }

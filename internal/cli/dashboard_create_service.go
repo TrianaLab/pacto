@@ -9,12 +9,14 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/pkg/backstage"
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -27,7 +29,7 @@ const createAppearsWithin = "a minute"
 // dashboardCreator creates services from declared golden paths for the
 // person behind a dashboard request. It shares the declarer's registry, push
 // credential, signing login and cluster clients: the person is reviewed in
-// the target namespace first, a version is signed only by their fresh login,
+// the namespace they name first, a version is signed only by their fresh login,
 // and writes go through push scopes that hold the created repository and the
 // organization index alone.
 type dashboardCreator struct {
@@ -67,7 +69,10 @@ func (c *dashboardCreator) caller(r *http.Request) string {
 // mayCreate asks, on a shared host, whether the person may create the
 // service in the namespace (services.pacto.trianalab.io, named by the
 // service), a 403 when not or when nobody can tell. A local host acts with the
-// person's own kubeconfig, which the API server authorizes.
+// person's own kubeconfig, which the API server authorizes. The namespace is
+// the caller's to name and nothing downstream reads it: a grant in any
+// namespace passes, so only resourceNames narrows who creates which name
+// (docs/golden-paths.md says so); placement is a delivery story's.
 func (c *dashboardCreator) mayCreate(ctx context.Context, in dashboard.CreateServiceInput) error {
 	if c.id.auth.Local() {
 		return nil
@@ -159,7 +164,8 @@ func offeringViews(q *fleet.Query, requested []string) []dashboard.CreateService
 	for _, name := range slices.Sorted(maps.Keys(providers)) {
 		p := providers[name]
 		v := dashboard.CreateServiceOfferingView{Offering: name, Version: p.Version, Requested: slices.Contains(requested, name),
-			Classes: p.Classes, Parameters: p.Parameters, Guarantees: p.Guarantees}
+			Classes: p.Classes, Parameters: p.Parameters, Guarantees: p.Guarantees, ClassesTotal: p.ClassesTotal, ClassesTruncated: p.ClassesTruncated,
+			ParametersTotal: p.ParametersTotal, ParametersTruncated: p.ParametersTruncated}
 		if v.Requested {
 			first = append(first, v)
 		} else {
@@ -190,7 +196,13 @@ func (c *dashboardCreator) Plan(r *http.Request, p dashboard.CreateServicePath, 
 	if err := c.mayCreate(r.Context(), in); err != nil {
 		return nil, err
 	}
-	ans := &dashboard.CreateServiceAnswer{Signing: c.mode(r), Write: dashboard.DeclareWrite{Available: c.CanWrite()}, Offerings: offeringViews(p.View, p.Requests)}
+	ans := &dashboard.CreateServiceAnswer{Signing: c.mode(r), Write: dashboard.DeclareWrite{Available: c.CanWrite()}, Offerings: offeringViews(p.View, p.Requests),
+		ConsumableCompleteness: string(fleet.CompletenessComplete)}
+	if _, partial, asOf := consumableOfferings(p.View); partial {
+		ans.ConsumableCompleteness, ans.ConsumableAsOf = string(fleet.CompletenessPartial), asOf
+	} else {
+		ans.ConsumableAsOf = asOf
+	}
 	if !ans.Write.Available {
 		ans.Write.Reason = noPushCredential
 	}
@@ -222,10 +234,20 @@ func createPlanView(p dashboard.CreateServicePath, plan *app.DeclarePlan, decl d
 		Notes: plan.Notes, Path: cp.Path, PathName: p.Name, PathVersion: p.Version, Signature: cp.Signature, Namespace: cp.Namespace,
 		Revision: cp.Revision, InitCLI: cp.InitCLI, ConsumableAsOf: cp.ConsumableAsOf, ConsumableCompleteness: cp.ConsumableCompleteness,
 		Contract: dashboard.NewDeclareText(decl.Contract()), Record: dashboard.NewDeclareText(decl.Record())}
-	if cp.ValuesFile != "" {
-		out.ValuesFile = &dashboard.CreateServiceFile{Path: app.CreateValuesFile, DeclareText: dashboard.NewDeclareText([]byte(cp.ValuesFile))}
-	}
+	out.ValuesFile = createValuesFile(cp.ValuesFile)
+	files := decl.Files()
+	delete(files, app.DefaultContractPath)
+	delete(files, contract.InferredRecordFile)
+	out.Files, out.FilesTotal = createFiles(files)
 	return out
+}
+
+// createValuesFile is the values file InitCLI reads, nil for none.
+func createValuesFile(text string) *dashboard.CreateServiceFile {
+	if text == "" {
+		return nil
+	}
+	return &dashboard.CreateServiceFile{Path: app.CreateValuesFile, DeclareText: dashboard.NewDeclareText([]byte(text))}
 }
 
 // Accept implements dashboard.ServiceCreator: the review in the namespace,
@@ -257,7 +279,7 @@ func (c *dashboardCreator) Accept(r *http.Request, p dashboard.CreateServicePath
 		if refusal := c.login(r, &req); refusal != nil {
 			return &dashboard.CreateServiceAcceptAnswer{Refusal: refusal}, nil
 		}
-	} else if tag := sameDraft(ctx, req, plan, decl.Contract(), who); tag != "" {
+	} else if tag := sameDraft(ctx, req, plan, decl, who); tag != "" {
 		return &dashboard.CreateServiceAcceptAnswer{Tag: tag, Draft: true, AcceptURL: req.AcceptURL(plan.BundleRepo, tag)}, nil
 	}
 	return c.write(ctx, req, who)
@@ -295,18 +317,28 @@ func (c *dashboardCreator) write(ctx context.Context, req app.DeclareRequest, wh
 	ans.Files, ans.FilesTotal = createFiles(res.Files)
 	if cr := res.Created; cr != nil {
 		ans.InitCLI, ans.GitCLI, ans.PullCLI, ans.Index = res.Plan.Create.InitCLI, cr.GitCLI, cr.PullCLI, cr.Index
-		ans.AppearsWithin = createAppearsWithin
+		ans.ValuesFile = createValuesFile(res.Plan.Create.ValuesFile)
+		// The fleet shows a created service through its index entry alone.
+		if cr.Indexed {
+			ans.AppearsWithin = createAppearsWithin
+		}
 	}
 	return ans, nil
 }
 
 // createFiles is files by path, at most MaxCreateServiceFiles, each cut at
-// MaxDeclareText, and how many there are.
+// MaxDeclareText, and how many there are. A file that is not UTF-8 text (a
+// jar, an image) is carried as truncated with no text: JSON would mangle it,
+// so the page offers pacto pull instead of a zip.
 func createFiles(files map[string][]byte) ([]dashboard.CreateServiceFile, int) {
 	names := slices.Sorted(maps.Keys(files))
 	out := make([]dashboard.CreateServiceFile, 0, min(len(names), dashboard.MaxCreateServiceFiles))
 	for _, name := range names[:min(len(names), dashboard.MaxCreateServiceFiles)] {
-		out = append(out, dashboard.CreateServiceFile{Path: name, DeclareText: dashboard.NewDeclareText(files[name])})
+		text := dashboard.DeclareText{Truncated: true}
+		if utf8.Valid(files[name]) {
+			text = dashboard.NewDeclareText(files[name])
+		}
+		out = append(out, dashboard.CreateServiceFile{Path: name, DeclareText: text})
 	}
 	return out, len(names)
 }

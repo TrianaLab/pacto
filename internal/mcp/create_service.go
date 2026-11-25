@@ -73,7 +73,8 @@ func registerCreateService(server *mcpsdk.Server, c CreateServicer) {
 		Description: "Plan a new service from a declared golden path: pacto.yaml at 0.1.0, contract only, nothing delivered. " +
 			"Golden paths come from pacto_fleet_entities template=only (pass a row's key as path); offerings and their parameters come from " +
 			"pacto_fleet_entities kind=offering consumable=true. Every value is checked against the offering's closed parameter space and tiers. " +
-			"dry_run defaults to true and returns the plan with intent_digest. With dry_run false and that intent_digest it writes a write-once draft-<n> " +
+			"dry_run defaults to true and returns the plan with intent_digest and create.revision. With dry_run false, the same arguments, that intent_digest " +
+			"and create.revision sent back as revision it writes a write-once draft-<n> " +
 			"on behalf of the caller this server reviewed; acceptCLI is the dashboard page where a person reviews and signs it. It never publishes a version. " +
 			"A refusal carries a stable code; a refused value names its field, the closest valid value and the pacto init and pacto_create_service fixes in refusals.",
 		InputSchema: inputSchema(map[string]property{
@@ -82,12 +83,12 @@ func registerCreateService(server *mcpsdk.Server, c CreateServicer) {
 			"owner":      {Type: "string", Description: "The team that owns the new service; the person who signs must belong to it or be a default approver", Pattern: ownerPattern},
 			"namespace":  {Type: "string", Description: "The namespace you are reviewed in: create services.pacto.trianalab.io there, named by the service", Pattern: serviceNamePattern},
 			"repository": {Type: "string", Description: "Where the first version goes: under the server's registry and ending in the service name (default <registry>/<name>)"},
-			"revision":   {Type: "string", Description: "The publish revision (default pacto-create:<you>:<time>, which the plan answers)"},
+			"revision":   {Type: "string", Description: "The publish revision (default pacto-create:<you>:<time>, which the plan answers as create.revision); a write sends the plan's back"},
 			"offerings": {Type: "array", Items: "object", Description: "The values set on each offering the service consumes, as [{offering, values: {field: value}, " +
 				"environments: {env: {field: value}}}]; an offering the golden path does not request is added; per-environment values only on tunable fields"},
 			"on_behalf_of":  {Type: "string", Description: "Over HTTP the caller this server reviewed; naming anyone else is refused"},
 			"dry_run":       {Type: "boolean", Description: "Plan only (default true)"},
-			"intent_digest": {Type: "string", Description: "With dry_run false: the intent_digest of the plan you reviewed; a different plan is refused with PlanStale"},
+			"intent_digest": {Type: "string", Description: "With dry_run false: the intent_digest of the plan you reviewed, sent with its create.revision as revision; a different plan is refused with PlanStale"},
 		}, []string{"path", "name", "namespace"}),
 		OutputSchema: writeResultSchema(),
 	}, func(ctx context.Context, _ *mcpsdk.CallToolRequest, a CreateServiceArgs) (*mcpsdk.CallToolResult, any, error) {

@@ -376,6 +376,13 @@ func TestCreateSetsRequestedOfferingValues(t *testing.T) {
 	if !strings.Contains(string(prod), "storageGi: 200") {
 		t.Fatalf("%s", prod)
 	}
+	// pacto init replays no per-environment value, and the plan says so.
+	if !slices.Contains(p.Notes, envValuesNote) {
+		t.Fatalf("%v", p.Notes)
+	}
+	if p, _ := e.plan(t, e.createReq(t)); slices.Contains(p.Notes, envValuesNote) {
+		t.Fatalf("noted with no per-environment value: %v", p.Notes)
+	}
 	if !strings.HasSuffix(p.Create.InitCLI, " --values "+CreateValuesFile) || !strings.Contains(p.Create.ValuesFile, "version: \"16\"") {
 		t.Fatalf("%+v", p.Create) // a string stays a string in the replay
 	}
@@ -687,7 +694,7 @@ func TestCreatePublishSignedByPerson(t *testing.T) {
 	}
 	cr := res.Created
 	index := e.host + "/acme/" + orgindex.RepositoryName
-	if cr == nil || cr.Index == "" || !strings.HasPrefix(cr.Index, "indexed as "+index+":") ||
+	if cr == nil || !strings.HasPrefix(cr.Index, "indexed as "+index+":") || !cr.Indexed ||
 		cr.PullCLI != "pacto pull oci://"+res.Published || !strings.HasPrefix(cr.GitCLI, "gh repo create <org>/invoices --private --clone && cd invoices && pacto init invoices") {
 		t.Fatalf("%+v", cr)
 	}
@@ -711,7 +718,7 @@ func TestCreateIndexFailureKeepsPublish(t *testing.T) {
 		return nil, errors.New("outside the push scope")
 	}
 	res := e.declare(t, req)
-	if !res.Executed || res.Tag != firstDeclaration || !strings.HasPrefix(res.Created.Index, "not indexed in ") {
+	if !res.Executed || res.Tag != firstDeclaration || !strings.HasPrefix(res.Created.Index, "not indexed in ") || res.Created.Indexed {
 		t.Fatalf("%+v", res.Created)
 	}
 	for _, r := range opened {

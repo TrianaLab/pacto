@@ -1776,7 +1776,7 @@ export interface components {
         CreateServiceAcceptAnswer: {
             /** @description The page a person reviews and signs the draft at */
             acceptUrl?: string;
-            /** @description How soon the fleet shows the service declared at 0.1.0 */
+            /** @description How soon the fleet shows the service declared at 0.1.0; empty when its index entry was not written */
             appearsWithin?: string;
             draft?: boolean;
             /** @description The published files, at most 64 of at most 64 KiB each */
@@ -1799,6 +1799,8 @@ export interface components {
             refusals?: components["schemas"]["CreateServiceRefusal"][] | null;
             signed?: boolean;
             tag?: string;
+            /** @description The values file InitCLI reads, beside it */
+            valuesFile?: components["schemas"]["CreateServiceFile"];
         };
         CreateServiceAcceptInput: {
             /** @description The cluster the review runs in; empty for the only one */
@@ -1828,6 +1830,8 @@ export interface components {
             revision?: string;
         };
         CreateServiceAnswer: {
+            consumableAsOf?: string;
+            consumableCompleteness: string;
             /** @description Your own drafts of this service, newest first */
             drafts?: components["schemas"]["DeclareDraft"][] | null;
             /** Format: int64 */
@@ -1889,10 +1893,17 @@ export interface components {
         };
         CreateServiceOfferingView: {
             classes: string[] | null;
+            /** Format: int64 */
+            classesTotal: number;
+            classesTruncated?: boolean;
             /** @description What each interface of the offering's provider promises; empty when it declares none */
             guarantees?: components["schemas"]["Fleet.ConsumableGuarantee"][] | null;
             offering: string;
             parameters: components["schemas"]["Fleet.OfferingParameter"][] | null;
+            /** Format: int64 */
+            parametersTotal: number;
+            /** @description More fields than are listed: set the rest with pacto init --values or pacto_create_service */
+            parametersTruncated?: boolean;
             /** @description The golden path requests it; any other is added when a value is set on it */
             requested: boolean;
             version: string;
@@ -1903,6 +1914,10 @@ export interface components {
             consumableCompleteness: string;
             /** @description pacto.yaml as it would be published */
             contract: components["schemas"]["DeclareText"];
+            /** @description Every other file it would publish, the environment values files included */
+            files?: components["schemas"]["CreateServiceFile"][] | null;
+            /** Format: int64 */
+            filesTotal?: number;
             /** @description The pacto init that recreates the folder on your machine */
             initCli: string;
             intentDigest: string;

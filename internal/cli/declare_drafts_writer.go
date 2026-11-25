@@ -22,16 +22,17 @@ func writeServerDraft(ctx context.Context, svc *app.Service, req app.DeclareRequ
 	if refusal := ownedBy(p); refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
 	}
-	if tag := sameDraft(ctx, req, p, decl.Contract(), who); tag != "" {
+	if tag := sameDraft(ctx, req, p, decl, who); tag != "" {
 		return &dashboard.DeclareAcceptAnswer{Tag: tag, Draft: true, Command: req.AcceptCLI(p.Service, tag)}, nil
 	}
 	return runDeclare(ctx, svc, req, via, who)
 }
 
 // sameDraft is the newest draft when it is this one again: the same
-// pacto.yaml, the same requested ranges and the same on-behalf-of person;
-// "" otherwise.
-func sameDraft(ctx context.Context, req app.DeclareRequest, p *app.DeclarePlan, raw []byte, who string) string {
+// pacto.yaml (for a create, every file but the record, since its
+// per-environment values sit in the environment files), the same requested
+// ranges and the same on-behalf-of person; "" otherwise.
+func sameDraft(ctx context.Context, req app.DeclareRequest, p *app.DeclarePlan, decl declarationTexts, who string) string {
 	if len(p.Drafts) == 0 {
 		return ""
 	}
@@ -46,7 +47,12 @@ func sameDraft(ctx context.Context, req app.DeclareRequest, p *app.DeclarePlan, 
 		return ""
 	}
 	b, err := req.Store.Pull(ctx, p.BundleRepo+"@"+newest.Digest)
-	if err != nil || !bytes.Equal(bytes.TrimSpace(b.RawYAML), bytes.TrimSpace(raw)) {
+	switch {
+	case err != nil:
+		return ""
+	case req.Create != nil && !app.SameDraftFiles(decl.Files(), b.FS):
+		return ""
+	case req.Create == nil && !bytes.Equal(bytes.TrimSpace(b.RawYAML), bytes.TrimSpace(decl.Contract())):
 		return ""
 	}
 	return newest.Tag

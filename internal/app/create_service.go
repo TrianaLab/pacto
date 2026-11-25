@@ -125,6 +125,9 @@ type CreatedService struct {
 	GitCLI  string `json:"gitCLI"`
 	PullCLI string `json:"pullCLI"`
 	Index   string `json:"index,omitempty"`
+	// Indexed is the index entry written: the fleet shows the service
+	// through it alone.
+	Indexed bool `json:"indexed"`
 }
 
 // CreateValuesFile is the values file InitCLI reads when a create set any
@@ -147,6 +150,7 @@ const (
 	partialNote       = "the offerings list is partial: an offering not listed may exist"
 	serviceExistsText = "%s is already taken in this registry: pick another name, or adopt your own service with pacto declare"
 	noWorkloadYet     = "a created service has no workload yet"
+	envValuesNote     = "pacto init sets no per-environment value: the environment files this plan publishes hold them, and the published files (the zip or pacto pull) carry them"
 )
 
 // offeringValueCodes maps a value check's finding code to the create refusal
@@ -196,6 +200,9 @@ func (pl *declarePlanner) fromGoldenPath(ctx context.Context) error {
 	pl.plan.Create = &CreatePlan{Path: c.Path, Signature: signatureStep(r.Steps), Namespace: c.Namespace, Revision: c.Revision,
 		InitCLI: pl.req.command(""), ValuesFile: valuesFile, ConsumableAsOf: c.ConsumableAsOf, ConsumableCompleteness: string(fleet.CompletenessComplete)}
 	pl.plan.Notes = append(pl.plan.Notes, fmt.Sprintf(createdNote, c.Path))
+	if slices.ContainsFunc(c.Offerings, func(p OfferingPick) bool { return len(p.Environments) > 0 }) {
+		pl.plan.Notes = append(pl.plan.Notes, envValuesNote)
+	}
 	if c.ConsumablePartial {
 		pl.plan.Create.ConsumableCompleteness = string(fleet.CompletenessPartial)
 		pl.plan.Notes = append(pl.plan.Notes, partialNote)
@@ -770,6 +777,7 @@ func (s *Service) createdHandover(ctx context.Context, req DeclareRequest, res *
 		GitCLI:  "gh repo create <org>/" + shellquote.Quote(req.Service) + " --private --clone && cd " + shellquote.Quote(req.Service) + " && " + res.Plan.Create.InitCLI,
 		PullCLI: "pacto pull " + shellquote.Quote("oci://"+res.Published),
 		Index:   note,
+		Indexed: strings.HasPrefix(note, "indexed as "),
 	}
 }
 
@@ -949,6 +957,16 @@ func sameFiles(a, b fs.FS) bool {
 		}
 	}
 	return true
+}
+
+// SameDraftFiles says files, what a plan would publish, and the pulled
+// draft fsys hold the same files but the inferred record.
+func SameDraftFiles(files map[string][]byte, fsys fs.FS) bool {
+	m := fstest.MapFS{}
+	for name, data := range files {
+		m[name] = &fstest.MapFile{Data: data}
+	}
+	return sameFiles(m, fsys)
 }
 
 // treeFiles is every file of fsys but the inferred record.

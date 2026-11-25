@@ -100,6 +100,19 @@ func TestCreatablePathInferredTemplateKeyReadsMissing(t *testing.T) {
 	}
 }
 
+// TestCreatablePathPartialViewReadsUnknown: a key missing from a partial
+// view is unknown, never a definite no; a listed path still resolves.
+func TestCreatablePathPartialViewReadsUnknown(t *testing.T) {
+	q := creatableFleet(t, "oci://ghcr.io/acme/http-service:1.0.0", createPin)
+	q.snap.Completeness = CompletenessPartial
+	if _, why := q.CreatablePath(NewServiceKeyDomain(acme, "nope")); why != UnconfirmedCreatablePath {
+		t.Fatalf("reason %q", why)
+	}
+	if _, why := q.CreatablePath(pathKey); why != "" {
+		t.Fatalf("a listed path: %q", why)
+	}
+}
+
 func TestCreatablePathHiddenReadsMissing(t *testing.T) {
 	q := hiddenPathFleet(t)
 	for _, rk := range q.snap.Services[pathKey].Revisions {

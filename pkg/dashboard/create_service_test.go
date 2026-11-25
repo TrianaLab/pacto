@@ -114,7 +114,8 @@ func TestCreateServicePathFromView(t *testing.T) {
 
 // TestCreateServicePathRefusedOutsideView: a golden path the caller's view
 // does not hold, an unpinned one and a service that is no golden path are
-// refused before the creator is asked, a hidden one as a missing one.
+// refused before the creator is asked, a hidden one as a missing one. A
+// restricted view is partial, so a key it does not list is unknown there.
 func TestCreateServicePathRefusedOutsideView(t *testing.T) {
 	f := &fakeCreator{write: true}
 	base := createServer(t, viewerAuth(true, AuthState{}), nil, f, "")
@@ -125,7 +126,7 @@ func TestCreateServicePathRefusedOutsideView(t *testing.T) {
 		return fleet.NewQuery(snap), err
 	}
 	hidden := createServer(t, viewerAuth(false, AuthState{SignedIn: true}), hideAll, f, "")
-	_, missing := call(t, http.MethodPost, base+"/api/fleet/services", createBody("no-such-path"))
+	_, missing := call(t, http.MethodPost, hidden+"/api/fleet/services", createBody("no-such-path"))
 	for name, c := range map[string]struct{ base, path string }{
 		"hidden":       {hidden, "http-service"},
 		"missing":      {base, "no-such-path"},
@@ -138,10 +139,14 @@ func TestCreateServicePathRefusedOutsideView(t *testing.T) {
 			body["fromDraft"] = map[string]string{"tag": "draft-1", "digest": validDigest("d")}
 		}
 		code, out := call(t, http.MethodPost, c.base+"/api/fleet/services", body)
-		if code != http.StatusNotFound || out["code"] != "GoldenPathNotDeclared" || len(f.paths) != 0 {
+		want := "GoldenPathNotDeclared"
+		if c.base == hidden {
+			want = "GoldenPathUnknown"
+		}
+		if code != http.StatusNotFound || out["code"] != want || len(f.paths) != 0 {
 			t.Errorf("%s: %d %v", name, code, out)
 		}
-		if (name == "hidden" || name == "hidden draft") && out["detail"] != missing["detail"] {
+		if (name == "hidden" || name == "hidden draft") && (out["detail"] != missing["detail"] || out["detail"] != fleet.UnconfirmedCreatablePath) {
 			t.Errorf("%s: a hidden path answers %v, a missing one %v", name, out["detail"], missing["detail"])
 		}
 	}

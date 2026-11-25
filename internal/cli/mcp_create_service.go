@@ -38,10 +38,11 @@ type remoteCreator struct {
 	trust *delivery.TrustConfig
 }
 
-// newRemoteCreator is the creator of an HTTP server with registry; nil
-// without one (no registry: no pacto_create_service).
+// newRemoteCreator is the creator of an HTTP server with registry and a
+// fleet view; nil without either (pacto_create_service sits beside the fleet
+// tools it resolves golden paths and offerings with).
 func newRemoteCreator(svc *app.Service, fleet *pactomcp.FleetMode, registry string, push gcrauthn.Keychain, trust *delivery.TrustConfig) pactomcp.CreateServicer {
-	if registry == "" {
+	if registry == "" || fleet == nil {
 		return nil
 	}
 	return remoteCreator{svc: svc, fleet: fleet, registry: registry, push: push, trust: trust}
@@ -109,10 +110,14 @@ func (r remoteCreator) request(ctx context.Context, a pactomcp.CreateServiceArgs
 	}
 	q := remoteDeclarer{fleet: r.fleet}.view(ctx)
 	if q == nil {
-		return app.DeclareRequest{}, &pactomcp.Refused{Code: pactomcp.RefusalGoldenPathNotDeclared,
+		return app.DeclareRequest{}, &pactomcp.Refused{Code: pactomcp.RefusalRegistryUnreadable,
 			Message: "this server could not read your view of the fleet, so it resolves no golden path: try again, or run pacto init --from on your machine"}, nil
 	}
 	p, why := q.CreatablePath(fleet.ServiceKey(a.Path))
+	if why == fleet.UnconfirmedCreatablePath {
+		return app.DeclareRequest{}, &pactomcp.Refused{Code: pactomcp.RefusalRegistryUnreadable, Message: why +
+			": pass the key of a golden path pacto_fleet_entities lists with template=only"}, nil
+	}
 	if why != "" {
 		return app.DeclareRequest{}, &pactomcp.Refused{Code: pactomcp.RefusalGoldenPathNotDeclared, Message: why +
 			": pass the key of a golden path pacto_fleet_entities lists with template=only"}, nil

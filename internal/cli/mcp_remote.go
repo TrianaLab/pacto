@@ -375,9 +375,10 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 // remoteCreatorFor is pacto_create_service for pacto mcp --transport http
 // with registry, checking golden paths against the --delivery-trust template
 // keys loaded once here (an unreadable trust file fails startup); nil
-// without a registry, which never reads the trust file for it.
+// without a registry or without the fleet view it resolves golden paths in,
+// which never reads the trust file for it.
 func remoteCreatorFor(cmd *cobra.Command, svc *app.Service, fleet *pactomcp.FleetMode, registry string, push gcrauthn.Keychain) (pactomcp.CreateServicer, error) {
-	if registry == "" {
+	if registry == "" || fleet == nil {
 		return nil, nil
 	}
 	path, _ := cmd.Flags().GetString("delivery-trust")

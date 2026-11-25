@@ -207,12 +207,13 @@ func TestCreateServicePathFromCallerView(t *testing.T) {
 		return fleet.NewQuery(&fleet.FleetSnapshot{}), nil
 	}
 	_, refused, err := hidden.Plan(ctx, h.createArgs())
-	expect(t, err == nil && refused != nil && refused.Code == pactomcp.RefusalGoldenPathNotDeclared && strings.HasPrefix(refused.Message, "no golden path with this key"),
+	// A restricted view is partial: a key it does not list is unknown, never a definite no.
+	expect(t, err == nil && refused != nil && refused.Code == pactomcp.RefusalRegistryUnreadable && strings.HasPrefix(refused.Message, fleet.UnconfirmedCreatablePath),
 		"a hidden path: %+v %v", refused, err)
 	unreadable := h.creator(t, true)
 	unreadable.fleet.Src = func(context.Context) (*fleet.Query, error) { return nil, errors.New("down") }
 	_, refused, _ = unreadable.Plan(ctx, h.createArgs())
-	expect(t, refused != nil && refused.Code == pactomcp.RefusalGoldenPathNotDeclared, "no view: %+v", refused)
+	expect(t, refused != nil && refused.Code == pactomcp.RefusalRegistryUnreadable, "no view: %+v", refused)
 	_, refused, err = h.creator(t, true).Plan(context.Background(), h.createArgs())
 	expect(t, refused == nil && errors.Is(err, errNobodyReviewed), "nobody reviewed: %+v %v", refused, err)
 }
@@ -236,6 +237,7 @@ func TestCreateServiceReviewURL(t *testing.T) {
 
 func TestNoRegistryNoCreateService(t *testing.T) {
 	expect(t, newRemoteCreator(nil, nil, "", nil, nil) == nil, "a creator without a registry")
+	expect(t, newRemoteCreator(nil, nil, "ghcr.io/acme", nil, nil) == nil, "a creator without the fleet view it resolves golden paths in")
 	c, err := dashboardMCPCreator(viper.New(), nil, nil, nil)
 	expect(t, err == nil && c == nil, "a dashboard creator without a registry: %v %v", c, err)
 	v := viper.New()
@@ -259,7 +261,7 @@ func TestPactoMCPHTTPServesCreateService(t *testing.T) {
 	// The trust file is read once, at start: an unreadable one fails it.
 	cmd := newMCPCommand(app.NewService(nil, nil), "v", defaultDeps())
 	expect(t, cmd.Flags().Set("delivery-trust", filepath.Join(t.TempDir(), "missing.pem")) == nil, "flag")
-	_, err := remoteCreatorFor(cmd, nil, nil, "ghcr.io/acme", nil)
+	_, err := remoteCreatorFor(cmd, nil, &pactomcp.FleetMode{}, "ghcr.io/acme", nil)
 	expect(t, err != nil, "an unreadable trust file was accepted")
 }
 
@@ -277,7 +279,7 @@ func TestDashboardMCPServesCreateService(t *testing.T) {
 	a := dashboardAuthoring(w.v, app.NewService(nil, nil), nil, nil, "")
 	rd := a.Declare.(remoteDeclarer)
 	expect(t, rd.registry == "" && rd.push == nil && !rd.writes(), "pacto_declare on /mcp writes: %+v", rd)
-	c, err := dashboardMCPCreator(w.v, nil, nil, nil)
+	c, err := dashboardMCPCreator(w.v, nil, &pactomcp.FleetMode{}, nil)
 	rc, _ := c.(remoteCreator)
 	expect(t, err == nil && rc.registry == "ghcr.io/acme" && rc.writes(), "the creator holds no push credential: %+v %v", rc, err)
 	// An unreadable push credential fails the endpoint at start.

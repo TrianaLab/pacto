@@ -488,6 +488,7 @@ func planView(p *app.DeclarePlan, decl declarationTexts) *dashboard.DeclarePlan 
 type declarationTexts interface {
 	Contract() []byte
 	Record() []byte
+	Files() map[string][]byte
 }
 
 // draftViews are the drafts as the dashboard answers them.

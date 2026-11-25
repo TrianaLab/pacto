@@ -17,9 +17,13 @@ type CreatablePath struct {
 // The reasons CreatablePath gives. A key the caller's view hides reads as a
 // missing one, so a restricted caller learns nothing about it.
 const (
-	noCreatablePath       = "no golden path with this key"
-	inferredCreatablePath = "an inferred golden path is accepted first"
-	unpinnedCreatablePath = "no digest-pinned reference: publish the golden path to create a service from it"
+	noCreatablePath = "no golden path with this key"
+	// UnconfirmedCreatablePath is a key missing from a view that is not
+	// complete: unknown, never a definite no. Every missing key of a partial
+	// view reads so, so it says nothing about a hidden one.
+	UnconfirmedCreatablePath = "Pacto could not confirm this golden path: the fleet view is partial"
+	inferredCreatablePath    = "an inferred golden path is accepted first"
+	unpinnedCreatablePath    = "no digest-pinned reference: publish the golden path to create a service from it"
 )
 
 // CreatablePath is the declared golden path key names in this view, or why a
@@ -29,7 +33,10 @@ const (
 // what is pulled.
 func (q *Query) CreatablePath(key ServiceKey) (CreatablePath, string) {
 	s := q.snap.Services[key]
-	if s == nil || !s.Template {
+	switch {
+	case s == nil && q.snap.Completeness != CompletenessComplete:
+		return CreatablePath{}, UnconfirmedCreatablePath
+	case s == nil || !s.Template:
 		return CreatablePath{}, noCreatablePath
 	}
 	if s.Inferred() {
