@@ -65,6 +65,10 @@ func TestMemberPlansUnreadIsPartial(t *testing.T) {
 	if len(plans) != 1 || plans[0].Completeness != fleet.CompletenessPartial || len(plans[0].Notes) == 0 {
 		t.Fatalf("%+v", plans)
 	}
+	if p := UnreadMemberPlan("billing", e.clock, "the members could not be read"); p.Completeness != fleet.CompletenessPartial ||
+		!slices.Equal(p.Notes, []string{"the members could not be read"}) {
+		t.Fatalf("a reason is the note: %+v", p)
+	}
 }
 
 // refusalsEnv is a hub whose member eu-prod refused one request at intake,

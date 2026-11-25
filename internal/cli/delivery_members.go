@@ -236,16 +236,15 @@ func (mr *memberRequests) targets() ([]delivery.ClusterJoinState, error) {
 	}
 	var out []delivery.ClusterJoinState
 	for _, uid := range uids {
+		// MemberPlan refused a uid that is no approved member, and
+		// WriteOperationRequests reads the members again before it signs; a
+		// uid this second read does not hold is not placed here.
 		m, err := findCluster(list, uid)
 		switch {
-		case err != nil:
-			return nil, delivery.HubRefusal(delivery.RefusalNotAMember, err.Error(), mr.req, mr.opts.Repository)
-		case m.State != delivery.JoinApproved:
-			return nil, delivery.HubRefusal(delivery.RefusalNotAMember, clusterName(m)+" ("+shortUID(m.UID)+") is "+string(m.State), mr.req, mr.opts.Repository)
-		case m.Requests == nil:
+		case err == nil && m.Requests == nil:
 			return nil, delivery.HubRefusal(delivery.RefusalMemberTakesNoRequests, clusterName(m)+" does not take requests", mr.req, mr.opts.Repository)
-		case !placed(uid):
-			return nil, delivery.HubRefusal(delivery.RefusalMemberNotPlaced, clusterName(m)+" ("+shortUID(m.UID)+") is not placed for "+mr.req.Service+" in "+mr.req.Environment, mr.req, mr.opts.Repository)
+		case err != nil || !placed(uid):
+			return nil, delivery.HubRefusal(delivery.RefusalMemberNotPlaced, clusterName(m)+" ("+shortUID(uid)+") is not placed for "+mr.req.Service+" in "+mr.req.Environment, mr.req, mr.opts.Repository)
 		}
 		out = append(out, m)
 		mr.names = append(mr.names, clusterName(m)+" ("+shortUID(m.UID)+")")

@@ -465,7 +465,8 @@ func TestMemberRequestsRefuseUnknownPlacement(t *testing.T) {
 }
 
 // TestProposeMemberJSON: member-mode propose writes JSON when asked: the
-// plan without --confirm, the requests it pushed with it.
+// plan without --confirm, the requests it pushed with it; a plan it cannot
+// write fails with the write error.
 func TestProposeMemberJSON(t *testing.T) {
 	eu := newJoinMember(euProd, "eu-prod")
 	e := newRequestHub(t, eu)
@@ -476,6 +477,10 @@ func TestProposeMemberJSON(t *testing.T) {
 	}
 	if err == nil || json.Unmarshal([]byte(out), &plan) != nil || plan.Members == nil || plan.IntentDigest != nil {
 		t.Fatalf("%v %s", err, out)
+	}
+	if _, _, err := runRoot(t, e.d, errWriter{}, append(append([]string{"delivery"}, memberArgs("propose", memberDigest, "--output-format", "json")...), "--registry", e.repo)...); err == nil ||
+		!strings.Contains(err.Error(), "write error") {
+		t.Fatalf("a plan that cannot be written fails with why: %v", err)
 	}
 	out, _, err = e.delivery(t, memberArgs("propose", memberDigest, "--confirm", "--output-format", "json")...)
 	var pushed struct {
