@@ -2,6 +2,8 @@ package app
 
 import (
 	"context"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"io/fs"
@@ -15,10 +17,14 @@ import (
 	"oras.land/oras-go/v2/registry/remote"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/orgindex"
+	"github.com/trianalab/pacto/v4/pkg/override"
 	"github.com/trianalab/pacto/v4/pkg/plugin"
+	"github.com/trianalab/pacto/v4/pkg/publish"
+	"github.com/trianalab/pacto/v4/pkg/signing/testutil"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
 
@@ -713,5 +719,149 @@ func TestCreateDocEdges(t *testing.T) {
 	b := createIntent(CreateFrom{Offerings: []OfferingPick{{Offering: "a"}, {Offering: "b"}}})
 	if a != b {
 		t.Fatal("pick order changed the intent")
+	}
+}
+
+// TestCreatedServiceListedByWholeIndex: after the publish, the whole-index
+// read of the installation index lists the created service at its first
+// version, and a fleet over that index shows it declared with no target.
+func TestCreatedServiceListedByWholeIndex(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	t.Setenv("PACTO_INSECURE_REGISTRIES", e.host)
+	e.withOwnerPolicy(t)
+	e.login(personToken("ana@acme.com"))
+	e.declare(t, e.createReq(t))
+	index := e.host + "/acme/" + orgindex.RepositoryName
+	svc := NewService(oci.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), oci.WithInsecureRegistries(e.host)), nil)
+	svc.sys.refusalRepo = anonRepo
+	coll := collectWhole(t, &indexFleetSource{svc: svc, repo: index})
+	if v := versions(coll); v["invoices"] != firstDeclaration {
+		t.Fatalf("%v", v)
+	}
+	oldRekor := rekorURL
+	t.Cleanup(func() { rekorURL = oldRekor })
+	rekorURL = ""
+	pc := newProvenanceChecker(publish.NewClient(oci.NewKeychain(oci.EnvCredentialOptions()), e.host))
+	pc.root, pc.rootAt = e.ss.Root, time.Now()
+	trustingIn(pc, Installation{Signers: []delivery.PersonSigner{{Issuer: personIssuer, Subjects: `.+@acme\.com`}}}, nil)
+	snap, err := svc.Fleet(t.Context(), FleetOptions{ReadIndex: index, Provenance: pc})
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := fleet.NewQuery(snap)
+	view, err := q.GetService("invoices")
+	if err != nil || len(view.Revisions) != 1 || len(view.Targets) != 0 || view.Revisions[0].Version != firstDeclaration {
+		t.Fatalf("%v %+v", err, view)
+	}
+	detail, err := q.EntityDetail(fleet.KindRevision, string(view.Revisions[0].Key))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := detail.Revision.Declaration; d == nil || d.State != contract.DeclarationDeclared || !d.SignatureChecked || d.InferredFrom != "" {
+		t.Fatalf("%+v %+v", d, snap.Limitations)
+	}
+}
+
+// TestInitCLIRecreatesPlannedContract: the planned InitCLI run locally with
+// the values file recreates the planned dependencies, configurations and
+// publish bundle.
+func TestInitCLIRecreatesPlannedContract(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.path = "oci://" + e.host + "/acme/paths/go-http@" + e.publishBundle(t, e.host+"/acme/paths/go-http", "1.5.0",
+		goldenHTTP(e.host, "2.5", "publish:\n  bundle: oci://registry.example/go-http\n"), nil)
+	e.publishBundle(t, e.host+"/acme/redis", "7.0.0", map[string]string{
+		"pacto.yaml": "pactoVersion: \"2.5\"\nservice:\n  name: redis\n  version: 7.0.0\n  offering: redis\n" +
+			"configurations:\n  - name: provisioning\n    schema: configuration/provisioning.schema.json\n    required: true\n",
+		"configuration/provisioning.schema.json": `{"type":"object","additionalProperties":false,"properties":{"memoryMi":{"type":"integer","minimum":64}}}`,
+	}, nil)
+	p, d := e.plan(t, e.createReq(t,
+		OfferingPick{Offering: "postgresql", Values: map[string]any{"storageGi": 40}},
+		OfferingPick{Offering: "redis", Values: map[string]any{"memoryMi": 128}}))
+	c := p.Create
+	if !strings.HasSuffix(c.InitCLI, " --values "+createValuesFile) || c.ValuesFile == "" {
+		t.Fatalf("%+v", c)
+	}
+	dir := t.TempDir()
+	values := filepath.Join(dir, createValuesFile)
+	if err := os.WriteFile(values, []byte(c.ValuesFile), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(dir, "invoices")
+	if _, err := e.svc.InitFrom(t.Context(), InitOptions{Dir: target, Name: "invoices", Owner: "billing", Registry: e.host + "/acme"},
+		InitFrom{From: e.path, Overrides: override.Overrides{ValueFiles: []string{values}}}); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(target, DefaultContractPath))
+	if err != nil {
+		t.Fatal(err)
+	}
+	local, err := contract.Parse(strings.NewReader(string(raw)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	planned := d.bundle.Contract
+	if local.Publish == nil || planned.Publish == nil {
+		t.Fatalf("no publish section: %+v %+v", local.Publish, planned.Publish)
+	}
+	for name, pair := range map[string][2]any{
+		"dependencies":   {local.Dependencies, planned.Dependencies},
+		"configurations": {local.Configurations, planned.Configurations},
+		"publish":        {local.Publish, planned.Publish},
+		"publish.bundle": {local.Publish.Bundle, d.input.Publish.Bundle},
+	} {
+		a, _ := json.Marshal(pair[0])
+		b, _ := json.Marshal(pair[1])
+		if string(a) != string(b) {
+			t.Errorf("%s:\nlocal   %s\nplanned %s", name, a, b)
+		}
+	}
+}
+
+// TestCreatePublishRefusesOtherSigner: a login whose certificate names
+// another person than its token stops before any tag.
+func TestCreatePublishRefusesOtherSigner(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.withOwnerPolicy(t)
+	e.login(testutil.TokenWith(map[string]string{"sub": "mallory@acme.com", "email": "ana@acme.com", "email_verified": "true", "iss": personIssuer}))
+	_, err := e.svc.Declare(t.Context(), e.createReq(t))
+	if de := refusal(t, err); de.Code != codeSignerUnverified || len(e.tags(t)) != 0 {
+		t.Fatal(err, e.tags(t))
+	}
+}
+
+// TestCreateRefusesUnverifiedPathWithTemplateKey: with a template key
+// configured, an unsigned golden path is refused.
+func TestCreateRefusesUnverifiedPathWithTemplateKey(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	pub, _, _ := ed25519.GenerateKey(rand.Reader)
+	req := e.createReq(t)
+	req.Create.Trust = &delivery.TrustConfig{Keys: []delivery.TrustedKey{templateKey(t, "platform", pub)}}
+	p, _, err := e.svc.PlanDeclare(t.Context(), req)
+	if err == nil || !strings.Contains(err.Error(), "no template key the trust config names verifies its signature") || (p != nil && p.IntentDigest != "") {
+		t.Fatalf("planned %+v: %v", p, err)
+	}
+	if len(e.tags(t)) != 0 {
+		t.Fatal(e.tags(t))
+	}
+}
+
+// TestCreateBundleHoldsNoSensitiveValue: a sensitive value is refused at
+// its field with nothing written, and no answer echoes the literal.
+func TestCreateBundleHoldsNoSensitiveValue(t *testing.T) {
+	e := newCreateEnv(t, nil)
+	e.withOwnerPolicy(t)
+	e.login(personToken("ana@acme.com"))
+	req := e.createReq(t, OfferingPick{Offering: "postgresql", Values: map[string]any{"dbPassword": "hunter2"}})
+	res, err := e.svc.Declare(t.Context(), req)
+	de := refusal(t, err)
+	if len(de.Refusals) != 1 || de.Refusals[0].Code != codeParameterSensitive || de.Refusals[0].Field != "configurations[database].values.dbPassword" {
+		t.Fatalf("%+v", de.Refusals)
+	}
+	answer, _ := json.Marshal(struct {
+		E *DeclareError
+		R *DeclareResult
+	}{de, res})
+	if strings.Contains(string(answer), "hunter2") || strings.Contains(de.Error(), "hunter2") || len(e.tags(t)) != 0 {
+		t.Fatalf("%s %v", answer, e.tags(t))
 	}
 }
