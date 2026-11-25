@@ -241,13 +241,10 @@ take it.
 
 ## Consumers in member clusters
 
-On a [hub](../../multi-cluster.md#consumers-and-delivery-across-clusters), a
-promote reads every approved member too:
-
-- The promoter reads each approved member's signed snapshot from the targets
-  repository (`--targets-repository`), through the join reader the CLI and
-  dashboard use. A consumer there that does not accept the change asks its
-  owners.
+- On a [hub](../../multi-cluster.md#consumers-and-delivery-across-clusters),
+  a promote also reads each approved member's signed snapshot from
+  `--targets-repository`, as the CLI and dashboard do. A consumer there that
+  does not accept the change asks its owners.
 - A stale member, a join list it could not read or a cluster that is not a
   member yet asks a person to accept the unknown for a change that is not
   plainly non-breaking.

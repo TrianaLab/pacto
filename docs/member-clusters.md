@@ -68,12 +68,10 @@ grant turns their approvals pending. A dashboard installed with a namespace
 list cannot review `clusterjoins`, so its approvals stay pending. The CLI
 reviews approvers as you: grant `create subjectaccessreviews`.
 
-Once the hub approved a member, a pending cluster keeps breaking changes
-waiting for a person until it is approved or removed. On a member, a change
-that is not plainly non-breaking waits for a person there to accept the
-consumers it cannot see ([Multi-cluster](multi-cluster.md#consumers-and-delivery-across-clusters)).
-
-To ship a version to approved members from the hub, see
+Once a member is approved, pending clusters hold breaking changes for a
+person, and a member asks a person before a change that is not plainly
+non-breaking ([Multi-cluster](multi-cluster.md#consumers-and-delivery-across-clusters)).
+To ship a version to members, see
 [Deliver through a member](integrations/kubernetes/delivery-members.md#deliver-through-a-member).
 
 ## Remove, rebuild and rotate
