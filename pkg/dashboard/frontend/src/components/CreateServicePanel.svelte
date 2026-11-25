@@ -201,6 +201,11 @@
     {#each o.parameters ?? [] as x (x.path)}
       {@render valueInput(o, x, fieldKey(o.offering, x.path), once[o.offering]?.[x.path], setOnce)}
     {/each}
+    {#if o.guarantees?.length}
+      <Fold title="Guarantees" level={5} meta={formatCount(o.guarantees.length)} testid="create-guarantees">
+        {#each o.guarantees as g (g.interface)}<p class="cs-p"><bdi>{g.interface}</bdi>: {g.text}</p>{/each}
+      </Fold>
+    {/if}
   </div>
 {/snippet}
 

@@ -182,7 +182,7 @@
     <LazyView load={loadOriginFigure} aggregate={originAgg} hrefs={originHrefs} meta={originLoader.data?.meta} />
   {/if}
   {#if canCreate && creatable.length}
-    <div class="gp-explain">
+    <div class="gp-create-toggle">
       <button type="button" class="btn btn-sm" aria-expanded={showCreate} aria-controls="gp-create" onclick={() => (showCreate = !showCreate)} data-testid="create-service-toggle">{showCreate ? 'Hide Create service' : 'Create service'}</button>
     </div>
     <div id="gp-create">
@@ -308,7 +308,7 @@
   .gp-search { display: flex; gap: var(--sp-2); max-width: 420px; flex: 1 1 220px; min-width: 220px; }
   .gp-search .input { flex: 1; min-width: 0; }
   .gp-search .btn { flex: none; }
-  .gp-explain { display: flex; justify-content: flex-end; }
+  .gp-create-toggle { display: flex; justify-content: flex-end; }
   .gp-empty { padding: var(--sp-6) var(--sp-4); text-align: center; color: var(--c-text-2); }
   .gp-empty h2, .gp-empty p { margin: 0 0 var(--sp-2); }
   .gp-empty a { color: var(--c-accent); }

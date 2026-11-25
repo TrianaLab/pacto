@@ -161,7 +161,7 @@ func offeringViews(q *fleet.Query, requested []string) []dashboard.CreateService
 	for _, name := range slices.Sorted(maps.Keys(providers)) {
 		p := providers[name]
 		v := dashboard.CreateServiceOfferingView{Offering: name, Version: p.Version, Requested: slices.Contains(requested, name),
-			Classes: p.Classes, Parameters: p.Parameters}
+			Classes: p.Classes, Parameters: p.Parameters, Guarantees: p.Guarantees}
 		if v.Requested {
 			first = append(first, v)
 		} else {

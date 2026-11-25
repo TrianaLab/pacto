@@ -1889,6 +1889,8 @@ export interface components {
         };
         CreateServiceOfferingView: {
             classes: string[] | null;
+            /** @description What each interface of the offering's provider promises; empty when it declares none */
+            guarantees?: components["schemas"]["Fleet.ConsumableGuarantee"][] | null;
             offering: string;
             parameters: components["schemas"]["Fleet.OfferingParameter"][] | null;
             /** @description The golden path requests it; any other is added when a value is set on it */

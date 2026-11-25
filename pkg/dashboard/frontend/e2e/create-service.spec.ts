@@ -10,9 +10,11 @@ import { createServiceRoute, installScaleFixture } from './layoutGate';
 
 const T = 30_000;
 
+// A fixture's 403 or 409 answer is logged by the browser as a failed resource load;
+// that line is the answer under test, never an error of the page.
 function watchConsole(page: Page): string[] {
   const errors: string[] = [];
-  page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+  page.on('console', (m) => { if (m.type() === 'error' && !m.text().startsWith('Failed to load resource')) errors.push(m.text()); });
   page.on('pageerror', (e) => errors.push(e.message));
   return errors;
 }
@@ -28,8 +30,10 @@ test.describe('create a service from a golden path', () => {
     await panel.getByTestId('create-name').fill('invoices', { timeout: T });
     await panel.getByTestId('create-owner').fill('billing');
     await panel.getByTestId('create-namespace').fill('team-billing');
-    await panel.getByTestId('create-review').click();
+    await panel.getByTestId('create-review').focus();
+    await page.keyboard.press('Enter');
     await expect(panel.getByTestId('create-plan-heading')).toHaveText('Plan: invoices 0.1.0', { timeout: T });
+    await expect(panel.getByTestId('create-plan-heading')).toBeFocused();
     await expect(panel.getByTestId('create-plan')).toContainText('demo.pacto.local/invoices');
     await expect(panel.getByTestId('create-signature')).toHaveText('signature Unknown');
     await expect(panel.getByTestId('create-signer')).toContainText('the demo has no sign-in');
@@ -73,6 +77,7 @@ test.describe('create a service from a golden path', () => {
       const errors = watchConsole(page);
       await createServiceRoute('published', 'invoices', 'team-billing')(page);
       const result = page.getByTestId('create-service').getByTestId('create-result');
+      await expect(result).toBeFocused();
       await expect(result).toContainText(/Published ghcr\.io\/.+\/invoices@sha256:[0-9a-f]{64} by alice@acme\.io/);
       await expect(result).toContainText('It shows in the fleet within a minute, declared at 0.1.0 with nothing delivered');
       await expect(result).toContainText(/Start the folder.*pacto init invoices --from oci:\/\//s);
@@ -84,23 +89,28 @@ test.describe('create a service from a golden path', () => {
     });
 
     test('a review denial is a 403 with no Sign or Save', async ({ page }) => {
+      const errors = watchConsole(page);
       await createServiceRoute('forbidden', 'invoices', 'team-billing')(page);
       const panel = page.getByTestId('create-service');
       await expect(panel.getByTestId('refusal')).toContainText('alice may not create services in team-billing');
       await expect(panel.getByTestId('create-sign')).toHaveCount(0);
       await expect(panel.getByTestId('create-save-draft')).toHaveCount(0);
+      expect(errors).toEqual([]);
     });
 
     test('a taken name shows ServiceExists verbatim with its command', async ({ page }) => {
+      const errors = watchConsole(page);
       await createServiceRoute('refused', 'invoices', 'team-billing')(page);
       const panel = page.getByTestId('create-service');
       await expect(panel.getByTestId('refusal')).toHaveAttribute('data-code', 'ServiceExists');
       await expect(panel.getByTestId('refusal')).toContainText('invoices is already taken in this registry: pick another name, or adopt your own service with pacto declare');
       await expect(panel.getByTestId('create-refusal-command')).toContainText('pacto init invoices --from oci://');
       await expect(panel.getByTestId('create-sign')).toHaveCount(0);
+      expect(errors).toEqual([]);
     });
 
     test('a value over a tiered field is refused at it with the closest value and both commands', async ({ page }) => {
+      const errors = watchConsole(page);
       await createServiceRoute('plan', 'invoices', 'team-billing')(page);
       const panel = page.getByTestId('create-service');
       await expect(panel.getByTestId('create-sign')).toBeVisible();
@@ -113,14 +123,17 @@ test.describe('create a service from a golden path', () => {
       await expect(at).toContainText('pacto_create_service {"offerings":[{"offering":"postgresql","values":{"storageGi":500}}]}');
       await expect(panel.getByTestId('create-sign')).toHaveCount(0);
       await expect(panel.getByTestId('create-save-draft')).toHaveCount(0);
+      expect(errors).toEqual([]);
     });
 
     test('a configured portal leads with Open in Backstage', async ({ page }) => {
+      const errors = watchConsole(page);
       await createServiceRoute('portal')(page);
       const actions = page.getByTestId('create-service').getByTestId('create-portal');
       await expect(actions.locator('a, button').first()).toHaveText('Open in Backstage');
       await expect(actions.getByTestId('create-here')).toBeVisible();
       await expect(page.getByTestId('create-form')).toHaveCount(0);
+      expect(errors).toEqual([]);
     });
   });
 });

@@ -1845,14 +1845,16 @@ export function installScaleFixture(): void {
   const CREATE_INTENT = `sha256:${'c5'.repeat(32)}`;
   const CREATE_PATH = `oci://ghcr.io/${longName('acme')}/http-service@sha256:${'7c'.repeat(32)}`;
   type CreateParameter = { configuration: string; path: string; type: string; tier: string; enum?: string[]; default?: string; minimum?: number; maximum?: number };
-  const CREATE_OFFERINGS: { offering: string; version: string; requested: boolean; classes: string[]; parameters: CreateParameter[] }[] = [
+  type CreateGuarantee = { interface: string; guarantees: Record<string, string>; text: string };
+  const CREATE_OFFERINGS: { offering: string; version: string; requested: boolean; classes: string[]; parameters: CreateParameter[]; guarantees?: CreateGuarantee[] }[] = [
     { offering: 'postgresql', version: '17.0.0', requested: true, classes: ['standard', 'premium', `regional-${'replicated-'.repeat(4)}`],
       parameters: [
         { configuration: 'provisioning', path: 'size', type: 'string', tier: 'contract', enum: ['small', 'medium', 'large'], default: 'small' },
         { configuration: 'provisioning', path: 'storageGi', type: 'integer', tier: 'tunable', minimum: 10, maximum: 500 },
         { configuration: 'provisioning', path: 'backups.retentionDays', type: 'integer', tier: 'tunable', minimum: 1, maximum: 35 },
         { configuration: 'provisioning', path: `maintenance.${'preferredWindow'.repeat(4)}`, type: 'integer', tier: 'contract', minimum: 0, maximum: 23 },
-      ] },
+      ],
+      guarantees: [{ interface: longName('sql'), guarantees: { timeout: '5s', availability: '99.95%' }, text: 'availability 99.95%, timeout 5s' }] },
     ...[0, 1, 2].map((i) => ({ offering: `objectstore-${'archive-'.repeat(6)}${i}`.slice(0, 63), version: `1.${i}.0`, requested: false, classes: [],
       parameters: [{ configuration: 'bucket', path: 'retentionDays', type: 'integer', tier: 'contract', minimum: 1, maximum: 3650 }] })),
   ];
@@ -2796,7 +2798,10 @@ export const createServiceRoute = (mode: Exclude<CreateServiceMode, 'off'>, name
     await panel.getByTestId('create-namespace').fill(namespace);
     await panel.getByTestId('create-review').click();
     await expect(panel.getByTestId(mode === 'plan' || mode === 'parameter' ? 'create-plan' : 'refusal').first()).toBeVisible({ timeout: 30_000 });
-    if (mode === 'plan') await panel.getByTestId('create-contract').locator('> summary').click();
+    if (mode === 'plan') {
+      await panel.getByTestId('create-contract').locator('> summary').click();
+      await panel.getByTestId('create-guarantees').first().locator('> summary').click();
+    }
     if (mode === 'parameter') {
       const param = (path: string) => panel.locator(`[data-testid="create-param"][data-field="${path}"] input`).first();
       await param('storageGi').fill('900');

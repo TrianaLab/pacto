@@ -29,6 +29,7 @@ const PG = {
     { path: 'ha', type: 'boolean', tier: 'contract', required: false, sensitive: false },
     { path: 'password', type: 'string', tier: 'contract', required: false, sensitive: true },
   ],
+  guarantees: [{ interface: 'sql', guarantees: { timeout: '5s' }, text: 'timeout 5s' }],
 };
 const REDIS = { offering: 'redis', version: '7.0.0', requested: false, classes: [], parameters: [{ path: 'memoryMi', type: 'integer', tier: 'contract', required: false, sensitive: false }] };
 
@@ -145,6 +146,11 @@ describe('CreateServicePanel', () => {
     expect(text(pg)).toContain('class small | large');
     expect(text(pg)).toContain('10-500, varies per environment');
     expect(text(pg)).toContain('Secret reference');
+    // Its guarantees are collapsed under the offering; an offering with none draws no fold.
+    const g = pg.querySelector('[data-testid="create-guarantees"]') as HTMLDetailsElement;
+    expect(g.open).toBe(false);
+    expect(text(g)).toContain('sql: timeout 5s');
+    expect(q('[data-testid="create-offering"][data-offering="redis"] [data-testid="create-guarantees"]')).toBeNull();
     expect((tid('create-other-offerings') as HTMLDetailsElement).open).toBe(false);
     expect(text(tid('create-yourself'))).toContain('pacto init invoices --from x');
     // Without a signing login: Save draft, no Sign.

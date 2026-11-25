@@ -385,4 +385,6 @@ func TestOfferingViewsRequestedFirst(t *testing.T) {
 	expect(t, len(other) == 1 && other[0].Offering == "postgresql" && !other[0].Requested, "%+v", other)
 	asked := offeringViews(q, []string{"postgresql"})
 	expect(t, len(asked) == 1 && asked[0].Requested, "%+v", asked)
+	expect(t, len(asked[0].Guarantees) == 1 && asked[0].Guarantees[0].Interface == "sql" && asked[0].Guarantees[0].Text != "",
+		"the offering carries its provider's guarantees: %+v", asked[0].Guarantees)
 }

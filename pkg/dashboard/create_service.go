@@ -87,13 +87,14 @@ type CreateServiceFile struct {
 const MaxCreateServiceFiles = 64
 
 // CreateServiceOfferingView is one offering a create may set values on:
-// its classes and fields as the consumable read gives them.
+// its classes, fields and guarantees as the consumable read gives them.
 type CreateServiceOfferingView struct {
-	Offering   string                    `json:"offering"`
-	Version    string                    `json:"version"`
-	Requested  bool                      `json:"requested" doc:"The golden path requests it; any other is added when a value is set on it"`
-	Classes    []string                  `json:"classes"`
-	Parameters []fleet.OfferingParameter `json:"parameters"`
+	Offering   string                      `json:"offering"`
+	Version    string                      `json:"version"`
+	Requested  bool                        `json:"requested" doc:"The golden path requests it; any other is added when a value is set on it"`
+	Classes    []string                    `json:"classes"`
+	Parameters []fleet.OfferingParameter   `json:"parameters"`
+	Guarantees []fleet.ConsumableGuarantee `json:"guarantees,omitempty" doc:"What each interface of the offering's provider promises; empty when it declares none"`
 }
 
 // CreateServicePlan is what a create would publish, signed by whom.
