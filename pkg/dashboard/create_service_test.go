@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -241,5 +242,41 @@ func TestCapabilitiesPortalCreateURL(t *testing.T) {
 		if caps.CreateService != c.want || caps.PortalCreateURL != c.portal {
 			t.Errorf("%s: %+v", c.name, caps)
 		}
+	}
+}
+
+// TestOpenAPICreateServiceSchemas: the schema export carries both create
+// routes, so the generated SDK has their types.
+func TestOpenAPICreateServiceSchemas(t *testing.T) {
+	raw, err := ExportOpenAPI()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Paths      map[string]map[string]struct{ OperationID string } `json:"paths"`
+		Components struct {
+			Schemas map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if got := doc.Paths["/api/fleet/services"]["post"].OperationID; got != "fleet-create-service" {
+		t.Errorf("POST /api/fleet/services = %q", got)
+	}
+	if got := doc.Paths["/api/fleet/services/accept"]["post"].OperationID; got != "fleet-create-service-accept" {
+		t.Errorf("POST /api/fleet/services/accept = %q", got)
+	}
+	for _, n := range []string{"CreateServiceInput", "CreateServiceAcceptInput", "CreateServiceAnswer", "CreateServiceAcceptAnswer", "CreateServiceRefusal"} {
+		if doc.Components.Schemas[n] == nil {
+			t.Errorf("no %s schema", n)
+		}
+	}
+	var s schemaCreator
+	if _, err := s.Plan(nil, CreateServicePath{}, CreateServiceInput{}); err == nil {
+		t.Error("the schema creator plans nothing")
+	}
+	if _, err := s.Accept(nil, CreateServicePath{}, CreateServiceAcceptInput{}); err == nil || !s.CanWrite() {
+		t.Error("the schema creator accepts nothing and registers the accept route")
 	}
 }

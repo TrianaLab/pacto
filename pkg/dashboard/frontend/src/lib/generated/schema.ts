@@ -745,7 +745,31 @@ export interface paths {
          */
         get: operations["fleet-search"];
         put?: never;
-        post?: never;
+        /**
+         * Plan creating a service from a golden path
+         * @description Plans the first version of a service created from a declared golden path in your view: pacto.yaml at 0.1.0, the offering values checked against each offering's closed schema, the repository, the revision and who signs. It writes nothing. It needs create services.pacto.trianalab.io in the namespace, named by the service.
+         */
+        post: operations["fleet-create-service"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/services/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign a created service or save it as a draft
+         * @description Carries out a create plan the person reviewed, by its intent digest: publishes 0.1.0 signed by the person's fresh login and writes its organization index entry, saves a draft-<n> a person signs later, or accepts a draft. Pacto holds no Git token: the answer hands over the files and the commands.
+         */
+        post: operations["fleet-create-service-accept"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1748,6 +1772,175 @@ export interface components {
              * @description Distinct workloads seen calling a contracted service with no contract of their own
              */
             uncontractedCallers: number;
+        };
+        CreateServiceAcceptAnswer: {
+            /** @description The page a person reviews and signs the draft at */
+            acceptUrl?: string;
+            /** @description How soon the fleet shows the service declared at 0.1.0 */
+            appearsWithin?: string;
+            draft?: boolean;
+            /** @description The published files, at most 64 of at most 64 KiB each */
+            files?: components["schemas"]["CreateServiceFile"][] | null;
+            /** Format: int64 */
+            filesTotal?: number;
+            /** @description Makes the repository with your own Git token; Pacto holds none */
+            gitCli?: string;
+            /** @description Where the organization index entry went, or why it was not written: the publish stands either way */
+            index?: string;
+            /** @description The pacto init that recreates the folder on your machine */
+            initCli?: string;
+            /** @description The fresh plan of a PlanStale refusal */
+            plan?: components["schemas"]["CreateServiceAnswer"];
+            /** @description The bundle written, as <repository>@sha256:<hex> */
+            published?: string;
+            /** @description Pulls the published bundle */
+            pullCli?: string;
+            refusal?: components["schemas"]["DeclareRefusal"];
+            refusals?: components["schemas"]["CreateServiceRefusal"][] | null;
+            signed?: boolean;
+            tag?: string;
+        };
+        CreateServiceAcceptInput: {
+            /** @description The cluster the review runs in; empty for the only one */
+            cluster?: string;
+            /** @description Plan accepting this created draft instead: its inputs are read from it and checked again against your view */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent a signing login was started for */
+            intentDigest?: string;
+            /**
+             * @description sign: publish 0.1.0 signed by your fresh login; draft: save a draft-<n> a person signs later
+             * @enum {string}
+             */
+            mode: "sign" | "draft";
+            /** @description The new service's name */
+            name: string;
+            /** @description The namespace you are reviewed in: create services.pacto.trianalab.io there, named by the service */
+            namespace: string;
+            /** @description The values set on each offering the service consumes; an offering the golden path does not request is added */
+            offerings?: components["schemas"]["CreateServiceOffering"][] | null;
+            /** @description The team that owns the new service; you must belong to it or be a default approver */
+            owner?: string;
+            /** @description The service key of the declared golden path to create from */
+            path: string;
+            /** @description Where the first version goes: under the dashboard's registry and ending in the service name; defaults to <registry>/<name> */
+            repository?: string;
+            /** @description The publish revision; defaults to pacto-create:<you>:<time> */
+            revision?: string;
+        };
+        CreateServiceAnswer: {
+            /** @description Your own drafts of this service, newest first */
+            drafts?: components["schemas"]["DeclareDraft"][] | null;
+            /** Format: int64 */
+            draftsTotal?: number;
+            /** @description The offerings you may consume, the requested ones first */
+            offerings: components["schemas"]["CreateServiceOfferingView"][] | null;
+            /** @description Absent when the plan was refused */
+            plan?: components["schemas"]["CreateServicePlan"];
+            refusal?: components["schemas"]["DeclareRefusal"];
+            /** @description Every refused input, each at its field; a refused plan has no intent digest */
+            refusals?: components["schemas"]["CreateServiceRefusal"][] | null;
+            /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page> */
+            signTicket?: string;
+            signedIn?: boolean;
+            signing: components["schemas"]["DeclareSigning"];
+            write: components["schemas"]["DeclareWrite"];
+        };
+        CreateServiceFile: {
+            path: string;
+            text: string;
+            /** @description The file is longer than 64 KiB and only its start is shown */
+            truncated?: boolean;
+        };
+        CreateServiceInput: {
+            /** @description The cluster the review runs in; empty for the only one */
+            cluster?: string;
+            /** @description Plan accepting this created draft instead: its inputs are read from it and checked again against your view */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent a signing login was started for */
+            intentDigest?: string;
+            /** @description The new service's name */
+            name: string;
+            /** @description The namespace you are reviewed in: create services.pacto.trianalab.io there, named by the service */
+            namespace: string;
+            /** @description The values set on each offering the service consumes; an offering the golden path does not request is added */
+            offerings?: components["schemas"]["CreateServiceOffering"][] | null;
+            /** @description The team that owns the new service; you must belong to it or be a default approver */
+            owner?: string;
+            /** @description The service key of the declared golden path to create from */
+            path: string;
+            /** @description Where the first version goes: under the dashboard's registry and ending in the service name; defaults to <registry>/<name> */
+            repository?: string;
+            /** @description The publish revision; defaults to pacto-create:<you>:<time> */
+            revision?: string;
+        };
+        CreateServiceOffering: {
+            /** @description The values set per environment the golden path declares, by environment then field; only tunable fields */
+            environments?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** @description The offering, as the consumable offerings list names it */
+            offering: string;
+            /** @description The values set once for every environment, by field */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        CreateServiceOfferingView: {
+            classes: string[] | null;
+            offering: string;
+            parameters: components["schemas"]["Fleet.OfferingParameter"][] | null;
+            /** @description The golden path requests it; any other is added when a value is set on it */
+            requested: boolean;
+            version: string;
+        };
+        CreateServicePlan: {
+            bundleRepo: string;
+            consumableAsOf?: string;
+            consumableCompleteness: string;
+            /** @description pacto.yaml as it would be published */
+            contract: components["schemas"]["DeclareText"];
+            /** @description The pacto init that recreates the folder on your machine */
+            initCli: string;
+            intentDigest: string;
+            /** @description Who may create the service with this owner */
+            mayAccept?: string[] | null;
+            namespace: string;
+            notes?: string[] | null;
+            owner?: string;
+            /** @description The golden path's digest-pinned reference */
+            path: string;
+            pathName: string;
+            pathVersion: string;
+            policyNote?: string;
+            /** @description pacto.inferred.yaml as it would be published */
+            record: components["schemas"]["DeclareText"];
+            revision: string;
+            service: string;
+            /** @description The golden path's signature step, checked against the installation's template keys */
+            signature: components["schemas"]["Fleet.CreationStep"];
+            signer: components["schemas"]["DeclareSigner"];
+            /** @description declared for a person's login, else draft */
+            state: string;
+            /** @description The values file InitCLI reads */
+            valuesFile?: components["schemas"]["CreateServiceFile"];
+            version: string;
+        };
+        CreateServiceRefusal: {
+            /** @description The values an enum or class allows */
+            allowed?: unknown[] | null;
+            /** @description The pacto init command that sets the fix */
+            cli?: string;
+            /** @description The closest valid value, when there is one */
+            closest?: unknown;
+            /** @enum {string} */
+            code: "OfferingNotConsumable" | "OfferingUnknown" | "ParameterNotDeclared" | "ParameterOutOfRange" | "ParameterSensitive" | "ClassNotOffered" | "TierNotTunable" | "EnvironmentNotDeclared";
+            /** @description configurations[<name>].values.<key>, environments[<env>].<configuration>.<key>, environments[<env>] or offerings[<offering>] */
+            field: string;
+            /** @description The pacto_create_service argument fragment that sets the fix */
+            mcp?: string;
+            message: string;
         };
         CrossReference: {
             contractStatus?: string;
@@ -12100,6 +12293,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Fleet.SearchResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-create-service": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateServiceInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateServiceAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-create-service-accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateServiceAcceptInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateServiceAcceptAnswer"];
                 };
             };
             /** @description Error */

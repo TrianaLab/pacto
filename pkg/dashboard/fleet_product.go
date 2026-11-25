@@ -499,7 +499,21 @@ func (s *Server) stubProvidersForSchemaExport() {
 		return delivery.ClusterJoinList{}, errors.New("schema export only")
 	}
 	s.opts.Declare = schemaDeclarer{}
+	s.opts.CreateService = schemaCreator{}
 }
+
+// schemaCreator registers both create-service routes for the schema export.
+type schemaCreator struct{}
+
+func (schemaCreator) Plan(*http.Request, CreateServicePath, CreateServiceInput) (*CreateServiceAnswer, error) {
+	return nil, errors.New("schema export only")
+}
+
+func (schemaCreator) Accept(*http.Request, CreateServicePath, CreateServiceAcceptInput) (*CreateServiceAcceptAnswer, error) {
+	return nil, errors.New("schema export only")
+}
+
+func (schemaCreator) CanWrite() bool { return true }
 
 // schemaDeclarer registers both declare routes for the schema export.
 type schemaDeclarer struct{}
