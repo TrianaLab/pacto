@@ -77,4 +77,3 @@ describe('CreationFigure', () => {
     expect(t.querySelector('figcaption')?.textContent).toContain('2 steps: 1 done, 1 unknown, 0 failed.');
   });
 });
-
