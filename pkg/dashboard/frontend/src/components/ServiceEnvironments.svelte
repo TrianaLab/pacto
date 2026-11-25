@@ -50,7 +50,7 @@
 {#snippet stageLink(r)}
   <span class="sv-line">
     <EnvMark state={r.state} word />
-    <a href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage, cluster: r.cluster || undefined })} title={`Stage ${r.namespace}/${r.stage}${r.cluster ? ` in cluster ${r.cluster}` : ''}`}><bdi>Stage {r.namespace}/{r.stage}</bdi></a>
+    <a href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage, cluster: r.cluster || undefined })} title={`Stage ${r.namespace}/${r.stage}${r.cluster ? ' in another cluster' : ''}`}><bdi>Stage {r.namespace}/{r.stage}</bdi></a>
     <span class="t-meta">state observed, environment declared by a Stage (admin)</span>
   </span>
 {/snippet}
