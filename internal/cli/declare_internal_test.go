@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -203,7 +204,7 @@ func TestDeclareCommandJSON(t *testing.T) {
 			Refusal app.DeclareError `json:"refusal"`
 			Exit    exitDoc          `json:"exit"`
 		}
-		if err == nil || json.Unmarshal([]byte(out), &doc) != nil || doc.Refusal != *refused || doc.Exit.Code != 1 {
+		if err == nil || json.Unmarshal([]byte(out), &doc) != nil || !reflect.DeepEqual(doc.Refusal, *refused) || doc.Exit.Code != 1 {
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
 	}

@@ -29,7 +29,9 @@
   // many consume it, how many of those have a failed request and its observed targets.
   // `inferred` switches the same list to the offerings producers inferred (declaration=
   // inferred): muted rows that never count as declared, each opening its contributed service.
-  let { text = '', lifecycle = '', failed = '', inferred = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
+  // `consumable` keeps the offerings the viewer may consume, each row with one muted line
+  // naming its version, classes and tunable fields; the engine refuses it with inferred.
+  let { text = '', lifecycle = '', failed = '', inferred = '', consumable = '', offset = '', limit = '', sort = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   // The figure's ranking (T3): the offerings with the most consumers with a failed request first.
@@ -39,7 +41,8 @@
   const order = $derived(sort || DEFAULT_SORT);
   const onlyFailed = $derived(!!failed);
   const onlyInferred = $derived(!!inferred);
-  const anyFilter = $derived(!!(text || lifecycle || onlyFailed || onlyInferred));
+  const onlyConsumable = $derived(!!consumable && !onlyInferred);
+  const anyFilter = $derived(!!(text || lifecycle || onlyFailed || onlyInferred || onlyConsumable));
 
   let textDraft = $state(untrack(() => text));
   let submittedText = null;
@@ -47,11 +50,11 @@
 
   const loader = createProductLoader(() => api.fleetEntities({
     kinds: ['offering'], text: text || undefined, lifecycle: lifecycle || undefined, failed: onlyFailed || undefined,
-    declaration: onlyInferred ? 'inferred' : undefined,
+    declaration: onlyInferred ? 'inferred' : undefined, consumable: onlyConsumable || undefined,
     offset: pageOffset || undefined, limit: pageLimit, sort: order,
   }));
-  const queryIdentity = $derived(`${text}@@${lifecycle}@@${onlyFailed}@@${onlyInferred}@@${pageOffset}@@${pageLimit}@@${order}`);
-  const listIdentity = $derived(`${text}@@${lifecycle}@@${onlyFailed}@@${onlyInferred}@@${order}`);
+  const queryIdentity = $derived(`${text}@@${lifecycle}@@${onlyFailed}@@${onlyInferred}@@${onlyConsumable}@@${pageOffset}@@${pageLimit}@@${order}`);
+  const listIdentity = $derived(`${text}@@${lifecycle}@@${onlyFailed}@@${onlyInferred}@@${onlyConsumable}@@${order}`);
   $effect(() => { loader.sync(`${queryIdentity}@@${refreshTick}`, queryIdentity, listIdentity); });
   onDestroy(() => loader.destroy());
   function load() { loader.refresh(); }
@@ -75,7 +78,7 @@
 
   const urlWith = (patch, off = 0, lim = pageLimit) => fleetOfferingsUrl({
     text: (patch.text ?? text) || undefined, lifecycle: (patch.lifecycle ?? lifecycle) || undefined, failed: patch.failed ?? onlyFailed,
-    inferred: patch.inferred ?? onlyInferred, offset: off, limit: limitParam(lim, limit, PAGE_SIZE), sort: (patch.sort ?? sort) || undefined,
+    inferred: patch.inferred ?? onlyInferred, consumable: patch.consumable ?? onlyConsumable, offset: off, limit: limitParam(lim, limit, PAGE_SIZE), sort: (patch.sort ?? sort) || undefined,
   });
   const pageHref = (off, lim) => urlWith({}, off, lim);
   const sortHref = (v) => urlWith({ sort: v === DEFAULT_SORT ? '' : v });
@@ -89,10 +92,41 @@
     lifecycle ? { key: 'lifecycle', label: 'Lifecycle', value: LIFECYCLES.find((l) => l.value === lifecycle)?.label ?? lifecycle } : null,
     onlyFailed ? { key: 'failed', label: 'Has', value: 'a failed request' } : null,
     onlyInferred ? { key: 'inferred', label: 'Shows', value: 'inferred' } : null,
+    onlyConsumable ? { key: 'consumable', label: 'Consumable', value: 'yes' } : null,
   ].filter(Boolean));
-  function removeChip(key) { location.hash = urlWith({ [key]: key === 'failed' || key === 'inferred' ? false : '' }); }
+  const BOOLEAN_FILTERS = new Set(['failed', 'inferred', 'consumable']);
+  function removeChip(key) { location.hash = urlWith({ [key]: BOOLEAN_FILTERS.has(key) ? false : '' }); }
   // No inferred row has a failed request or a lifecycle: the inferred list keeps the search alone.
-  const INFERRED_ON = { inferred: true, failed: false, lifecycle: '' };
+  // Consumable and inferred exclude each other: checking one clears the other.
+  const INFERRED_ON = { inferred: true, failed: false, lifecycle: '', consumable: false };
+  const CONSUMABLE_ON = { consumable: true, inferred: false };
+  // The consumable row's muted line: the first provider's name and version, classes and
+  // tunable fields (a cut list says how many more), then how many more providers you may
+  // consume; the title adds the publisher and the asOf. `count` replaces the provider
+  // count, so a provider left out never reads as one you may consume.
+  const consumableLine = (c, services) => {
+    const p = c.providers?.[0];
+    if (!p) return null;
+    const tunable = [...new Set((p.parameters ?? []).filter((x) => x.tier === 'tunable').map((x) => x.path))];
+    const moreFields = p.parametersTruncated ? (p.parametersTotal ?? 0) - (p.parameters?.length ?? 0) : 0;
+    const moreClasses = p.classesTruncated ? (p.classesTotal ?? 0) - (p.classes?.length ?? 0) : 0;
+    const more = (c.providersTotal ?? 0) - 1;
+    const line = [
+      [p.service?.label, p.version].filter(Boolean).join(' '),
+      p.classes?.length ? `classes ${p.classes.join(', ')}${moreClasses > 0 ? ` +${formatCount(moreClasses)} more` : ''}` : '',
+      tunable.length ? `tunable ${tunable.join(', ')}` : '',
+      moreFields > 0 ? `+${plural(moreFields, 'more field', 'more fields')}` : '',
+      more > 0 ? `+${plural(more, 'more provider', 'more providers')}` : '',
+    ].filter(Boolean).join(' · ');
+    const asOf = list?.meta?.asOf ? `, as of ${formatDateTime(list.meta.asOf)}` : '';
+    const total = c.providersTotal ?? 0;
+    return { line, title: `${line}; publisher ${p.publisher}${asOf}`, count: `${formatCount(total)} of ${plural(services, 'provider', 'providers')} you may consume` };
+  };
+  // A complete consumable answer still names the providers it left out and why
+  // (OFFERING_NOT_CONSUMABLE), in one muted line: an exclusion is never silent.
+  const leftOut = $derived(onlyConsumable
+    ? (list?.meta?.limitations ?? []).filter((l) => l.code === 'OFFERING_NOT_CONSUMABLE').map((l) => l.message).join(' · ')
+    : '');
   const inferredHref = $derived(urlWith(INFERRED_ON));
   // The inferred row's tip: who produced it, from which source object and when.
   const inferredTip = (f) => [
@@ -153,12 +187,19 @@
       <input type="checkbox" checked={onlyInferred} onchange={(e) => { location.hash = urlWith(e.currentTarget.checked ? INFERRED_ON : { inferred: false }); }} data-testid="offering-inferred-filter" />
       Inferred offerings
     </label>
+    <label class="ov-failed">
+      <input type="checkbox" checked={onlyConsumable} onchange={(e) => { location.hash = urlWith(e.currentTarget.checked ? CONSUMABLE_ON : { consumable: false }); }} data-testid="offering-consumable-filter" />
+      Only offerings you may consume
+    </label>
     <ListSort value={order} options={[['failed', 'Most consumers with a failed request first'], ['consumers', 'Most consumers first'], ['name', 'Name'], ['services', 'Most providers first']]} href={sortHref} testid="offering-sort" />
   </div>
   <ActiveFilterChips {chips} onRemove={removeChip} onClear={clearAll} />
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
     <KnowledgeBanner {knowledge} noun="list" />
+  {/if}
+  {#if leftOut && (state.kind === 'ready' || state.kind === 'filtered-empty')}
+    <p class="t-meta cell-clip ot-left-out" title={leftOut} data-testid="offering-consumable-left-out"><bdi>{leftOut}</bdi></p>
   {/if}
 
   {#if refreshError}
@@ -174,7 +215,7 @@
       {#if inferredTotal}<p><a class="t-meta" href={inferredHref} data-testid="offering-inferred-total">+{formatCount(inferredTotal)} inferred</a></p>{/if}
     </div>
   {:else if state.kind !== 'ready'}
-    <ProductEmptyState {state} noun="offerings" onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
+    <ProductEmptyState {state} noun={onlyConsumable ? 'offerings you may consume' : 'offerings'} onRetry={load} onClearFilters={anyFilter ? clearAll : null} {skeletonRows} />
   {:else}
     <div class="data-scroll ot-frame" role="region" aria-label="Platform offerings">
       <table class="data-table ot" data-testid="offering-list">
@@ -209,6 +250,7 @@
             {@const hidden = ref.hiddenConsumers ?? 0}
             {@const hiddenP = ref.hiddenProviders ?? 0}
             {@const f = ref.inferredOffering}
+            {@const cl = ref.consumable ? consumableLine(ref.consumable, ref.services ?? 0) : null}
             <tr class:ot-inferred={!!f} animate:flip={{ duration: dur(MOTION.row) }}>
               {#if f}
               <th scope="row">
@@ -217,7 +259,7 @@
               <td colspan="6" data-label="Inferred"><span class="ot-note" title={inferredLine(f) + (f.acceptedAs ? ` ${f.acceptedAs.label}` : '')}><bdi>{inferredLine(f)}</bdi>{#if f.acceptedAs}{' '}<span class="ot-accepted" data-testid="offering-inferred-accepted"><EntityLink ref={f.acceptedAs} showStatus={false} showKind={false} /></span>{/if}</span></td>
               {:else}
               <th scope="row">
-                <span class="cell-stack"><EntityLink {ref} showStatus={false} showKind={false} /><span class="t-meta">{plural(ref.services ?? 0, 'provider', 'providers')}</span>{#if hiddenP}<span class="t-meta" data-testid="offering-hidden-providers">+{plural(hiddenP, 'provider', 'providers')} you may not see</span>{/if}</span>
+                <span class="cell-stack"><EntityLink {ref} showStatus={false} showKind={false} /><span class="t-meta" data-testid="offering-providers">{cl ? cl.count : plural(ref.services ?? 0, 'provider', 'providers')}</span>{#if cl}<span class="t-meta cell-clip" title={cl.title} data-testid="offering-consumable"><bdi data-format="consumable">{cl.line}</bdi></span>{/if}{#if hiddenP}<span class="t-meta" data-testid="offering-hidden-providers">+{plural(hiddenP, 'provider', 'providers')} you may not see</span>{/if}</span>
               </th>
               <td data-label="Owners">{#if ref.owner}<span class="cell-clip" title={ref.owner}><bdi>{ref.owner}</bdi></span>{:else}<span class="t-meta">none declared</span>{/if}</td>
               <td data-label="Lifecycle"><span class="badge badge-{lc[1]}">{lc[0]}</span></td>
@@ -258,6 +300,7 @@
   /* The accepted offering's link takes its own line: beside the note's last word it
      would sit one word space, not a clear gap, from another text box. */
   .ot-accepted { display: block; }
+  .ot-left-out { margin: 0; }
   /* An inferred row is muted through the AA-safe text token, never a fade (axe fails faded text). */
   .ot-inferred, .ot-inferred :global(.ei-label), .ot-inferred :global(.ei-context) { color: var(--c-text-3); }
   .ot-inferred-name { display: inline-flex; align-items: center; gap: var(--sp-2); min-width: 0; overflow-wrap: anywhere; }

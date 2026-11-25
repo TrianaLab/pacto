@@ -43,6 +43,13 @@ type DraftView struct {
 // findBaseline read), newest first and at most MaxListedDrafts, each pulled
 // by digest and its record read, with the total count.
 func (pl *declarePlanner) drafts(ctx context.Context) ([]DraftView, int) {
+	return pl.draftsUpTo(ctx, MaxListedDrafts)
+}
+
+// draftsUpTo is drafts reading at most limit of them, every one when limit
+// is negative. ponytail: a create reads every draft to decide the name is
+// the caller's; a repository an agent filled costs one pull per draft.
+func (pl *declarePlanner) draftsUpTo(ctx context.Context, limit int) ([]DraftView, int) {
 	type numbered struct {
 		tag string
 		n   int
@@ -59,7 +66,10 @@ func (pl *declarePlanner) drafts(ctx context.Context) ([]DraftView, int) {
 	slices.SortFunc(all, func(a, b numbered) int { return cmp.Compare(b.n, a.n) })
 	tm, err := pl.trustedRoot()
 	out := []DraftView{}
-	for _, d := range all[:min(len(all), MaxListedDrafts)] {
+	if limit < 0 {
+		limit = len(all)
+	}
+	for _, d := range all[:min(len(all), limit)] {
 		out = append(out, pl.draftView(ctx, d.tag, tm, err))
 	}
 	return out, len(all)

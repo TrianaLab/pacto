@@ -22,7 +22,8 @@
   import DeclarePanel from '../components/DeclarePanel.svelte';
   import LazyView from '../components/LazyView.svelte';
   import { isTemplateKey } from '../lib/declare.ts';
-  import { loadOriginFigure, loadCreationExplainer } from '../lib/lazyFigures.ts';
+  import { loadOriginFigure } from '../lib/lazyFigures.ts';
+  import CreateServicePanel from '../components/CreateServicePanel.svelte';
 
   // The Golden paths list: /api/fleet/entities?kinds=service&template=only, with search,
   // order and paging in the URL. A golden path is a service whose contract declares
@@ -35,8 +36,10 @@
   // Declare panel of an inferred one and signed is the intent a signing login came
   // back with. canAccept: this caller may accept one (capabilities.declareTemplate);
   // declares: the host declares for this caller at all (capabilities.declare), null
-  // while the capabilities are unknown.
-  let { text = '', offset = '', limit = '', sort = '', declaration = '', declare = '', signed = '', canAccept = false, declares = null, refreshTick = 0 } = $props();
+  // while the capabilities are unknown. canCreate: this caller may create a service
+  // from a declared golden path here (capabilities.createService), through the
+  // configured portal first when portalCreateURL is set.
+  let { text = '', offset = '', limit = '', sort = '', declaration = '', declare = '', signed = '', canAccept = false, declares = null, canCreate = false, portalCreateURL = '', refreshTick = 0 } = $props();
 
   const PAGE_SIZE = 25;
   const GUIDE = 'https://pacto.run/latest/golden-paths/';
@@ -132,7 +135,11 @@
   onDestroy(() => originLoader.destroy());
   const originAgg = $derived(originLoader.data?.aggregate ?? null);
   const originHrefs = { services: (b) => fleetServicesUrl({ createdFrom: b }), paths: fleetGoldenPathsUrl() };
-  let showCreation = $state(false);
+  // Create service from one of the declared golden paths on this page.
+  let showCreate = $state(false);
+  let picked = $state('');
+  const creatable = $derived(list?.entities ?? []);
+  const pickedRef = $derived(creatable.find((r) => r.key === picked) ?? creatable[0] ?? null);
 </script>
 
 <div class="product-page">
@@ -174,10 +181,23 @@
   {#if originAgg && (originAgg.origins?.paths || originAgg.origins?.hidden)}
     <LazyView load={loadOriginFigure} aggregate={originAgg} hrefs={originHrefs} meta={originLoader.data?.meta} />
   {/if}
-  <div class="gp-explain">
-    <button type="button" class="btn btn-sm" aria-expanded={showCreation} aria-controls="gp-creation" onclick={() => (showCreation = !showCreation)} data-testid="creation-toggle">{showCreation ? 'Hide' : 'Show'} what creating a service involves</button>
-  </div>
-  <div id="gp-creation">{#if showCreation}<LazyView load={loadCreationExplainer} />{/if}</div>
+  {#if canCreate && creatable.length}
+    <div class="gp-create-toggle">
+      <button type="button" class="btn btn-sm" aria-expanded={showCreate} aria-controls="gp-create" onclick={() => (showCreate = !showCreate)} data-testid="create-service-toggle">{showCreate ? 'Hide Create service' : 'Create service'}</button>
+    </div>
+    <div id="gp-create">
+      {#if showCreate && pickedRef}
+        <section class="gp-accept" aria-label="Create service" data-testid="golden-path-create-service">
+          <label class="gp-pick"><span>Golden path</span>
+            <select class="input" value={pickedRef.key} onchange={(e) => (picked = e.currentTarget.value)} data-testid="create-service-path">
+              {#each creatable as r (r.key)}<option value={r.key}>{r.label}{r.version ? ` ${r.version}` : ''}</option>{/each}
+            </select>
+          </label>
+          {#key pickedRef.key}<CreateServicePanel pathKey={pickedRef.key} pathName={pickedRef.label} pathVersion={pickedRef.version ?? ''} canCreate {portalCreateURL} />{/key}
+        </section>
+      {/if}
+    </div>
+  {/if}
 
   {#if knowledge.incomplete && (state.kind === 'ready' || state.kind === 'filtered-empty')}
     <KnowledgeBanner {knowledge} noun="list" />
@@ -288,7 +308,7 @@
   .gp-search { display: flex; gap: var(--sp-2); max-width: 420px; flex: 1 1 220px; min-width: 220px; }
   .gp-search .input { flex: 1; min-width: 0; }
   .gp-search .btn { flex: none; }
-  .gp-explain { display: flex; justify-content: flex-end; }
+  .gp-create-toggle { display: flex; justify-content: flex-end; }
   .gp-empty { padding: var(--sp-6) var(--sp-4); text-align: center; color: var(--c-text-2); }
   .gp-empty h2, .gp-empty p { margin: 0 0 var(--sp-2); }
   .gp-empty a { color: var(--c-accent); }
@@ -307,8 +327,10 @@
   .gp-partial ul { margin: var(--sp-1) 0 0; padding-inline-start: var(--sp-4); overflow-wrap: anywhere; }
   .gp-accept { display: flex; flex-direction: column; gap: var(--sp-2); padding: var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-sm); min-width: 0; }
   .gp-accept-head { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-2); flex-wrap: wrap; }
+  .gp-pick { display: flex; flex-direction: column; gap: 2px; max-inline-size: 40ch; min-inline-size: 0; }
   .gp-accept-head h2 { margin: 0; overflow-wrap: anywhere; min-width: 0; }
   @media (pointer: coarse) {
     .gp-actions a, .gp-iname a, .gp-partial summary { display: inline-flex; align-items: center; min-block-size: 44px; }
+    .gp-pick .input { min-block-size: 44px; }
   }
 </style>

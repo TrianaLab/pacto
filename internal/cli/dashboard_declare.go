@@ -267,13 +267,8 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 		return ans, err
 	}
 	fresh := ans.Signing.Mode == signModeFreshLogin
-	if fresh && d.signedIn(r, in.IntentDigest) {
-		// Back from a live signing login: the plan is the one the login was
-		// started for, whatever the page asks.
-		ans.SignedIn = true
-		if acc := d.accepted(r, in.IntentDigest); acc != nil {
-			in.Accept = acc
-		}
+	if fresh {
+		d.resumeLogin(r, ans, &in)
 	}
 	req, err := d.request(r, w, in.Accept, in.FromDraft, in.ClaimInput, in.OfferingAcceptance)
 	if err != nil {
@@ -324,6 +319,19 @@ func (d *dashboardDeclarer) planRefusal(w dashboard.DeclareWorkload, req app.Dec
 		return d.claimDraft(w, req, p), nil
 	}
 	return nil, nil
+}
+
+// resumeLogin marks ans signed in when the person is back from a live
+// signing login: the plan is the one the login was started for, whatever
+// the page asks.
+func (d *dashboardDeclarer) resumeLogin(r *http.Request, ans *dashboard.DeclareAnswer, in *dashboard.DeclareInput) {
+	if !d.signedIn(r, in.IntentDigest) {
+		return
+	}
+	ans.SignedIn = true
+	if acc := d.accepted(r, in.IntentDigest); acc != nil {
+		in.Accept = acc
+	}
 }
 
 // prCommand is the pacto declare that opens w's repository pull request:
@@ -502,6 +510,7 @@ func planView(p *app.DeclarePlan, decl declarationTexts) *dashboard.DeclarePlan 
 type declarationTexts interface {
 	Contract() []byte
 	Record() []byte
+	Files() map[string][]byte
 }
 
 // draftViews are the drafts as the dashboard answers them.
@@ -566,7 +575,7 @@ func runDeclare(ctx context.Context, svc *app.Service, req app.DeclareRequest, v
 	if refusal, err := dashRefusal(err); err != nil || refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, err
 	}
-	auditDeclare(ctx, via, who, req.Service, res.Plan.Service, res.Tag, res.Published)
+	auditDeclare(ctx, via, who, req, res.Plan.Service, res.Tag, res.Published)
 	return &dashboard.DeclareAcceptAnswer{Published: res.Published, Tag: res.Tag, Draft: res.Draft, Signed: res.Signed, Command: res.Plan.AcceptCLI}, nil
 }
 
@@ -827,10 +836,15 @@ func pushWriter(push gcrauthn.Keychain, repo string) publish.Registry {
 	return publish.NewScopedClient(push, oci.NewPushScope("", repo), nil, oci.EnvInsecureRegistries()...)
 }
 
-// auditDeclare logs one declaration write: who, what and where. subject is
-// the request's: a claim (external:<identity>) logs claim as its verb.
-func auditDeclare(ctx context.Context, via, who, subject, service, tag, published string) {
-	verb := "declare"
+// auditDeclare logs one declaration write: who, what and where. The subject
+// is the request's: a claim (external:<identity>) logs claim as its verb. The
+// namespace is the workload's, or for a create the one the caller was
+// reviewed in.
+func auditDeclare(ctx context.Context, via, who string, req app.DeclareRequest, service, tag, published string) {
+	subject, namespace, verb := req.Service, req.Namespace, "declare"
+	if req.Create != nil {
+		namespace, verb = req.Create.Namespace, "create"
+	}
 	if _, ok := fleet.ParseExternalSubject(subject); ok {
 		verb = "claim"
 	}
@@ -838,5 +852,5 @@ func auditDeclare(ctx context.Context, via, who, subject, service, tag, publishe
 		verb = "accept-offering"
 	}
 	logging.LoggerFromContext(ctx).Info("declaration written", slog.String("via", via), slog.String("verb", verb), slog.String("subject", subject), slog.String("actor", who),
-		slog.String("service", service), slog.String("tag", tag), slog.String("published", published))
+		slog.String("service", service), slog.String("namespace", namespace), slog.String("tag", tag), slog.String("published", published))
 }

@@ -224,6 +224,12 @@ change.
   Pacto's checks and the owning team decide
   ([Who may approve](integrations/kubernetes/delivery.md#who-may-approve)).
   There is no approve tool.
+- **An agent's create is a draft.** `pacto_create_service` on `/mcp` leaves
+  a `draft-<n>` a person reviews and signs in the dashboard, and only after
+  the platform team grants the caller `create` on
+  `services.pacto.trianalab.io`; see
+  [Create a service from the dashboard or an agent](golden-paths.md#create-a-service-from-the-dashboard-or-an-agent).
+  The write sends back the plan's `intent_digest` and `revision`.
 - **Calls to your service are read-only by default.** Only `GET` and `HEAD`
   operations become tools unless you pass `--allow-writes`. Each call stops
   after 30 seconds and follows no redirect.

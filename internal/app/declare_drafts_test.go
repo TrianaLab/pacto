@@ -258,3 +258,37 @@ func TestDraftSignedOnlyByItsAsker(t *testing.T) {
 		t.Fatalf("%v %q", signed, why)
 	}
 }
+
+// TestClusterDraftWithOriginStaysClusterDraft: a cluster draft keeps its
+// cluster input, so a service.origin never makes it a created draft: the
+// CLI accepts it as before.
+func TestClusterDraftWithOriginStaysClusterDraft(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.agentDraft(t)
+	origin := "service:\n  origin:\n    ref: oci://r.io/acme/paths/go-http@sha256:" + strings.Repeat("a", 64) + "\n    digest: sha256:" + strings.Repeat("a", 64) + "\n"
+	files := e.draftFiles(t, "draft-1", func(raw string, _ *contract.InferredRecord) string {
+		return strings.Replace(raw, "service:\n", origin, 1)
+	})
+	e.publishBundle(t, e.host+"/acme/invoices", "draft-2", files, nil)
+	b, rec := e.pulled(t, "draft-2")
+	if b.Contract.Service.Origin == nil || createdDraft(rec, b.Contract) {
+		t.Fatalf("%s", b.RawYAML)
+	}
+	e.login(personToken("ana@acme.com"))
+	if res := e.declare(t, e.fromDraft("draft-2")); res.Tag != firstDeclaration || res.Draft {
+		t.Fatalf("%+v", res)
+	}
+}
+
+// TestClusterDraftAcceptUnchanged: accepting a plain cluster draft with a
+// person's login publishes the first declaration exactly as before created
+// drafts existed: no draft and no accept URL.
+func TestClusterDraftAcceptUnchanged(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.agentDraft(t)
+	e.login(personToken("ana@acme.com"))
+	res := e.declare(t, e.fromDraft("draft-1"))
+	if res.Tag != firstDeclaration || res.Draft || res.Plan.AcceptURL != "" {
+		t.Fatalf("%+v", res)
+	}
+}

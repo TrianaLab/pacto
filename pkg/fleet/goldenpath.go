@@ -216,17 +216,8 @@ func (q *Query) templateDetail(s *ServiceRecord) *TemplateDetail {
 	if !s.Template || rev == nil {
 		return nil
 	}
-	var edges []Relationship
-	hidden := map[ServiceKey]bool{}
-	for _, rel := range q.snap.templateEdges {
-		if rel.FromRevision == rev.Key {
-			edges = append(edges, rel)
-		}
-		if rel.FromRevision == rev.Key && rel.Hidden {
-			hidden[rel.hiddenTo] = true
-		}
-	}
-	reqs, _ := q.offeringUsesIn(edges, func(*ServiceRecord) bool { return true }, s.Key, false)
+	edges, hidden := q.revisionTemplateEdges(rev)
+	reqs := q.templateRequirements(s, edges)
 	createdRefs := []EntityRef{}
 	for _, c := range q.snap.Services {
 		if !c.Template && !c.Inferred() && q.createdFrom(c.Key, string(s.Key)) {
@@ -261,14 +252,45 @@ func revisionSignature(r *ContractRevision) BundleSignature {
 	return r.Provenance.Signature
 }
 
+// revisionTemplateEdges are the template edges of rev and the services the
+// hidden ones point to.
+func (q *Query) revisionTemplateEdges(rev *ContractRevision) ([]Relationship, map[ServiceKey]bool) {
+	var edges []Relationship
+	hidden := map[ServiceKey]bool{}
+	for _, rel := range q.snap.templateEdges {
+		if rel.FromRevision == rev.Key {
+			edges = append(edges, rel)
+		}
+		if rel.FromRevision == rev.Key && rel.Hidden {
+			hidden[rel.hiddenTo] = true
+		}
+	}
+	return edges, hidden
+}
+
+// templateRequirements are the offering uses the golden path s requires
+// through edges.
+func (q *Query) templateRequirements(s *ServiceRecord, edges []Relationship) []OfferingUse {
+	reqs, _ := q.offeringUsesIn(edges, func(*ServiceRecord) bool { return true }, s.Key, false)
+	return reqs
+}
+
+// pinnedRef is rev's digest-pinned registry reference, empty when it has
+// none: the only reference a service is created from over the network.
+func pinnedRef(rev *ContractRevision) string {
+	if strings.HasPrefix(rev.ResolvedRef, "oci://") && strings.Contains(rev.ResolvedRef, "@sha256:") {
+		return rev.ResolvedRef
+	}
+	return ""
+}
+
 // instantiation is how to create a service from rev: only from its
 // digest-pinned registry reference, so the copied command creates from the
 // bytes shown, or from the directory a file:// reference names.
 func instantiation(rev *ContractRevision) (*TemplateInstantiation, string) {
-	ref := ""
+	ref := pinnedRef(rev)
 	switch {
-	case strings.HasPrefix(rev.ResolvedRef, "oci://") && strings.Contains(rev.ResolvedRef, "@sha256:"):
-		ref = rev.ResolvedRef
+	case ref != "":
 	case strings.HasPrefix(rev.RequestedRef, "file://"):
 		ref = strings.TrimPrefix(rev.RequestedRef, "file://")
 	default:

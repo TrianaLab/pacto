@@ -82,6 +82,7 @@ const (
 	CodeParameterOutOfRange  Code = "ParameterOutOfRange"  // a value outside the offering's bounds, enum, type or pattern
 	CodeParameterNotDeclared Code = "ParameterNotDeclared" // a field the offering's schema does not declare
 	CodeClassNotOffered      Code = "ClassNotOffered"      // a class the offering does not offer
+	CodeParameterSensitive   Code = "ParameterSensitive"   // a literal value for a writeOnly or sensitive-named field, which a Secret reference sets
 
 	// Family 1 — confirmed violations (emitted only by Evaluate). Registry: {RuntimeDrift, Error}.
 	CodeWorkloadMismatch      Code = "WORKLOAD_MISMATCH"
@@ -196,6 +197,7 @@ var registry = map[Code]codeMeta{
 	CodeParameterOutOfRange:            {CategoryConfigurationViolation, SeverityError},
 	CodeParameterNotDeclared:           {CategoryConfigurationViolation, SeverityError},
 	CodeClassNotOffered:                {CategoryConfigurationViolation, SeverityError},
+	CodeParameterSensitive:             {CategoryConfigurationViolation, SeverityError},
 	CodeInferredRecordInvalid:          {CategoryInvalidFile, SeverityError},
 	CodeDeclarationRangeNotAccepted:    {CategoryInvalidFile, SeverityError},
 	CodeDeclarationAcceptedMismatch:    {CategoryInvalidFile, SeverityError},

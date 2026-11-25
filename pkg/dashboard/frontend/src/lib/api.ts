@@ -71,6 +71,12 @@ export type DeclareAnswer = JSON200<'fleet-declare'>;
 export type DeclareAcceptAnswer = JSON200<'fleet-declare-accept'>;
 type DeclareBody = operations['fleet-declare']['requestBody']['content']['application/json'];
 type DeclareAcceptBody = operations['fleet-declare-accept']['requestBody']['content']['application/json'];
+/** A create plan from a golden path: what 0.1.0 would publish, the offerings it may set values on and who signs. */
+export type CreateServiceAnswer = JSON200<'fleet-create-service'>;
+/** What accepting a create plan wrote and the person's own handover, or why nothing was. */
+export type CreateServiceAcceptAnswer = JSON200<'fleet-create-service-accept'>;
+type CreateServiceBody = operations['fleet-create-service']['requestBody']['content']['application/json'];
+type CreateServiceAcceptBody = operations['fleet-create-service-accept']['requestBody']['content']['application/json'];
 export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductOfferingVersions = JSON200<'fleet-versions'>;
 export type ProductStats = JSON200<'get-stats'>;
@@ -563,6 +569,12 @@ export const api = {
   /** Signs a reviewed declaration plan, saves it as a draft or accepts a draft, by its intent digest. */
   fleetDeclareAccept: (body: DeclareAcceptBody): Promise<DeclareAcceptAnswer> =>
     unwrap(client.POST('/api/fleet/declare/accept', { body })),
+  /** Plans creating a service from a declared golden path. It writes nothing. */
+  fleetCreateService: (body: CreateServiceBody): Promise<CreateServiceAnswer> =>
+    unwrap(client.POST('/api/fleet/services', { body })),
+  /** Publishes a reviewed create plan signed by the person, or saves it as a draft, by its intent digest. */
+  fleetCreateServiceAccept: (body: CreateServiceAcceptBody): Promise<CreateServiceAcceptAnswer> =>
+    unwrap(client.POST('/api/fleet/services/accept', { body })),
   /** Lazily reads ONE document body belonging to exactly this revision. Kept off
    *  the entity detail so a revision page stays bounded. */
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>

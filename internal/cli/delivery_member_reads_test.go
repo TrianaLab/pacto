@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -129,6 +130,8 @@ func rowOf(t *testing.T, r *dashboard.PublishRefusals, name string) dashboard.Pu
 // refused and those their gates rejected, as check member rows naming the
 // member; a hub whose members cannot be read is partial.
 func TestRefusalsListMemberRefusals(t *testing.T) {
+	// The registry reads must not fall back to the machine's own cluster.
+	t.Setenv("KUBECONFIG", filepath.Join(t.TempDir(), "none"))
 	e := refusedHub(t)
 	a := dashDelivery{d: &app.Delivery{}, id: &dashboardIdentity{members: e.hubMembers()}}
 	r, err := a.PublishRefusals(t.Context(), "")

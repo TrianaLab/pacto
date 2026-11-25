@@ -34,16 +34,16 @@ func offeringsSnapshot() *fleet.FleetSnapshot {
 	}
 }
 
-func offeringsText(t *testing.T, res *fleet.EntityList, inferred bool, detected string) string {
+func offeringsText(t *testing.T, res *fleet.EntityList, what, detected string) string {
 	t.Helper()
 	ans := offeringsAnswer(offeringsSnapshot(), res)
-	return textOf(t, func(cmd *cobra.Command) error { return printFleetOfferings(cmd, ans, inferred, detected, "text") })
+	return textOf(t, func(cmd *cobra.Command) error { return printFleetOfferings(cmd, ans, what, detected, "text") })
 }
 
 func TestFleetOfferingsListsDeclared(t *testing.T) {
 	res := &fleet.EntityList{Total: 1, Count: 1, InferredTotal: 1, Meta: fleet.ProductMeta{AsOf: offeringsAsOf, Completeness: fleet.CompletenessComplete},
 		Entities: []fleet.EntityRef{{Kind: fleet.KindOffering, Key: "postgresql", Label: "postgresql"}}}
-	got := offeringsText(t, res, false, "")
+	got := offeringsText(t, res, "declared", "")
 	wantLines(t, got, "OFFERING", "postgresql  declared", "ghcr.io/acme/offerings/postgresql 16.1.0", "2026-11-23T10:00:00Z",
 		"drift: source object changed since accepted (generation 3 -> 4)",
 		"asOf 2026-11-23T10:05:00Z  completeness complete  (+1 inferred: pacto fleet offerings --inferred)")
@@ -77,7 +77,7 @@ func TestFleetOfferingsInferredListsInferredRows(t *testing.T) {
 	}
 	res := &fleet.EntityList{Total: 1, Count: 1, Meta: fleet.ProductMeta{AsOf: offeringsAsOf, Completeness: fleet.CompletenessComplete},
 		Entities: []fleet.EntityRef{row(nil)}}
-	got := offeringsText(t, res, true, "k8s:pacto-system/pacto-operator-detected")
+	got := offeringsText(t, res, "inferred", "k8s:pacto-system/pacto-operator-detected")
 	from := "oci://ghcr.io/acme/pacto-inferred/crossplane-6f1c/services:xbucket_0.0.0-inferred.2.0"
 	wantLines(t, got, "xbucket   inferred", "CompositeResourceDefinition xbuckets.storage.acme.io gen 2", "large, small", "2026-11-23T10:02:00Z",
 		"producer crossplane-6f1c",
@@ -89,7 +89,7 @@ func TestFleetOfferingsInferredListsInferredRows(t *testing.T) {
 
 	// Accepted already: the declared offering, and the command without an owner.
 	res.Entities = []fleet.EntityRef{row(&fleet.EntityRef{Kind: fleet.KindService, Key: "ghcr.io/acme/offerings/xbucket"})}
-	got = offeringsText(t, res, true, "")
+	got = offeringsText(t, res, "inferred", "")
 	wantLines(t, got, "accepted as ghcr.io/acme/offerings/xbucket; accept again: pacto declare offering:xbucket --from "+from+
 		" --detected k8s:<namespace>/<configmap> --registry <registry> --version <version>\n")
 
@@ -114,11 +114,11 @@ func TestFleetOfferingsInferredListsInferredRows(t *testing.T) {
 func TestFleetOfferingsPartialSaysUnknown(t *testing.T) {
 	next := 25
 	res := &fleet.EntityList{Total: 0, Meta: fleet.ProductMeta{AsOf: offeringsAsOf, Completeness: fleet.CompletenessPartial}}
-	got := offeringsText(t, res, true, "")
+	got := offeringsText(t, res, "inferred", "")
 	wantLines(t, got, "No inferred offerings read: the answer is partial, so whether there are any is unknown")
 	res.Meta.Completeness = fleet.CompletenessComplete
-	wantLines(t, offeringsText(t, res, false, ""), "No declared offerings\n")
+	wantLines(t, offeringsText(t, res, "declared", ""), "No declared offerings\n")
 	res = &fleet.EntityList{Total: 30, Count: 1, Truncated: true, NextOffset: &next, Meta: fleet.ProductMeta{AsOf: offeringsAsOf, Completeness: fleet.CompletenessComplete},
 		Entities: []fleet.EntityRef{{Kind: fleet.KindOffering, Key: "none", Label: "none"}}}
-	wantLines(t, offeringsText(t, res, false, ""), "none      declared    -     -        -", "... 1 of 30 offerings shown")
+	wantLines(t, offeringsText(t, res, "declared", ""), "none      declared    -     -        -", "... 1 of 30 offerings shown")
 }

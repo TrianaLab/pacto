@@ -6,8 +6,6 @@
  * in no total.
  */
 import type { GlyphName, WireDef } from './figure.ts';
-import type { Step } from './narrate.ts';
-import type { ExplainStation } from './explainers.ts';
 import { countOf, formatCount } from './format.ts';
 
 // ─── Origins: which golden paths created the fleet ────────────────────────────
@@ -85,38 +83,6 @@ export function originModel(agg: OriginAggregate | null | undefined, hrefs: Orig
   }));
   const alt = `${countOf(total, 'service')}: ${lanes.map((l) => `${l.label} ${formatCount(l.n)}`).join(', ')}.`;
   return { total, created, hidden: o.hidden ?? 0, paths: o.paths ?? 0, more: Math.max(0, (o.paths ?? rows.length) - top.length), lanes, wires, alt };
-}
-
-// ─── "What does creating a service involve?" (explainer) ──────────────────────
-
-/**
- * creationExplainModel draws the mechanism of creating a service from a golden path
- * (SPEC 7, golden path entity): golden path → parameters → contract → check → first
- * revision. An explainer: neutral and accent only, no states, no fleet data. `requires`
- * names what the path consumes on a golden path page ([] says it requests none) and
- * `hidden` counts requirements the reader may not see, never named; null leaves the
- * last station general (the list page). A rail walk (A1b) on Replay only.
- */
-export function creationExplainModel(requires: string[] | null, hidden = 0) {
-  const asked = [...(requires ?? []), ...(hidden ? [countOf(hidden, 'requirement') + ' you may not see'] : [])];
-  const last = requires === null
-    ? 'The first revision is ready to publish, with any offerings the path requests'
-    : asked.length ? `It also requests ${asked.length > 1 ? `${asked.slice(0, -1).join(', ')} and ${asked[asked.length - 1]}` : asked[0]}` : 'This path requests no offering';
-  const stations: ExplainStation[] = [
-    { key: 'path', label: 'Golden path', sub: 'A contract a platform team publishes to start from', tone: 'accent', shape: 'square', reached: true },
-    { key: 'params', label: 'You fill in parameters', sub: 'A name, an owner and what the path asks for', tone: 'neutral', shape: 'circle', reached: true },
-    { key: 'contract', label: 'Pacto writes the contract', sub: 'It records the golden path as the service origin, by digest', tone: 'neutral', shape: 'square', reached: true },
-    { key: 'check', label: 'It is checked', sub: 'The contract is validated before anything is written', tone: 'neutral', shape: 'diamond', reached: true },
-    { key: 'revision', label: 'First revision', sub: last, tone: 'accent', shape: 'square', reached: true },
-  ];
-  const wires: WireDef[] = stations.slice(1).map((_, k) => ({
-    id: `wc${k}`, from: `f${k}`, fs: 'r', to: `f${k + 1}`, ts: 'l', col: { fs: 'b', ts: 't' }, style: 'obs', tone: 'accent', head: true,
-  }));
-  const steps: Step[] = stations.map((s, k) => ({
-    cap: `${s.label}: ${s.sub}.`, dur: 120, hold: 30,
-    show: [`[data-m="f${k}"]`, ...(k ? [`w:wc${k - 1}`] : [])], sig: k ? [`wc${k - 1}`] : [],
-  }));
-  return { stations, wires, steps, alt: `A golden path, your parameters, a written contract, a check, then the first revision. ${last}.` };
 }
 
 // ─── Creation status (data rail) ──────────────────────────────────────────────

@@ -89,6 +89,23 @@ const (
 	RefusalTemplateNameInvalid        WriteRefusal = "TemplateNameInvalid"
 	RefusalTemplateNameTaken          WriteRefusal = "TemplateNameTaken"
 	RefusalTemplateSourceUnverified   WriteRefusal = "TemplateSourceUnverified"
+	// The create-a-service codes: a name the registry already holds, a
+	// golden path the caller's view does not declare, a repository outside
+	// the installation registry, an offering the caller may not consume (or
+	// cannot be confirmed on a partial read), a value outside the offering's
+	// closed parameter space, and an environment the golden path does not
+	// declare.
+	RefusalServiceExists             WriteRefusal = "ServiceExists"
+	RefusalGoldenPathNotDeclared     WriteRefusal = "GoldenPathNotDeclared"
+	RefusalRepositoryOutsideRegistry WriteRefusal = "RepositoryOutsideRegistry"
+	RefusalOfferingNotConsumable     WriteRefusal = "OfferingNotConsumable"
+	RefusalOfferingUnknown           WriteRefusal = "OfferingUnknown"
+	RefusalParameterNotDeclared      WriteRefusal = "ParameterNotDeclared"
+	RefusalParameterOutOfRange       WriteRefusal = "ParameterOutOfRange"
+	RefusalParameterSensitive        WriteRefusal = "ParameterSensitive"
+	RefusalClassNotOffered           WriteRefusal = "ClassNotOffered"
+	RefusalTierNotTunable            WriteRefusal = "TierNotTunable"
+	RefusalEnvironmentNotDeclared    WriteRefusal = "EnvironmentNotDeclared"
 	// The owner rule's codes, defined once in pkg/delivery.
 	RefusalOwnerSignerNotPerson  WriteRefusal = delivery.OwnerSignerNotPerson
 	RefusalOwnerSignerNotAllowed WriteRefusal = delivery.OwnerSignerNotAllowed
@@ -108,6 +125,9 @@ var writeRefusals = []WriteRefusal{
 	RefusalOfferingSchemaOpen, RefusalOfferingSourceInvalid, RefusalOfferingSourceUnverified, RefusalOfferingMismatch, RefusalVersionRequired,
 	RefusalTemplateNotFound, RefusalTemplateCatalogUnset, RefusalTemplateCatalogUnavailable, RefusalTemplateNameInvalid, RefusalTemplateNameTaken,
 	RefusalTemplateSourceUnverified,
+	RefusalServiceExists, RefusalGoldenPathNotDeclared, RefusalRepositoryOutsideRegistry, RefusalOfferingNotConsumable, RefusalOfferingUnknown,
+	RefusalParameterNotDeclared, RefusalParameterOutOfRange, RefusalParameterSensitive, RefusalClassNotOffered, RefusalTierNotTunable,
+	RefusalEnvironmentNotDeclared,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }
 
@@ -139,8 +159,9 @@ type PullRequest struct {
 
 // WriteResult is what a write tool answers: the plan and its intent digest,
 // whether anything was written, the draft it left, the command a person
-// accepts that draft with, or the refusal; with pr, the pull request it
-// opened after the write or why that failed (the write stays).
+// accepts that draft with (the dashboard page for a created service), or the
+// refusal; with pr, the pull request it opened after the write or why that
+// failed (the write stays).
 type WriteResult struct {
 	Plan             any          `json:"plan,omitempty"`
 	IntentDigest     string       `json:"intentDigest,omitempty"`
@@ -150,14 +171,17 @@ type WriteResult struct {
 	Refusal          *Refused     `json:"refusal,omitempty"`
 	PullRequest      *PullRequest `json:"pullRequest,omitempty"`
 	PullRequestError *Refused     `json:"pullRequestError,omitempty"`
+	// Refusals are every refused input of a pacto_create_service plan, each
+	// at its field with the closest valid value and the fixes.
+	Refusals json.RawMessage `json:"refusals,omitempty"`
 }
 
 // dryRun is whether a call only plans: an unset dry_run does.
 func dryRun(arg *bool) bool { return arg == nil || *arg }
 
-// requireIntent refuses a write whose caller passed no intent digest, or
+// RequireIntent refuses a write whose caller passed no intent digest, or
 // one that is not the fresh plan's.
-func requireIntent(planned, passed string) *Refused {
+func RequireIntent(planned, passed string) *Refused {
 	switch {
 	case passed == "":
 		return &Refused{Code: RefusalIntentRequired, Message: "writing needs the intent_digest of the plan you reviewed: call again with dry_run true, " +
@@ -189,6 +213,9 @@ func writeResultSchema() map[string]any {
 		"pullRequest": map[string]any{"type": "object", "properties": map[string]any{
 			"url": str, "login": str, "branch": str, "tokenSource": str}},
 		"pullRequestError": refusal,
+		"refusals": map[string]any{"type": "array", "items": map[string]any{"type": "object", "required": []string{"code", "message", "field"},
+			"properties": map[string]any{"code": map[string]any{"type": "string", "enum": codes}, "message": str, "field": str,
+				"closest": map[string]any{}, "allowed": map[string]any{"type": "array"}, "cli": str, "mcp": str}}},
 	}}
 }
 

@@ -89,7 +89,7 @@ func (p *planner) fromTemplate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	text := marshalContract(m)
+	text := MarshalContract(m)
 	p.file("pacto.yaml", text)
 	if err := p.copyTemplate(); err != nil {
 		return err
@@ -510,10 +510,10 @@ func deletePath(m map[string]any, dotted string) {
 	delete(parent, key)
 }
 
-// marshalContract renders m with pactoVersion and service first, and name,
+// MarshalContract renders m with pactoVersion and service first, and name,
 // version and owner first in service, so the contract reads like one written
 // by hand. Every other key follows in sorted order.
-func marshalContract(m map[string]any) string {
+func MarshalContract(m map[string]any) string {
 	var b strings.Builder
 	e := yaml.NewEncoder(&b)
 	e.SetIndent(2)

@@ -9,6 +9,7 @@
   import { initScrollRestore } from './lib/scrollRestore.ts';
   import { api } from './lib/api.ts';
   import { entityMiraURL } from './lib/delivery.ts';
+  import { createQueryOf } from './lib/createService.ts';
   import { session as auth, me, loadSession, hostSignsIn, teamGroups, personLabel } from './lib/session.svelte.ts';
   import { consumeSignInLink } from './lib/signInLink.ts';
   import Person from './components/Person.svelte';
@@ -502,7 +503,7 @@
   {:else if route.view === 'fleet-offerings'}
     <LazyView load={loadFleetOfferingsView} text={route.params.text || ''} offset={route.params.offset || ''}
       limit={route.params.limit || ''} lifecycle={route.params.lifecycle || ''} failed={route.params.failed || ''}
-      inferred={route.params.inferred || ''} sort={route.params.sort || ''} {refreshTick} />
+      inferred={route.params.inferred || ''} consumable={route.params.consumable || ''} sort={route.params.sort || ''} {refreshTick} />
   {:else if route.view === 'fleet-externals'}
     <LazyView load={loadFleetExternalsView} text={route.params.text || ''} klass={route.params.class || ''}
       outsideContract={route.params.outsideContract || ''} offset={route.params.offset || ''} limit={route.params.limit || ''}
@@ -512,7 +513,8 @@
       limit={route.params.limit || ''}
       sort={route.params.sort || ''} declaration={route.params.declaration || ''} declare={route.params.declare || ''}
       signed={route.params.signed || ''} canAccept={capabilities?.declareTemplate === true}
-      declares={capabilities ? capabilities.declare === true : null} {refreshTick} />
+      declares={capabilities ? capabilities.declare === true : null} canCreate={capabilities?.createService === true}
+      portalCreateURL={capabilities?.portalCreateURL || ''} {refreshTick} />
   {:else if route.view === 'metrics'}
     <LazyView load={loadFleetMetricsView} {capabilities} window={route.params.window || ''}
       metric={route.params.metric || ''} environment={route.params.environment || ''}
@@ -548,7 +550,8 @@
     {#key route.params.kind + '@@' + route.params.key}
       <LazyView load={loadFleetEntityView} kind={route.params.kind} entityKey={route.params.key} correlation={route.params.correlationID || ''}
         changesQuery={{ kind: route.params.changesKind || '', offset: route.params.changesOffset || '', limit: route.params.changesLimit || '', section: route.params.section || '' }} {refreshTick} {deliveryState} miraURL={entityMiraURL(capabilities)}
-        canDeclare={capabilities?.declare === true} declareQuery={{ open: route.params.declare === '1', signed: route.params.signed || '' }} />
+        canDeclare={capabilities?.declare === true} declareQuery={{ open: route.params.declare === '1', signed: route.params.create === '1' ? '' : route.params.signed || '' }}
+        createService={capabilities?.createService === true} portalCreateURL={capabilities?.portalCreateURL || ''} createQuery={createQueryOf(route.params)} />
     {/key}
   {:else if route.view === 'fleet'}
     <LazyView load={loadGraphView} params={route.params} {refreshTick} />

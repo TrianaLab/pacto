@@ -103,6 +103,17 @@ const (
 // does not know which mode it would use there.
 const LimitationRegistryProbeFailed = "REGISTRY_PROBE_FAILED"
 
+// Limitation codes of a consumable offering list (EntityFilter.Consumable).
+const (
+	// LimitationOfferingNotConsumable counts, per reason, the visible
+	// providers left out of the list; completeness is unchanged.
+	LimitationOfferingNotConsumable = "OFFERING_NOT_CONSUMABLE"
+	// LimitationOfferingAcceptanceUnknown counts the providers whose
+	// acceptance Pacto could not check; the answer is partial, so a missing
+	// offering means unknown.
+	LimitationOfferingAcceptanceUnknown = "OFFERING_ACCEPTANCE_UNKNOWN"
+)
+
 // Limitation codes of a registry discovery source: why the golden paths and
 // offerings under a registry prefix may be more than it lists.
 const (

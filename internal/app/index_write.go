@@ -14,6 +14,8 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/orgindex"
 	"github.com/trianalab/pacto/v4/pkg/signing"
+
+	"oras.land/oras-go/v2/registry/remote"
 )
 
 // indexWriteTimeout bounds writing one organization index entry.
@@ -54,11 +56,10 @@ func indexCandidates(override, providerRepo string) []string {
 // (NAME_UNKNOWN, a 404) or an empty listing falls through: any other error
 // stops at that candidate, so a denied index never hides behind another.
 // Every candidate absent returns the first with errIndexNotFound.
-func (s *Service) indexRepository(ctx context.Context, candidates []string) (repo, note string, tags []string, err error) {
-	env := s.env()
+func (s *Service) indexRepository(ctx context.Context, open repoOpener, candidates []string) (repo, note string, tags []string, err error) {
 	var absent []string
 	for _, c := range candidates {
-		r, err := env.refusalRepo(c)
+		r, err := open(c)
 		if err == nil {
 			tags, err = ocireferrer.Tags(ctx, r, "")
 		}
@@ -82,6 +83,16 @@ func (s *Service) indexRepository(ctx context.Context, candidates []string) (rep
 // It never changes the publish's outcome and never overwrites an entry.
 // override is --index: "" derives the repository, IndexNone writes nothing.
 func (s *Service) keepIndexEntry(ctx context.Context, b *contract.Bundle, bundleRef, digest string, pub orgindex.Publisher, override string) string {
+	return s.keepIndexEntryWith(ctx, s.env().refusalRepo, b, bundleRef, digest, pub, override)
+}
+
+// repoOpener opens a repository for the index writer.
+type repoOpener = func(repo string) (*remote.Repository, error)
+
+// keepIndexEntryWith is keepIndexEntry opening every repository with open: a
+// created service's entry is written through the push credential scoped to
+// the index repository.
+func (s *Service) keepIndexEntryWith(ctx context.Context, open repoOpener, b *contract.Bundle, bundleRef, digest string, pub orgindex.Publisher, override string) string {
 	if override == IndexNone {
 		return ""
 	}
@@ -91,7 +102,7 @@ func (s *Service) keepIndexEntry(ctx context.Context, b *contract.Bundle, bundle
 	}
 	ctx, cancel := context.WithTimeout(ctx, indexWriteTimeout)
 	defer cancel()
-	repo, entryTag, note, err := s.writeIndexEntry(ctx, b, bundleRepo, digest, pub, override)
+	repo, entryTag, note, err := s.writeIndexEntry(ctx, open, b, bundleRepo, digest, pub, override)
 	switch {
 	case errors.Is(err, ocireferrer.ErrTagTaken):
 		return "not indexed in " + repo + ": " + repo + ":" + entryTag + " names another entry; index entries are never overwritten"
@@ -103,11 +114,10 @@ func (s *Service) keepIndexEntry(ctx context.Context, b *contract.Bundle, bundle
 
 // writeIndexEntry builds, binds and writes the entry; repo is where it was
 // to go, also on failure.
-func (s *Service) writeIndexEntry(ctx context.Context, b *contract.Bundle, bundleRepo, digest string, pub orgindex.Publisher, override string) (repo, tag, note string, err error) {
-	env := s.env()
+func (s *Service) writeIndexEntry(ctx context.Context, open repoOpener, b *contract.Bundle, bundleRepo, digest string, pub orgindex.Publisher, override string) (repo, tag, note string, err error) {
 	key := fleet.NewServiceKeyDomain(contract.OCIDomain(bundleRepo), b.Contract.Service.Name)
-	mode := s.registryMode(ctx, bundleRepo, digest)
-	repo, note, _, err = s.indexRepository(ctx, indexCandidates(override, bundleRepo))
+	mode := s.registryMode(ctx, open, bundleRepo, digest)
+	repo, note, _, err = s.indexRepository(ctx, open, indexCandidates(override, bundleRepo))
 	if err != nil && !errors.Is(err, errIndexNotFound) {
 		return repo, "", "", err
 	}
@@ -122,7 +132,7 @@ func (s *Service) writeIndexEntry(ctx context.Context, b *contract.Bundle, bundl
 	if err != nil {
 		return repo, tag, "", err
 	}
-	r, err := env.refusalRepo(repo)
+	r, err := open(repo)
 	if err != nil {
 		return repo, tag, "", err
 	}
@@ -132,8 +142,8 @@ func (s *Service) writeIndexEntry(ctx context.Context, b *contract.Bundle, bundl
 
 // registryMode is the probe's mode for the registry holding bundleRepo, the
 // just-published digest its subject, or "unknown" when the probe cannot tell.
-func (s *Service) registryMode(ctx context.Context, bundleRepo, digest string) string {
-	r, err := s.env().refusalRepo(bundleRepo)
+func (s *Service) registryMode(ctx context.Context, open repoOpener, bundleRepo, digest string) string {
+	r, err := open(bundleRepo)
 	if err != nil {
 		return "unknown"
 	}

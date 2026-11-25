@@ -101,6 +101,15 @@ type Options struct {
 	// /api/fleet/declare/accept; a declarer that cannot write registers only
 	// the plan.
 	Declare Declarer
+	// CreateService plans and carries out creating a service from a declared
+	// golden path for the person behind a request. Nil registers neither
+	// POST /api/fleet/services nor /api/fleet/services/accept; a creator that
+	// cannot write registers only the plan.
+	CreateService ServiceCreator
+	// PortalCreateURL is where a configured developer portal creates a
+	// service (Backstage's scaffolder root); empty without one. The Create
+	// service panel offers it first.
+	PortalCreateURL string
 	// Refresh rebuilds the fleet snapshot for /api/refresh. When nil — as in the
 	// offline WASM demo, whose snapshot is baked in — refresh is a successful no-op.
 	Refresh func(ctx context.Context) error

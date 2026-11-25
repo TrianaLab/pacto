@@ -39,6 +39,11 @@ type capabilitiesOutput struct {
 		Declare  bool           `json:"declare" doc:"This caller can plan declaring an inferred service: the host declares and knows who the caller is"`
 		// DeclareTemplate is Declare for a golden path a catalog holds.
 		DeclareTemplate bool `json:"declareTemplate" doc:"This caller may accept a golden path a catalog holds: on a shared host, update pactos in the installation namespace"`
+		// CreateService is Declare for creating a service from a golden path.
+		CreateService bool `json:"createService" doc:"This caller can plan creating a service from a golden path: the host creates and knows who the caller is"`
+		// PortalCreateURL is where a configured developer portal creates a
+		// service; the Create service panel offers it first.
+		PortalCreateURL string `json:"portalCreateURL,omitempty" doc:"Where the configured developer portal creates a service; empty without one"`
 		// Installation is the one answer pacto_capabilities gives too.
 		Installation fleet.Installation `json:"installation" doc:"How this installation runs: its profile, registry, delivery, provisioning engine, clusters and MCP endpoint, each with where Pacto learned it and when"`
 	}
@@ -99,6 +104,8 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	// A sign-in link session is refused by every declare route.
 	out.Body.Declare = s.opts.Declare != nil && s.declares(ctx) && !s.authState(ctx).FleetOnly
 	out.Body.DeclareTemplate = out.Body.Declare && s.opts.Declare.MayDeclareTemplate(ctx)
+	out.Body.CreateService = s.opts.CreateService != nil && s.declares(ctx) && !s.authState(ctx).FleetOnly
+	out.Body.PortalCreateURL = s.opts.PortalCreateURL
 	out.Body.Installation = q.Installation(in)
 	return out, nil
 }
@@ -144,6 +151,7 @@ func (s *Server) registerFleetOperations(api huma.API) {
 	s.registerAcceptOperation(api)
 	s.registerAcceptExecuteOperation(api)
 	s.registerDeclareOperations(api)
+	s.registerCreateServiceOperations(api)
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-snapshot",
 		Method:      http.MethodGet,

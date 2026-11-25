@@ -765,7 +765,31 @@ export interface paths {
          */
         get: operations["fleet-search"];
         put?: never;
-        post?: never;
+        /**
+         * Plan creating a service from a golden path
+         * @description Plans the first version of a service created from a declared golden path in your view: pacto.yaml at 0.1.0, the offering values checked against each offering's closed schema, the repository, the revision and who signs. It writes nothing. It needs create services.pacto.trianalab.io in the namespace, named by the service.
+         */
+        post: operations["fleet-create-service"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/services/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign a created service or save it as a draft
+         * @description Carries out a create plan the person reviewed, by its intent digest: publishes 0.1.0 signed by the person's fresh login and writes its organization index entry, saves a draft-<n> a person signs later, or accepts a draft. Pacto holds no Git token: the answer hands over the files and the commands.
+         */
+        post: operations["fleet-create-service-accept"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1398,6 +1422,8 @@ export interface components {
         CapabilitiesOutputBody: {
             /** @description What this caller's Kubernetes permissions leave out of the fleet views */
             auth: components["schemas"]["CapabilityAuth"];
+            /** @description This caller can plan creating a service from a golden path: the host creates and knows who the caller is */
+            createService: boolean;
             /** @description This caller can plan declaring an inferred service: the host declares and knows who the caller is */
             declare: boolean;
             /** @description This caller may accept a golden path a catalog holds: on a shared host, update pactos in the installation namespace */
@@ -1414,6 +1440,8 @@ export interface components {
             miraURL?: string;
             /** @description An observation source backs impact analysis */
             observed: boolean;
+            /** @description Where the configured developer portal creates a service; empty without one */
+            portalCreateURL?: string;
             /** @description The Metrics page has a stats repository to read */
             stats: boolean;
         };
@@ -1772,6 +1800,192 @@ export interface components {
              */
             uncontractedCallers: number;
         };
+        CreateServiceAcceptAnswer: {
+            /** @description The page a person reviews and signs the draft at */
+            acceptUrl?: string;
+            /** @description How soon the fleet shows the service declared at 0.1.0; empty when its index entry was not written */
+            appearsWithin?: string;
+            draft?: boolean;
+            /** @description The published files, at most 64 of at most 64 KiB each */
+            files?: components["schemas"]["CreateServiceFile"][] | null;
+            /** Format: int64 */
+            filesTotal?: number;
+            /** @description Makes the repository with your own Git token; Pacto holds none */
+            gitCli?: string;
+            /** @description Where the organization index entry went, or why it was not written: the publish stands either way */
+            index?: string;
+            /** @description The pacto init that recreates the folder on your machine */
+            initCli?: string;
+            /** @description The fresh plan of a PlanStale refusal */
+            plan?: components["schemas"]["CreateServiceAnswer"];
+            /** @description The bundle written, as <repository>@sha256:<hex> */
+            published?: string;
+            /** @description Pulls the published bundle */
+            pullCli?: string;
+            refusal?: components["schemas"]["DeclareRefusal"];
+            refusals?: components["schemas"]["CreateServiceRefusal"][] | null;
+            signed?: boolean;
+            tag?: string;
+            /** @description The values file InitCLI reads, beside it */
+            valuesFile?: components["schemas"]["CreateServiceFile"];
+        };
+        CreateServiceAcceptInput: {
+            /** @description The cluster the review runs in; empty for the only one */
+            cluster?: string;
+            /** @description Plan accepting this created draft instead: its inputs are read from it and checked again against your view */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent a signing login was started for */
+            intentDigest?: string;
+            /**
+             * @description sign: publish 0.1.0 signed by your fresh login; draft: save a draft-<n> a person signs later
+             * @enum {string}
+             */
+            mode: "sign" | "draft";
+            /** @description The new service's name */
+            name: string;
+            /** @description The namespace you are reviewed in: create services.pacto.trianalab.io there, named by the service */
+            namespace: string;
+            /** @description The values set on each offering the service consumes; an offering the golden path does not request is added */
+            offerings?: components["schemas"]["CreateServiceOffering"][] | null;
+            /** @description The team that owns the new service; you must belong to it or be a default approver */
+            owner?: string;
+            /** @description The service key of the declared golden path to create from */
+            path: string;
+            /** @description Where the first version goes: under the dashboard's registry and ending in the service name; defaults to <registry>/<name> */
+            repository?: string;
+            /** @description The publish revision; defaults to pacto-create:<you>:<time> */
+            revision?: string;
+        };
+        CreateServiceAnswer: {
+            consumableAsOf?: string;
+            consumableCompleteness: string;
+            /** @description Your own drafts of this service, newest first */
+            drafts?: components["schemas"]["DeclareDraft"][] | null;
+            /** Format: int64 */
+            draftsTotal?: number;
+            /** @description The offerings you may consume, the requested ones first */
+            offerings: components["schemas"]["CreateServiceOfferingView"][] | null;
+            /** @description Absent when the plan was refused */
+            plan?: components["schemas"]["CreateServicePlan"];
+            refusal?: components["schemas"]["DeclareRefusal"];
+            /** @description Every refused input, each at its field; a refused plan has no intent digest */
+            refusals?: components["schemas"]["CreateServiceRefusal"][] | null;
+            /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page> */
+            signTicket?: string;
+            signedIn?: boolean;
+            signing: components["schemas"]["DeclareSigning"];
+            write: components["schemas"]["DeclareWrite"];
+        };
+        CreateServiceFile: {
+            path: string;
+            text: string;
+            /** @description The file is longer than 64 KiB and only its start is shown */
+            truncated?: boolean;
+        };
+        CreateServiceInput: {
+            /** @description The cluster the review runs in; empty for the only one */
+            cluster?: string;
+            /** @description Plan accepting this created draft instead: its inputs are read from it and checked again against your view */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent a signing login was started for */
+            intentDigest?: string;
+            /** @description The new service's name */
+            name: string;
+            /** @description The namespace you are reviewed in: create services.pacto.trianalab.io there, named by the service */
+            namespace: string;
+            /** @description The values set on each offering the service consumes; an offering the golden path does not request is added */
+            offerings?: components["schemas"]["CreateServiceOffering"][] | null;
+            /** @description The team that owns the new service; you must belong to it or be a default approver */
+            owner?: string;
+            /** @description The service key of the declared golden path to create from */
+            path: string;
+            /** @description Where the first version goes: under the dashboard's registry and ending in the service name; defaults to <registry>/<name> */
+            repository?: string;
+            /** @description The publish revision; defaults to pacto-create:<you>:<time> */
+            revision?: string;
+        };
+        CreateServiceOffering: {
+            /** @description The values set per environment the golden path declares, by environment then field; only tunable fields */
+            environments?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** @description The offering, as the consumable offerings list names it */
+            offering: string;
+            /** @description The values set once for every environment, by field */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        CreateServiceOfferingView: {
+            classes: string[] | null;
+            /** Format: int64 */
+            classesTotal: number;
+            classesTruncated?: boolean;
+            /** @description What each interface of the offering's provider promises; empty when it declares none */
+            guarantees?: components["schemas"]["Fleet.ConsumableGuarantee"][] | null;
+            offering: string;
+            parameters: components["schemas"]["Fleet.OfferingParameter"][] | null;
+            /** Format: int64 */
+            parametersTotal: number;
+            /** @description More fields than are listed: set the rest with pacto init --values or pacto_create_service */
+            parametersTruncated?: boolean;
+            /** @description The golden path requests it; any other is added when a value is set on it */
+            requested: boolean;
+            version: string;
+        };
+        CreateServicePlan: {
+            bundleRepo: string;
+            consumableAsOf?: string;
+            consumableCompleteness: string;
+            /** @description pacto.yaml as it would be published */
+            contract: components["schemas"]["DeclareText"];
+            /** @description Every other file it would publish, the environment values files included */
+            files?: components["schemas"]["CreateServiceFile"][] | null;
+            /** Format: int64 */
+            filesTotal?: number;
+            /** @description The pacto init that recreates the folder on your machine */
+            initCli: string;
+            intentDigest: string;
+            /** @description Who may create the service with this owner */
+            mayAccept?: string[] | null;
+            namespace: string;
+            notes?: string[] | null;
+            owner?: string;
+            /** @description The golden path's digest-pinned reference */
+            path: string;
+            pathName: string;
+            pathVersion: string;
+            policyNote?: string;
+            /** @description pacto.inferred.yaml as it would be published */
+            record: components["schemas"]["DeclareText"];
+            revision: string;
+            service: string;
+            /** @description The golden path's signature step, checked against the installation's template keys */
+            signature: components["schemas"]["Fleet.CreationStep"];
+            signer: components["schemas"]["DeclareSigner"];
+            /** @description declared for a person's login, else draft */
+            state: string;
+            /** @description The values file InitCLI reads */
+            valuesFile?: components["schemas"]["CreateServiceFile"];
+            version: string;
+        };
+        CreateServiceRefusal: {
+            /** @description The values an enum or class allows */
+            allowed?: unknown[] | null;
+            /** @description The pacto init command that sets the fix */
+            cli?: string;
+            /** @description The closest valid value, when there is one */
+            closest?: unknown;
+            /** @enum {string} */
+            code: "OfferingNotConsumable" | "OfferingUnknown" | "ParameterNotDeclared" | "ParameterOutOfRange" | "ParameterSensitive" | "ClassNotOffered" | "TierNotTunable" | "EnvironmentNotDeclared";
+            /** @description configurations[<name>].values.<key>, environments[<env>].<configuration>.<key>, environments[<env>] or offerings[<offering>] */
+            field: string;
+            /** @description The pacto_create_service argument fragment that sets the fix */
+            mcp?: string;
+            message: string;
+        };
         CrossReference: {
             contractStatus?: string;
             name: string;
@@ -1942,10 +2156,10 @@ export interface components {
         };
         DeclareRefusal: {
             /**
-             * @description The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed, DraftNotOffered (a shared dashboard claims only with the person's own signature) and TemplateSourceUnverified (a golden path is accepted only from the catalog the installation configured)
+             * @description The pacto declare, pacto claim and create service refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed, DraftNotOffered (a shared dashboard claims only with the person's own signature) and TemplateSourceUnverified (a golden path is accepted only from the catalog the installation configured)
              * @enum {string}
              */
-            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "OfferingInvalid" | "OfferingSchemaOpen" | "OfferingSourceInvalid" | "OfferingSourceUnverified" | "OfferingMismatch" | "VersionRequired" | "DraftNotOffered" | "TemplateNotFound" | "TemplateCatalogUnset" | "TemplateCatalogUnavailable" | "TemplateNameInvalid" | "TemplateNameTaken" | "TemplateSourceUnverified";
+            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "OfferingInvalid" | "OfferingSchemaOpen" | "OfferingSourceInvalid" | "OfferingSourceUnverified" | "OfferingMismatch" | "VersionRequired" | "DraftNotOffered" | "TemplateNotFound" | "TemplateCatalogUnset" | "TemplateCatalogUnavailable" | "TemplateNameInvalid" | "TemplateNameTaken" | "TemplateSourceUnverified" | "ServiceExists" | "GoldenPathNotDeclared" | "RepositoryOutsideRegistry" | "OfferingNotConsumable" | "OfferingUnknown" | "ParameterNotDeclared" | "ParameterOutOfRange" | "ParameterSensitive" | "ClassNotOffered" | "TierNotTunable" | "EnvironmentNotDeclared";
             /** @description The command a person runs about it */
             command?: string;
             message: string;
@@ -3516,6 +3730,58 @@ export interface components {
             /** Format: int64 */
             warning: number;
         };
+        "Fleet.ConsumableGuarantee": {
+            guarantees: components["schemas"]["Contract.Guarantees"];
+            interface: string;
+            text: string;
+        };
+        "Fleet.ConsumableOffering": {
+            /** @description The providers of this offering a caller may consume, at most 10, by service key */
+            providers: components["schemas"]["Fleet.ConsumableProvider"][] | null;
+            /**
+             * Format: int64
+             * @description How many providers of this offering a caller may consume
+             */
+            providersTotal: number;
+            /** @description More providers may be consumed than providers lists */
+            providersTruncated: boolean;
+        };
+        "Fleet.ConsumableProvider": {
+            /**
+             * @description How the revision is accepted: a person's verified declaration the installation signer policy allows, or a verified signer an installation publisher rule, pin, policy or the release signer covers
+             * @enum {string}
+             */
+            acceptance: "declaration" | "publisher";
+            /** @description The classes the offering provisions: the enum of the class property of a required configuration, at most 50 */
+            classes: string[] | null;
+            /**
+             * Format: int64
+             * @description How many classes the class property allows
+             */
+            classesTotal: number;
+            /** @description The class property allows more classes than classes lists */
+            classesTruncated: boolean;
+            /** @description The bundle digest acceptance covers; run pacto lock to pin it */
+            digest: string;
+            /** @description The interfaces of the revision that declare guarantees; empty when it declares none */
+            guarantees: components["schemas"]["Fleet.ConsumableGuarantee"][] | null;
+            /** @enum {string} */
+            lifecycle: "supported" | "deprecated";
+            /** @description The fields of the required configurations' closed schemas, at most 50, by configuration then path */
+            parameters: components["schemas"]["Fleet.OfferingParameter"][] | null;
+            /** Format: int64 */
+            parametersTotal: number;
+            parametersTruncated: boolean;
+            /** @description Who accepted it: the declaring person or the verified signer */
+            publisher: string;
+            /** @description The newest revision of the provider, the one acceptance judged and the snippet pins */
+            revision: components["schemas"]["Fleet.EntityRef"];
+            /** @description The schema files the parameters come from, in the bundle that declares each */
+            schemaPaths: string[] | null;
+            service: components["schemas"]["Fleet.EntityRef"];
+            snippet: components["schemas"]["Fleet.ConsumeSnippet"];
+            version: string;
+        };
         "Fleet.ConsumeConfiguration": {
             configuration?: string;
             missingValues?: string[] | null;
@@ -3797,6 +4063,8 @@ export interface components {
             businessDomainUnknown?: boolean;
             /** @description On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it */
             catalogEntry?: string;
+            /** @description Set only when the list asks for consumable offerings: the providers an agent may consume, each with its version, digest, publisher and a snippet */
+            consumable?: components["schemas"]["Fleet.ConsumableOffering"];
             /** Format: int64 */
             consumers?: number;
             /** @description On an inferred service only a producer's contribution describes: that producer */
@@ -5434,6 +5702,42 @@ export interface components {
              * @enum {string}
              */
             state: "drifted" | "unknown";
+        };
+        "Fleet.OfferingParameter": {
+            /** @description The provider's configuration the field belongs to */
+            configuration: string;
+            default?: unknown;
+            /** @description The allowed values, at most 50 */
+            enum?: unknown[] | null;
+            /**
+             * Format: int64
+             * @description How many values the schema allows
+             */
+            enumTotal?: number;
+            /** Format: double */
+            exclusiveMaximum?: number;
+            /** Format: double */
+            exclusiveMinimum?: number;
+            /** Format: int64 */
+            maxLength?: number;
+            /** Format: double */
+            maximum?: number;
+            /** Format: int64 */
+            minLength?: number;
+            /** Format: double */
+            minimum?: number;
+            /** @description The field's path in dot notation */
+            path: string;
+            pattern?: string;
+            required: boolean;
+            /** @description The field is writeOnly, holds a writeOnly field or sits under a writeOnly object */
+            sensitive: boolean;
+            /**
+             * @description contract: set once, the same in every environment; tunable: may change per environment within the bounds
+             * @enum {string}
+             */
+            tier: "contract" | "tunable";
+            type?: string;
         };
         "Fleet.OperationalHealthTally": {
             /**
@@ -8449,6 +8753,8 @@ export interface components {
             businessDomainUnknown?: boolean;
             /** @description On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it */
             catalogEntry?: string;
+            /** @description Set only when the list asks for consumable offerings: the providers an agent may consume, each with its version, digest, publisher and a snippet */
+            consumable?: components["schemas"]["Fleet.ConsumableOffering"];
             /** Format: int64 */
             consumers?: number;
             /** @description On an inferred service only a producer's contribution describes: that producer */
@@ -11990,6 +12296,8 @@ export interface operations {
                 lifecycle?: "deprecated" | "sunset";
                 /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
                 failed?: boolean;
+                /** @description Keeps the offerings the viewer may consume and fills each row's consumable (offering entities); with no kinds it lists offerings */
+                consumable?: boolean;
                 /** @description Keeps the external systems of this class (external entities) */
                 class?: "vendor-api" | "managed-cloud" | "legacy" | "unclassified" | "other-egress";
                 /** @description Keeps the external systems with a managed resource no offering produced (external entities) */
@@ -12435,6 +12743,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Fleet.SearchResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-create-service": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateServiceInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateServiceAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-create-service-accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateServiceAcceptInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateServiceAcceptAnswer"];
                 };
             };
             /** @description Error */

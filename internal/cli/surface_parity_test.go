@@ -95,7 +95,7 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), claimRows(), offeringRows(), acceptRows(), clusterRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), claimRows(), offeringRows(), acceptRows(), clusterRows(), createServiceRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
@@ -104,6 +104,7 @@ func fleetRows() []surfaceRow {
 			"declaration", "group", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class", "outside-contract"),
 		[]surfaceRow{
 			{"fleet entities --kind", "pacto_fleet_entities.kind", "GET /api/fleet/entities?kinds", "the route takes several kinds, the CLI and MCP one"},
+			{"fleet offerings --consumable", "pacto_fleet_entities.consumable", "GET /api/fleet/entities?consumable", ""},
 			{"fleet entities [text]", "pacto_fleet_entities.text", "GET /api/fleet/entities?text", ""},
 		},
 		alike("fleet attention", "pacto_fleet_attention", "GET /api/fleet/attention", "", "business-domain", "category", "limit", "offset", "owner", "owner-key", "service", "severity",
@@ -521,6 +522,32 @@ func acceptRows() []surfaceRow {
 	)
 }
 
+// createServiceRows map creating a service from a golden path: the
+// dashboard's Create service routes and pacto_create_service. The pacto init
+// flags a person creates locally with are pacto_create's rows (authoringRows).
+func createServiceRows() []surfaceRow {
+	const why = "a person creates locally with pacto init <name> --from <ref> and publishes with pacto publish; the server-side create exists for the dashboard and agents"
+	const whyAccept = "the accept route carries out the plan with the inputs it planned"
+	const whyCluster = "MCP reviews the caller in the cluster it signed them in against; the dashboard names the cluster of the namespace"
+	const whyDraft = "MCP callers are agents and never accept a draft; a person signs a created draft in the dashboard"
+	const plan, accept = "POST /api/fleet/services", "POST /api/fleet/services/accept"
+	inputs := []string{"path", "name", "owner", "namespace", "repository", "revision", "offerings"}
+	return slices.Concat(
+		body("", "pacto_create_service", plan, why, inputs...),
+		body("", "", accept, whyAccept, inputs...),
+		[]surfaceRow{
+			{"", "pacto_create_service.intent_digest", accept + " body.intentDigest", why},
+			{"", "pacto_create_service.dry_run", accept + " body.mode", why + "; dry_run false writes a draft, the dashboard signs (mode sign) or saves a draft (mode draft)"},
+			{"", "", plan + " body.intentDigest", "back from the dashboard's signing login, the plan the login was started for"},
+			{"", "pacto_create_service.on_behalf_of", "", "over HTTP the caller the server reviewed; the dashboard runs as that person"},
+			{"", "", plan + " body.cluster", whyCluster},
+			{"", "", accept + " body.cluster", whyCluster},
+			{"", "", plan + " body.fromDraft", whyDraft},
+			{"", "", accept + " body.fromDraft", whyDraft},
+		},
+	)
+}
+
 // clusterRows map pacto cluster list.
 func clusterRows() []surfaceRow {
 	return slices.Concat(
@@ -681,7 +708,7 @@ func collectSurfaces(t *testing.T) surfaces {
 
 // mcpNames are "<tool>.<argument>", or the tool's name when it takes none,
 // for every tool of a composed fleet and delivery server that may write, with
-// every contract tool.
+// every contract tool, and of an HTTP server with a registry.
 func mcpNames(t *testing.T) map[string]bool {
 	t.Helper()
 	q := fleet.NewQuery(&fleet.FleetSnapshot{})
@@ -695,8 +722,13 @@ func mcpNames(t *testing.T) map[string]bool {
 	expect(t, err == nil, "server: %v", err)
 	res, err := sessionOn(t, server).ListTools(context.Background(), nil)
 	expect(t, err == nil, "tools: %v", err)
+	// pacto_create_service registers over HTTP only, with a registry.
+	remote, err := pactomcp.New("v", pactomcp.Authoring{Remote: true, CreateService: remoteCreator{}}, pactomcp.Modes{})
+	expect(t, err == nil, "remote server: %v", err)
+	more, err := sessionOn(t, remote).ListTools(context.Background(), nil)
+	expect(t, err == nil, "remote tools: %v", err)
 	out := map[string]bool{}
-	for _, tool := range res.Tools {
+	for _, tool := range slices.Concat(res.Tools, more.Tools) {
 		props, _ := tool.InputSchema.(map[string]any)["properties"].(map[string]any)
 		if len(props) == 0 {
 			out[tool.Name] = true

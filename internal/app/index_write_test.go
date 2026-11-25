@@ -315,7 +315,7 @@ func TestIndexRepositoryPrefersFirstRoot(t *testing.T) {
 	seedIndex(t, ir.host+"/acme/pacto-index")
 	seedIndex(t, ir.host+"/pacto-index")
 	svc := &Service{sys: sysDeps{refusalRepo: anonRepo}}
-	repo, note, _, err := svc.indexRepository(t.Context(), indexCandidates("", ir.host+"/acme/contracts/ledger"))
+	repo, note, _, err := svc.indexRepository(t.Context(), svc.env().refusalRepo, indexCandidates("", ir.host+"/acme/contracts/ledger"))
 	if err != nil || repo != ir.host+"/acme/pacto-index" || note != "" {
 		t.Fatalf("%q %q %v", repo, note, err)
 	}
@@ -326,12 +326,12 @@ func TestIndexRepositoryFallsThroughOnNotFound(t *testing.T) {
 	ir := newIndexReg(t)
 	svc := &Service{sys: sysDeps{refusalRepo: anonRepo}}
 	cands := indexCandidates("", ir.host+"/acme/contracts/ledger")
-	repo, _, _, err := svc.indexRepository(t.Context(), cands)
+	repo, _, _, err := svc.indexRepository(t.Context(), svc.env().refusalRepo, cands)
 	if !errors.Is(err, errIndexNotFound) || repo != ir.host+"/acme/pacto-index" {
 		t.Fatalf("every candidate absent: %q %v", repo, err)
 	}
 	seedIndex(t, ir.host+"/pacto-index")
-	repo, note, _, err := svc.indexRepository(t.Context(), cands)
+	repo, note, _, err := svc.indexRepository(t.Context(), svc.env().refusalRepo, cands)
 	if err != nil || repo != ir.host+"/pacto-index" || note != "after "+ir.host+"/acme/pacto-index: not found" {
 		t.Fatalf("fallback: %q %q %v", repo, note, err)
 	}
@@ -351,12 +351,12 @@ func TestIndexRepositoryStopsOnAuthFailure(t *testing.T) {
 		return true
 	}
 	svc := &Service{sys: sysDeps{refusalRepo: anonRepo}}
-	repo, _, _, err := svc.indexRepository(t.Context(), indexCandidates("", ir.host+"/acme/contracts/ledger"))
+	repo, _, _, err := svc.indexRepository(t.Context(), svc.env().refusalRepo, indexCandidates("", ir.host+"/acme/contracts/ledger"))
 	if err == nil || errors.Is(err, errIndexNotFound) || repo != ir.host+"/acme/pacto-index" {
 		t.Fatalf("a denied candidate fell through: %q %v", repo, err)
 	}
 	// A candidate that cannot be opened stops too.
-	if _, _, _, err := svc.indexRepository(t.Context(), []string{"Bad Host/pacto-index"}); err == nil || errors.Is(err, errIndexNotFound) {
+	if _, _, _, err := svc.indexRepository(t.Context(), svc.env().refusalRepo, []string{"Bad Host/pacto-index"}); err == nil || errors.Is(err, errIndexNotFound) {
 		t.Fatalf("unopenable: %v", err)
 	}
 }
@@ -426,11 +426,11 @@ func TestRegistryModeUnknown(t *testing.T) {
 	t.Parallel()
 	ir := newIndexReg(t)
 	svc := &Service{sys: sysDeps{refusalRepo: func(string) (*remote.Repository, error) { return nil, errors.New("no") }}}
-	if got := svc.registryMode(t.Context(), ir.host+"/pacto/payments", digest64); got != "unknown" {
+	if got := svc.registryMode(t.Context(), svc.env().refusalRepo, ir.host+"/pacto/payments", digest64); got != "unknown" {
 		t.Fatalf("unopened: %q", got)
 	}
 	svc.sys.refusalRepo = anonRepo
-	if got := svc.registryMode(t.Context(), ir.host+"/pacto/payments", digest64); got != "unknown" {
+	if got := svc.registryMode(t.Context(), svc.env().refusalRepo, ir.host+"/pacto/payments", digest64); got != "unknown" {
 		t.Fatalf("a subject the registry lacks: %q", got)
 	}
 }

@@ -168,6 +168,7 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `PUBLISH_NEEDS_SERVICE_VERSION` | `InvalidVersion` |
 | `ParameterNotDeclared` | `ConfigurationViolation` |
 | `ParameterOutOfRange` | `ConfigurationViolation` |
+| `ParameterSensitive` | `ConfigurationViolation` |
 | `SCHEMA_ERROR` | `SchemaViolation` |
 | `SCHEMA_VIOLATION` | `SchemaViolation` |
 | `STATELESS_PERSISTENT_CONFLICT` | `StateMismatch` |

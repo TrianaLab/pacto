@@ -17,6 +17,8 @@ var ownerRightCallers = map[string][]string{
 	// and who may accept a claim draft joining another team's offering: a
 	// member of that team under the same rule (517-S7).
 	"delivery.DecideOwnerRight(": {"internal/app/declare.go", "internal/app/declare_claim_offering.go"},
+	// A created service's first owner (pacto_create_service, the dashboard).
+	"delivery.DecideFirstOwner(": {"internal/app/create_service.go", "internal/app/declare.go"},
 	// The fleet's owner pass over published bundles, and the operator's
 	// OwnerVerified condition over running ones.
 	"publish.VerifyOwnerRight(": {"integrations/kubernetes/internal/controller/owner.go", "internal/app/ownerright.go"},

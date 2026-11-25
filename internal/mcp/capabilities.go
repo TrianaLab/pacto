@@ -149,5 +149,8 @@ func authoringNames(a Authoring) []string {
 	if a.Accept != nil && !a.Remote {
 		names = append(names, "pacto_accept")
 	}
+	if a.CreateService != nil && a.Remote {
+		names = append(names, "pacto_create_service")
+	}
 	return names
 }

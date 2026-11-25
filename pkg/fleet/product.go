@@ -231,6 +231,8 @@ type EntityRef struct {
 	// HiddenProviders counts the providers the viewer may not see: Owner,
 	// Consumers and FailedRequests then speak only for the visible ones.
 	HiddenProviders int `json:"hiddenProviders,omitempty"`
+	// Consumable is set only on a consumable list (EntityFilter.Consumable).
+	Consumable *ConsumableOffering `json:"consumable,omitempty" doc:"Set only when the list asks for consumable offerings: the providers an agent may consume, each with its version, digest, publisher and a snippet"`
 	// Availability is the offering's availability roll-up (see [Availability]),
 	// and AvailabilityProvenance the provenance of the environment that sets
 	// its worst state: observed, inferred or unknown.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"maps"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -228,6 +229,29 @@ func TestDashboardDraftAuditLine(t *testing.T) {
 	line := h.log.String()
 	for _, want := range []string{"declaration written", "actor=ana@acme.com", "service=invoices", "tag=draft-1", "published=" + h.w.host + "/acme/invoices@sha256:"} {
 		expect(t, strings.Contains(line, want), "audit line %q lacks %q", line, want)
+	}
+}
+
+// TestCreateAuditLine: a create's write logs one audit line naming how it
+// came, who, the service, the namespace the caller was reviewed in, the tag
+// and the bundle; a declaration logs its workload's namespace.
+func TestCreateAuditLine(t *testing.T) {
+	for _, c := range []struct {
+		req      app.DeclareRequest
+		verb, ns string
+	}{
+		{app.DeclareRequest{Service: "invoices", Create: &app.CreateFrom{Namespace: "team-billing"}}, "create", "team-billing"},
+		{app.DeclareRequest{Service: "invoices", Namespace: "billing"}, "declare", "billing"},
+	} {
+		var buf bytes.Buffer
+		ctx := logging.WithLogger(context.Background(), slog.New(slog.NewTextHandler(&buf, nil)))
+		auditDeclare(ctx, "dashboard", "ana@acme.com", c.req, "invoices", "0.1.0", "r.io/acme/invoices@sha256:1")
+		line := buf.String()
+		expect(t, strings.Count(line, "\n") == 1, "lines %q", line)
+		for _, want := range []string{"declaration written", "via=dashboard", "verb=" + c.verb, "actor=ana@acme.com", "service=invoices", "namespace=" + c.ns,
+			"tag=0.1.0", "published=r.io/acme/invoices@sha256:1"} {
+			expect(t, strings.Contains(line, want), "audit line %q lacks %q", line, want)
+		}
 	}
 }
 
@@ -508,6 +532,20 @@ func TestDeclareAcceptFromDraftNeedsAPerson(t *testing.T) {
 	expect(t, out.Refusal != nil && out.Refusal.Code == "SignerNotAllowed" && !slices.Contains(h.tags(t), "0.1.0"), "answer %+v", out)
 }
 
+// rawDecl is a declaration holding only pacto.yaml.
+type rawDecl string
+
+func (r rawDecl) Contract() []byte         { return []byte(r) }
+func (rawDecl) Record() []byte             { return nil }
+func (r rawDecl) Files() map[string][]byte { return map[string][]byte{"pacto.yaml": []byte(r)} }
+
+// filesDecl is a declaration holding files.
+type filesDecl map[string][]byte
+
+func (f filesDecl) Contract() []byte         { return f["pacto.yaml"] }
+func (filesDecl) Record() []byte             { return nil }
+func (f filesDecl) Files() map[string][]byte { return maps.Clone(f) }
+
 func TestSameDraftComparesContract(t *testing.T) {
 	h := newDeclareHost(t, false, true)
 	p := h.plan(t, dashboard.DeclareInput{})
@@ -515,9 +553,9 @@ func TestSameDraftComparesContract(t *testing.T) {
 	_, digest, _ := strings.Cut(out.Published, "@")
 	req := app.DeclareRequest{Store: pushWriter(h.d.push, h.w.host+"/acme/invoices")}
 	pl := &app.DeclarePlan{BundleRepo: h.w.host + "/acme/invoices", Drafts: []app.DraftView{{Tag: "draft-1", Digest: digest, OnBehalfOf: "ana@acme.com"}}}
-	expect(t, sameDraft(t.Context(), req, pl, []byte("pactoVersion: \"2.5\"\n"), "ana@acme.com") == "", "another pacto.yaml is another draft")
+	expect(t, sameDraft(t.Context(), req, pl, rawDecl("pactoVersion: \"2.5\"\n"), "ana@acme.com") == "", "another pacto.yaml is another draft")
 	pl.Drafts[0].Digest = "sha256:" + strings.Repeat("0", 64)
-	expect(t, sameDraft(t.Context(), req, pl, nil, "ana@acme.com") == "", "an unreadable draft is no match")
+	expect(t, sameDraft(t.Context(), req, pl, rawDecl(""), "ana@acme.com") == "", "an unreadable draft is no match")
 	_, err := plannedLogin(t.Context())
 	expect(t, err != nil, "a plan never signs")
 }

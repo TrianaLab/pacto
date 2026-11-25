@@ -259,11 +259,14 @@ function parseFleet(path: string, query: string): Route {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
-    // Only the offerings list narrows by lifecycle and by a failed request, and
-    // switches to the inferred offerings; only the golden paths list by declaration,
-    // with the inferred path whose Declare panel is open (declare) and the intent a
-    // signing login came back with (signed).
-    const own: Record<string, string[]> = { offerings: ['lifecycle', 'failed', 'inferred'], 'golden-paths': ['declaration', 'declare', 'signed'] };
+    // Only the offerings list narrows by lifecycle, by a failed request and to the
+    // offerings the viewer may consume, and switches to the inferred offerings; only
+    // the golden paths list by declaration, with the inferred path whose Declare panel
+    // is open (declare) and the intent a signing login came back with (signed).
+    const own: Record<string, string[]> = {
+      offerings: ['lifecycle', 'failed', 'inferred', 'consumable'],
+      'golden-paths': ['declaration', 'declare', 'signed'],
+    };
     for (const k of own[rest] ?? []) {
       const v = qs.get(k);
       if (v) params[k] = v;
@@ -279,10 +282,11 @@ function parseFleet(path: string, query: string): Route {
     const params: Record<string, string> = { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) };
     // A service page also keeps its Changes section's filter, page and scroll target,
     // and whether its Declare panel is open (declare=1) and the intent a signing
-    // login came back with (signed); an external system page keeps the same two for
-    // its Claim panel (517-S5).
+    // login came back with (signed), for its Create service panel when create=1
+    // (515-S6), or the created draft a review link names (create=<name>, draft and
+    // repository); an external system page keeps the same two for its Claim panel (517-S5).
     const qs = new URLSearchParams(query);
-    const own = ent[1] === 'services' ? ['changesKind', 'changesOffset', 'changesLimit', 'section', 'declare', 'signed'] : ent[1] === 'externals' ? ['declare', 'signed'] : [];
+    const own = ent[1] === 'services' ? ['changesKind', 'changesOffset', 'changesLimit', 'section', 'declare', 'create', 'signed', 'draft', 'repository'] : ent[1] === 'externals' ? ['declare', 'signed'] : [];
     for (const k of ['correlationID', ...own]) {
       const v = qs.get(k);
       if (v) params[k] = v;
@@ -551,12 +555,13 @@ export function fleetDomainsUrl(opts: { text?: string; hasNonCompliant?: boolean
   return str ? `#/fleet/domains?${str}` : '#/fleet/domains';
 }
 
-export function fleetOfferingsUrl(opts: { text?: string; lifecycle?: string; failed?: boolean; inferred?: boolean } & ListPaging = {}): string {
+export function fleetOfferingsUrl(opts: { text?: string; lifecycle?: string; failed?: boolean; inferred?: boolean; consumable?: boolean } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.lifecycle) qs.set('lifecycle', opts.lifecycle);
   if (opts.failed) qs.set('failed', '1');
   if (opts.inferred) qs.set('inferred', '1');
+  if (opts.consumable) qs.set('consumable', '1');
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/offerings?${str}` : '#/fleet/offerings';

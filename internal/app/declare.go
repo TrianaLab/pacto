@@ -119,6 +119,9 @@ type DeclareRequest struct {
 	// Fleet is the fleet the offering's providers are read from; nil reads
 	// the offerings published under Registry.
 	Fleet *fleet.FleetSnapshot
+	// Create creates Service from a golden path: its first version, a
+	// declaration with no workload behind it.
+	Create *CreateFrom
 }
 
 // DeclareObserved is a workload as the caller's restricted fleet view shows
@@ -181,6 +184,9 @@ type DeclarePlan struct {
 	IntentDigest string `json:"intentDigest"`
 	// AcceptCLI is the command a person runs to accept a draft.
 	AcceptCLI string `json:"acceptCLI,omitempty"`
+	// AcceptURL is the dashboard page a person reviews and signs a created
+	// draft at; a created draft carries no AcceptCLI.
+	AcceptURL string `json:"acceptURL,omitempty"`
 	// Unchanged is the baseline version when nothing changed since it: the
 	// plan then writes nothing.
 	Unchanged string `json:"unchanged,omitempty"`
@@ -206,6 +212,11 @@ type DeclarePlan struct {
 	// PullRequest is the pull request --pr opens, filled by the CLI before
 	// it prints the plan; it stays off the dashboard API.
 	PullRequest *PRPlan `json:"-"`
+	// Create is what a create adds: the golden path, the revision and the
+	// pacto init that recreates the folder.
+	Create *CreatePlan `json:"create,omitempty"`
+	// create binds a create's inputs into the intent.
+	create string
 	// pr is the pull request target the intent binds, <url>#<folder>; set
 	// only with --pr.
 	pr string
@@ -291,6 +302,8 @@ type DeclareError struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	CLI     string `json:"cli,omitempty"`
+	// Refusals are every refused input of a create, each at its field.
+	Refusals []CreateRefusal `json:"refusals,omitempty"`
 }
 
 func (e *DeclareError) Error() string { return e.Message }
@@ -337,6 +350,18 @@ const (
 	codeTemplateCatalogUnavailable = "TemplateCatalogUnavailable"
 	codeTemplateNameInvalid        = "TemplateNameInvalid"
 	codeTemplateNameTaken          = "TemplateNameTaken"
+	// The create-a-service codes (a golden path as the source).
+	codeServiceExists             = "ServiceExists"
+	codeGoldenPathNotDeclared     = "GoldenPathNotDeclared"
+	codeRepositoryOutsideRegistry = "RepositoryOutsideRegistry"
+	codeOfferingNotConsumable     = "OfferingNotConsumable"
+	codeOfferingUnknown           = "OfferingUnknown"
+	codeParameterNotDeclared      = "ParameterNotDeclared"
+	codeParameterOutOfRange       = "ParameterOutOfRange"
+	codeParameterSensitive        = "ParameterSensitive"
+	codeClassNotOffered           = "ClassNotOffered"
+	codeTierNotTunable            = "TierNotTunable"
+	codeEnvironmentNotDeclared    = "EnvironmentNotDeclared"
 )
 
 // firstDeclaration is the version of a service its registry holds none of.
@@ -372,6 +397,9 @@ func (d *declaration) Contract() []byte { return d.raw }
 // Record is pacto.inferred.yaml as the declaration would publish it.
 func (d *declaration) Record() []byte { return d.record.Marshal() }
 
+// Files is every file the declaration would publish, by path.
+func (d *declaration) Files() map[string][]byte { return allFiles(d.files) }
+
 // ownerCheck is an owner change a declaration makes: from the service's
 // effective owner to the proposed one, under the owner policy read (nil, and
 // why, when none was).
@@ -379,6 +407,8 @@ type ownerCheck struct {
 	current, proposed delivery.OwnerClaim
 	policy            *delivery.OwnerPolicy
 	from              string
+	// first is a created service's first owner (DecideFirstOwner).
+	first bool
 }
 
 // PlanDeclare plans declaring one workload: it drafts its contract from the
@@ -398,7 +428,10 @@ func (s *Service) PlanDeclare(ctx context.Context, req DeclareRequest) (*Declare
 		return nil, nil, &DeclareError{Code: codeTemplateNotFound, Message: "no template " + req.TemplateSubject + " was read: accepting one reads it from the catalog first",
 			CLI: req.command("")}
 	}
-	if req.FromDraft != "" {
+	switch {
+	case req.FromDraft != "" && req.Create != nil:
+		return s.fromCreatedDraft(ctx, req)
+	case req.FromDraft != "":
 		return s.fromDraft(ctx, req)
 	}
 	scratch, err := s.env().mkdirTemp("", "pacto-declare-")
@@ -461,7 +494,9 @@ func (pl *declarePlanner) run(ctx context.Context) (*declaration, error) {
 	if err != nil {
 		return nil, err
 	}
-	pl.plan.Drafts, pl.plan.DraftsTotal = pl.drafts(ctx)
+	if pl.req.Create == nil {
+		pl.plan.Drafts, pl.plan.DraftsTotal = pl.drafts(ctx) // a create listed only the caller's own
+	}
 	pl.identify(ctx)
 	return pl.finish(ctx, raw, pl.rec)
 }
@@ -490,6 +525,8 @@ func (pl *declarePlanner) prepare(ctx context.Context) ([]byte, error) {
 func (pl *declarePlanner) source(ctx context.Context) error {
 	var err error
 	switch {
+	case pl.req.Create != nil:
+		err = pl.fromGoldenPath(ctx)
 	case pl.req.Template != nil:
 		err = pl.fromTemplate(ctx)
 	case pl.claiming:
@@ -724,7 +761,8 @@ func (pl *declarePlanner) signer(ctx context.Context) error {
 		p.State = contract.DeclarationDeclared
 	}
 	if c.Source == signerAmbient {
-		p.Notes = append(p.Notes, "an ambient OIDC token is set: this run writes a draft; a person accepts it with "+pl.req.AcceptCLI(p.Service, "<tag>"))
+		p.Notes = append(p.Notes, "an ambient OIDC token is set: this run writes a draft; a person accepts it with "+
+			cmp.Or(pl.req.AcceptCLI(p.Service, "<tag>"), "the dashboard's Create service"))
 	}
 	if n := rekorNotice(c.Identity, o.RekorURL); n != "" {
 		p.Notes = append(p.Notes, n)
@@ -773,6 +811,9 @@ func (pl *declarePlanner) findBaseline(ctx context.Context) error {
 // repo is the bundle repository: always --registry's, so a baseline never
 // chooses where the person's credentials push.
 func (pl *declarePlanner) repo() string {
+	if pl.req.Create != nil && pl.req.Create.Repository != "" {
+		return pl.req.Create.Repository // checked against the registry by createRepo
+	}
 	bundle, _, _ := publish.Layout(pl.req.Registry, pl.plan.Service, "")
 	return bundle
 }
@@ -972,6 +1013,9 @@ func withoutDeclaredProposals(fields []contract.Inferred, c *contract.Contract, 
 // leaves pacto.yaml and stays in the record as inferred: a label sets no
 // owner.
 func (pl *declarePlanner) owner(ctx context.Context) ([]byte, error) {
+	if pl.req.Create != nil {
+		return pl.createOwner(ctx), nil
+	}
 	planned := pl.folder.Service.Owner
 	current, err := pl.currentOwner(ctx)
 	if err != nil {
@@ -1066,8 +1110,8 @@ func applyAccept(raw []byte, rec *contract.InferredRecord, names []string) ([]by
 // identify names the inferred service the declaration comes from and reads
 // the cluster's kube-system namespace uid, empty when it cannot.
 func (pl *declarePlanner) identify(ctx context.Context) {
-	if pl.req.Template != nil {
-		return // a golden path is inferred from no workload and names no cluster
+	if pl.req.Template != nil || pl.req.Create != nil {
+		return // a golden path, or a service created from one, is inferred from no workload and names no cluster
 	}
 	if pl.claiming {
 		pl.plan.InferredFrom = contract.ExternalInferredFrom(string(pl.claim))
@@ -1107,8 +1151,8 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	if c := rec.Inputs.Cluster; c != nil {
 		p.ClusterAsOf = c.AsOf
 	}
-	if p.State == contract.DeclarationDraft {
-		p.AcceptCLI = pl.req.AcceptCLI(p.Service, "<tag>")
+	if p.State == contract.DeclarationDraft && pl.req.Create == nil {
+		p.AcceptCLI = pl.req.AcceptCLI(p.Service, "<tag>") // a created draft is reviewed in the dashboard
 	}
 	version, err := pl.version(ctx, raw, rec)
 	if err != nil || p.Unchanged != "" {
@@ -1123,7 +1167,11 @@ func (pl *declarePlanner) finish(ctx context.Context, raw []byte, rec *contract.
 	d.owner, d.joins = pl.owned, pl.joins
 	p.Version, p.Ranges = version, ranges(d.bundle.Contract, rec, accepted)
 	p.IntentDigest = intentDigest(p, raw, accepted, "")
-	d.input = publish.Input{Bundle: d.bundle, Revision: "declare:" + p.IntentDigest, ContractOnly: true, BaselineDeploy: strings.TrimSuffix(p.Deploy, "none"),
+	revision := "declare:" + p.IntentDigest
+	if p.Create != nil {
+		revision = p.Create.Revision
+	}
+	d.input = publish.Input{Bundle: d.bundle, Revision: revision, ContractOnly: true, BaselineDeploy: strings.TrimSuffix(p.Deploy, "none"),
 		Publish: &contract.Publish{Bundle: "oci://" + pl.repo()},
 		Checks:  []publish.Check{{Name: "signer", Passed: true, Message: "signed by " + signerText(p.Signer)}}}
 	p.Publish = publish.MakePlan(ctx, pl.reg, d.input)
@@ -1304,7 +1352,8 @@ func intentDigest(p *DeclarePlan, raw []byte, accepted []contract.InferredAccept
 		Baseline   string                        `json:"baseline"`
 		Draft      string                        `json:"draft"`
 		PR         string                        `json:"pr,omitempty"`
-	}{p.InferredFrom, p.Service, p.Version, p.BundleRepo, "sha256:" + hex.EncodeToString(sum[:]), acc, baseline, draft, p.pr})
+		Create     string                        `json:"create,omitempty"`
+	}{p.InferredFrom, p.Service, p.Version, p.BundleRepo, "sha256:" + hex.EncodeToString(sum[:]), acc, baseline, draft, p.pr, p.create})
 	out := sha256.Sum256(intent)
 	return "sha256:" + hex.EncodeToString(out[:])
 }
@@ -1326,6 +1375,8 @@ type DeclareResult struct {
 	// it failed after the write.
 	PullRequest      *PullRequestResult `json:"pullRequest,omitempty"`
 	PullRequestError *DeclareError      `json:"pullRequestError,omitempty"`
+	// Created is a published create's handover.
+	Created *CreatedService `json:"created,omitempty"`
 }
 
 // PullRequestResult is a pull request --pr opened: its URL, the login of
@@ -1381,7 +1432,11 @@ func (s *Service) Declare(ctx context.Context, req DeclareRequest) (*DeclareResu
 		if err := s.ownerRight(req, plan, d, c); err != nil {
 			return res, err
 		}
-		return res, s.publishDeclared(ctx, res, d, c)
+		if err := s.publishDeclared(ctx, res, d, c); err != nil || req.Create == nil {
+			return res, err
+		}
+		res.Created, res.Files = s.createdHandover(ctx, req, res, d), allFiles(d.files)
+		return res, nil
 	case req.FromDraft != "":
 		return res, &DeclareError{Code: codeSignerNotAllowed, Message: "accepting a draft takes a person's Sigstore login: " + c.Why}
 	}
@@ -1400,6 +1455,9 @@ func (s *Service) ownerRight(req DeclareRequest, plan *DeclarePlan, d *declarati
 	}
 	o := d.owner
 	r := delivery.DecideOwnerRight(plan.Service, c.Identity, o.current, o.proposed, o.policy, o.from, s.env().now())
+	if o.first {
+		r = delivery.DecideFirstOwner(plan.Service, c.Identity, o.proposed, o.policy, o.from, s.env().now())
+	}
 	if r.Allowed {
 		return nil
 	}
@@ -1472,6 +1530,9 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	res.Plan.Publish = r.Plan
 	res.Executed, res.Draft, res.Signed, res.Tag, res.Published = true, true, signed, tag, d.repo+"@"+r.Digests[publish.BundleItem]
 	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, req.AcceptCLI(res.Plan.Service, tag)
+	if req.Create != nil {
+		res.Plan.AcceptURL = req.AcceptURL(d.repo, tag)
+	}
 	res.Files = bundleFiles(d.files)
 	return nil
 }
@@ -1482,6 +1543,9 @@ func (req DeclareRequest) Command(intent string) string { return req.command(int
 // command is the pacto declare that replays req: every argument the intent
 // digest binds, and intent when it is set. Without --yes it prints the plan.
 func (req DeclareRequest) command(intent string) string {
+	if req.Create != nil {
+		return req.createCommand() // a create is replayed locally with pacto init
+	}
 	if _, ok := req.offered(); ok {
 		return req.offeringCommand(intent)
 	}
@@ -1535,6 +1599,9 @@ func (req DeclareRequest) command(intent string) string {
 // AcceptCLI is the command a person accepts the draft tag of service with:
 // pacto claim for a claim.
 func (req DeclareRequest) AcceptCLI(service, tag string) string {
+	if req.Create != nil {
+		return "" // a created draft is reviewed and signed in the dashboard's Create service
+	}
 	if req.TemplateSubject != "" {
 		req.FromDraft = tag
 		return req.templateCommand("")
@@ -1691,7 +1758,7 @@ func readDraft(ctx context.Context, reg publish.Registry, repo string, req Decla
 	}
 	cli := "pacto declare " + req.Service + " --registry " + req.Registry
 	_, offer := req.offered()
-	if _, ok := req.claimed(); ok || offer || req.TemplateSubject != "" {
+	if _, ok := req.claimed(); ok || offer || req.TemplateSubject != "" || req.Create != nil {
 		sub := req
 		sub.FromDraft = ""
 		cli = sub.command("")
@@ -1747,6 +1814,9 @@ func draftSubject(repo string, req DeclareRequest, dr *draftRead, rec *contract.
 			return &DeclareError{Code: codeDraftNotFound, Message: repo + ":" + req.FromDraft + " holds no draft of the golden path " + req.TemplateSubject}
 		}
 		return nil
+	}
+	if ok, err := createdDraftSubject(repo, req, dr, rec); ok {
+		return err
 	}
 	if k, ok := req.claimed(); ok {
 		if rec.Declaration.InferredFrom != contract.ExternalInferredFrom(string(k)) || name != req.claimName() {

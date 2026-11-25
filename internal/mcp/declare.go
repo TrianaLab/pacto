@@ -124,7 +124,7 @@ func declare(ctx context.Context, d Declarer, a DeclareArgs, remote bool) (*mcps
 			return writeAnswer(out, nil, "") // nothing changed: nothing to write, whatever dry_run says
 		}
 	} else if refused == nil && !dryRun(a.DryRun) {
-		refused = requireIntent(plan.IntentDigest, a.IntentDigest)
+		refused = RequireIntent(plan.IntentDigest, a.IntentDigest)
 	}
 	if refused != nil || dryRun(a.DryRun) {
 		return writeAnswer(out, refused, refusalCLI(pa, refused))

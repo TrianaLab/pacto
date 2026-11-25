@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
-	"github.com/trianalab/pacto/v4/internal/tui"
+	"github.com/trianalab/pacto/v4/internal/shellquote"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -178,7 +178,7 @@ func printIncompleteSources(w io.Writer, sources []fleet.SourceState, truncated 
 func sourceArgsText(cmd *cobra.Command) string {
 	out := ""
 	for _, a := range fleetSourceArgs(cmd) {
-		out += " " + tui.ShellQuote(a)
+		out += " " + shellquote.Quote(a)
 	}
 	return out
 }

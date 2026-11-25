@@ -475,6 +475,10 @@ func (pl *declarePlanner) collectRepoInputs(ctx context.Context, given givenRepo
 		in.GitOpsWhy, in.ImageWhy, in.LabelWhy = templateReadsNoWorkload, templateReadsNoWorkload, templateReadsNoWorkload
 		return in
 	}
+	if pl.req.Create != nil {
+		in.GitOpsWhy, in.ImageWhy, in.LabelWhy = noWorkloadYet, noWorkloadYet, noWorkloadYet
+		return in
+	}
 	if pl.req.Dir != "" && pl.req.draft == "" {
 		in.GitOpsWhy, in.ImageWhy, in.LabelWhy = dirReadsNoWorkload, dirReadsNoWorkload, dirReadsNoWorkload
 		return in

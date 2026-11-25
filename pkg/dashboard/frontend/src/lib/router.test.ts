@@ -839,6 +839,16 @@ describe('offerings list routes', () => {
     expect(fleetOfferingsUrl({ inferred: false })).toBe('#/fleet/offerings');
   });
 
+  it('fleetOfferingsUrl carries consumable', () => {
+    expect(fleetOfferingsUrl({ consumable: true })).toBe('#/fleet/offerings?consumable=1');
+    expect(fleetOfferingsUrl({ consumable: false })).toBe('#/fleet/offerings');
+  });
+
+  it('parses #/fleet/offerings?consumable=1 into route.params.consumable', () => {
+    expect(parseHash('#/fleet/offerings?consumable=1')).toEqual({ view: 'fleet-offerings', params: { consumable: '1' } });
+    expect(parseHash('#/fleet/owners?consumable=1&text=a').params).toEqual({ text: 'a' });
+  });
+
   it('keeps lifecycle, failed and inferred off the other group lists', () => {
     for (const list of ['owners', 'sources', 'domains', 'golden-paths']) {
       expect(parseHash(`#/fleet/${list}?lifecycle=deprecated&failed=1&inferred=1&text=a`).params).toEqual({ text: 'a' });
@@ -968,5 +978,11 @@ describe('serviceDeclareUrl', () => {
     // Never an accept list: the accepted ranges ride on the signing ticket.
     expect(parseHash(`${signed}&accept=ledger`).params).not.toHaveProperty('accept');
     expect(parseHash('#/fleet/targets/x?declare=1&signed=s').params).toEqual({ kind: 'target', key: 'x' });
+  });
+
+  it('round-trips the Create service return through the golden path page', () => {
+    // createReturn (515-S6): back from a signing login the panel resumes the kept inputs.
+    expect(parseHash('#/fleet/services/http-service?create=1&signed=sha256%3Aabc').params).toEqual({ kind: 'service', key: 'http-service', create: '1', signed: 'sha256:abc' });
+    expect(parseHash('#/fleet/externals/x?create=1').params).toEqual({ kind: 'external', key: 'x' });
   });
 });
