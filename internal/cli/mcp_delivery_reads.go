@@ -45,7 +45,7 @@ func mcpDeliveryReads(id *dashboardIdentity, fm *pactomcp.FleetMode, narrowed st
 			}
 		}
 	}
-	if id.entries != nil {
+	if id.entries != nil || id.members != nil {
 		// Each caller reads the other clusters as themselves: the person the
 		// apiserver reviewed for the request, never this process; without a
 		// viewer, the kubeconfig user each context names.

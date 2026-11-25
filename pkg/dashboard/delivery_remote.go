@@ -31,16 +31,26 @@ type RemoteDelivery struct {
 	// Context is the kubeconfig context that reaches the cluster, which the
 	// command that acts there switches to; empty when none does.
 	Context string
+	// Act says how to act on the cluster when no context reaches it, such
+	// as a member whose held requests a person decides on the hub.
+	Act string
 }
 
 // namespacesHidden is a remote API that left out the namespaces the reader
 // may not list there: it says how many, never which.
 type namespacesHidden interface{ HiddenNamespaces() int }
 
+// partlyUnreadable is a remote API that says what of the cluster it could
+// not read or verify, such as a member's records.
+type partlyUnreadable interface{ Unreadable() []string }
+
 // next is command (a pacto delivery command) run in r's cluster: pacto
 // delivery reads the current kubeconfig context, so it first switches to the
 // one that reaches the cluster.
 func (r RemoteDelivery) next(command string) string {
+	if r.Act != "" {
+		return r.Act
+	}
 	if r.Context == "" {
 		return command + " (in cluster " + cmp.Or(r.Cluster.Name, r.Cluster.ID) + ")"
 	}
@@ -230,7 +240,7 @@ func (s *Server) listsAll(ctx context.Context, api DeliveryAPI, withOps bool) ([
 		default:
 			stages, ops = append(stages, got.stages...), append(ops, got.ops...)
 			f.by[r.Cluster.ID], f.next[r.Cluster.ID] = readOnly{r.API}, r.next
-			if cl.Hidden = got.hidden; cl.Hidden > 0 {
+			if cl.Hidden, cl.Unreadable = got.hidden, got.unreadable; cl.Hidden > 0 || len(cl.Unreadable) > 0 {
 				cl.Completeness = "partial"
 			}
 			l.whole[r.Cluster.ID] = cl.Hidden == 0
@@ -247,10 +257,11 @@ func (s *Server) listsAll(ctx context.Context, api DeliveryAPI, withOps bool) ([
 
 // remoteRead is what one remote listed, stamped with its cluster.
 type remoteRead struct {
-	stages []delivery.StageObject
-	ops    []delivery.OperationObject
-	hidden int
-	err    error
+	stages     []delivery.StageObject
+	ops        []delivery.OperationObject
+	hidden     int
+	unreadable []string
+	err        error
 }
 
 // readRemote lists r's Stages and, with ops, Operations in namespace ns (""
@@ -276,6 +287,9 @@ func readRemote(ctx context.Context, r RemoteDelivery, ns string, withOps bool) 
 	}
 	if h, ok := r.API.(namespacesHidden); ok {
 		out.hidden = h.HiddenNamespaces()
+	}
+	if u, ok := r.API.(partlyUnreadable); ok {
+		out.unreadable = u.Unreadable()
 	}
 	return out
 }

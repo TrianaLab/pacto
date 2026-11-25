@@ -56,8 +56,9 @@ Stage is shown as the caller's.
 
 ### Delivery in other clusters
 
-When the server reads more than one kubeconfig context, the inbox and
-environments answers read every one of those clusters the caller may see.
+When the server reads more than one kubeconfig context, or a hub's approved
+members, the inbox and environments answers read every one of those clusters
+the caller may see. A member is read from the Stage records it signs.
 Each item carries its `cluster`, `listing.clusters` says how completely each
 cluster was read and `listing.hiddenClusters` counts the clusters the caller
 may not see, never naming one. An item of another cluster is `readOnly`, with

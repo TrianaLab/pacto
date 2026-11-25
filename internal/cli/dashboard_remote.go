@@ -39,7 +39,8 @@ func (id *dashboardIdentity) remotes(r *http.Request) (fleet.Cluster, []dashboar
 
 // remotesFor is the delivery of every resolved context other than the
 // dashboard's own (aliases and conflicts are no cluster of their own), each
-// read with that context's credentials. With a viewer, the person p is
+// read with that context's credentials, and of every approved member no
+// context reaches, read from its records (memberRemotes). With a viewer, the person p is
 // reviewed in each cluster: a cluster nobody reviews them in is hidden and
 // counted, one whose review fails is partial, and every read passes
 // Viewer.MayList. Without one (local mode) each context is read as its own
@@ -51,7 +52,13 @@ func (id *dashboardIdentity) remotesFor(ctx context.Context, p authn.Person) (fl
 	}
 	var home fleet.Cluster
 	var out []dashboard.RemoteDelivery
-	for _, e := range id.entries(ctx) {
+	var entries []app.K8sEntry
+	if id.entries != nil {
+		entries = id.entries(ctx)
+	}
+	live := map[string]bool{homeUID: true}
+	for _, e := range entries {
+		live[e.UID] = true
 		c := fleet.Cluster{ID: e.UID, Name: e.ClusterName()}
 		switch {
 		case e.Alias != "":
@@ -73,6 +80,11 @@ func (id *dashboardIdentity) remotesFor(ctx context.Context, p authn.Person) (fl
 			r.Context = e.Name
 			out = append(out, r)
 		}
+	}
+	// The hub's members that no context reaches, read from their records.
+	if members := id.memberRemotes(ctx, p, live); len(members) > 0 {
+		out = append(out, members...)
+		home.ID = cmp.Or(home.ID, homeUID)
 	}
 	if len(out) == 0 {
 		return fleet.Cluster{}, nil
@@ -331,4 +343,6 @@ func (r *reviewedDelivery) Environments(context.Context) (*delivery.Environments
 }
 
 // Members are planned on the hub that reads them, never through a remote.
-func (r *reviewedDelivery) Members(context.Context, string, []string) []delivery.MemberPlan { return nil }
+func (r *reviewedDelivery) Members(context.Context, string, []string) []delivery.MemberPlan {
+	return nil
+}

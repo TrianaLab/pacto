@@ -371,3 +371,25 @@ func TestRemoteNextWithoutContextNamesTheCluster(t *testing.T) {
 	r := RemoteDelivery{Cluster: fleet.Cluster{ID: "uid-1"}}
 	expect(t, r.next("pacto delivery cancel op -n prod") == "pacto delivery cancel op -n prod (in cluster uid-1)", "next %q", r.next("x"))
 }
+
+// unreadableDelivery is a remote that says what of it could not be read.
+type unreadableDelivery struct {
+	*fakeDelivery
+	unreadable []string
+}
+
+func (u unreadableDelivery) Unreadable() []string { return u.unreadable }
+
+// TestRemoteUnreadablePartialCluster: what a remote could not read or verify
+// lists under its cluster, which reads partial; Act is the next step of a
+// cluster no context reaches.
+func TestRemoteUnreadablePartialCluster(t *testing.T) {
+	member := RemoteDelivery{Cluster: fleet.Cluster{ID: euID, Name: "eu-prod"}, API: unreadableDelivery{euCluster(), []string{"billing/billing-prod: 2 records did not verify"}},
+		Act: "decide it on the hub"}
+	base := startRemotes(t, sampleCluster(), member)
+	_, envs := call(t, http.MethodGet, base+"/api/delivery/environments", nil)
+	cl := envs["clusters"].([]any)[1].(map[string]any)
+	expect(t, cl["completeness"] == "partial" && cl["unreadable"].([]any)[0] == "billing/billing-prod: 2 records did not verify" && envs["completeness"] == "partial",
+		"unreadable records list under the member: %v", cl)
+	expect(t, member.next("pacto delivery approve op -n prod") == "decide it on the hub", "act %q", member.next("x"))
+}

@@ -163,8 +163,12 @@ only in JSON and tooltips.
 ### Delivery views
 
 The inbox, Environments and History read delivery from every kubeconfig
-context the dashboard reads that you may see. Approved members that no context
-reaches are not read there yet. Each row carries its cluster, and `listing.clusters` says how completely
+context the dashboard reads that you may see. On a hub, each approved member
+that no context reaches is read from the Stage records it signs, verified with
+its recorder key. A namespace there shows when the member's review lets you
+read its Pactos, and a record that does not verify is counted, never shown. A
+held change of a member is decided on the hub with
+`pacto delivery approve --intent`. Each row carries its cluster, and `listing.clusters` says how completely
 each cluster was read. A namespace you may not list is counted there, and a
 cluster you may not see is counted in `listing.hiddenClusters`, neither
 named. Rows from another cluster are read-only: acting on one is refused with
