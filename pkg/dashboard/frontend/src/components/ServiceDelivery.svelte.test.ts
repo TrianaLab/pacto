@@ -314,7 +314,7 @@ describe('ServiceDelivery', () => {
     await settle();
     expect(progress).not.toHaveBeenCalled();
     await openWhy(v);
-    expect(progress).toHaveBeenCalledWith('prod', 'orders');
+    expect(progress).toHaveBeenCalledWith('prod', 'orders', undefined);
     const card = v.target.querySelector('[data-testid="service-delivery-why"]')!;
     const t = card.textContent ?? '';
     for (const x of ['Needs a person', 'A person must approve the promote of 2.5.0.', 'op-1 waits for a person', 'level is advise', '2026-11-04 10:00 UTC'])
@@ -468,6 +468,29 @@ describe('ServiceDelivery', () => {
     const line = v.target.querySelector('[data-testid="service-delivery-applier"]') as HTMLElement;
     expect(line.textContent).toBe('Applier: Helm (release payments, release annotations), conflict: Helm release payments owns Deployment payments');
     expect(line.classList.contains('sd-warn')).toBe(true);
+    v.destroy();
+  });
+});
+
+describe('ServiceDelivery across clusters', () => {
+  beforeEach(() => {
+    environments.mockReset(); progress.mockReset(); history.mockReset();
+    history.mockResolvedValue({ asOf: '2026-11-04T10:00:00Z', completeness: 'complete', histories: [] });
+  });
+
+  it('shows a same-named Stage of two clusters as two rows, the remote one reading only', async () => {
+    const EU = '9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34';
+    environments.mockResolvedValue(answer([row({ heldOperation: 'op-home', held: 1 }), row({ cluster: EU, heldOperation: 'op-eu', held: 1 })],
+      { clusters: [{ id: 'hub-uid', name: 'hub', completeness: 'complete' }, { id: EU, name: 'eu-prod', completeness: 'complete' }] }));
+    const v = render({});
+    await settle();
+    const rows = [...v.target.querySelectorAll('[data-testid="service-delivery-row"]')] as HTMLElement[];
+    expect(rows.length).toBe(2);
+    expect(rows.map((r) => r.querySelector('.sd-env')!.textContent)).toEqual(['hub / prod', 'eu-prod / prod']);
+    const hrefs = (r: HTMLElement) => [...r.querySelectorAll('a')].map((a) => a.getAttribute('href') ?? '');
+    expect(hrefs(rows[1]).some((h) => h.startsWith('#/delivery/history') && h.includes(`cluster=${EU}`))).toBe(true);
+    expect(hrefs(rows[1]).some((h) => h.startsWith('#/delivery/changes'))).toBe(false);
+    expect(hrefs(rows[0])).toContain(deliveryChangeUrl('prod', 'op-home'));
     v.destroy();
   });
 });

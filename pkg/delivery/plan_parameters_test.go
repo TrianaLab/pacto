@@ -51,7 +51,7 @@ func offeringPlanFor(t *testing.T, prod string, extra fstest.MapFS, edit func(*P
 	to := ResolveRevision(t.Context(), reg, "r/a", dB)
 	to.ContractRef = rev(dB, c2, b).ContractRef
 	from := rev(dA, c1, bundle("payments", "1.0.0"))
-	snap, err := Snapshot(t.Context(), nil, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(t.Context(), nil, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

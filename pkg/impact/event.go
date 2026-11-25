@@ -260,6 +260,7 @@ func analyzeEvent(snap *fleet.FleetSnapshot, opts Options) *Result {
 	res.collectOwnersAndTargets(snap, subject)
 	res.noteUnlisted(snap, q, subject)
 	res.noteStaleConsumers()
+	res.attributeClusters(snap, q, q.ProductMeta(), targetClusters(snap))
 	return res
 }
 
@@ -285,6 +286,7 @@ func newEventResult(snap *fleet.FleetSnapshot, q *fleet.Query, ev *Event, name s
 		SchemaVersion: SchemaVersion, SnapshotID: snap.SnapshotID, AsOf: snap.GeneratedAt, Service: name, Event: ev,
 		Completeness: snap.ConsumerCompleteness(), Limitations: append([]fleet.Limitation(nil), snap.Limitations...),
 		Consumers: []AffectedConsumer{}, Sources: meta.Sources, SourcesTruncated: meta.SourcesTruncated,
+		UnreadClusters: snap.UnreadClusters,
 	}
 }
 
@@ -502,6 +504,10 @@ func (r *Result) eventGate() (string, string) {
 		return GateUnverified, r.externalGateReason()
 	}
 	gate, why := r.eventGateCore()
+	// Consumers in clusters that are not members are unknown.
+	if gate == GateClear && r.UnreadClusters > 0 {
+		gate, why = GateUnverified, "nobody visible depends on "+r.Service+", but "+unreadSentence(r.UnreadClusters)
+	}
 	// An inferred name may miss every consumer, so nobody found is no proof.
 	if inferred := r.nameInferred(); inferred != "" && gate == GateClear {
 		gate, why = GateUnverified, inferred

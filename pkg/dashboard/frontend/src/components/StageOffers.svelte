@@ -1,5 +1,6 @@
 <script>
   import { offerLabel, offerRequest, shortDigest } from '../lib/delivery.ts';
+  import { stageKey } from '../lib/envFigure.ts';
   import ProposePanel from './ProposePanel.svelte';
   import UndoPanel from './UndoPanel.svelte';
 
@@ -13,7 +14,7 @@
   let { rows = [], service = '', onlyAvailable = false, match = null, correlation = '', labelPrefix = '', acting = $bindable(null) } = $props();
 
   let opener = null;
-  const keyOf = (r) => `${r.namespace}/${r.stage}`;
+  const keyOf = stageKey;
   const offersOf = (r) => (r.offers ?? []).filter((o) => (!onlyAvailable || o.available) && (!match || match(r, o)));
   // The version a promote names: the candidate's label, else its short digest.
   const versionOf = (r, o) => (o.action === 'promote' ? offerRequest(r, o).version || shortDigest(o.to || r.candidate) : '');

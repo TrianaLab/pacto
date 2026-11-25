@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { clusterWord, clusterReason, clusterCaptionParts, showClusters, approveCommand, isDNSLabel, shortKey, joinNameTip, joinHostsTip, approvedWords, removedWords, snapshotWords, joinCounts, candidateGroups, candidateWord, candidateTip, candidateLabels, hiddenCandidateCount, type ClusterSummary } from './clusters.ts';
+import { clusterWord, clusterReason, clusterCaptionParts, showClusters, approveCommand, isDNSLabel, shortKey, joinNameTip, joinHostsTip, approvedWords, removedWords, snapshotWords, joinCounts, candidateGroups, candidateWord, candidateTip, candidateLabels, hiddenCandidateCount, clusterPrefix, clusterTitle, clusterListingWords, targetCluster, clusterStale, type ClusterSummary } from './clusters.ts';
 import type { ClusterCandidate } from './api.ts';
 
 const c = (id: string, name: string, status: ClusterSummary['status'] = 'available', access?: ClusterSummary['access']): ClusterSummary =>
@@ -154,5 +154,43 @@ describe('candidate clusters', () => {
     expect(hiddenCandidateCount(0)).toBe('');
     expect(hiddenCandidateCount(1)).toBe('1 candidate cluster hidden: they show to those who may approve clusterjoins');
     expect(hiddenCandidateCount(3)).toBe('3 candidate clusters hidden: they show to those who may approve clusterjoins');
+  });
+});
+
+describe('cluster prefix (514-S7)', () => {
+  const two = [{ id: 'uid-eu', name: 'eu-prod' }, { id: 'uid-us', name: 'us-prod' }];
+  it('names the cluster only when the answer holds several, never by its uid', () => {
+    expect(clusterPrefix('uid-us', two)).toBe('us-prod / ');
+    expect(clusterPrefix('', two)).toBe('eu-prod / ');
+    expect(clusterPrefix('uid-us', [two[1]])).toBe('');
+    expect(clusterPrefix('uid-us', undefined)).toBe('');
+    expect(clusterPrefix('uid-gone', two)).toBe('');
+    expect(clusterPrefix('uid-x', [...two, { id: 'uid-x' }])).toBe('unnamed cluster / ');
+    expect(clusterPrefix('uid-us', two)).not.toContain('uid');
+  });
+  it('keeps the full name and the uid for the title', () => {
+    expect(clusterTitle('uid-us', two)).toBe('Cluster us-prod (uid-us)');
+    expect(clusterTitle('', two)).toBe('Cluster eu-prod (uid-eu)');
+    expect(clusterTitle('uid-us', [two[1]])).toBe('');
+  });
+  it('reads the cluster of a 4-part target key', () => {
+    expect(targetCluster('uid-us/prod/k8s/billing')).toBe('uid-us');
+    expect(targetCluster('a%2Fb/prod/k8s/billing')).toBe('a/b');
+    expect(targetCluster('prod/k8s/billing')).toBe('');
+  });
+  it('says what each cluster of a listing could not read', () => {
+    expect(clusterListingWords({ id: 'u', name: 'us-prod', completeness: 'complete' })).toBe('');
+    expect(clusterListingWords({ id: 'u', name: 'ap-dev', completeness: 'partial', why: 'dial tcp: refused' })).toBe('ap-dev: not read');
+    expect(clusterListingWords({ id: 'u', name: 'us-prod', completeness: 'partial', hidden: 2 })).toBe('us-prod: 2 namespaces hidden');
+    expect(clusterListingWords({ id: 'u', name: 'us-prod', completeness: 'partial', hidden: 1, unreadable: ['a', 'b'] })).toBe('us-prod: 1 namespace hidden and 2 not read');
+    expect(clusterListingWords({ id: 'u', completeness: 'partial' })).toBe('unnamed cluster: partial');
+  });
+  it('marks a stale or unreachable cluster with its age', () => {
+    const now = Date.parse('2026-11-24T10:14:00Z');
+    expect(clusterStale('uid-us', [{ ...c('uid-eu', 'eu-prod') }, { ...c('uid-us', 'us-prod', 'stale'), asOf: '2026-11-24T10:00:00Z' }], now)).toBe('Cluster us-prod last published 14 minutes ago, so what runs there now is unknown');
+    expect(clusterStale('uid-us', [c('uid-eu', 'eu-prod'), c('uid-us', 'us-prod', 'unavailable')], now)).toBe('Cluster us-prod could not be read, so what runs there now is unknown');
+    expect(clusterStale('uid-eu', [c('uid-eu', 'eu-prod'), c('uid-us', 'us-prod', 'stale')], now)).toBe('');
+    expect(clusterStale('uid-us', [c('uid-us', 'us-prod', 'stale')], now)).toBe('');
+    expect(clusterStale('', [c('uid-eu', 'eu-prod', 'stale'), c('uid-us', 'us-prod')], now)).toBe('');
   });
 });

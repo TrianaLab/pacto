@@ -1,0 +1,192 @@
+{
+  "schemaVersion": "pacto.dev/impact/v1",
+  "snapshotId": "sha256:04f2a6824d070b2684e07a25b46d79d33ae517ed07bdb6c8aad3e20a940abfaf",
+  "asOf": "2026-11-10T12:00:00Z",
+  "service": "payments",
+  "oldVersion": "1.0.0",
+  "newVersion": "2.0.0",
+  "classification": "BREAKING",
+  "breakingChanges": [
+    {
+      "path": "interfaces",
+      "type": "removed",
+      "oldValue": "api",
+      "classification": "BREAKING",
+      "reason": "interfaces removed"
+    }
+  ],
+  "nonBreakingChanges": [
+    {
+      "path": "service.version",
+      "type": "modified",
+      "oldValue": "1.0.0",
+      "newValue": "2.0.0",
+      "classification": "NON_BREAKING",
+      "reason": "service.version modified"
+    }
+  ],
+  "consumers": [
+    {
+      "service": "checkout",
+      "depth": 1,
+      "direct": true,
+      "path": [
+        "checkout",
+        "payments"
+      ],
+      "owner": "checkout",
+      "ownerKey": "team:checkout",
+      "required": true,
+      "compatibility": "^1.0.0",
+      "compatibilityVerdict": "incompatible",
+      "provenance": "declared",
+      "confidence": "contractual",
+      "status": "Compliant",
+      "targets": [
+        "prod/deployment/checkout"
+      ],
+      "via": [
+        "dependency"
+      ],
+      "evidence": [
+        {
+          "kind": "target",
+          "source": "prod/deployment/checkout",
+          "at": "2026-11-10T12:00:00Z",
+          "provenance": "observed",
+          "message": "evidence 0s old, window 24h"
+        }
+      ]
+    },
+    {
+      "service": "ledger",
+      "depth": 1,
+      "direct": true,
+      "path": [
+        "ledger",
+        "payments"
+      ],
+      "owner": "ledger",
+      "ownerKey": "team:ledger",
+      "required": true,
+      "compatibility": "\u003e=1.0.0",
+      "compatibilityVerdict": "compatible",
+      "provenance": "declared",
+      "confidence": "contractual",
+      "status": "Compliant",
+      "targets": [
+        "prod/deployment/ledger"
+      ],
+      "via": [
+        "dependency"
+      ],
+      "note": "the range \u003e=1.0.0 has no upper bound, so compatible only means the range \u003e=1.0.0 accepts 2.0.0; this change is BREAKING, so check that ledger does not use what it removes or changes",
+      "evidence": [
+        {
+          "kind": "target",
+          "source": "prod/deployment/ledger",
+          "at": "2026-11-10T12:00:00Z",
+          "provenance": "observed",
+          "message": "evidence 0s old, window 24h"
+        }
+      ]
+    }
+  ],
+  "activeTargets": [
+    "prod/deployment/checkout",
+    "prod/deployment/ledger",
+    "prod/deployment/payments"
+  ],
+  "owners": [
+    "team:checkout",
+    "team:ledger"
+  ],
+  "changedOwnerKey": "team:payments",
+  "completeness": "complete",
+  "limitations": [
+    {
+      "code": "REVISION_IDENTITY_UNRESOLVED",
+      "source": "oci",
+      "message": "revision checkout has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+    },
+    {
+      "code": "REVISION_IDENTITY_UNRESOLVED",
+      "source": "oci",
+      "message": "revision ledger has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+    },
+    {
+      "code": "REVISION_IDENTITY_UNRESOLVED",
+      "source": "oci",
+      "message": "revision payments has no immutable digest; a content digest was derived, so its identity is not an immutable registry reference"
+    }
+  ],
+  "sources": [
+    {
+      "id": "k8s-eu-prod",
+      "kind": "kubernetes",
+      "status": "available",
+      "lastSuccessfulSync": "2026-11-10T12:00:00Z",
+      "observedAt": "2026-11-10T12:00:00Z",
+      "revisionCount": 0,
+      "targetCount": 3
+    },
+    {
+      "id": "oci",
+      "kind": "oci",
+      "status": "available",
+      "lastSuccessfulSync": "2026-11-10T12:00:00Z",
+      "observedAt": "2026-11-10T12:00:00Z",
+      "revisionCount": 3,
+      "targetCount": 0
+    }
+  ],
+  "gate": "blocked",
+  "gateReason": "breaking changes affect active consumers, which run on known targets and do not accept payments 2.0.0: checkout",
+  "consumerTallies": {
+    "byOutcome": [
+      {
+        "key": "incompatible",
+        "count": 1
+      },
+      {
+        "key": "unknown",
+        "count": 0
+      },
+      {
+        "key": "compatible",
+        "count": 1
+      },
+      {
+        "key": "unclassified",
+        "count": 0
+      }
+    ],
+    "byOwner": [
+      {
+        "owner": "checkout",
+        "ownerKey": "team:checkout",
+        "consumers": 1,
+        "incompatible": 1
+      },
+      {
+        "owner": "ledger",
+        "ownerKey": "team:ledger",
+        "consumers": 1,
+        "incompatible": 0
+      }
+    ],
+    "beyondRanking": 0,
+    "noOwner": 0,
+    "owners": 2
+  },
+  "ranges": {
+    "scope": "consumers of payments",
+    "edges": 2,
+    "declared": 2,
+    "accepted": 0
+  },
+  "policy": {
+    "unknownRange": "warn",
+    "uncontracted": "warn"
+  }
+}

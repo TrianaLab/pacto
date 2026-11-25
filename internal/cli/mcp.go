@@ -396,6 +396,9 @@ func buildDeliveryMode(cmd *cobra.Command, svc *app.Service, d deps, fm *pactomc
 	// Over stdio the caller is this process's own user: members a hub
 	// detection names read unrestricted, as pacto delivery plan reads them.
 	id.members = newMemberDelivery(svc, mcpFleetOptions(cmd).ClusterJoins)
+	// The kubeconfig user reads every other context the fleet reads with
+	// that context's own credentials, as the fleet does.
+	id.entries = memoEntries(fleetEntries(svc, d, mcpFleetOptions(cmd)))
 	reads := mcpDeliveryReads(id, fm, deliveryNarrowing(flagNamespaces(cmd)))
 	return &pactomcp.DeliveryMode{API: mcpDelivery{Delivery: c, members: id.members}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
 		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe(), InstalledAt: id.installedAt(), Refs: c}, nil

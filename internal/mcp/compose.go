@@ -95,7 +95,7 @@ func New(version string, a Authoring, m Modes) (*mcpsdk.Server, error) {
 		registerFleetTools(server, m.Fleet.Src, m.Fleet.Opts, servedBy(a, m))
 	}
 	if m.Delivery != nil {
-		registerDelivery(server, m.Delivery.API, m.Delivery.Writes, m.Delivery.Refs)
+		registerDelivery(server, m.Delivery.API, m.Delivery.Writes, m.Delivery.Refs, m.Delivery.Reads)
 		if m.Delivery.Reads != nil {
 			registerDeliveryReads(server, m.Delivery.Reads)
 		}

@@ -117,6 +117,10 @@ type Options struct {
 	// DeliveryNamespace, when set, is the only namespace delivery reads and
 	// acts in, as the fleet views are scoped to it.
 	DeliveryNamespace string
+	// DeliveryRemotes, when set, are the dashboard's own cluster and the
+	// other clusters a request reads delivery from (inbox, environments and
+	// history); nil reads only the dashboard's own.
+	DeliveryRemotes func(*http.Request) (fleet.Cluster, []RemoteDelivery)
 	// Auth is the identity layer: sign-in, sessions and request guards.
 	Auth *Auth
 	// InstallationConfig reads what the operator was configured with, for

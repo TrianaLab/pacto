@@ -210,10 +210,6 @@ func TestMappingReviewFailureUsesNone(t *testing.T) {
 func TestMappingListingFailureOrCutUsesNone(t *testing.T) {
 	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
-	jr := &joinRead{s: e.svc, opts: JoinOptions{Repository: "127.0.0.1:1/acme/pacto-targets"}}
-	if got := jr.mappings(t.Context(), memberA); got != nil || len(jr.perCluster[noteMappingsUnread]) != 1 {
-		t.Fatalf("%+v %+v", got, jr.perCluster)
-	}
 	m := e.approvedMember(t)
 	e.svc.ClusterJoins(t.Context(), e.opts()) // the join record is read and remembered
 	for range delivery.MaxJoinRecords + 1 {

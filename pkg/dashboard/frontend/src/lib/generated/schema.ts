@@ -1300,9 +1300,16 @@ export interface components {
              * @description Stages, over every page, Pacto proposes a next level for
              */
             canMoveUp: number;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             contracted?: components["schemas"]["ContractShare"];
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             /** @description Which Stages this page holds */
             page: components["schemas"]["Page"];
             /** @description Counted over every Stage, not only this page */
@@ -2180,6 +2187,25 @@ export interface components {
             streamsRepository?: string;
             uid: string;
         };
+        "Delivery.ClusterListing": {
+            /** @description When the cluster's objects were read or recorded */
+            asOf?: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /**
+             * Format: int64
+             * @description How many namespaces the reader may not list there: counted, never named
+             */
+            hidden?: number;
+            /** @description The cluster's kube-system namespace UID */
+            id: string;
+            /** @description The cluster's display name */
+            name?: string;
+            /** @description What could not be read in namespaces the reader may list, each with why */
+            unreadable?: string[] | null;
+            /** @description Why nothing of the cluster was read, when nothing was */
+            why?: string;
+        };
         "Delivery.ClusterRef": {
             name?: string;
             uid: string;
@@ -2439,6 +2465,8 @@ export interface components {
             annotations?: {
                 [key: string]: string;
             };
+            /** @description The cluster this object was read from, when the answer reads several; empty for the dashboard's own cluster */
+            cluster?: string;
             creationTimestamp?: string;
             finalizers?: string[] | null;
             /** Format: int64 */
@@ -3128,6 +3156,8 @@ export interface components {
             candidate?: string;
             /** @description The version the candidate's contract declares, when the artifact could be read */
             candidateVersion?: string;
+            /** @description The cluster the Stage was read from, when the answer reads several; empty for the reader's own cluster */
+            cluster?: string;
             /** @description The digest-pinned contract the running artifact names (delivery.pacto.trianalab.io/contract), when its artifact could be read */
             contractRef?: string;
             /** @description The registry domain the Stage names for its service; empty when it names none */
@@ -3194,6 +3224,8 @@ export interface components {
         };
         EnvironmentsOutputBody: {
             asOf: string;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Failed, frozen and waiting Stages over every page, after q, environment, tier and state; byEnvironment before environment, tier and state */
@@ -3206,6 +3238,11 @@ export interface components {
             };
             /** @description The Stages of the services on this page */
             environments: components["schemas"]["EnvironmentRow"][] | null;
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             /** @description With service, on a hub with approved members: per environment of the service (its Stages' in promotion order, then those a member takes requests for), the members a promote there is placed on, where that placement came from and the newest request a person signed for each member with what the member answered; only environments placed on a member. Absent on a hub with no members */
             members?: components["schemas"]["Delivery.MemberPlan"][] | null;
             /** @description Which services this page holds; offset and limit count services */
@@ -3418,6 +3455,11 @@ export interface components {
              * @enum {string}
              */
             access?: "no-access" | "review-failed" | "not-reviewable";
+            /**
+             * Format: date-time
+             * @description The oldest last successful read among the sources that reported the cluster. Absent when none was ever read.
+             */
+            asOf?: string;
             /** @description The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified. */
             id: string;
             /** @description The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel. */
@@ -4366,6 +4408,11 @@ export interface components {
                 [key: string]: components["schemas"]["Fleet.TargetRecord"];
             };
             uncontractedCallers?: components["schemas"]["Fleet.UncontractedCaller"][] | null;
+            /**
+             * Format: int64
+             * @description How many clusters publish to this hub's targets repository and are not members, so consumers there are unknown. Never names a cluster.
+             */
+            unreadClusters?: number;
             usage?: components["schemas"]["Fleet.UsageRecord"][] | null;
         };
         "Fleet.GraphNode": {
@@ -6627,10 +6674,17 @@ export interface components {
             asOf: string;
             /** @description With at: which revision each Stage on this page ran at that time. Each revision is one this dashboard's fleet holds, never a guess */
             at?: components["schemas"]["Delivery.AtAnswer"];
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Without a stage: Stages that wait for a person and frozen Stages, over every page */
             counts?: components["schemas"]["HistoryCounts"];
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             histories: components["schemas"]["StageHistory"][] | null;
             /** @description Which Stages this page holds. With a stage, offset, limit and q page its changes instead (see entriesPage) */
             page: components["schemas"]["Page"];
@@ -6687,6 +6741,8 @@ export interface components {
             break?: components["schemas"]["Impact.BreakState"];
             /** @description For an external answer: the client library and major the consumer's inferred record names; absent when none names a major */
             client?: components["schemas"]["Fleet.ExternalClient"];
+            /** @description The ids of the clusters this consumer's targets run in; names and status are in the answer's clusters. Absent with one cluster */
+            clusters?: string[] | null;
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -6966,6 +7022,13 @@ export interface components {
             /** @description The canonical owner key of the changed service */
             changedOwnerKey?: string;
             classification: string;
+            /** @description The clusters the answer read, with their status and age. Absent with one cluster */
+            clusters?: components["schemas"]["Fleet.ClusterSummary"][] | null;
+            /**
+             * Format: int64
+             * @description How many clusters the answer read that clusters leaves out: it lists at most fleet.MaxMetaClusters
+             */
+            clustersTruncated?: number;
             completeness: string;
             /** @description How the organization index was read: which repository, how many services it lists and how many depend on the changed service. Absent when no index was read, such as for local folders, over HTTP or in the dashboard */
             consumerIndex?: components["schemas"]["Impact.ConsumerIndex"];
@@ -7015,6 +7078,11 @@ export interface components {
             targetSnapshots?: components["schemas"]["Fleet.SourceState"][] | null;
             /** @description The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each */
             templates?: string[] | null;
+            /**
+             * Format: int64
+             * @description How many clusters publish to this hub and are not members, so consumers there are unknown: a BREAKING change stays unverified. Never names a cluster
+             */
+            unreadClusters?: number;
         };
         "Impact.RunningBaseline": {
             /** @description The running revisions with the new revision's digest, left out of the baseline: a revision is never its own baseline */
@@ -7103,6 +7171,8 @@ export interface components {
             upstream: string[] | null;
         };
         InboxItem: {
+            /** @description The cluster the operation was read from, when the answer reads several; empty for the dashboard's own cluster */
+            cluster?: string;
             /** @description The services that made a person necessary */
             consumers?: string[] | null;
             /** @description The decision asked for: approve, or accept-unknown */
@@ -7111,6 +7181,8 @@ export interface components {
             fromVersion?: string;
             name: string;
             namespace: string;
+            /** @description With readOnly: the command that acts on the operation in its own cluster */
+            next?: string;
             /** @description What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first */
             order?: components["schemas"]["Delivery.Order"];
             outcome?: string;
@@ -7120,6 +7192,8 @@ export interface components {
             /** @description For a trust operation: the CI signer a person is asked to confirm */
             publisher?: components["schemas"]["Delivery.PublisherIdentity"];
             question?: string;
+            /** @description The operation is in another cluster: this dashboard only reads it */
+            readOnly?: boolean;
             reason?: string;
             /** @description The service the Stage delivers, when the caller can read the Stage */
             service?: string;
@@ -7152,6 +7226,8 @@ export interface components {
             asOf: string;
             /** @description What waits to enter each environment, over every page after q, service and domain (environment and except do not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits */
             byEnvironment: components["schemas"]["InboxEnvironment"][] | null;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Errored operations of the caller's services whose Stage is still frozen */
@@ -7168,6 +7244,11 @@ export interface components {
              * @description How many held changes, over every page, more than one team may answer
              */
             heldShared: number;
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             /** @description The installation ladder proposal waiting for a person to confirm it; absent when there is none. No query narrows it */
             ladder?: components["schemas"]["InboxLadder"];
             /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
@@ -7218,6 +7299,8 @@ export interface components {
         };
         LifecycleOutputBody: {
             asOf: string;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description The digest-pinned contract the artifact names */
@@ -7225,6 +7308,11 @@ export interface components {
             /** @description The artifact digest Stages point at */
             digest: string;
             domain?: string;
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             note: string;
             /** @description The names of the people named here who signed in to this dashboard, by username */
             people?: {
@@ -7858,6 +7946,8 @@ export interface components {
             break?: components["schemas"]["Impact.BreakState"];
             /** @description For an external answer: the client library and major the consumer's inferred record names; absent when none names a major */
             client?: components["schemas"]["Fleet.ExternalClient"];
+            /** @description The ids of the clusters this consumer's targets run in; names and status are in meta.clusters. Absent with one cluster */
+            clusters?: string[] | null;
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -8771,6 +8861,8 @@ export interface components {
             nodes: components["schemas"]["PromotionNode"][] | null;
         };
         PromotionNode: {
+            /** @description The cluster of the Stage, when the answer reads several; empty for the dashboard's own */
+            cluster?: string;
             /** @description The Stage is on a cycle of upstream links, so the graph gives it no place */
             cycle?: boolean;
             environment: string;
@@ -8868,10 +8960,17 @@ export interface components {
         };
         PublishedOutputBody: {
             asOf: string;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Over every page after q, service and domain, before signed */
             counts: components["schemas"]["PublishedCounts"];
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             /** @description Which services this page holds; offset and limit count services */
             page: components["schemas"]["Page"];
             services: components["schemas"]["PublishedService"][] | null;
@@ -9371,6 +9470,8 @@ export interface components {
         };
         StageHistory: {
             asOf: string;
+            /** @description The cluster the Stage was read from, when the answer reads several or names one; empty for the dashboard's own cluster */
+            cluster?: string;
             completeness: string;
             entries: components["schemas"]["Delivery.HistoryEntry"][] | null;
             /** @description Which of the Stage's changes entries holds, newest first */
@@ -9848,8 +9949,15 @@ export interface components {
         };
         TrustOutputBody: {
             asOf: string;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             /** @description Why no rule or policy accepts a signer, so only pins do, or why the rule is unknown */
             noRule?: string;
             /** @description Which services this page holds; offset and limit count services */
@@ -10105,6 +10213,8 @@ export interface operations {
                 stage: string;
                 /** @description The digest to blame; empty means the one the Stage runs */
                 digest?: string;
+                /** @description The cluster of the Stage, as a multi-cluster answer names it; empty for the dashboard's own */
+                cluster?: string;
             };
             header?: never;
             path?: never;
@@ -10342,6 +10452,8 @@ export interface operations {
                 namespace?: string;
                 /** @description One Stage's name */
                 stage?: string;
+                /** @description With namespace and stage: the cluster of the Stage, as the answer's cluster names it; empty for the dashboard's own */
+                cluster?: string;
                 /** @description Without a stage: keep only the Stages of the service with exactly this name */
                 service?: string;
                 /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
@@ -10616,7 +10728,10 @@ export interface operations {
     };
     "delivery-propose": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The cluster to act in; empty for the dashboard's own, the only one it acts in: another is refused with RemoteClusterReadOnly */
+                cluster?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -10694,7 +10809,10 @@ export interface operations {
     };
     "delivery-operation": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The cluster of the operation, as a multi-cluster answer names it; empty for the dashboard's own. A change in another cluster is only read: cancelling it is refused with RemoteClusterReadOnly */
+                cluster?: string;
+            };
             header?: never;
             path: {
                 namespace: string;
@@ -10771,7 +10889,10 @@ export interface operations {
     };
     "delivery-cancel": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The cluster of the operation, as a multi-cluster answer names it; empty for the dashboard's own. A change in another cluster is only read: cancelling it is refused with RemoteClusterReadOnly */
+                cluster?: string;
+            };
             header?: never;
             path: {
                 namespace: string;
@@ -10848,7 +10969,10 @@ export interface operations {
     };
     "delivery-decide": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The cluster of the operation; empty for the dashboard's own, the only one it acts in: another is refused with RemoteClusterReadOnly */
+                cluster?: string;
+            };
             header?: never;
             path: {
                 namespace: string;
@@ -10929,7 +11053,10 @@ export interface operations {
     };
     "delivery-plan": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The cluster to act in; empty for the dashboard's own, the only one it acts in: another is refused with RemoteClusterReadOnly */
+                cluster?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -11012,6 +11139,8 @@ export interface operations {
                 namespace: string;
                 /** @description The Stage */
                 stage: string;
+                /** @description The cluster of the Stage, as a multi-cluster answer names it; empty for the dashboard's own */
+                cluster?: string;
             };
             header?: never;
             path?: never;
@@ -11180,6 +11309,8 @@ export interface operations {
                 stage: string;
                 /** @description The record's id (sha256:...), as a history line names it */
                 id: string;
+                /** @description The cluster of the Stage, as a multi-cluster answer names it; empty for the dashboard's own */
+                cluster?: string;
             };
             header?: never;
             path?: never;
@@ -11411,6 +11542,8 @@ export interface operations {
                 name: string;
                 /** @description Its Stage, to find it in the records when it is gone from the cluster */
                 stage?: string;
+                /** @description The cluster of the operation, as a multi-cluster answer names it; empty for the dashboard's own */
+                cluster?: string;
             };
             header?: never;
             path?: never;

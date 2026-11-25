@@ -1,0 +1,26 @@
+# A member's promoter (514-S7) reads no joins: hub.url passes --member, so
+# consumers in other clusters count as unread there. The default renders none.
+suite: delivery member
+templates:
+  - templates/delivery/deployment.yaml
+set:
+  delivery.enabled: true
+capabilities:
+  apiVersions:
+    - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+tests:
+  - it: a member's promoter runs with --member
+    set:
+      registry: ghcr.io/acme
+      hub.url: wss://hub.acme.example
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --member
+  - it: a cluster with no hub.url renders no --member
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --member

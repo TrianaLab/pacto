@@ -239,10 +239,15 @@ const SnapshotSourceID = "delivery"
 
 // Snapshot builds the operational graph plan() projects a change onto: the
 // Pactos' [PactoCollection] under [SnapshotSourceID], plus the revisions on
-// both sides of the change. extra are more sources read beside it, such as
-// what the operator's detector read in process.
-func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Revision, now time.Time, extra ...fleet.Source) (*fleet.FleetSnapshot, error) {
+// both sides of the change and the sources of m, the hub's members. With
+// member sources the hub's Pactos sit in m.Home, so they are never
+// clusterless next to a member's. extra are more sources read beside it,
+// such as what the operator's detector read in process.
+func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Revision, now time.Time, m Members, extra ...fleet.Source) (*fleet.FleetSnapshot, error) {
 	col := PactoCollection(SnapshotSourceID, pactos, listErr, now)
+	if len(m.Sources) > 0 {
+		col.Cluster = m.Home
+	}
 	var revs []fleet.RawRevision
 	for _, side := range sides {
 		if side.Bundle == nil {
@@ -260,7 +265,7 @@ func Snapshot(ctx context.Context, pactos []PactoView, listErr error, sides []Re
 	// No ExternalCatalog: Build classifies with externalcatalog.Default(), the
 	// catalog the operator compiles in, so its digest is the snapshot's catalog
 	// ref that EXTERNAL_CATALOG_MISMATCH compares each status against.
-	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, append([]fleet.Source{src}, extra...)...)
+	return fleet.Build(ctx, fleet.BuildOptions{Now: func() time.Time { return now }}, append(append([]fleet.Source{src}, m.Sources...), extra...)...)
 }
 
 // PactoCollection is the collection of the Pactos as source reads them: one
@@ -620,10 +625,7 @@ type Misplaced struct {
 // misplacedLabels returns the environments the Stages declare and every Pacto
 // whose environment label is not one of them.
 func misplacedLabels(pactos []PactoView, stages []StageObject) (known map[string]bool, misplaced []Misplaced) {
-	known = map[string]bool{}
-	for _, s := range stages {
-		known[s.Spec.Environment] = true
-	}
+	known = KnownEnvironments(stages)
 	for _, p := range pactos {
 		if env := p.Metadata.Labels[EnvironmentLabel]; env != "" && !known[env] {
 			m := Misplaced{Note: fmt.Sprintf("Pacto %s/%s is labelled for environment %q, which no Stage declares", p.Metadata.Namespace, p.Metadata.Name, env)}
@@ -634,6 +636,17 @@ func misplacedLabels(pactos []PactoView, stages []StageObject) (known map[string
 		}
 	}
 	return known, misplaced
+}
+
+// KnownEnvironments are the environments stages declare: a Pacto labelled
+// for one of them runs only there, one labelled for another counts in every
+// environment.
+func KnownEnvironments(stages []StageObject) map[string]bool {
+	known := map[string]bool{}
+	for _, s := range stages {
+		known[s.Spec.Environment] = true
+	}
+	return known
 }
 
 // EnvironmentPactos keeps the Pactos that may run in environment. A provider

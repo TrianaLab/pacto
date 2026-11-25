@@ -269,6 +269,22 @@ func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {
 	}
 }
 
+// TestDeliveryRecordIsKubernetesFree keeps pkg/deliveryrecord, where the
+// hub's join reading lives, usable by the operator module: it reaches the
+// registry (so it is not a core package, which may never reach oras) and
+// never a Kubernetes client, an integration or the CLI's internal packages,
+// so the operator's promoter computes the join states the hub's surfaces do.
+func TestDeliveryRecordIsKubernetesFree(t *testing.T) {
+	const mod = "github.com/trianalab/pacto/v4/"
+	for _, dep := range deps(t, mod+"pkg/deliveryrecord/...") {
+		for _, bad := range []string{"k8s.io/", "sigs.k8s.io/", "github.com/trianalab/pacto/integrations/", mod + "integrations/", mod + "internal/"} {
+			if strings.HasPrefix(dep, bad) {
+				t.Errorf("boundary violation: pkg/deliveryrecord reaches %q; it stays Kubernetes-free", dep)
+			}
+		}
+	}
+}
+
 // TestInferredContractIsKubernetesFree keeps pkg/inferredcontract usable by
 // the CLI and the operator alike: it publishes through pkg/publish (which
 // reaches the registry, so it is not a core package) and never reaches a
@@ -320,6 +336,18 @@ var clusterViewSymbols = []string{"ClusterSummary", "ClusterRecord", "ClusterNoA
 // other check still applies to them.
 var joinListReaders = map[string]string{
 	"pkg/delivery/clustercandidates.go": "matches the hub's candidate clusters to its join list by stated UID; it reads no fleet view",
+	"pkg/delivery/members.go":           "counts the join list's pending clusters for gates; it reads no fleet view",
+}
+
+// clusterAttribution are the impact files that name where a consumer runs:
+// the answer's cluster summaries, each consumer's cluster ids and the
+// stale-cluster rule, which reads a cluster's source status and age (the same
+// for every reader) and only ever lowers a verdict to unknown. Access marks,
+// cluster records and the Cluster filter stay banned there.
+var clusterAttribution = map[string]string{
+	"pkg/impact/clusters.go": "attributes consumers to clusters and turns compatible unknown on a stale cluster",
+	"pkg/impact/impact.go":   "declares Result.Clusters and AffectedConsumer.Clusters",
+	"pkg/impact/product.go":  "copies a consumer's cluster ids",
 }
 
 // TestNoGateReadsClusterAccess keeps cluster access marks, per-cluster
@@ -360,8 +388,9 @@ func clusterViewReads(t *testing.T, path, rel string) []string {
 		switch n := n.(type) {
 		case *ast.SelectorExpr:
 			x, ok := n.X.(*ast.Ident)
-			joinList := joinListReaders[rel] != "" && n.Sel.Name == "Clusters"
-			if (ok && x.Name == "fleet" && slices.Contains(clusterViewSymbols, n.Sel.Name)) || (n.Sel.Name == "Clusters" && !joinList) || n.Sel.Name == "ClustersTruncated" {
+			allowed := (joinListReaders[rel] != "" || clusterAttribution[rel] != "") && n.Sel.Name == "Clusters"
+			summary := ok && x.Name == "fleet" && n.Sel.Name == "ClusterSummary" && clusterAttribution[rel] != ""
+			if (ok && x.Name == "fleet" && slices.Contains(clusterViewSymbols, n.Sel.Name) && !summary) || (n.Sel.Name == "Clusters" && !allowed) || n.Sel.Name == "ClustersTruncated" {
 				at(n)
 			}
 		case *ast.CompositeLit:

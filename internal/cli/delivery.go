@@ -2,6 +2,7 @@ package cli
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -55,6 +56,8 @@ func newDeliveryCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command
 	cmd.PersistentFlags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.PersistentFlags().String("trust", "", "the trust config delivery records are verified with: the recorder's PEM public key, "+
 		"or a YAML file of keys and the streams each may sign (default $"+app.TrustEnv+")")
+	cmd.PersistentFlags().String("detected", "", "what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, "+
+		"or a file holding the same JSON; a promote's plan then reads the hub's approved member clusters too")
 	cmd.AddCommand(
 		newDeliveryTypesCommand(v),
 		newDeliveryDescribeCommand(v),
@@ -111,7 +114,20 @@ func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.
 		return nil, "", err
 	}
 	return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now}, ns, nil
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Members: promoteMembers(cmd, dyn, policyNS)}, ns, nil
+}
+
+// promoteMembers reads, for each promote, the approved members of the hub dyn
+// reaches, from the registry what its operator detected (--detected)
+// advertises; nil without --detected.
+func promoteMembers(cmd *cobra.Command, dyn dynamic.Interface, policyNS string) func(context.Context, string, map[string]bool) delivery.Members {
+	detected, _ := cmd.Flags().GetString("detected")
+	if detected == "" {
+		return nil
+	}
+	return app.NewService(nil, nil).PlanMembers(&app.JoinOptions{Resolve: func(ctx context.Context) (app.JoinOptions, error) {
+		return joinsOn(ctx, dyn, "", detected, policyNS)
+	}})
 }
 
 func newDeliveryTypesCommand(v *viper.Viper) *cobra.Command {

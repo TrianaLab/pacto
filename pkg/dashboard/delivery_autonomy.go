@@ -219,10 +219,11 @@ func (s *Server) deliveryAutonomy(ctx context.Context, in *autonomyInput) (*auto
 	b.PromotionsWithoutPerson = count
 	ofService := map[string]bool{}
 	for _, st := range stages {
-		ofService[st.Metadata.Namespace+"/"+st.Metadata.Name] = delivery.OfService(st, in.Service, in.Domain)
+		ofService[delivery.StageKey(st.Metadata, st.Metadata.Name)] = delivery.OfService(st, in.Service, in.Domain)
 	}
 	rows = filter(rows, func(r AutonomyStage) bool {
-		return ofService[r.Namespace+"/"+r.Stage] && matches(in.Q, r.Namespace+"/"+r.Stage, r.Service, r.Environment)
+		k := delivery.StageKey(delivery.ObjectMeta{Namespace: r.Namespace}, r.Stage)
+		return ofService[k] && matches(in.Q, k, r.Service, r.Environment)
 	})
 	blockers = filter(blockers, func(x AutonomyBlocker) bool {
 		return matches(in.Q, append([]string{x.Kind, x.Subject}, x.Stages...)...)
@@ -303,7 +304,7 @@ func autonomy(stages []delivery.StageObject, callers []uncontractedCaller) ([]Au
 		rows = append(rows, row)
 		if lad.Proposal != nil {
 			for _, b := range lad.Proposal.Blockers {
-				add(b, row.Namespace+"/"+row.Stage, row.Service)
+				add(b, delivery.StageKey(delivery.ObjectMeta{Namespace: row.Namespace}, row.Stage), row.Service)
 			}
 		}
 		for _, c := range lad.Stream.Concluded {

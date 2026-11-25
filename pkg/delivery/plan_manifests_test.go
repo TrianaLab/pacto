@@ -16,7 +16,7 @@ func inspectedInput(t *testing.T, insp ManifestInspection, reads *int) PlanInput
 	old, next := bundle("payments", "1.0.0"), bundle("payments", "2.0.0")
 	old.Contract.Workload, next.Contract.Workload = "service", "job"
 	from, to := rev(dA, c1, old), rev(dB, c2, next)
-	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -34,7 +34,7 @@ func inspectedInput(t *testing.T, insp ManifestInspection, reads *int) PlanInput
 func acceptedByCheckout(t *testing.T, in *PlanInput) {
 	t.Helper()
 	in.From.Bundle.Contract.Workload = "job"
-	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto(">=1.0.0")}, nil, []Revision{in.From, in.To}, now)
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto(">=1.0.0")}, nil, []Revision{in.From, in.To}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

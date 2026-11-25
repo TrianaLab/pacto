@@ -14,6 +14,7 @@ type blameInput struct {
 	Namespace string `query:"namespace" required:"true" doc:"The Stage's namespace"`
 	Stage     string `query:"stage" required:"true" doc:"The Stage's name"`
 	Digest    string `query:"digest" doc:"The digest to blame; empty means the one the Stage runs"`
+	Cluster   string `query:"cluster" doc:"The cluster of the Stage, as a multi-cluster answer names it; empty for the dashboard's own"`
 }
 
 type blameOutput struct {
@@ -27,7 +28,7 @@ func (s *Server) deliveryBlame(ctx context.Context, in *blameInput) (*blameOutpu
 	if err := s.inScope(in.Namespace); err != nil {
 		return nil, err
 	}
-	api, err := s.deliveryFor(ctx)
+	api, err := s.deliveryAt(ctx, in.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -53,6 +54,7 @@ type undoInput struct {
 	Namespace string `query:"namespace" required:"true" doc:"The operation's namespace"`
 	Name      string `query:"name" required:"true" doc:"The operation to undo"`
 	Stage     string `query:"stage" doc:"Its Stage, to find it in the records when it is gone from the cluster"`
+	Cluster   string `query:"cluster" doc:"The cluster of the operation, as a multi-cluster answer names it; empty for the dashboard's own"`
 }
 
 type undoOutput struct {
@@ -66,7 +68,7 @@ func (s *Server) deliveryUndo(ctx context.Context, in *undoInput) (*undoOutput, 
 	if err := s.inScope(in.Namespace); err != nil {
 		return nil, err
 	}
-	api, err := s.deliveryFor(ctx)
+	api, err := s.deliveryAt(ctx, in.Cluster)
 	if err != nil {
 		return nil, err
 	}
@@ -86,6 +88,7 @@ type recordInput struct {
 	Namespace string `query:"namespace" required:"true" doc:"The Stage's namespace"`
 	Stage     string `query:"stage" required:"true" doc:"The Stage's name"`
 	ID        string `query:"id" required:"true" doc:"The record's id (sha256:...), as a history line names it"`
+	Cluster   string `query:"cluster" doc:"The cluster of the Stage, as a multi-cluster answer names it; empty for the dashboard's own"`
 }
 
 type recordOutput struct {
@@ -99,7 +102,7 @@ func (s *Server) deliveryRecord(ctx context.Context, in *recordInput) (*recordOu
 	if err := s.inScope(in.Namespace); err != nil {
 		return nil, err
 	}
-	api, err := s.deliveryFor(ctx)
+	api, err := s.deliveryAt(ctx, in.Cluster)
 	if err != nil {
 		return nil, err
 	}

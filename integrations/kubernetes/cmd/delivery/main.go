@@ -36,6 +36,7 @@ import (
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	ctrl "sigs.k8s.io/controller-runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/healthz"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"sigs.k8s.io/controller-runtime/pkg/manager"
@@ -134,6 +135,10 @@ func runPromoter(args []string) error {
 			"While one is missing, fails open or is not bound with Deny to every object, no operation is admitted, "+
 			"no approval counts and every Stage is not Ready. Required: with none set, the promoter admits nothing.")
 	registry := fs.String("registry", "", registryUsage)
+	member := fs.Bool("member", false,
+		"This cluster is a member of a hub: consumers in other clusters are read on the hub, so a promote that is "+
+			"not plainly non-breaking asks a person here. Off: a promote also reads the members that joined this "+
+			"cluster through --targets-repository.")
 	statsRepository := fs.String("stats-repository", "",
 		"A repository (host/path) the promoter publishes an unsigned run record of every concluded operation to, "+
 			"best effort. Empty records none.")
@@ -209,6 +214,8 @@ func runPromoter(args []string) error {
 	if cluster.Infra, err = infra(mgr); err != nil {
 		return err
 	}
+	cluster.Members = delivery.PeerMembers(peerOptions(*targetsRepo, clusterID, *member, policy, mgr.GetClient(),
+		keychain, insecure))
 	peers, err := followUpstream(&cluster, mgr, *targetsRepo, *upstreamTrust, clusterID, policy, keychain, insecure)
 	if err != nil {
 		return err
@@ -344,6 +351,14 @@ func promoterPolicy(user, identities string) (string, core.ClassPolicy, error) {
 	}
 	policy, err := delivery.LoadClassPolicy(identities, user)
 	return user, policy, err
+}
+
+// peerOptions read the members that joined this cluster from targets, the
+// --targets-repository: none when it is empty.
+func peerOptions(targets, clusterID string, member bool, policy core.ClassPolicy, c client.Client,
+	keychain authn.Keychain, insecure []string) delivery.PeerOptions {
+	return delivery.PeerOptions{Repository: targets, ClusterID: clusterID, Member: member, Policy: policy, Client: c,
+		Registry: readOnlyOptions(keychain, insecure), Now: time.Now}
 }
 
 // registryUsage is the --registry help of both delivery subcommands.

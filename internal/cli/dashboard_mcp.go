@@ -99,7 +99,7 @@ func newDashboardMCP(v *viper.Viper, svc *app.Service, version string, repos []s
 	rm.authoring = dashboardAuthoring(v, svc, repos, rm.modes.Fleet, id.policyNS)
 	// Delivery follows the dashboard: served with a cluster, with its trust
 	// and policy namespace.
-	rm.delivery = deliveryClientsFor(id.trust, id.policyNS, d)
+	rm.delivery = deliveryClientsFor(id.trust, id.policyNS, viewedMembers(id.viewer, id.planMembers, personFrom), d)
 	rm.reads = mcpDeliveryReads(id, rm.modes.Fleet, deliveryNarrowing(splitNamespaces(v.GetString("dashboard.namespace"))))
 	rm.installed, rm.installedAt = id.installedProbe(), id.installedAt()
 	rm.id = id

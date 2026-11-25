@@ -12,7 +12,7 @@ import (
 // impact applies its own 24h rule, and its completeness gate must not move.
 func TestDeliveryReadContractFreshnessUnchanged(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
-	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

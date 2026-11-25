@@ -329,6 +329,11 @@ func TestClusterSummariesFoldFailedLiveSources(t *testing.T) {
 		t.Fatalf("summaries %+v", got)
 	}
 	for _, c := range got {
+		// A cluster whose every source failed was never read.
+		if read := c.AsOf != nil && c.AsOf.Equal(fixedNow()); read != (c.ID != "uid-ap") {
+			t.Errorf("summary %s asOf %v", c.ID, c.AsOf)
+		}
+		c.AsOf = nil
 		if c != want[c.ID] {
 			t.Errorf("summary %+v, want %+v", c, want[c.ID])
 		}

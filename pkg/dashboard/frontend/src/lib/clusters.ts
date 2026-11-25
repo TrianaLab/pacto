@@ -2,6 +2,10 @@
 // Services and Targets lists and the Clusters block on Data sources, plus the
 // member join rows (514-S3) that block shows.
 import type { ClusterSummary, ClusterJoinState, ClusterCandidate } from './api.ts';
+import type { components } from './generated/schema.ts';
+import { formatWhen } from './dateFormat.ts';
+
+type ClusterListing = components['schemas']['Delivery.ClusterListing'];
 
 export type { ClusterSummary };
 
@@ -168,4 +172,53 @@ export function candidateLabels(labels: Record<string, string> | undefined): { s
 export function hiddenCandidateCount(n: number): string {
   if (!n) return '';
   return `${n} candidate cluster${n === 1 ? '' : 's'} hidden: they show to those who may approve clusterjoins`;
+}
+
+// A cluster as an answer lists it: fleet meta clusters and delivery listing clusters both fit.
+type Named = { id: string; name?: string };
+
+// named is the cluster id stands for when the answer lists several; '' (an object of the
+// dashboard's own cluster) is the first, since a delivery listing lists its own cluster first.
+function named(id: string | undefined, clusters: Named[] | null | undefined): Named | undefined {
+  if (!clusters || clusters.length < 2) return undefined;
+  return id ? clusters.find((c) => c.id === id) : clusters[0];
+}
+
+/** clusterPrefix: "eu-prod / " before a row's label when the answer holds several clusters,
+ *  '' with one; never a uid (the uid goes only in clusterTitle). */
+export function clusterPrefix(id: string | undefined, clusters: Named[] | null | undefined): string {
+  const c = named(id, clusters);
+  return c ? `${c.name || 'unnamed cluster'} / ` : '';
+}
+
+/** clusterTitle: the full display name and the uid, for a title; '' with one cluster. */
+export function clusterTitle(id: string | undefined, clusters: Named[] | null | undefined): string {
+  const c = named(id, clusters);
+  return c ? `Cluster ${c.name || 'unnamed cluster'} (${c.id})` : '';
+}
+
+/** targetCluster: the cluster of a 4-part target key (cluster/scope/kind/name), '' for a 3-part one. */
+export function targetCluster(key: string): string {
+  const parts = key.split('/');
+  return parts.length === 4 ? decodeURIComponent(parts[0]) : '';
+}
+
+/** clusterListingWords: what one cluster of a delivery listing could not read, '' when complete. */
+export function clusterListingWords(l: ClusterListing): string {
+  if (l.completeness === 'complete') return '';
+  const name = l.name || 'unnamed cluster';
+  if (l.why) return `${name}: not read`;
+  const parts = [];
+  if (l.hidden) parts.push(`${l.hidden} namespace${l.hidden === 1 ? '' : 's'} hidden`);
+  if (l.unreadable?.length) parts.push(`${l.unreadable.length} not read`);
+  return `${name}: ${parts.join(' and ') || 'partial'}`;
+}
+
+/** clusterStale: why a target in a stale or unreachable cluster may run something else now,
+ *  with the cluster's age; '' for a fresh cluster or an answer with one cluster. */
+export function clusterStale(id: string, clusters: ClusterSummary[] | null | undefined, now: number = Date.now()): string {
+  const c = id ? (named(id, clusters) as ClusterSummary | undefined) : undefined;
+  if (!c || (c.status !== 'stale' && c.status !== 'unavailable')) return '';
+  const when = c.asOf ? `last published ${formatWhen(c.asOf, now)}` : 'could not be read';
+  return `Cluster ${c.name} ${when}, so what runs there now is unknown`;
 }

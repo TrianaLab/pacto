@@ -9,6 +9,7 @@
   import Breadcrumbs from '../components/Breadcrumbs.svelte';
   import PageHeader from '../components/PageHeader.svelte';
   import EntityLink from '../components/EntityLink.svelte';
+  import { clusterPrefix, clusterTitle, clusterStale, targetCluster } from '../lib/clusters.ts';
   import HelpTip from '../components/HelpTip.svelte';
   import EmptyState from '../components/EmptyState.svelte';
   import Select from '../components/Select.svelte';
@@ -878,7 +879,7 @@
                     <td data-label="Runs on" class="runs-cell">
                       {#if targets.length}
                         <ul class="runs-list">
-                          {#each targets.slice(0, 2) as t (t.key)}<li><EntityLink ref={t} showStatus={false} showKind={false} />{#if c.staleTargets?.includes(t.key)} <span class="badge badge-warn badge-stale" data-testid="consumer-target-stale" title="Its evidence is older than 24h before this answer's snapshot, has no time or is marked stale, so the consumer was last reported there">stale</span>{/if}</li>{/each}
+                          {#each targets.slice(0, 2) as t (t.key)}{@const tc = targetCluster(t.key)}{@const late = clusterStale(tc, result?.meta?.clusters)}<li><!-- An answer read from several clusters names the target's cluster; the full name and uid are in the title. --><span title={clusterTitle(tc, result?.meta?.clusters) || undefined}><EntityLink ref={tc ? { ...t, label: clusterPrefix(tc, result?.meta?.clusters) + (t.label || t.key) } : t} showStatus={false} showKind={false} /></span>{#if c.staleTargets?.includes(t.key)} <span class="badge badge-warn badge-stale" data-testid="consumer-target-stale" title="Its evidence is older than 24h before this answer's snapshot, has no time or is marked stale, so the consumer was last reported there">stale</span>{:else if late} <span class="badge badge-warn badge-stale" data-testid="consumer-target-cluster-stale" title={late}>stale</span>{/if}</li>{/each}
                         </ul>
                         {@const more = Math.max(c.targetsTotal ?? targets.length, targets.length) - Math.min(2, targets.length)}
                         {#if more > 0}<span class="t-meta" title={targets.slice(2).map((t) => t.label || t.key).join(', ')}>+{formatCount(more)}</span>{/if}

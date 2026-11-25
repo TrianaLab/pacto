@@ -43,7 +43,7 @@ func TestExternalUsesFromStatus(t *testing.T) {
 		t.Fatal("a fresh complete coverage adds no limitation")
 	}
 	// The embedded catalog the operator names is the snapshot's own: no mismatch.
-	snap, err := Snapshot(context.Background(), []PactoView{externalsPacto(complete(), stripeEnv)}, nil, nil, now)
+	snap, err := Snapshot(context.Background(), []PactoView{externalsPacto(complete(), stripeEnv)}, nil, nil, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestExternalUsesOldStatusFormatUnreported(t *testing.T) {
 	// Format 3 with no coverage cannot say it is complete either.
 	unreported(t, ExternalLimitations(externalsPacto(nil), &reconciled, now), "not-evaluated", "could not evaluate")
 	// The old status reaches the target, so the External answer turns partial.
-	snap, err := Snapshot(context.Background(), []PactoView{p}, nil, nil, now)
+	snap, err := Snapshot(context.Background(), []PactoView{p}, nil, nil, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

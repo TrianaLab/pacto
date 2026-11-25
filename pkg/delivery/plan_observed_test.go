@@ -46,7 +46,7 @@ func minorSides() (Revision, Revision) {
 
 func planIn(t *testing.T, from, to Revision, pactos ...PactoView) PlanInput {
 	t.Helper()
-	snap, err := Snapshot(context.Background(), pactos, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), pactos, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

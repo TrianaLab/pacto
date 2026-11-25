@@ -13,6 +13,7 @@ import (
 type operationInput struct {
 	Namespace string `path:"namespace"`
 	Name      string `path:"name"`
+	Cluster   string `query:"cluster" doc:"The cluster of the operation, as a multi-cluster answer names it; empty for the dashboard's own. A change in another cluster is only read: cancelling it is refused with RemoteClusterReadOnly"`
 }
 
 type operationOutput struct {
@@ -37,7 +38,7 @@ func (s *Server) deliveryOperation(ctx context.Context, in *operationInput) (*op
 	if err := s.inScope(in.Namespace); err != nil {
 		return nil, err
 	}
-	api, err := s.deliveryFor(ctx)
+	api, err := s.deliveryAt(ctx, in.Cluster)
 	if err != nil {
 		return nil, err
 	}

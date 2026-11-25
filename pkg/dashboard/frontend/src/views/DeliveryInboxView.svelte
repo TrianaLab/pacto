@@ -20,6 +20,7 @@
   import ProposePanel from '../components/ProposePanel.svelte';
   import LadderBlock from '../components/LadderBlock.svelte';
   import { urlInt, limitParam } from '../lib/paging.ts';
+  import { clusterPrefix, clusterTitle } from '../lib/clusters.ts';
   import { formatCount, countOf } from '../lib/format.ts';
 
   // What waits on me or my team: held changes whose question names one of my
@@ -95,7 +96,12 @@
   // A title repeated from the line above is cut to what differs: the rest is
   // still read out, hidden on screen.
   const repeats = (list, i, key) => i > 0 && key(list[i - 1]) === key(list[i]);
-  const changeOn = (it) => `${typeLabel(it.type)} on ${it.namespace}/${it.stage}`;
+  // An answer read from several clusters names each row's cluster before it; the full
+  // name and uid are in the title.
+  const pre = (it) => clusterPrefix(it.cluster, inbox?.clusters);
+  const where = (it) => clusterTitle(it.cluster, inbox?.clusters) || undefined;
+  const idOf = (it) => `${it.cluster ?? ''}/${it.namespace}/${it.name}`;
+  const changeOn = (it) => `${pre(it)}${typeLabel(it.type)} on ${it.namespace}/${it.stage}`;
   const moveOf = (it) => (it.fromVersion && it.toVersion ? `${it.fromVersion} to ${it.toVersion}` : it.toVersion || shortDigest(it.to));
   // One line per held change: what breaks and for whom. Without named services, the
   // first sentence of the server's question says why a person is needed.
@@ -114,7 +120,7 @@
   // the caller's own identity and admission decides.
   let acting = $state(null);
   let opener = null;
-  const keyOf = (r) => `${r.namespace}/${r.stage}`;
+  const keyOf = (r) => `${r.cluster ?? ''}/${r.namespace}/${r.stage}`;
   // A pinned service's signer that changed is asked as a change, never as a
   // first signer: the question names the identity it replaces.
   const pinnedBefore = (it) => (it.question ?? '').match(/: signer changed from (\S+) to /)?.[1] ?? '';
@@ -125,10 +131,11 @@
 {#snippet row(it, again)}
   <li class="pl-row dl-row">
     <div class="dl-main">
-      <a class="dl-title" class:dl-again={again && it.to && it.type !== TRUST_TYPE} href={deliveryChangeUrl(it.namespace, it.name)}>
-        {#if it.type === TRUST_TYPE && it.publisher}{@const was = pinnedBefore(it)}{it.service || `${it.namespace}/${it.stage}`}: {#if was}signer changed from <bdi title={was}>{was}</bdi> to{:else}new signer{/if} <bdi title={it.publisher.subject}>{it.publisher.subject}</bdi>{#if it.publisher.repository}{' '}(repository <bdi title={it.publisher.repository}>{it.publisher.repository}</bdi>, attested){/if}
+      <!-- An operation of another cluster only reads here: its title is text, never a link to this cluster's change page. -->
+      <svelte:element this={it.readOnly ? 'span' : 'a'} class="dl-title" class:dl-again={again && it.to && it.type !== TRUST_TYPE} href={it.readOnly ? undefined : deliveryChangeUrl(it.namespace, it.name)} title={where(it)}>
+        {#if it.type === TRUST_TYPE && it.publisher}{@const was = pinnedBefore(it)}{pre(it)}{it.service || `${it.namespace}/${it.stage}`}: {#if was}signer changed from <bdi title={was}>{was}</bdi> to{:else}new signer{/if} <bdi title={it.publisher.subject}>{it.publisher.subject}</bdi>{#if it.publisher.repository}{' '}(repository <bdi title={it.publisher.repository}>{it.publisher.repository}</bdi>, attested){/if}
         {:else if again && it.to}<span class="visually-hidden">{`${changeOn(it)}: `}</span>{moveOf(it)}{:else}{it.to ? `${changeOn(it)}: ${moveOf(it)}` : changeOn(it)}{/if}
-      </a>
+      </svelte:element>
       <p class="dl-facts t-body-2">
         {#if it.consumers?.length}
           <span class="dl-affects">{breaksWord(it)} <CappedList items={it.consumers} max={3} inline={true} label="Affected services">{#snippet item(c)}<a href={deliveryServiceUrl(c)}>{c}</a>{/snippet}</CappedList></span>
@@ -138,7 +145,12 @@
         <span class="dl-who">{#if it.owners?.length}{#if session.caller?.teamNarrowing === false}People who may update this workload may answer; asked of {andList(it.owners, 3)}{:else}People of {andList(it.owners, 3)} who may update this workload may answer{/if}{:else if session.caller?.requireOwnerTeam}Nobody may answer: no team is declared, so only break-glass can override{:else}People who may update this workload may answer{/if}</span>
       </p>
     </div>
+    {#if it.readOnly}
+      <!-- Where Decide would be: the command that decides it in its own cluster. -->
+      <span class="dl-decide dl-next t-meta" data-testid="inbox-next">Decide there: <code>{it.next}</code></span>
+    {:else}
     <a class="btn btn-primary btn-sm dl-decide" href={deliveryChangeUrl(it.namespace, it.name)} aria-label={it.type === TRUST_TYPE ? `Confirm identity: ${it.publisher?.subject ?? `${it.namespace}/${it.stage}`}` : `Decide: ${typeLabel(it.type)} on ${it.namespace}/${it.stage}`}>{it.type === TRUST_TYPE ? 'Confirm identity' : 'Decide'}</a>
+    {/if}
   </li>
 {/snippet}
 
@@ -198,7 +210,7 @@
         {:else}
           {#if mine.length}
             <ul class="pl-list" data-testid="inbox-held">
-              {#each mine as it, i (it.namespace + '/' + it.name)}{@render row(it, repeats(mine, i, changeOn))}{/each}
+              {#each mine as it, i (idOf(it))}{@render row(it, repeats(mine, i, changeOn))}{/each}
             </ul>
           {/if}
           {#if shared.length}
@@ -206,7 +218,7 @@
                  turns them with the others. Each row says who else may answer. -->
             {#if mine.length}<h3 class="dl-sub" data-testid="inbox-shared">{sharedTitle} <span class="t-meta">any of them may answer</span></h3>{/if}
             <ul class="pl-list" data-testid="inbox-held-shared">
-              {#each shared as it, i (it.namespace + '/' + it.name)}{@render row(it, repeats(shared, i, changeOn))}{/each}
+              {#each shared as it, i (idOf(it))}{@render row(it, repeats(shared, i, changeOn))}{/each}
             </ul>
           {/if}
           <!-- Only when there is more than one page: the answer line already says how many. -->
@@ -226,11 +238,11 @@
           <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2 id="inbox-frozen" class="dl-more-title">Frozen Stages</h2> <span class="t-meta dl-count">{formatCount(frozenTotal)}</span></summary>
           <p class="t-body-2 dl-note">Nothing moves in these until a person unfreezes them.</p>
           <ul class="pl-list" data-testid="inbox-frozen">
-            {#each frozenRows as row, i (row.namespace + '/' + row.stage)}
-              {@const again = repeats(frozenRows, i, (r) => r.service)}
+            {#each frozenRows as row, i (keyOf(row))}
+              {@const again = repeats(frozenRows, i, (r) => pre(r) + r.service)}
               {@const un = row.offers?.find((o) => o.action === 'unfreeze')}
               <li class="pl-row dl-line">
-                <a class="dl-title" class:dl-again={again} href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage })}>{#if again}<span class="visually-hidden">{`${row.service} `}</span>{`in ${row.environment}`}{:else}{`${row.service} in ${row.environment}`}{/if}</a>
+                <a class="dl-title" class:dl-again={again} href={deliveryHistoryUrl({ namespace: row.namespace, stage: row.stage, cluster: row.cluster || undefined })} title={where(row)}>{#if again}<span class="visually-hidden">{`${pre(row)}${row.service} `}</span>{`in ${row.environment}`}{:else}{`${pre(row)}${row.service} in ${row.environment}`}{/if}</a>
                 <span class="t-body-2 dl-why">{row.frozenReason ? shortDigests(row.frozenReason) : 'Frozen'}</span>
                 {#if un}
                   <!-- Unfreeze only: an unavailable offer says why in words, never only in a tooltip. -->
@@ -258,10 +270,10 @@
           <summary><span class="disclosure-caret" data-motion aria-hidden="true"></span><h2 id="inbox-errored" class="dl-more-title">Changes that could not finish</h2> <span class="t-meta dl-count">{formatCount(erroredTotal)}</span></summary>
           <p class="t-body-2 dl-note">Each Stage stays frozen until a person looks at it.</p>
           <ul class="pl-list" data-testid="inbox-errored">
-            {#each erroredRows as it, i (it.namespace + '/' + it.name)}
-              {@const again = repeats(erroredRows, i, (r) => r.stage)}
+            {#each erroredRows as it, i (idOf(it))}
+              {@const again = repeats(erroredRows, i, (r) => pre(r) + r.stage)}
               <li class="pl-row dl-line">
-                <a class="dl-title" class:dl-again={again} href={deliveryChangeUrl(it.namespace, it.name)}>{`${typeLabel(it.type)} on ${it.namespace}`}{#if again}<span class="visually-hidden">{`/${it.stage}`}</span>{:else}{`/${it.stage}`}{/if}</a>
+                <svelte:element this={it.readOnly ? 'span' : 'a'} class="dl-title" class:dl-again={again} href={it.readOnly ? undefined : deliveryChangeUrl(it.namespace, it.name)} title={where(it)}>{`${pre(it)}${typeLabel(it.type)} on ${it.namespace}`}{#if again}<span class="visually-hidden">{`/${it.stage}`}</span>{:else}{`/${it.stage}`}{/if}</svelte:element>
                 <span class="t-body-2 dl-why">{shortDigests(it.reason) || 'Pacto could not tell how it ended'}</span>
               </li>
             {/each}
@@ -281,6 +293,7 @@
   .dl-row { display: flex; align-items: center; gap: var(--sp-3); padding: var(--sp-2) var(--sp-3); overflow-wrap: break-word; }
   .dl-main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
   .dl-decide { flex: none; }
+  .dl-next { flex: 0 1 auto; min-inline-size: 0; overflow-wrap: anywhere; }
   /* One line per frozen Stage or stuck change: what, then why. The why wraps
      under it rather than clipping, so the whole reason is always there to read. */
   .dl-line { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sp-3); padding: var(--sp-1) var(--sp-3); overflow-wrap: anywhere; }
@@ -293,6 +306,7 @@
   .dl-count { font-variant-numeric: tabular-nums; }
   .dl-note { margin: var(--sp-1) 0 var(--sp-2); color: var(--c-text-3); }
   .dl-title { font-weight: 600; color: var(--c-accent); }
+  span.dl-title { color: var(--c-text); }
   /* A signer's subject is one long URI: it breaks anywhere instead of overflowing. */
   .dl-title bdi { overflow-wrap: anywhere; }
   /* A title cut to what differs from the line above sits under it, indented. */

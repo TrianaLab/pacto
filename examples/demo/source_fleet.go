@@ -12,6 +12,7 @@ import (
 	"github.com/trianalab/pacto/v4/examples/story"
 	"github.com/trianalab/pacto/v4/internal/fleetgen"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
@@ -295,9 +296,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 		return nil, nil, err
 	}
 	// The hub's approved members (source_clusters.go), each one cluster of its own,
-	// and their link facts.
+	// their link facts and the count of the clusters that are not members yet
+	// (the pending ap-dev), which holds a BREAKING change and is listed nowhere.
 	sources := append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow()), catalogSource, evidence},
-		append(traceSources, append(demoMemberSources(), demoMemberLinks())...)...)
+		append(traceSources, append(demoMemberSources(), demoMemberLinks(), delivery.UnreadClusters(demoClusterJoins()))...)...)
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
 		sources...)

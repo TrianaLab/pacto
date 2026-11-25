@@ -338,7 +338,7 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	}
 	rm := remoteMCP{version: version, auth: s.auth, cluster: cluster, newClient: d.dynamicFor, claims: claimsFlags(flagString(cmd))}
 	if deliveryMode {
-		if rm.delivery, err = remoteDeliveryClients(cmd, d); err != nil {
+		if rm.delivery, err = remoteDeliveryClients(cmd, svc, d); err != nil {
 			return err
 		}
 	}
@@ -357,7 +357,13 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	rm.authoring = remoteAuthoring(svc, ociRefs, rm.modes.Fleet, registry, push, detected, policyNS)
 	if rm.delivery != nil {
 		policy := rm.delivery(nil) // only its trust and policy namespace are read
-		id := baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace)
+		id := remoteDeliveryIdentity(cmd, svc, d, cluster, policy)
+		inner := rm.delivery
+		rm.delivery = func(dyn dynamic.Interface) *app.Delivery {
+			c := inner(dyn)
+			c.Members = viewedMembers(id.viewer, c.Members, personFrom)
+			return c
+		}
 		rm.reads = mcpDeliveryReads(id, rm.modes.Fleet, deliveryNarrowing(flagNamespaces(cmd)))
 		rm.installed, rm.installedAt = id.installedProbe(), id.installedAt()
 	}
@@ -366,6 +372,20 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	}
 	s.remoteAuthoring = true
 	return nil
+}
+
+// remoteDeliveryIdentity is the identity a remote MCP server's delivery
+// reads use: every other context its fleet reads is read too, each caller
+// reviewed in that cluster as the dashboard reviews a person, never read
+// with the server's own credentials unreviewed.
+func remoteDeliveryIdentity(cmd *cobra.Command, svc *app.Service, d deps, cluster *rest.Config, policy *app.Delivery) *dashboardIdentity {
+	id := baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace)
+	mode, _ := cmd.Flags().GetString("review")
+	home := newHomeCluster(cluster, d)
+	id.entries = memoEntries(fleetEntries(svc, d, mcpFleetOptions(cmd)))
+	// A separate MCP server is no hub: its member clusters stay unreviewable.
+	id.viewer, id.homeUID = clusterViewer(id.entries, home, d, mode, flagNamespaces(cmd), nil), home.UID
+	return id
 }
 
 // remoteMCP builds an HTTP MCP server whose callers the apiserver names per
@@ -490,20 +510,23 @@ func (rm remoteMCP) deliveryAPI(d *app.Delivery) mcpDelivery {
 }
 
 // remoteDeliveryClients builds each caller's delivery client over their
-// exchanged token, with the trust and policy namespace the flags name.
-func remoteDeliveryClients(cmd *cobra.Command, d deps) (func(dyn dynamic.Interface) *app.Delivery, error) {
+// exchanged token, with the trust and policy namespace the flags name, and
+// the members of the hub the fleet reads (--k8s --detected k8s:).
+func remoteDeliveryClients(cmd *cobra.Command, svc *app.Service, d deps) (func(dyn dynamic.Interface) *app.Delivery, error) {
 	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
 	path, _ := cmd.Flags().GetString("delivery-trust")
 	trust, err := app.DeliveryTrust(path)
 	if err != nil {
 		return nil, err
 	}
-	return deliveryClientsFor(trust, policyNS, d), nil
+	includeK8s, _ := cmd.Flags().GetBool("k8s")
+	detected, _ := cmd.Flags().GetString("detected")
+	return deliveryClientsFor(trust, policyNS, svc.PlanMembers(fleetJoins(cmd, d, includeK8s, detected)), d), nil
 }
 
 // deliveryClientsFor builds each caller's delivery client over their own
-// token with trust and the policy namespace policyNS.
-func deliveryClientsFor(trust *delivery.TrustConfig, policyNS string, d deps) func(dyn dynamic.Interface) *app.Delivery {
+// token with trust, the policy namespace policyNS and the hub's members.
+func deliveryClientsFor(trust *delivery.TrustConfig, policyNS string, members func(context.Context, string, map[string]bool) delivery.Members, d deps) func(dyn dynamic.Interface) *app.Delivery {
 	// API discovery is the same for every caller: read once, as the server.
 	var scope delivery.ScopeFunc
 	var infra delivery.InfraFunc
@@ -513,6 +536,6 @@ func deliveryClientsFor(trust *delivery.TrustConfig, policyNS string, d deps) fu
 	}
 	return func(dyn dynamic.Interface) *app.Delivery {
 		return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Scope: scope, Infra: infra}
+			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Scope: scope, Infra: infra, Members: members}
 	}
 }

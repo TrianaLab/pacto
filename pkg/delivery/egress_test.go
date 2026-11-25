@@ -115,7 +115,7 @@ func TestEgressCoverage(t *testing.T) {
 // answer of the delivery snapshot partial, and the gate path carries no
 // provider row (the kernel-egress row is built by the surfaces).
 func TestSnapshotEgressPartialNoProviderRow(t *testing.T) {
-	snap, err := Snapshot(context.Background(), []PactoView{egressPacto(egressCov("partial", "unnamed-public", 4, 3), stripeEgress)}, nil, nil, now)
+	snap, err := Snapshot(context.Background(), []PactoView{egressPacto(egressCov("partial", "unnamed-public", 4, 3), stripeEgress)}, nil, nil, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

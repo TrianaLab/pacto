@@ -543,7 +543,7 @@ func (b Beat) PlanInput(ctx context.Context) (delivery.PlanInput, error) {
 		}
 		return delivery.Revision{Digest: d, Err: "not a story version"}
 	}
-	in.Snapshot, err = delivery.Snapshot(ctx, pactos, nil, []delivery.Revision{from, to}, Now)
+	in.Snapshot, err = delivery.Snapshot(ctx, pactos, nil, []delivery.Revision{from, to}, Now, delivery.Members{})
 	return in, err
 }
 

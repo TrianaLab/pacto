@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -21,12 +22,17 @@ type stubReads struct {
 	route string
 	q     url.Values
 	err   error
+	// bodies answer by route; absent answers {"route": route}.
+	bodies map[string]string
 }
 
 func (s *stubReads) reads(_ context.Context, route string, q url.Values) (json.RawMessage, error) {
 	s.route, s.q = route, q
 	if s.err != nil {
 		return nil, s.err
+	}
+	if b, ok := s.bodies[route]; ok {
+		return json.RawMessage(b), nil
 	}
 	return json.RawMessage(`{"route":"` + route + `"}`), nil
 }
@@ -148,5 +154,84 @@ func TestDeliveryReadParams(t *testing.T) {
 	}
 	if _, _, ok := DeliveryReadParams("history"); ok {
 		t.Error("history is not a read tool route")
+	}
+}
+
+// TestDeliveryToolsReadAnotherClusterThroughRoute: the reads of another
+// cluster run the dashboard's route with cluster, never the server's own
+// client, and answer in the shape the server's own cluster answers in.
+func TestDeliveryToolsReadAnotherClusterThroughRoute(t *testing.T) {
+	r := &stubReads{bodies: map[string]string{
+		"history": `{"histories":[{"cluster":"uid-eu","namespace":"prod","stage":{"name":"payments"},"entries":[{"operation":"op-1"}],` +
+			`"entriesPage":{"total":1}}],"at":{"stages":[]},"revisions":{"sha256:a":"rev"}}`,
+		"blame":                `{"digest":"sha256:a","revisions":{"sha256:a":"rev"}}`,
+		"undo":                 `{"operation":"prod/op-1","kind":"none"}`,
+		"record":               `{"record":"sha256:r"}`,
+		"operations/prod/op-1": `{"operation":{"metadata":{"name":"op-1","namespace":"prod"}},"explanation":{"operation":"prod/op-1"}}`,
+	}}
+	server := mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Reads: r.reads}})
+	for _, c := range []struct {
+		tool, route string
+		args        map[string]any
+		want        url.Values
+		has         []string
+	}{
+		{"pacto_delivery_history", "history", map[string]any{"namespace": "prod", "stage": "payments", "cluster": "uid-eu", "since": "2h", "correlation_id": "inc-1"},
+			url.Values{"namespace": {"prod"}, "stage": {"payments"}, "cluster": {"uid-eu"}, "limit": {"200"}, "since": {"2h"}, "correlationID": {"inc-1"}},
+			[]string{`"entries":[`, `"revisions":{"sha256:a":"rev"}`, `"entriesPage":{"total":1}`}},
+		{"pacto_delivery_history", "history", map[string]any{"namespace": "prod", "stage": "payments", "cluster": "uid-eu", "at": "2h"},
+			url.Values{"namespace": {"prod"}, "stage": {"payments"}, "cluster": {"uid-eu"}, "limit": {"200"}, "at": {"2h"}}, []string{`"stages":[]`}},
+		{"pacto_delivery_blame", "blame", map[string]any{"namespace": "prod", "stage": "payments", "digest": "sha256:a", "cluster": "uid-eu"},
+			url.Values{"namespace": {"prod"}, "stage": {"payments"}, "digest": {"sha256:a"}, "cluster": {"uid-eu"}}, []string{`"revision":"rev"`}},
+		{"pacto_delivery_undo_plan", "undo", map[string]any{"namespace": "prod", "name": "op-1", "cluster": "uid-eu"},
+			url.Values{"namespace": {"prod"}, "name": {"op-1"}, "stage": {""}, "cluster": {"uid-eu"}}, []string{`"kind":"none"`}},
+		{"pacto_delivery_record_get", "record", map[string]any{"namespace": "prod", "stage": "payments", "record": "sha256:r", "cluster": "uid-eu"},
+			url.Values{"namespace": {"prod"}, "stage": {"payments"}, "id": {"sha256:r"}, "cluster": {"uid-eu"}}, []string{`"record":"sha256:r"`}},
+		{"pacto_delivery_get", "operations/prod/op-1", map[string]any{"namespace": "prod", "name": "op-1", "cluster": "uid-eu"},
+			url.Values{"cluster": {"uid-eu"}}, []string{`"name":"op-1"`}},
+		{"pacto_delivery_explain", "operations/prod/op-1", map[string]any{"namespace": "prod", "name": "op-1", "cluster": "uid-eu"},
+			url.Values{"cluster": {"uid-eu"}}, []string{`"operation":"prod/op-1"`}},
+	} {
+		res := callToolOn(t, server, c.tool, c.args)
+		var compact bytes.Buffer
+		_ = json.Compact(&compact, []byte(resultText(t, res)))
+		text := compact.String()
+		if res.IsError || r.route != c.route || r.q.Encode() != c.want.Encode() || strings.Contains(text, "histories") {
+			t.Errorf("%s: route %s %v -> %s", c.tool, r.route, r.q, text)
+		}
+		for _, h := range c.has {
+			if !strings.Contains(text, h) {
+				t.Errorf("%s: no %s in %s", c.tool, h, text)
+			}
+		}
+	}
+}
+
+// TestClusterReadsRefuseWhatTheyCannotAnswer: a cluster read of history
+// needs one Stage, a refused route is the tool's error and a server that
+// reads no other cluster says so.
+func TestClusterReadsRefuseWhatTheyCannotAnswer(t *testing.T) {
+	r := &stubReads{}
+	server := mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}, Reads: r.reads}})
+	for _, args := range []map[string]any{{"stage": "payments", "cluster": "uid-eu"}, {"cluster": "uid-eu"},
+		{"namespace": "prod", "stage": "payments", "service": "payments", "cluster": "uid-eu"}} {
+		if res := callToolOn(t, server, "pacto_delivery_history", args); !res.IsError || !strings.Contains(resultText(t, res), "pass namespace and stage") {
+			t.Errorf("%v: %s", args, resultText(t, res))
+		}
+	}
+	r.err = errors.New("ClusterUnknown: no cluster uid-eu is read here")
+	for _, tool := range []string{"pacto_delivery_history", "pacto_delivery_blame"} {
+		if res := callToolOn(t, server, tool, map[string]any{"namespace": "prod", "stage": "payments", "cluster": "uid-eu"}); !res.IsError ||
+			!strings.Contains(resultText(t, res), "ClusterUnknown") {
+			t.Errorf("%s: a refused route: %s", tool, resultText(t, res))
+		}
+	}
+	if res := callToolOn(t, server, "pacto_delivery_get", map[string]any{"namespace": "prod", "name": "op-1", "cluster": "uid-eu"}); !res.IsError {
+		t.Errorf("get: a refused route: %s", resultText(t, res))
+	}
+	alone := mustNew("test", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}}})
+	if res := callToolOn(t, alone, "pacto_delivery_undo_plan", map[string]any{"namespace": "prod", "name": "op-1", "cluster": "uid-eu"}); !res.IsError ||
+		!strings.Contains(resultText(t, res), "reads no other cluster") {
+		t.Errorf("no reads: %s", resultText(t, res))
 	}
 }

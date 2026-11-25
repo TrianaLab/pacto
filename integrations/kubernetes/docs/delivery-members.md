@@ -239,6 +239,23 @@ freeze the follower too. When the promoter freezes a Stage because a check
 failed after release, its record names the failed version, so followers never
 take it.
 
+## Consumers in member clusters
+
+On a [hub](../../multi-cluster.md#consumers-and-delivery-across-clusters), a
+promote reads every approved member too:
+
+- The promoter reads each approved member's signed snapshot from the targets
+  repository (`--targets-repository`), through the join reader the CLI and
+  dashboard use. A consumer there that does not accept the change asks its
+  owners.
+- A stale member, a join list it could not read or a cluster that is not a
+  member yet asks a person to accept the unknown for a change that is not
+  plainly non-breaking.
+- On a member, the chart passes `--member` whenever `hub.url` is set. That
+  promoter reads no joins, since consumers in other clusters are read on the
+  hub, and asks a person here for any change that is not plainly
+  non-breaking.
+
 ## Limits
 
 - A Stage sees the upstream's history only as far as its records reach the

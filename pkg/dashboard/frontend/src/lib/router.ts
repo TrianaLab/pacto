@@ -315,7 +315,7 @@ export function metricsUrl(q: Partial<Record<(typeof METRICS_QUERY)[number], str
 }
 
 // The URL state of a delivery list: which Stage, which page and the filter.
-const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'state', 'signed', 'level', 'except', 'since', 'until', 'timed', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain', 'cause', 'correlationID', 'at'];
+const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'state', 'signed', 'level', 'except', 'since', 'until', 'timed', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain', 'cause', 'correlationID', 'at', 'cluster'];
 
 function parseDelivery(path: string, query: string): Route {
   const rest = path.slice('delivery'.length).replace(/^\//, '');
@@ -330,7 +330,7 @@ function parseDelivery(path: string, query: string): Route {
     if (v) params[k] = v;
   }
   // One Stage's history needs both halves of its name.
-  if (!params.namespace || !params.stage) { delete params.namespace; delete params.stage; }
+  if (!params.namespace || !params.stage) { delete params.namespace; delete params.stage; delete params.cluster; }
   // A domain only narrows an exact service.
   if (!params.service) delete params.domain;
   const views: Record<string, Route['view']> = {

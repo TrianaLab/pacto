@@ -22,6 +22,17 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
+// joinReadsAtOnce bounds the members whose records are read at once.
+const joinReadsAtOnce = 8
+
+// plural is "1 member" or "n members".
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return fmt.Sprintf("%d %ss", n, word)
+}
+
 // MemberPlanOptions are how a hub plans a promote over its members.
 type MemberPlanOptions struct {
 	// Repository is the <registry>/pacto-targets repository the members

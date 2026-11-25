@@ -766,6 +766,9 @@ func gateCases() []gateCase {
 		{name: "not in fleet", gate: GateUnverified, reason: "api is not in the fleet snapshot", code: GateCodeServiceNotInFleet, r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessPartial,
 			Limitations: []fleet.Limitation{{Code: "SOURCE_STALE"}, {Code: "SERVICE_NOT_IN_FLEET"}}}},
 		{name: "partial", gate: GateUnverified, reason: "the answer is partial", code: GateCodeAnswerPartial, r: Result{Classification: "BREAKING", Completeness: fleet.CompletenessPartial}},
+		// Unread clusters hold a BREAKING change on a complete answer, ahead of its consumers.
+		{name: "clusters unread", gate: GateUnverified, reason: "the change is BREAKING and 2 clusters publish to this hub and are not members", code: GateCodeClustersUnread,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, UnreadClusters: 2, Consumers: []AffectedConsumer{paper}}},
 		{name: "one consumer", gate: GateUnverified, reason: "1 consumer depends on api", code: GateCodeConsumersUnchecked,
 			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper}}},
 		{name: "two consumers", gate: GateUnverified, reason: "2 consumers depend on api", code: GateCodeConsumersUnchecked,

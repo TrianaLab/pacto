@@ -6,7 +6,8 @@
   import ProvenanceMark from './ProvenanceMark.svelte';
   import { shortDigest, sentence, exceptParam, levelLabel, levelHelp, checkText, watchText, timeLabel, andList, typeLabel, progressStamp, isCommand, applierLine, serverNow } from '../lib/delivery.ts';
   import { completenessClass, completenessLabel } from '../lib/format.ts';
-  import { sourceProblem, upstreamText } from '../lib/envFigure.ts';
+  import { sourceProblem, upstreamText, stageKey } from '../lib/envFigure.ts';
+  import { clusterPrefix, clusterTitle } from '../lib/clusters.ts';
   import EnvMark from './figure/EnvMark.svelte';
   import ProposePanel from './ProposePanel.svelte';
   import StageOffers from './StageOffers.svelte';
@@ -51,7 +52,7 @@
   $effect(() => { if (served === 'enabled' && stageRows.length) history.sync(`${tag}@@${refreshTick}`, tag); });
   // Each Stage's whole history: a partial one's first line may not be its newest change.
   const lastOf = $derived(new Map((history.dataTag === tag ? history.data?.histories ?? [] : []).filter((h) => h.entries?.length)
-    .map((h) => [`${h.namespace}/${h.stage?.name}`, { ...h.entries[0], partial: h.completeness !== 'complete' }])));
+    .map((h) => [stageKey({ cluster: h.cluster, namespace: h.namespace, stage: h.stage?.name ?? '' }), { ...h.entries[0], partial: h.completeness !== 'complete' }])));
 
   const noDelivery = $derived((served !== 'enabled' && served !== 'unknown') || loader.error?.code === 'DeliveryNotInstalled');
   $effect(() => {
@@ -66,13 +67,15 @@
     const k = keyOf(r);
     if (!e.currentTarget.open || whys[k]) return;
     whys[k] = {};
-    api.deliveryProgress(r.namespace, r.stage).then((d) => { whys[k] = { data: d }; }, (err) => { whys[k] = { error: err }; });
+    api.deliveryProgress(r.namespace, r.stage, r.cluster).then((d) => { whys[k] = { data: d }; }, (err) => { whys[k] = { error: err }; });
   }
 
   // One panel at a time under the Stage it acts on (StageOffers, one per row, shares it).
   let acting = $state(null);
   let checksOpen = $state({});
-  const keyOf = (r) => `${r.namespace}/${r.stage}`;
+  // Same-named Stages of two clusters are two rows; a row of another cluster only reads here.
+  const keyOf = stageKey;
+  const historyOf = (r) => deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage, cluster: r.cluster || undefined });
   const ready = (r) => !!r.ready && !r.ready.startsWith('True');
 </script>
 
@@ -115,7 +118,7 @@
     {@const applier = applierLine(r.applier, serverNow(data?.asOf), r.ready)}
     <div class="sd-row" data-testid="service-delivery-row">
       <div class="sd-head">
-        <bdi class="sd-env">{r.environment}</bdi>
+        <bdi class="sd-env" title={clusterTitle(r.cluster, data?.clusters) || undefined}>{clusterPrefix(r.cluster, data?.clusters)}{r.environment}</bdi>
         <EnvMark state={r.state} word />
       </div>
       <div class="sd-body">
@@ -123,12 +126,12 @@
         <p class="sd-line go">
           {#if r.revision}
             <a href={fleetEntityUrl('revision', r.revision)} title={r.pointer}>{r.version || shortDigest(r.pointer)}</a>
-            <a class="t-meta" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}>History</a>
+            <a class="t-meta" href={historyOf(r)}>History</a>
           {:else}
-            <a href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })} title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
+            <a href={historyOf(r)} title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
           {/if}
           {#if r.level}<span class="t-meta" data-testid="level" title={levelHelp(r.level)}>{levelLabel(r.level)}</span>{/if}
-          <DeliveryBadges row={r} heldHref={r.heldOperation ? deliveryChangeUrl(r.namespace, r.heldOperation) : deliveryInboxUrl({ service, domain })} />
+          <DeliveryBadges row={r} heldHref={r.heldOperation && !r.cluster ? deliveryChangeUrl(r.namespace, r.heldOperation) : deliveryInboxUrl({ service, domain })} />
           {#if r.level === 'observe'}<a class="t-meta" href={deliveryAutonomyUrl({ service, domain })}>What Pacto would have done</a>{/if}
         </p>
         {#if r.contractRef}<p class="t-meta sd-line" title={r.contractRef}>Contract {#if r.revision}<a href={fleetEntityUrl('revision', r.revision)}><bdi>{shortDigest(r.contractRef.split('@').pop())}</bdi></a>{:else}<bdi>{shortDigest(r.contractRef.split('@').pop())}</bdi>{/if}</p>{/if}
@@ -187,7 +190,7 @@
                   <dd>{p.autoPromote ? sentence(p.autoPromote) : 'The promoter promotes the candidate on its own.'}</dd>
                 {/snippet}
               </AnswerCard>
-              {#if p.plan}
+              {#if p.plan && !r.cluster}
                 <ProposePanel preview={p.plan} request={{ namespace: r.namespace, stage: r.stage, type: p.plan.type || 'delivery.pacto.trianalab.io/promote', to: p.plan.to || p.candidate }}
                   toVersion={p.plan.toVersion || p.versions?.[p.plan.to ?? ''] || ''} />
               {/if}
@@ -196,7 +199,7 @@
             <p class="t-meta" role="status">Asking the cluster why</p>
           {/if}
         </details>
-        <StageOffers rows={[r]} {service} bind:acting />
+        {#if !r.cluster}<StageOffers rows={[r]} {service} bind:acting />{/if}
       </div>
     </div>
   {/each}

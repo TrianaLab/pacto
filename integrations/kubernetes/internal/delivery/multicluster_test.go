@@ -301,3 +301,10 @@ func TestAcknowledgeUpstreamStandIn(t *testing.T) {
 	l.create(o)
 	wantOutcome(t, l.drive("a5"), delivery.Rejected, "NoUpstreamRecords")
 }
+
+// TestPlanSourcesReadNoMembers: the promoter projects onto its own Pactos.
+func TestPlanSourcesReadNoMembers(t *testing.T) {
+	if m := (planSources{}).Members(context.Background(), "prod", nil); m.Home != nil || m.Sources != nil {
+		t.Fatalf("%+v", m)
+	}
+}

@@ -10,6 +10,7 @@ import (
 type progressInput struct {
 	Namespace string `query:"namespace" required:"true" doc:"The Stage's namespace"`
 	Stage     string `query:"stage" required:"true" doc:"The Stage"`
+	Cluster   string `query:"cluster" doc:"The cluster of the Stage, as a multi-cluster answer names it; empty for the dashboard's own"`
 }
 
 type progressOutput struct {
@@ -28,7 +29,7 @@ func (s *Server) deliveryProgress(ctx context.Context, in *progressInput) (*prog
 	if err := s.inScope(in.Namespace); err != nil {
 		return nil, err
 	}
-	api, err := s.deliveryFor(ctx)
+	api, err := s.deliveryAt(ctx, in.Cluster)
 	if err != nil {
 		return nil, err
 	}

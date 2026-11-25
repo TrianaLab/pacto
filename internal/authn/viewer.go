@@ -133,6 +133,14 @@ var EnvironmentLadderResource = ResourceAttributes{Group: "delivery.pacto.triana
 // PactoResource is the resource every fleet answer is reviewed against.
 var PactoResource = reviewable("Pacto")
 
+// StageResource and OperationResource are the delivery objects a person must
+// be allowed to list (or get, for one object) to read them in a cluster
+// other than the dashboard's own.
+var (
+	StageResource     = ResourceAttributes{Group: "delivery.pacto.trianalab.io", Resource: "stages"}
+	OperationResource = ResourceAttributes{Group: "delivery.pacto.trianalab.io", Resource: "operations"}
+)
+
 // workloadResources maps the workload kind of an inferred service to the
 // resource a person must be allowed to list to see it.
 var workloadResources = reviewables("Deployment", "StatefulSet", "DaemonSet", "CronJob")
@@ -721,6 +729,15 @@ func (v *Viewer) MayUpdateWorkload(ctx context.Context, p Person, cluster, names
 		return false, nil
 	}
 	res.Verb, res.Name = "update", name
+	return v.MayUpdate(ctx, p, cluster, namespace, res)
+}
+
+// MayList asks the reviewer of cluster (the only one when cluster is empty)
+// whether p may verb res (res.Name only, when set) in namespace, as MayUpdate
+// does: kept a minute per cluster, person, resource, verb and namespace; a
+// failure is not kept.
+func (v *Viewer) MayList(ctx context.Context, p Person, cluster, namespace string, res ResourceAttributes, verb string) (bool, error) {
+	res.Verb = verb
 	return v.MayUpdate(ctx, p, cluster, namespace, res)
 }
 

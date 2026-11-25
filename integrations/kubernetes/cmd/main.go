@@ -1091,7 +1091,7 @@ func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubeclu
 	if err != nil {
 		return nil, nil, err
 	}
-	inst := &detect.Installation{Profile: profiles, ChartVersion: o.chartVersion}
+	inst := &detect.Installation{Profile: profiles, ChartVersion: o.chartVersion, Member: o.hubURL != ""}
 	// The publisher starts after setup, so it reads intake as addIntake left it: nil while requests are off.
 	var intake *member.Intake
 	key, offerings, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked,

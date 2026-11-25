@@ -56,7 +56,7 @@ func (s *Server) deliveryLifecycle(ctx context.Context, in *lifecycleInput) (*li
 	for i, h := range hs {
 		switch {
 		case errs[i] != nil:
-			l.Unreadable = append(l.Unreadable, stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name+": "+errs[i].Error())
+			l.Unreadable = append(l.Unreadable, delivery.StageKey(stages[i].Metadata, stages[i].Metadata.Name)+": "+errs[i].Error())
 		case h != nil:
 			sh := delivery.StageHistory{Namespace: stages[i].Metadata.Namespace, History: *h}
 			sh.Stage.Name = stages[i].Metadata.Name // read by index: the host may name it otherwise

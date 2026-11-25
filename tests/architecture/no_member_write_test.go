@@ -36,6 +36,8 @@ var clusterClientFiles = []string{
 	"internal/cli/dashboard_delivery.go",
 	"internal/cli/dashboard_identity.go",
 	"internal/cli/dashboard_readcache.go",
+	// 514-S7: reads the delivery of the kubeconfig contexts the fleet reads, never a member, and refuses every write there.
+	"internal/cli/dashboard_remote.go",
 	"internal/cli/mcp_remote.go",
 	"internal/cli/root.go",
 	"internal/k8sclient/client.go",

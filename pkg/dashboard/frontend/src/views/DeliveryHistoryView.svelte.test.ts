@@ -221,3 +221,18 @@ describe('delivery history as of a time', () => {
     destroy();
   });
 });
+
+describe('delivery history of another cluster', () => {
+  const EU = '9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34';
+  it('names the cluster in the title and links no change to this cluster', async () => {
+    const h = stageHistory(true, [promote()]);
+    fns.history.mockResolvedValue({ ...h, clusters: [{ id: 'hub-uid', name: 'hub', completeness: 'complete' }, { id: EU, name: 'eu-prod', completeness: 'complete' }],
+      histories: h.histories.map((x) => ({ ...x, cluster: EU })) });
+    const { target, destroy } = render({ namespace: 'prod', stage: 'pay', cluster: EU });
+    await settle();
+    expect(target.querySelector('[data-testid="page-title"]')!.textContent).toContain('History of eu-prod / prod/pay');
+    expect(target.querySelector('a[href^="#/delivery/changes"]')).toBeNull();
+    expect(target.textContent).toContain('Promote');
+    destroy();
+  });
+});

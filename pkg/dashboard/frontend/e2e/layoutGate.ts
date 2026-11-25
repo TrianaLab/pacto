@@ -1477,7 +1477,7 @@ export function installScaleFixture(): void {
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' | 'external'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off' | 'candidates' | 'candidates-zero' | 'candidates-fail'; __pactoInspected?: boolean };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' | 'external'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off' | 'candidates' | 'candidates-zero' | 'candidates-fail'; __pactoInspected?: boolean; __pactoDeliveryClusters?: boolean };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -2048,6 +2048,60 @@ export function installScaleFixture(): void {
         match: 'unmatched', reason: 'the candidate states no cluster UID' },
     ];
   };
+  // 514-S7: answers read from three clusters. The dashboard's own is complete; a member
+  // with a 63-character name is stale and hides two namespaces; another failed its review
+  // and shows nothing; one more is hidden from the reader. Its rows repeat the first ones
+  // under the same Stage names, so two same-named Stages stand side by side.
+  const CL_HOME = '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11';
+  const CL_LONG = '9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34';
+  const CL_FAILED = 'c2d8a6f0-5e1b-4a73-9c4d-8b2f6e0a1d95';
+  const clName = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString().replace(/\.\d+Z$/, 'Z');
+  const deliveryClusterListing = () => [
+    { id: CL_HOME, name: 'production', completeness: 'complete', asOf: ago(0) },
+    { id: CL_LONG, name: clName('production-eu-central-1'), completeness: 'partial', asOf: ago(14), hidden: 2,
+      unreadable: [`${longName('payments')}: the member's snapshot is 14m old`] },
+    { id: CL_FAILED, name: clName('production-us-east-2'), completeness: 'partial', why: 'the review of your access took longer than 5s' },
+  ];
+  const twin = <T extends Record<string, unknown>>(rows: unknown, extra: Record<string, unknown> = {}): T[] | undefined => {
+    if (!Array.isArray(rows) || !rows.length) return undefined;
+    return [...rows, ...rows.slice(0, 2).map((r) => ({ ...(r as T), cluster: CL_LONG, ...extra }))] as T[];
+  };
+  const deliveryClusters = (route: string, doc: Record<string, unknown>, cluster: string) => {
+    // A one-Stage history of another cluster names only that cluster beside the dashboard's own, as the server does.
+    if (route === '/api/delivery/history' && cluster) {
+      Object.assign(doc, { clusters: [deliveryClusterListing()[0], { id: cluster, name: clName('production-eu-central-1'), completeness: 'complete', asOf: ago(0) }] });
+    } else if (route === '/api/delivery/inbox' || route === '/api/delivery/environments' || route === '/api/delivery/history') {
+      Object.assign(doc, { clusters: deliveryClusterListing(), hiddenClusters: 1, completeness: 'partial' });
+    }
+    if (route === '/api/delivery/inbox') {
+      const next = { readOnly: true, next: `kubectl config use-context ${clName('production-eu-central-1')} && pacto delivery approve ${longName('payments-promote')} -n prod` };
+      doc.held = twin(doc.held, next) ?? doc.held;
+      doc.errored = twin(doc.errored, next) ?? doc.errored;
+      doc.frozen = twin(doc.frozen) ?? doc.frozen;
+    }
+    if (route === '/api/delivery/environments') doc.environments = twin(doc.environments) ?? doc.environments;
+    if (route === '/api/delivery/history') {
+      doc.histories = cluster ? (doc.histories as Record<string, unknown>[]).map((h) => ({ ...h, cluster })) : twin(doc.histories) ?? doc.histories;
+    }
+    // Change analysis: every consumer runs in two clusters, one of them stale.
+    const cs = doc.consumers as { items?: Record<string, unknown>[]; highlights?: Record<string, unknown>[] } | undefined;
+    if (route === '/api/fleet/impact' && cs) {
+      const meta = (doc.meta ??= {}) as Record<string, unknown>;
+      meta.clusters = [
+        { id: CL_HOME, name: 'production', nameSource: 'context', status: 'available', targets: 40, asOf: ago(0) },
+        { id: CL_LONG, name: clName('production-eu-central-1'), nameSource: 'node-label', status: 'stale', targets: 40, asOf: ago(14) },
+      ];
+      for (const c of [...(cs.items ?? []), ...(cs.highlights ?? [])]) {
+        const ts = (c.targets as Record<string, unknown>[] | undefined) ?? [];
+        c.targets = ts.map((t, i) => {
+          const key = `${i % 2 ? CL_LONG : CL_HOME}/prod/Deployment/${longName(`consumer-target-${i}`)}`;
+          return { ...t, key, label: `prod/Deployment/${longName(`consumer-target-${i}`)}`, href: `/fleet/targets/${encodeURIComponent(key)}` };
+        });
+        c.clusters = [CL_HOME, CL_LONG];
+      }
+    }
+  };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
     const route = path.split('?')[0];
@@ -2119,7 +2173,10 @@ export function installScaleFixture(): void {
     // and amend renames it.
     const asked = route === '/api/fleet/entities/external' && new URLSearchParams(path.split('?')[1] ?? '').get('key') === 'stripe'
       ? path.replace('key=stripe', 'key=parcel-carrier') : engineName(path);
-    const res = await (real as Serve)(method, asked, body);
+    // One Stage of another cluster: the demo reads only its own, so the fixture asks
+    // for the Stage there and names the cluster on the answer.
+    const askedCluster = flags.__pactoDeliveryClusters && route === '/api/delivery/history' ? new URLSearchParams(path.split('?')[1] ?? '').get('cluster') ?? '' : '';
+    const res = await (real as Serve)(method, askedCluster ? asked.replace(/[?&]cluster=[^&]*/, (m) => (m[0] === '?' ? '?' : '')).replace('?&', '?') : asked, body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
@@ -2134,6 +2191,7 @@ export function installScaleFixture(): void {
       return res;
     }
     if (declared) clusterFacts(doc);
+    if (flags.__pactoDeliveryClusters) deliveryClusters(route, doc, askedCluster);
     if (flags.__pactoInspected && method === 'POST' && route === '/api/delivery/plan' && Array.isArray(doc.verdicts)) {
       const refused = [`ClusterRoleBinding ${longName('orders-admin')} is cluster-scoped`, `Deployment ${longName('orders')} is in ${longName('kube-system')}, outside prod`];
       // The fixture's verdict stands in for the demo's own (an inspected Stage plans one).
@@ -3014,6 +3072,17 @@ function openCandidates(mode: 'candidates' | 'candidates-zero' | 'candidates-fai
       await expect(det.getByTestId('cluster-candidate-error')).toBeVisible();
     }
     await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+  };
+}
+
+// 514-S7: the three-cluster delivery and impact fixture, then a delivery list under it.
+const deliveryClustersOn = (page: Page) => page.evaluate(() => { (window as unknown as { __pactoDeliveryClusters?: boolean }).__pactoDeliveryClusters = true; });
+function deliveryClustersRoute(hash: string, ready: string): (page: Page) => Promise<void> {
+  return async (page) => {
+    await deliveryClustersOn(page);
+    await page.goto(`/${hash}`);
+    await expect(page.locator(ready).first()).toBeVisible({ timeout: 30_000 });
+    await page.evaluate(() => window.scrollTo(0, 0));
   };
 }
 
@@ -3929,6 +3998,24 @@ export const ROUTES: Route[] = [
   // Every inferred row expanded on a host that declares nothing for this caller: the
   // longest no-accept line (the CLI command with a long subject) and Show fewer.
   { name: 'golden paths, inferred expanded, no declare', list: true, open: async (page) => { await page.addInitScript(() => { (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare = true; }); await page.goto('/#/fleet/golden-paths?declaration=inferred'); await page.reload(); await page.getByTestId('inferred-more').click(); await expect(page.getByTestId('inferred-more')).toHaveText('Show fewer inferred', { timeout: 30_000 }); await expect(page.getByText('Accept it from a terminal: pacto declare').first()).toBeVisible({ timeout: 30_000 }); await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0)); } },
+  // 514-S7: answers read from several clusters (the three-cluster fixture above): cluster
+  // prefixes on consumer targets and delivery rows, and the per-cluster partial line.
+  {
+    name: 'change analysis cluster',
+    open: async (page) => {
+      await deliveryClustersOn(page);
+      await page.goto('/#/fleet/changes/payments-service');
+      await chooseRevision(page, '#impact-old-rev', '1.0.0');
+      await chooseRevision(page, '#impact-new-rev', '2.0.1');
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
+      await page.locator('#sec-affected-consumers > summary').click({ timeout: 30_000 });
+      await expect(page.getByTestId('consumer-target-cluster-stale').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  { name: 'delivery clusters environments', list: true, open: deliveryClustersRoute('#/delivery/environments', '[data-testid="listing-clusters"]') },
+  { name: 'delivery clusters inbox', list: true, open: deliveryClustersRoute('#/delivery/inbox', '[data-testid="listing-clusters"]') },
+  { name: 'delivery clusters history', list: true, open: deliveryClustersRoute('#/delivery/history?namespace=prod&stage=payments&cluster=9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34', 'h1:has-text("production-eu-central-1")') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

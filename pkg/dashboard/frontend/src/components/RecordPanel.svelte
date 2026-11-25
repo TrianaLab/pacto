@@ -11,7 +11,7 @@
   // One record of a Stage's stream, read by id: the change it records, who
   // asked and for whom, who approved, every verdict with its proof, and
   // whether its signature was checked. Only a record in the stream answers.
-  let { namespace, stage, id, miraURL = '', onClose } = $props();
+  let { namespace, stage, id, cluster = undefined, miraURL = '', onClose } = $props();
 
   let rec = $state(null);
   let error = $state(null);
@@ -21,7 +21,7 @@
 
   onMount(async () => {
     headingEl?.focus();
-    try { rec = await api.deliveryRecord(namespace, stage, id); } catch (err) { error = err; }
+    try { rec = await api.deliveryRecord(namespace, stage, id, cluster); } catch (err) { error = err; }
   });
 </script>
 
@@ -35,7 +35,7 @@
     <p class="t-body-2" role="status">Reading the record…</p>
   {:else}
     <p class="t-body" data-testid="record-change">
-      {#if e.operation}<a href={deliveryChangeUrl(namespace, e.operation)}>{typeLabel(e.type)}</a>{:else}{typeLabel(e.type)}{/if}
+      {#if e.operation}<svelte:element this={cluster ? 'span' : 'a'} href={cluster ? undefined : deliveryChangeUrl(namespace, e.operation)} title={cluster ? 'A change in another cluster: open it there' : undefined}>{typeLabel(e.type)}</svelte:element>{:else}{typeLabel(e.type)}{/if}
       by <strong><Person user={e.actor} people={rec.people} /></strong>{#if actorBadge(e.actorClass)}{@const ab = actorBadge(e.actorClass)}{' '}<span class="badge {ab.tone}">{ab.label}</span>{' '}<span class="t-meta" data-testid="actor-source">({classSourceLabel(e.actorClassifiedBy)})</span>{/if}{#if rec.onBehalfOf}, for <strong><Person user={rec.onBehalfOf} people={rec.people} /></strong>{/if}{#if e.from}, from {v(e.from)}{/if}{#if e.to}{' '}to {v(e.to)}{/if}{#if e.finished}, finished <time datetime={e.finished}>{timeLabel(e.finished)}</time>{/if}.
       {#if rec.intentReason}Why: “{rec.intentReason}”.{/if}
     </p>

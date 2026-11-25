@@ -520,3 +520,11 @@ func TestRemoteBundleThatCannotRegisterFailsAtStartup(t *testing.T) {
 		expect(t, err != nil && strings.Contains(err.Error(), "no base URL"), "%s: %v", name, err)
 	}
 }
+
+// A remote MCP server's delivery reads fan out over the contexts its fleet
+// reads, each caller reviewed per cluster.
+func TestRemoteDeliveryReadsFanOutReviewed(t *testing.T) {
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", readDeps(nil))
+	id := remoteDeliveryIdentity(cmd, app.NewService(nil, nil), readDeps(nil), &rest.Config{Host: "https://hub"}, &app.Delivery{})
+	expect(t, id.entries != nil && id.viewer != nil, "entries %v viewer %v", id.entries != nil, id.viewer)
+}

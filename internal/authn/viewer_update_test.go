@@ -176,3 +176,68 @@ func TestViewerSeesAndReviewable(t *testing.T) {
 		t.Errorf("reviews = %v", got)
 	}
 }
+
+func TestMayListCachedPerClusterResourceAndVerb(t *testing.T) {
+	var asked []string
+	review := func(cluster string) Review {
+		return func(_ context.Context, _ Person, ns string, res ResourceAttributes) (bool, error) {
+			asked = append(asked, cluster+"/"+ns+"/"+res.Resource+"/"+res.Verb+"/"+res.Name)
+			return res.Resource == "stages", nil
+		}
+	}
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"eu": review("eu"), "us": review("us")}
+	})
+	ctx := context.Background()
+	for range 2 {
+		if ok, err := v.MayList(ctx, alice, "eu", "prod", StageResource, "list"); !ok || err != nil {
+			t.Fatalf("list stages in eu = %v, %v", ok, err)
+		}
+	}
+	if ok, _ := v.MayList(ctx, alice, "eu", "prod", OperationResource, "list"); ok {
+		t.Error("operations allowed")
+	}
+	get := StageResource
+	get.Name = "payments"
+	_, _ = v.MayList(ctx, alice, "eu", "prod", get, "get")
+	_, _ = v.MayList(ctx, alice, "us", "prod", StageResource, "list")
+	want := []string{"eu/prod/stages/list/", "eu/prod/operations/list/", "eu/prod/stages/get/payments", "us/prod/stages/list/"}
+	if len(asked) != len(want) {
+		t.Fatalf("asked %v, want %v", asked, want)
+	}
+	for i := range want {
+		if asked[i] != want[i] {
+			t.Errorf("asked %v, want %v", asked, want)
+		}
+	}
+}
+
+func TestMayListNoReviewer(t *testing.T) {
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"eu": func(context.Context, Person, string, ResourceAttributes) (bool, error) { return true, nil }}
+	})
+	if _, err := v.MayList(context.Background(), alice, "us", "prod", StageResource, "list"); !errors.Is(err, ErrClusterNotReviewable) {
+		t.Errorf("err = %v, want ErrClusterNotReviewable", err)
+	}
+}
+
+func TestMayListFailureNotCached(t *testing.T) {
+	calls, fail := 0, true
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"eu": func(context.Context, Person, string, ResourceAttributes) (bool, error) {
+			calls++
+			if fail {
+				return false, errors.New("timeout")
+			}
+			return true, nil
+		}}
+	})
+	ctx := context.Background()
+	if _, err := v.MayList(ctx, alice, "eu", "prod", StageResource, "list"); err == nil {
+		t.Fatal("a failed review answered")
+	}
+	fail = false
+	if ok, err := v.MayList(ctx, alice, "eu", "prod", StageResource, "list"); !ok || err != nil || calls != 2 {
+		t.Errorf("after a failure = %v, %v after %d calls", ok, err, calls)
+	}
+}

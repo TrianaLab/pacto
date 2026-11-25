@@ -132,7 +132,7 @@ func (p *InferredPublisher) Start(ctx context.Context) error {
 func (p *InferredPublisher) run(ctx context.Context) {
 	pactos, listErr := p.pactos(ctx)
 	extra, undetected := p.detected()
-	snap, err := delivery.Snapshot(ctx, pactos, listErr, nil, p.Deps.Now(), extra...)
+	snap, err := delivery.Snapshot(ctx, pactos, listErr, nil, p.Deps.Now(), delivery.Members{}, extra...)
 	var rep inferredcontract.Report
 	if err == nil && len(p.Namespaces) > 0 {
 		partial(snap, fleet.Limitation{Code: fleet.LimitationTargetSnapshotScoped,

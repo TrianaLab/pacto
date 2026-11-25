@@ -186,6 +186,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 				return err
 			}
 			identity.members = newMemberDelivery(svc, fopts.ClusterJoins)
+			identity.planMembers = svc.PlanMembers(fopts.ClusterJoins)
 			go identity.signing.report(cmd.Context())
 			warnOpen(cmd.Context(), identity)
 			opts := dashboard.Options{

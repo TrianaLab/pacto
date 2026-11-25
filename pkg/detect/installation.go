@@ -95,6 +95,10 @@ type Installation struct {
 	// Offerings is the inferred-offering producer's advertisement; nil when
 	// the installation produces no inferred offerings.
 	Offerings *OfferingsAd `json:"offerings,omitempty"`
+	// Member says the operator joined a hub as a member (--hub-url): its
+	// promoter asks a person for any change that is not plainly
+	// non-breaking, since consumers in other clusters are read on the hub.
+	Member bool `json:"member,omitempty"`
 }
 
 // Declared is the Installation block as the capability answer reads it, with

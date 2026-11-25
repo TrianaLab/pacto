@@ -65,7 +65,7 @@ func promote(from, to string) OperationSpec {
 
 func planWith(t *testing.T, spec OperationSpec, status StageStatus, from, to Revision, pactos ...PactoView) Plan {
 	t.Helper()
-	snap, err := Snapshot(context.Background(), pactos, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), pactos, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -125,7 +125,7 @@ func TestPlanMisplacedConsumerAsksToAcceptTheUnknown(t *testing.T) {
 		{"a Pacto with no contract", "", checkoutPacto("^1.0.0"), true},
 		{"a Pacto that does not depend on the service", "sandbox-app", checkoutPacto("^1.0.0"), false},
 	} {
-		snap, err := Snapshot(context.Background(), []PactoView{c.pacto}, nil, []Revision{from, to}, now)
+		snap, err := Snapshot(context.Background(), []PactoView{c.pacto}, nil, []Revision{from, to}, now, Members{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -144,7 +144,7 @@ func TestPlanNoConsumersHoldsABreakingChangeUnlessTheGraphIsDeclaredComplete(t *
 	old, breaking := bundle("payments", "1.0.0"), bundle("payments", "2.0.0")
 	old.Contract.Workload, breaking.Contract.Workload = "service", "job" // a modified workload is BREAKING
 	from, to := rev(dA, c1, old), rev(dB, c2, breaking)
-	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -175,7 +175,7 @@ func TestPlanBreakingChangeUnderAMinorBump(t *testing.T) {
 	from, to := rev(dA, c1, old), rev(dB, c2, sneaky)
 	in := PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
 		From: from, To: to, Class: ClassAgent}
-	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestPlanRollbackAConsumerDoesNotAccept(t *testing.T) {
 	rb := promote(dB, dA)
 	rb.Type = TypeRollback
 	for class, held := range map[ActorClass]bool{ClassAgent: true, ClassHuman: true, ClassController: false} {
-		snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^3.0.0")}, nil, []Revision{from, to}, now)
+		snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^3.0.0")}, nil, []Revision{from, to}, now, Members{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -208,7 +208,7 @@ func TestPlanRollbackAConsumerDoesNotAccept(t *testing.T) {
 	}
 	// A consumer that accepts the older version, or a side that cannot be
 	// read, holds nothing: a rollback never waits on what Pacto cannot see.
-	snap, _ := Snapshot(context.Background(), []PactoView{checkoutPacto(">=2.0.0")}, nil, []Revision{from, to}, now)
+	snap, _ := Snapshot(context.Background(), []PactoView{checkoutPacto(">=2.0.0")}, nil, []Revision{from, to}, now, Members{})
 	if p := PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: from, To: to,
 		Snapshot: snap, Class: ClassAgent}); p.Predicted != PredictProceeds {
 		t.Fatalf("an accepted rollback: %+v", p)
@@ -225,7 +225,7 @@ func TestPlanRollbackAConsumerDoesNotAccept(t *testing.T) {
 	}
 	ownerless := checkoutPacto("^3.0.0")
 	ownerless.Status.Contract.Owner = nil
-	snap, _ = Snapshot(context.Background(), []PactoView{ownerless}, nil, []Revision{from, to}, now)
+	snap, _ = Snapshot(context.Background(), []PactoView{ownerless}, nil, []Revision{from, to}, now, Members{})
 	if p := PlanFor(context.Background(), PlanInput{Spec: rb, Stage: stageSpec(), Status: StageStatus{Pointer: dB}, From: from, To: to,
 		Snapshot: snap, Class: ClassAgent}); strings.Join(p.Floor.Owners, ",") != "team-payments" {
 		t.Fatalf("a consumer with no team asks the service's team: %+v", p.Floor)
@@ -241,7 +241,7 @@ func TestPlanContractMovedDomain(t *testing.T) {
 	old.Contract.Workload, moved.Contract.Workload = "service", "job" // BREAKING
 	from := rev(dA, c1, old)
 	to := Revision{Digest: dB, ContractRef: "oci://elsewhere.example/pactos/payments@" + c2, Bundle: moved}
-	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -282,7 +282,7 @@ func TestPlanOwnerChangeAsksTheTeamThatOwnsItNow(t *testing.T) {
 	moved := bundle("payments", "1.0.1")
 	moved.Contract.Service.Owner = contract.Owner{Team: "team-mallory"}
 	for _, class := range []ActorClass{ClassAgent, ClassHuman} {
-		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, rev(dB, c2, moved)}, now)
+		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, rev(dB, c2, moved)}, now, Members{})
 		p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Snapshot: snap, Class: class,
 			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}, From: from, To: rev(dB, c2, moved)})
 		if !p.Floor.Human || p.Floor.Decision != Approve || strings.Join(p.Floor.Owners, ",") != "team-payments" ||
@@ -292,7 +292,7 @@ func TestPlanOwnerChangeAsksTheTeamThatOwnsItNow(t *testing.T) {
 	}
 	// A plan that already asks a person (here, to accept that the version to
 	// roll back to never verified) now asks for an approval from that team.
-	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, rev(dB, c2, moved)}, now)
+	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, rev(dB, c2, moved)}, now, Members{})
 	p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Snapshot: snap, Class: ClassAgent,
 		Status: StageStatus{Pointer: dA, Published: []string{dB}}, From: from, To: rev(dB, c2, moved)})
 	if p.Floor.Decision != Approve || !strings.HasPrefix(p.Question, "sha256:bbbbbbbbbbbb changes who owns payments") ||
@@ -307,7 +307,7 @@ func TestPlanOwnerChangeAsksTheTeamThatOwnsItNow(t *testing.T) {
 	} {
 		edited := bundle("payments", "1.0.1")
 		edited.Contract.Service.Owner = o
-		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, rev(dB, c2, edited)}, now)
+		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, rev(dB, c2, edited)}, now, Members{})
 		p := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stageSpec(), Snapshot: snap, Class: ClassAgent,
 			Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}}, From: from, To: rev(dB, c2, edited)})
 		if p.Floor.Human || verdict(t, p, GateDiff).Citation["owner"] != "" {
@@ -367,7 +367,7 @@ func TestPlanSaysWhoAnswersWithNoTeam(t *testing.T) {
 	stage := stageSpec()
 	stage.Approval.Always = true
 	first := Revision{Digest: dB, ContractRef: "oci://reg.example/pactos/payments@" + c2, Bundle: anon}
-	snap, err := Snapshot(context.Background(), nil, nil, []Revision{first}, now)
+	snap, err := Snapshot(context.Background(), nil, nil, []Revision{first}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func TestPlanFrozenWaitsAndPolicyRaisesTheFloor(t *testing.T) {
 	if p.Predicted != PredictWaits || !strings.Contains(strings.Join(p.Conflicts, ""), "StageFrozen: Errored") {
 		t.Fatalf("frozen: %+v", p)
 	}
-	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now, Members{})
 	st := stageSpec()
 	st.Approval.Always = true
 	p = autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: st, Status: StageStatus{Pointer: dA, Verified: []string{dA}, Published: []string{dB}},
@@ -483,7 +483,7 @@ func TestShortAndHelpers(t *testing.T) {
 }
 
 func TestSnapshotListErrorIsPartial(t *testing.T) {
-	snap, err := Snapshot(context.Background(), nil, errors.New("no Pacto CRD"), nil, now)
+	snap, err := Snapshot(context.Background(), nil, errors.New("no Pacto CRD"), nil, now, Members{})
 	if err != nil || snap.Completeness != "partial" {
 		t.Fatalf("an unreadable Pacto list must make the graph partial: %v %s", err, snap.Completeness)
 	}
@@ -523,7 +523,7 @@ func checkPublishedCase(t *testing.T, name string, p Plan, result Result, msg st
 func TestPublishedGate(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
 	plan := func(stage StageSpec, status StageStatus, to Revision, upstream *StageStatus) Plan {
-		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now, Members{})
 		return autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stage, Status: status, From: from, To: to,
 			Snapshot: snap, Class: ClassAgent, Upstream: upstream, UpstreamErr: "untrusted key"})
 	}
@@ -558,7 +558,7 @@ func TestPublishedGate(t *testing.T) {
 		{"remote unverifiable", plan(remote, StageStatus{Pointer: dA}, to, nil), Fail, "c2/test/payments (records in reg/streams) cannot be read or verified (untrusted key)"},
 		{"no source", plan(none, published, to, nil), Fail, "names no candidate source"},
 	}
-	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+	snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now, Members{})
 	silent := autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: up, Status: StageStatus{Pointer: dA}, From: from, To: to, Snapshot: snap, Class: ClassAgent})
 	cases = append(cases, struct {
 		name   string
@@ -691,7 +691,7 @@ func TestPlanHoldsAnEvalCheckWithNoSuite(t *testing.T) {
 		to := rev(dB, c2, bundle("payments", "1.1.0"))
 		// Both ship the same suites: a suite change is held on its own.
 		to.Bundle.Contract.Checks, from.Bundle.Contract.Checks = tc.checks, tc.checks
-		snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+		snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now, Members{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -721,7 +721,7 @@ func TestPlanHoldsAVersionThatDoesNotShipTheSuite(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
 	to.Bundle.Contract.Checks = []contract.Check{{Name: "evals", File: "evals.yaml"}}
 	from.Bundle.Contract.Checks = to.Bundle.Contract.Checks
-	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -751,7 +751,7 @@ func TestPlanHoldsAVersionThatChangedAPinnedSuite(t *testing.T) {
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, bundle("payments", "1.1.0"))
 	to.Bundle.Contract.Checks = []contract.Check{{Name: "evals", File: "evals/suite.yaml"}}
 	from.Bundle.Contract.Checks = to.Bundle.Contract.Checks
-	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), []PactoView{checkoutPacto("^1.0.0")}, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -829,7 +829,7 @@ func TestSnapshotFromStatusEvaluatesGuarantees(t *testing.T) {
 		{"provider absent", []PactoView{checkout}, fleet.GuaranteeUnknown},
 		{"provider status predates guarantees", []PactoView{checkout, older(payments(nil))}, fleet.GuaranteeUnknown},
 	} {
-		snap, err := Snapshot(context.Background(), tc.pactos, nil, nil, now)
+		snap, err := Snapshot(context.Background(), tc.pactos, nil, nil, now, Members{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -856,7 +856,7 @@ func TestImpactFromStatusSeesUnmetGuarantee(t *testing.T) {
 	old, nu := bundle("payments", "1.0.0"), bundle("payments", "1.1.0")
 	old.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi", Guarantees: &contract.Guarantees{Idempotent: true}}}
 	nu.Contract.Interfaces = []contract.Interface{{Name: "api", Type: "openapi"}}
-	snap, err := Snapshot(context.Background(), []PactoView{checkout}, nil, []Revision{rev(dA, c1, old), rev(dB, c2, nu)}, now)
+	snap, err := Snapshot(context.Background(), []PactoView{checkout}, nil, []Revision{rev(dA, c1, old), rev(dB, c2, nu)}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1054,7 +1054,7 @@ func TestPlanUnmetRequiredGuaranteeHolds(t *testing.T) {
 	}
 	rb := promote(dB, dA)
 	rb.Type = TypeRollback
-	snap, err := Snapshot(context.Background(), []PactoView{consumer(true)}, nil, []Revision{to, from}, now)
+	snap, err := Snapshot(context.Background(), []PactoView{consumer(true)}, nil, []Revision{to, from}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1094,7 +1094,7 @@ func TestPlanUnmetGuaranteeNowhereSeenHolds(t *testing.T) {
 		Compatibility: "^1.0.0", Requires: []contract.Requirement{{Interface: "api", Guarantees: contract.Guarantees{Idempotent: true}}}})
 	from, to := rev(dA, c1, old), rev(dB, c2, nu)
 	consumer := rev(dC, c3, checkout)
-	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to, consumer}, now)
+	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to, consumer}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1272,7 +1272,7 @@ func TestSnapshotExtraSources(t *testing.T) {
 	const id = "aws/rds/123456789012/eu-west-1/orders-db"
 	extra := fleet.NewMemorySource("detection", fleet.SourceKindDetection, &fleet.Collection{
 		ManagedResources: []fleet.RawManagedResource{{Source: "crossplane", Identity: id, Type: "rds.aws.upbound.io/Instance", Name: "orders-db"}}})
-	snap, err := Snapshot(context.Background(), nil, nil, nil, now, extra)
+	snap, err := Snapshot(context.Background(), nil, nil, nil, now, Members{}, extra)
 	if err != nil || len(snap.Sources) != 2 || snap.Sources[1].ID != "detection" {
 		t.Fatalf("snapshot: %v %+v", err, snap.Sources)
 	}
@@ -1294,7 +1294,7 @@ func chartEnvBundle(envs map[string]string, files map[string]string) *contract.B
 func valuesPlan(t *testing.T, b *contract.Bundle, ins ManifestInspection) Plan {
 	t.Helper()
 	from, to := rev(dA, c1, bundle("payments", "1.0.0")), rev(dB, c2, b)
-	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

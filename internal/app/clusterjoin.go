@@ -3,19 +3,14 @@ package app
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
-	"net/http"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/dynamic"
 	"oras.land/oras-go/v2/registry/remote"
-	"oras.land/oras-go/v2/registry/remote/errcode"
 
 	"github.com/trianalab/pacto/v4/internal/authn"
 	"github.com/trianalab/pacto/v4/internal/fleetsrc"
@@ -50,17 +45,19 @@ type JoinOptions struct {
 	// managers know (the operator's clusters.json), matched to the members
 	// by UID at the end of each read.
 	Candidates func(context.Context) (detect.Clusters, error)
+	// Member says the cluster these options reach is a member of a hub, as
+	// its operator's detection advertises: its plans read no joins and count
+	// one unread cluster, as its promoter does (delivery.MemberOnlyUnread).
+	Member bool
 }
 
 const (
-	// joinReadsAtOnce bounds the clusters whose records are read at once.
-	joinReadsAtOnce = 8
 	// joinVerdictTTL is how long an approve review is remembered.
 	joinVerdictTTL = time.Minute
 	// maxJoinVerdicts bounds the reviews remembered.
 	maxJoinVerdicts = 256
 	// clusterJoinsID names the source that says the joins were read partly.
-	clusterJoinsID = "cluster-joins"
+	clusterJoinsID = deliveryrecord.JoinsSourceID
 )
 
 // noSigners is why no join record counts in a hub without approver signers.
@@ -93,17 +90,21 @@ func (s *Service) ClusterJoins(ctx context.Context, opts JoinOptions) delivery.C
 		}
 		opts = r
 	}
-	jr := &joinRead{s: s, opts: opts, now: now, recs: map[string]delivery.JoinRecords{},
-		list: delivery.ClusterJoinList{Hub: delivery.ClusterRef{UID: opts.Hub}, Repository: opts.Repository, AsOf: now.UTC().Format(time.RFC3339),
-			Completeness: fleet.CompletenessComplete, Clusters: []delivery.ClusterJoinState{}}}
-	jr.read(ctx)
-	if jr.partial {
-		jr.list.Completeness = fleet.CompletenessPartial
-	}
+	p, why, unread := readPolicy(ctx, opts.Delivery)
+	r := &snapshotReader{cache: &s.snapshots, now: now}
+	list, _ := deliveryrecord.ReadJoins(ctx, deliveryrecord.JoinRead{Repository: opts.Repository, Hub: opts.Hub, Include: opts.Include,
+		Policy: p, PolicyWhy: why, PolicyUnread: unread, Records: &s.joinRecords,
+		Authorize: func(ctx context.Context, user, uid string) (bool, error) {
+			return s.authorizeRecord(ctx, opts.Authorize, user, uid, now)
+		},
+		Fetch: func(ctx context.Context, repo *remote.Repository, reference string) ([]byte, string, error) {
+			return r.fetch(ctx, repo, opts.Repository, reference)
+		},
+		Forbidden: apierrors.IsForbidden, VerifyPerson: signing.VerifyPersonRecord, OpenKey: signing.OpenKey, Open: openTargets, Now: now})
 	if opts.Candidates == nil {
-		return jr.list
+		return list
 	}
-	return withCandidates(ctx, jr.list, opts.Candidates, now)
+	return withCandidates(ctx, list, opts.Candidates, now)
 }
 
 // withCandidates is l with the candidates read matched to its members: a
@@ -132,271 +133,23 @@ func unresolvedJoins(now time.Time, err error) delivery.ClusterJoinList {
 	return l
 }
 
-// joinRead is one ClusterJoins call on its way to its list.
-type joinRead struct {
-	s      *Service
-	opts   JoinOptions
-	now    time.Time
-	policy delivery.ClassPolicy
-	// policyWhy is why no record counts: no signer, or none could be read.
-	policyWhy string
-	repo      *remote.Repository
-	mu        sync.Mutex
-	recs      map[string]delivery.JoinRecords
-	list      delivery.ClusterJoinList
-	// partial says what was not read may change which members are approved.
-	partial bool
-	// perCluster are the clusters each per-cluster limitation counts.
-	perCluster map[clusterNote]map[string]bool
-	// otherMappings counts the verified group mappings that name another
-	// hub or cluster.
-	otherMappings int
-}
-
-// clusterNote is a limitation that counts clusters: its message has one %s,
-// the count, so it never names a cluster or an approver, which a reader who
-// may not approve must not learn. Each row says why itself.
-type clusterNote struct {
-	code, message string
-	uncertain     bool
-}
-
-// Per-cluster limitations.
-var (
-	noteRecordsUnread   = clusterNote{fleet.LimitationSourceUnavailable, "the join records of %s could not be read, so they stay pending", true}
-	noteRecordsCut      = clusterNote{fleet.LimitationTargetSnapshotBound, "%s have more than " + fmt.Sprint(delivery.MaxJoinRecords) + " join records and stay pending until older ones are read", true}
-	noteReviewFailed    = clusterNote{fleet.LimitationSourceUnavailable, "the approvers of %s could not be checked, so their decisions are not counted", true}
-	noteReviewForbidden = clusterNote{fleet.LimitationSourceUnavailable, "these credentials may not ask the hub whether approvers of %s may approve: " +
-		"grant create on subjectaccessreviews in the hub, or read the list on the hub dashboard", true}
-	noteForks          = clusterNote{fleet.LimitationTargetSnapshotInvalid, "the join records of %s have tags that do not name their record", false}
-	noteSnapshotUnread = clusterNote{fleet.LimitationSourceUnavailable, "the snapshots of %s an approval names could not be read, so they stay pending", true}
-)
-
-// note adds a limitation, and makes the list partial when uncertain.
-func (jr *joinRead) note(code, message string, uncertain bool) {
-	jr.mu.Lock()
-	defer jr.mu.Unlock()
-	jr.list.Limitations = append(jr.list.Limitations, fleet.Limitation{Code: code, Source: clusterJoinsID, Message: message})
-	jr.partial = jr.partial || uncertain
-}
-
-// noteCluster counts uid under n.
-func (jr *joinRead) noteCluster(n clusterNote, uid string) {
-	jr.mu.Lock()
-	defer jr.mu.Unlock()
-	if jr.perCluster == nil {
-		jr.perCluster = map[clusterNote]map[string]bool{}
-	}
-	if jr.perCluster[n] == nil {
-		jr.perCluster[n] = map[string]bool{}
-	}
-	jr.perCluster[n][uid] = true
-}
-
-// flushClusterNotes adds one limitation per per-cluster note, with its count.
-func (jr *joinRead) flushClusterNotes() {
-	for _, n := range []clusterNote{noteRecordsUnread, noteRecordsCut, noteReviewFailed, noteReviewForbidden, noteForks, noteSnapshotUnread,
-		noteMappingsUnread, noteMappingsCut, noteMappingsSkipped} {
-		if c := len(jr.perCluster[n]); c > 0 {
-			jr.note(n.code, fmt.Sprintf(n.message, plural(c, "cluster")), n.uncertain)
-		}
-	}
-}
-
-// plural is "1 cluster" or "n clusters".
-func plural(n int, word string) string {
-	if n == 1 {
-		return "1 " + word
-	}
-	return fmt.Sprintf("%d %ss", n, word)
-}
-
-func (jr *joinRead) read(ctx context.Context) {
-	jr.readPolicy(ctx)
-	uids, ok := jr.listClusters(ctx)
-	if !ok {
-		return
-	}
-	g, gctx := errgroup.WithContext(ctx)
-	g.SetLimit(joinReadsAtOnce)
-	for _, uid := range uids {
-		g.Go(func() error { jr.readRecords(gctx, uid); return nil })
-	}
-	_ = g.Wait() // readRecords notes its failures
-	r := &snapshotReader{cache: &jr.s.snapshots, now: jr.now}
-	var cands []delivery.JoinCandidate
-	cand := map[string]delivery.JoinCandidate{}
-	for _, uid := range jr.toFetch(uids) {
-		c := jr.candidate(ctx, r, uid)
-		cand[uid] = c
-		cands = append(cands, c)
-	}
-	states, others := delivery.JoinStates(jr.opts.Hub, cands, jr.recs)
-	for i, st := range states {
-		c := cand[st.UID]
-		if st.State == delivery.JoinPending && c.Err != "" && jr.decided(st.UID, delivery.JoinApprove) {
-			jr.noteCluster(noteSnapshotUnread, st.UID) // an approved member may be missing
-		}
-		switch {
-		case jr.policyWhy == "" || st.State != delivery.JoinPending:
-		case c.Err != "" || c.Join == nil || !c.SelfSigned: // what the snapshot says stays
-			states[i].Reason = jr.policyWhy + "; " + st.Reason
-		default:
-			states[i].Reason = jr.policyWhy
-		}
-	}
-	jr.readMappings(ctx, states)
-	jr.flushClusterNotes()
-	jr.list.Clusters, jr.list.OtherHubs = append(jr.list.Clusters, states...), others+jr.otherMappings
-}
-
-// readPolicy reads the hub's approver signers.
-func (jr *joinRead) readPolicy(ctx context.Context) {
-	p, err := jr.opts.Delivery.classPolicy(ctx)
+// readPolicy reads the hub's approver signers, why no record counts ("" when
+// some may) and whether they could not be read.
+func readPolicy(ctx context.Context, d *Delivery) (delivery.ClassPolicy, string, bool) {
+	p, err := d.classPolicy(ctx)
 	switch {
 	case err != nil:
-		jr.policyWhy = "the hub's approver signers could not be read, so no approval counts: " + err.Error()
-		jr.note(fleet.LimitationSourceUnavailable, jr.policyWhy, true)
+		return p, "the hub's approver signers could not be read, so no approval counts: " + err.Error(), true
 	case len(p.Signers) == 0:
-		jr.policyWhy = noSigners
-		jr.note(fleet.LimitationSourcePartial, noSigners, false)
+		return p, noSigners, false
 	}
-	jr.policy = p
-}
-
-// listClusters lists the cluster UIDs that publish to the repository, the
-// hub's own left out.
-func (jr *joinRead) listClusters(ctx context.Context) ([]string, bool) {
-	path := jr.opts.Repository
-	repo, err := openTargets(path)
-	var tags []string
-	truncated := false
-	if err == nil {
-		tags, truncated, err = deliveryrecord.ListClusterTags(ctx, repo)
-	}
-	switch {
-	case denied(err):
-		jr.note(fleet.LimitationSourceUnavailable, "no pull credential reads "+path+": on a hub dashboard, add a pull-only Secret for it to dashboard.ociSecrets", true)
-		return nil, false
-	case err != nil:
-		jr.note(fleet.LimitationSourceUnavailable, "the clusters in "+path+" could not be listed: "+err.Error(), true)
-		return nil, false
-	case truncated:
-		jr.note(fleet.LimitationTargetSnapshotBound, path+" holds more tags than a read lists; the clusters past them are unknown", true)
-	}
-	jr.repo = repo
-	var uids []string
-	for _, t := range tags {
-		if uid := strings.TrimPrefix(t, delivery.TargetSnapshotTagPrefix); uid != jr.opts.Hub {
-			uids = append(uids, uid)
-		}
-	}
-	if in := jr.opts.Include; in != "" && in != jr.opts.Hub && !slices.ContainsFunc(uids, func(u string) bool { return strings.HasPrefix(u, in) }) {
-		uids = append(uids, in) // its tag may be gone, its records not
-	}
-	return uids, true
-}
-
-// denied reports whether err is a registry's 401 or 403.
-func denied(err error) bool {
-	var resp *errcode.ErrorResponse
-	return errors.As(err, &resp) && (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden)
+	return p, "", false
 }
 
 // openTargets opens the pacto-targets repository path with the ambient
 // registry credentials.
 func openTargets(path string) (*remote.Repository, error) {
 	return ocireferrer.Open(path, ocireferrer.Options{Keychain: oci.NewKeychain(oci.EnvCredentialOptions()), Insecure: oci.EnvInsecureRegistries()})
-}
-
-// readRecords reads and judges the join records of uid, through its own
-// repository client: a tag listing sets the client's page size.
-func (jr *joinRead) readRecords(ctx context.Context, uid string) {
-	repo, _ := openTargets(jr.opts.Repository) // it opened once
-	fetched, cut, forks, err := jr.s.joinRecords.ListClusterJoins(ctx, repo, uid)
-	rs := delivery.JoinRecords{Cut: cut, Forks: forks}
-	if len(forks) > 0 {
-		jr.noteCluster(noteForks, uid)
-	}
-	switch {
-	case err != nil:
-		rs.Err = err.Error()
-		jr.noteCluster(noteRecordsUnread, uid)
-	case cut:
-		jr.noteCluster(noteRecordsCut, uid)
-	}
-	for _, f := range fetched {
-		rs.Verified = append(rs.Verified, jr.judge(ctx, uid, f))
-	}
-	for _, ref := range supersededJoins(jr.opts.Hub, uid, rs.Verified) {
-		jr.s.joinRecords.Reject(delivery.ClusterJoinStream(uid), delivery.PredicateClusterJoin, ref)
-	}
-	jr.mu.Lock()
-	jr.recs[uid] = rs
-	jr.mu.Unlock()
-}
-
-// judge verifies f, a join record of uid, and asks whether it counts. A
-// record that does not verify is rejected, so it never takes the bound again;
-// one whose approver may not approve is not, since a grant can be added.
-func (jr *joinRead) judge(ctx context.Context, uid string, f deliveryrecord.Fetched) delivery.VerifiedJoin {
-	if jr.policyWhy != "" {
-		return delivery.VerifiedJoin{Ref: f.Manifest, Why: "a join record was not counted: " + jr.policyWhy}
-	}
-	v, ok := verifyRecord(jr.policy, f)
-	if !ok {
-		jr.s.joinRecords.Reject(delivery.ClusterJoinStream(uid), delivery.PredicateClusterJoin, f.Manifest)
-		return v
-	}
-	if v.Record.Hub != jr.opts.Hub {
-		return v // another hub's: counted there, never here
-	}
-	what := "an approval"
-	if v.Record.Decision == delivery.JoinRemove {
-		what = "a removal"
-	}
-	allowed, err := jr.s.authorizeRecord(ctx, jr.opts.Authorize, v.User, uid, jr.now)
-	switch {
-	case apierrors.IsForbidden(err):
-		v.Counted, v.Why = false, what+" by "+v.User+" could not be checked: these credentials may not create subjectaccessreviews in the hub"
-		jr.noteCluster(noteReviewForbidden, uid)
-	case err != nil:
-		v.Counted, v.Why = false, what+" by "+v.User+" could not be checked: "+err.Error()
-		jr.noteCluster(noteReviewFailed, uid)
-	case !allowed:
-		v.Counted, v.Why = false, what+" by "+v.User+" was not counted: "+v.User+" may not approve clusterjoins"
-	}
-	return v
-}
-
-// supersededJoins are the records of uid's join stream that can never decide
-// again for hub, so they stop taking the record bound: those naming another
-// cluster, those older than hub's newest counted record and another hub's
-// older than that hub's newest verified one. A record that does not count
-// supersedes nothing, so no one evicts a member without the grant.
-func supersededJoins(hub, uid string, vs []delivery.VerifiedJoin) []string {
-	newest := map[string]time.Time{}
-	for _, v := range vs {
-		if v.Verified && v.Record.Cluster == uid && (v.Counted || v.Record.Hub != hub) && v.SignedAt.After(newest[v.Record.Hub]) {
-			newest[v.Record.Hub] = v.SignedAt
-		}
-	}
-	var out []string
-	for _, v := range vs {
-		if v.Verified && (v.Record.Cluster != uid || v.SignedAt.Before(newest[v.Record.Hub])) {
-			out = append(out, v.Ref)
-		}
-	}
-	return out
-}
-
-// verifyRecord opens f, a join record, as signing.VerifyJoinRecord does. ok
-// is false when it does not verify or names another user than its
-// certificate maps to; then Why says so.
-func verifyRecord(policy delivery.ClassPolicy, f deliveryrecord.Fetched) (delivery.VerifiedJoin, bool) {
-	v := signing.VerifyJoinRecord(policy, f.Bundle)
-	v.Ref, v.Counted = f.Manifest, v.Verified
-	return v, v.Verified
 }
 
 // joinVerdictCache remembers approve reviews by user and member.
@@ -438,76 +191,12 @@ func (s *Service) authorizeRecord(ctx context.Context, review authn.Review, user
 	return allowed, nil
 }
 
-// decided reports whether a counted record of this hub on uid decides dec,
-// any decision when dec is "".
-func (jr *joinRead) decided(uid string, dec delivery.JoinDecision) bool {
-	return slices.ContainsFunc(jr.recs[uid].Verified, func(v delivery.VerifiedJoin) bool {
-		return v.Counted && v.Record.Hub == jr.opts.Hub && v.Record.Cluster == uid && (dec == "" || v.Record.Decision == dec)
-	})
-}
-
-// toFetch are the UIDs whose snapshots are read: every one a counted
-// approval or removal names and the one a person decides on, then at most
-// delivery.MaxTargetSnapshots others. The others past that bound are
-// counted, never read.
-func (jr *joinRead) toFetch(uids []string) []string {
-	var approved, pending []string
-	for _, uid := range uids {
-		if uid == jr.opts.Include || jr.decided(uid, "") {
-			approved = append(approved, uid)
-		} else {
-			pending = append(pending, uid)
-		}
-	}
-	if n := len(pending) - delivery.MaxTargetSnapshots; n > 0 {
-		jr.note(fleet.LimitationTargetSnapshotBound, fmt.Sprintf("%d pending clusters were not read: a read takes %d", n, delivery.MaxTargetSnapshots), true)
-		pending = pending[:delivery.MaxTargetSnapshots]
-	}
-	out := append(approved, pending...)
-	slices.Sort(out)
-	return out
-}
-
-// candidate reads the snapshot of uid and checks its own key signed it.
-func (jr *joinRead) candidate(ctx context.Context, r *snapshotReader, uid string) delivery.JoinCandidate {
-	c := delivery.JoinCandidate{UID: uid, Status: fleet.SourceUnavailable}
-	bundle, ref, err := r.fetch(ctx, jr.repo, jr.opts.Repository, delivery.TargetSnapshotTagPrefix+uid)
-	if err != nil {
-		c.Err = "its snapshot could not be read: " + err.Error()
-		return c
-	}
-	c.Ref = ref
-	st, _, err := delivery.OpenTargetSnapshot(bundle, nil, signing.OpenKey)
-	snap := st.Predicate
-	switch {
-	case err != nil:
-		c.Err = "its snapshot was not used: " + err.Error()
-		return c
-	case snap.Cluster != uid:
-		c.Err = "its snapshot names cluster " + snap.Cluster
-		return c
-	}
-	asOf, _ := time.Parse(time.RFC3339, snap.AsOf) // Check parsed it
-	c.Join, c.AsOf, c.Status = snap.Join, snap.AsOf, fleet.SourceAvailable
-	if jr.now.Sub(asOf) > delivery.TargetSnapshotFreshness {
-		c.Status = fleet.SourceStale
-	}
-	c.SelfSigned = snap.Join != nil && selfSigned(bundle, uid, *snap.Join)
-	return c
-}
-
-// selfSigned reports whether the key j names signed bundle, the snapshot
-// of uid, scoped to uid.
-func selfSigned(bundle []byte, uid string, j delivery.SnapshotJoin) bool {
-	self := delivery.JoinTrust([]delivery.ClusterJoinState{{UID: uid, Name: j.Name, PublicKey: j.PublicKey, State: delivery.JoinApproved}})
-	_, v, err := delivery.OpenTargetSnapshot(bundle, self, signing.OpenKey)
-	return err == nil && v.Scoped
-}
-
 // clusterJoinSources are the sources of the members this hub approved, read
 // through r, the build's one snapshot reader, each verified only under its
 // approved key scoped to its UID. A member r already read is skipped. A list
-// read partly adds one partial source that says what was not read.
+// read partly adds one partial source that says what was not read. Once a
+// person approved or removed a member, pending clusters add one count for
+// gates ([delivery.UnreadClusters]), never a source state.
 func (s *Service) clusterJoinSources(ctx context.Context, r *snapshotReader, opts JoinOptions) []fleet.Source {
 	list := s.ClusterJoins(ctx, membersOnly(opts))
 	var out []fleet.Source
@@ -515,6 +204,9 @@ func (s *Service) clusterJoinSources(ctx context.Context, r *snapshotReader, opt
 		id := r.claim(clusterJoinsID)
 		out = append(out, fleet.NewMemorySource(id, fleet.SourceKindTargetSnapshot, &fleet.Collection{
 			State: &fleet.SourceState{Status: fleet.SourcePartial}, Limitations: withSource(id, list.Limitations)}))
+	}
+	if unread := delivery.UnreadClusters(list); unread != nil { // a count for gates, never a source state
+		out = append(out, unread)
 	}
 	m := *r // shares used, read and names: one reader per build
 	m.trust = delivery.JoinTrust(list.Clusters)
@@ -593,7 +285,7 @@ func checkApprovable(ctx context.Context, r *remote.Repository, rec delivery.Clu
 		return fmt.Errorf("ClusterKeyMismatch: the snapshot of %s now carries no join block; you checked %s", rec.Cluster, shortKey(rec.KeyID))
 	case st.Predicate.Join.KeyID != rec.KeyID:
 		return fmt.Errorf("ClusterKeyMismatch: the snapshot of %s is now signed by %s; you checked %s", rec.Cluster, shortKey(st.Predicate.Join.KeyID), shortKey(rec.KeyID))
-	case !selfSigned(bundle, rec.Cluster, *st.Predicate.Join):
+	case !deliveryrecord.SelfSigned(bundle, rec.Cluster, *st.Predicate.Join, signing.OpenKey):
 		return fmt.Errorf("the snapshot of %s is not signed by the key it names, so it cannot be approved", rec.Cluster)
 	}
 	return nil
@@ -630,6 +322,14 @@ func AdvertisedTargets(ctx context.Context, dyn dynamic.Interface, ref string, n
 	return res.Installation.Targets, nil
 }
 
+// AdvertisedMember reports whether the operator's detection at ref
+// advertises that its cluster is a member of a hub, read as
+// AdvertisedTargets reads it; false when the detection cannot be read.
+func AdvertisedMember(ctx context.Context, dyn dynamic.Interface, ref string, now func() time.Time) bool {
+	res, why := readDetection(ctx, dyn, ref, now)
+	return why == "" && res.Installation != nil && res.Installation.Member
+}
+
 // AdvertisedChartVersion is the chart version the operator's detection at
 // ref advertises (installation.chartVersion), read as AdvertisedTargets
 // reads it; "" when it names none.
@@ -660,4 +360,46 @@ func readDetection(ctx context.Context, dyn dynamic.Interface, ref string, now f
 		return res, st.Error.Message
 	}
 	return res, string(st.Status)
+}
+
+// PlanMembers reads, for each promote, the members of the hub joins
+// resolves to, as the fleet reads them: the join list and each approved
+// member's snapshot through the shared snapshot cache, verified only under
+// its approved key scoped to its UID. The hub's own Pactos sit in the hub's
+// cluster. nil joins gives nil: no members.
+func (s *Service) PlanMembers(joins *JoinOptions) func(ctx context.Context, environment string, known map[string]bool) delivery.Members {
+	if joins == nil {
+		return nil
+	}
+	return func(ctx context.Context, environment string, known map[string]bool) delivery.Members {
+		if joins.Resolve != nil {
+			if r, err := joins.Resolve(ctx); err == nil && r.Member {
+				return delivery.MemberOnlyUnread() // as the member's promoter plans
+			}
+		}
+		list := s.ClusterJoins(ctx, membersOnly(*joins))
+		trust := delivery.JoinTrust(list.Clusters)
+		r := &snapshotReader{cache: &s.snapshots, now: s.env().now()}
+		repo, _ := openTargets(list.Repository) // read only for an approved member: the list was read
+		read := func(uid string) (delivery.TargetSnapshot, error) {
+			return r.member(ctx, repo, list.Repository, trust, uid)
+		}
+		var home *fleet.Cluster
+		if list.Hub.UID != "" {
+			home = &fleet.Cluster{ID: list.Hub.UID, Name: list.Hub.Name}
+		}
+		return delivery.MembersOf(list, read, environment, known, r.now, home)
+	}
+}
+
+// member reads the snapshot of member uid from repo (at path), verified
+// under trust, the approved keys, each covering only its own member's
+// stream. ClusterJoins read it a moment before; a tag that moved since is
+// an error, so the member's consumers read unknown.
+func (r *snapshotReader) member(ctx context.Context, repo *remote.Repository, path string, trust *delivery.TrustConfig, uid string) (delivery.TargetSnapshot, error) {
+	b, _, err := r.fetch(ctx, repo, path, delivery.TargetSnapshotTagPrefix+uid)
+	if err != nil {
+		return delivery.TargetSnapshot{}, err
+	}
+	return deliveryrecord.OpenMember(b, trust, signing.OpenKey, uid)
 }

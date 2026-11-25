@@ -46,7 +46,7 @@ func TestPlanRepositoryExternalChangesNoVerdict(t *testing.T) {
 		{"compatible", rev(dA, c1, old), rev(dB, c2, bundle("payments", "1.1.0")), []PactoView{checkoutPacto("^1.0.0")}},
 		{"breaking", rev(dA, c1, old), rev(dB, c2, major), []PactoView{checkoutPacto("^1.0.0")}},
 	} {
-		snap, err := Snapshot(context.Background(), c.pactos, nil, []Revision{c.from, c.to}, now)
+		snap, err := Snapshot(context.Background(), c.pactos, nil, []Revision{c.from, c.to}, now, Members{})
 		if err != nil {
 			t.Fatal(err)
 		}

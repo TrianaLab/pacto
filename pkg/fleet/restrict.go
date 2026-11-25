@@ -869,7 +869,8 @@ func restrictLimitations(out *FleetSnapshot, limitations []Limitation, hiddenNam
 	unavailable := unavailableSources(out)
 	mismatches := inferredMismatchCounts(limitations)
 	out.Limitations = slices.DeleteFunc(limitations, func(l Limitation) bool {
-		if sourceLevelCluster(l, unavailable) || registryListingGap(l) {
+		// CLUSTERS_UNREAD counts clusters and names none.
+		if sourceLevelCluster(l, unavailable) || registryListingGap(l) || l.Code == LimitationClustersUnread {
 			return false
 		}
 		return rebuiltLimitation(l) || slices.Contains(out.hiddenLinkNotes, l) || slices.ContainsFunc(hiddenNames, func(n string) bool { return n != "" && strings.Contains(l.Message, n) })

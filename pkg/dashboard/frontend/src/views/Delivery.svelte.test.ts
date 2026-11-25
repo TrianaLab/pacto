@@ -2311,7 +2311,7 @@ describe('history blame and undo', () => {
     blameBtn.focus();
     blameBtn.click();
     await settle();
-    expect(fns.blame).toHaveBeenCalledWith('prod', 'pay');
+    expect(fns.blame).toHaveBeenCalledWith('prod', 'pay', '', undefined);
     const panel = target.querySelector('[data-testid="blame-panel"]') as HTMLElement;
     expect(text(panel)).toContain('Who put 3.0.0 here');
     expect(text(panel.querySelector('[data-testid="blame-change"]') as HTMLElement)).toContain('Promote by agents/pay-agent Agent (classification not recorded), for erin ⧉, from 2.4.0, finished 2026-10-21 11:00 UTC. Why: “ship the fix”.');
@@ -2825,7 +2825,7 @@ describe('history filters, columns, gated undo and records (B3)', () => {
     const btn = target.querySelector(`button[aria-label="Read record ${REC}"]`) as HTMLButtonElement;
     btn.click();
     await settle();
-    expect(fns.record).toHaveBeenCalledWith('prod', 'pay', REC);
+    expect(fns.record).toHaveBeenCalledWith('prod', 'pay', REC, undefined);
     const panel = target.querySelector('[data-testid="record-panel"]') as HTMLElement;
     expect(text(panel)).toContain('Why: “routine bump”');
     expect(text(panel)).toContain('Approve by erin');
