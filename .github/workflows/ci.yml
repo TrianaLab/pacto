@@ -573,6 +573,9 @@ jobs:
       # detection rounds several times over.
       # A scenario that fails stops its leg: the harness keeps a failed cluster in
       # CI for the diagnostics below, and the next scenario must not run beside it.
+      # One that passes leaves its cluster behind (a scenario tears down its
+      # releases, never the CRDs or the cluster), so it is deleted before the
+      # next scenario creates its own.
       - name: Run the scenario
         timeout-minutes: 50
         env:
@@ -582,6 +585,7 @@ jobs:
           for s in $SCENARIOS; do
             echo "::group::$s"
             bash scripts/ci/kind-run.sh "$RUNNER_TEMP/diagnostics/$s.log" make "test-acceptance-kind-$s" || exit
+            kind delete clusters --all
             echo "::endgroup::"
           done
       - name: Collect cluster diagnostics
