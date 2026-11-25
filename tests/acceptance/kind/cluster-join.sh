@@ -278,7 +278,7 @@ pass "pacto fleet lists no target of the pending member"
 
 impact_is 'has("gate")' || { hub_impact >&2; fail "the hub's pacto impact gave no answer"; }
 G0="$(hub_impact | jq -r .gate)"
-member_op apply -f - >/dev/null <<YAML
+kubectl --context "$CTX_M" apply -f - >/dev/null <<YAML
 apiVersion: pacto.trianalab.io/v1alpha1
 kind: Pacto
 metadata:
@@ -296,7 +296,7 @@ spec:
       dependencies: [{name: payments, ref: "oci://$REG/acme/payments", required: true, compatibility: "^1.0.0"}]
   target: {workloadRef: {name: checkout, kind: Deployment}}
 YAML
-checkout_reconciled() { member_op get pacto checkout -o jsonpath='{.status.dependencies[0].name}' 2>/dev/null | grep -qx payments; }
+checkout_reconciled() { kubectl --context "$CTX_M" -n "$APP_NS" get pacto checkout -o jsonpath='{.status.dependencies[0].name}' 2>/dev/null | grep -qx payments; }
 eventually 40 checkout_reconciled || fail "the member never reconciled checkout's dependency on payments"
 republish
 # The hub reads nothing the pending member published and, with no member ever
