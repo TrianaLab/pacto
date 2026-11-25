@@ -125,6 +125,12 @@ type ResourceAttributes struct {
 // to count. No CRD serves it: only RBAC names it.
 var ClusterJoinResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "clusterjoins", Verb: "approve"}
 
+// ServiceCreateResource is the virtual resource a person must be allowed to
+// create, in the target namespace and named by the service, to create a
+// service from a golden path. No CRD serves it: only RBAC names it, so a
+// grant can narrow it with resourceNames.
+var ServiceCreateResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "services", Verb: "create"}
+
 // EnvironmentLadderResource is the virtual resource a person must be allowed
 // to approve, in the cluster, for their confirmation of its installation
 // ladder to count. No CRD serves it: only RBAC names it.
@@ -739,6 +745,16 @@ func (v *Viewer) MayUpdate(ctx context.Context, p Person, cluster, namespace str
 		return false, ErrClusterNotReviewable
 	}
 	return allowed, err
+}
+
+// MayCreateService asks the reviewer of cluster (the only one when cluster
+// is empty) whether p may create the service name in namespace
+// (ServiceCreateResource named by the service). A cluster nobody reviews p
+// in is ErrClusterNotReviewable.
+func (v *Viewer) MayCreateService(ctx context.Context, p Person, cluster, namespace, name string) (bool, error) {
+	res := ServiceCreateResource
+	res.Name = name
+	return v.MayUpdate(ctx, p, cluster, namespace, res)
 }
 
 // MayUpdatePactos asks the reviewer of the sign-in cluster, the one Pacto is

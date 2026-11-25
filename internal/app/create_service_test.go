@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io/fs"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -157,6 +158,9 @@ func TestCreatePlanFromGoldenPath(t *testing.T) {
 		if r := a.GetResource().Resource; r != "configmaps" {
 			t.Fatalf("read %s", r) // the workload is never read
 		}
+	}
+	if files := d.Files(); string(files[DefaultContractPath]) != string(d.raw) || len(files) != len(d.files) {
+		t.Errorf("files %v", slices.Collect(maps.Keys(files)))
 	}
 	if err := validDeclaration(b); err != nil {
 		t.Fatal(err)
@@ -346,7 +350,7 @@ func TestCreateSetsRequestedOfferingValues(t *testing.T) {
 	if !strings.Contains(string(prod), "storageGi: 200") {
 		t.Fatalf("%s", prod)
 	}
-	if !strings.HasSuffix(p.Create.InitCLI, " --values "+createValuesFile) || !strings.Contains(p.Create.ValuesFile, "version: \"16\"") {
+	if !strings.HasSuffix(p.Create.InitCLI, " --values "+CreateValuesFile) || !strings.Contains(p.Create.ValuesFile, "version: \"16\"") {
 		t.Fatalf("%+v", p.Create) // a string stays a string in the replay
 	}
 }
@@ -530,7 +534,7 @@ func TestCreateRefusalCLIIsInit(t *testing.T) {
 func TestCreateCLIQuotesValues(t *testing.T) {
 	req := DeclareRequest{Service: "invoices", Registry: "r.io/acme", Create: &CreateFrom{Path: "oci://r.io/p@sha256:1", Owner: "bill'; rm -rf / $(x)\nnext",
 		Offerings: []OfferingPick{{Offering: "pg"}}}}
-	want := `pacto init invoices --from oci://r.io/p@sha256:1 --owner 'bill'\''; rm -rf / $(x)next' --registry r.io/acme --values ` + createValuesFile
+	want := `pacto init invoices --from oci://r.io/p@sha256:1 --owner 'bill'\''; rm -rf / $(x)next' --registry r.io/acme --values ` + CreateValuesFile
 	if got := req.command(""); got != want {
 		t.Fatalf("%s", got)
 	}
@@ -1076,11 +1080,11 @@ func TestInitCLIRecreatesPlannedContract(t *testing.T) {
 		OfferingPick{Offering: "postgresql", Values: map[string]any{"storageGi": 40}},
 		OfferingPick{Offering: "redis", Values: map[string]any{"memoryMi": 128}}))
 	c := p.Create
-	if !strings.HasSuffix(c.InitCLI, " --values "+createValuesFile) || c.ValuesFile == "" {
+	if !strings.HasSuffix(c.InitCLI, " --values "+CreateValuesFile) || c.ValuesFile == "" {
 		t.Fatalf("%+v", c)
 	}
 	dir := t.TempDir()
-	values := filepath.Join(dir, createValuesFile)
+	values := filepath.Join(dir, CreateValuesFile)
 	if err := os.WriteFile(values, []byte(c.ValuesFile), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1260,7 +1264,7 @@ func TestCreateKeepsStringTypedValue(t *testing.T) {
 		if got, ok := d.bundle.Contract.Configurations[0].Values["version"].(string); !ok || got != v {
 			t.Fatalf("%q: %#v", v, d.bundle.Contract.Configurations[0].Values["version"])
 		}
-		if !strings.HasSuffix(p.Create.InitCLI, " --values "+createValuesFile) || !strings.Contains(p.Create.ValuesFile, "version: \""+v+"\"") {
+		if !strings.HasSuffix(p.Create.InitCLI, " --values "+CreateValuesFile) || !strings.Contains(p.Create.ValuesFile, "version: \""+v+"\"") {
 			t.Fatalf("%q: %+v", v, p.Create)
 		}
 	}

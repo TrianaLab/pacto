@@ -211,6 +211,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			opts.Stats, opts.StatsRegistry = dashboardStats(cmd, svc)
 			identity.options(&opts)
 			opts.Declare = declarer
+			opts.CreateService, opts.PortalCreateURL = newDashboardCreator(declarer), portalCreateURL(v)
 			opts.Outside = members.outside()
 			opts.ClusterJoins = identity.clusterJoins(joins)
 			mcpLine, err := mountDashboardMCP(v, svc, version, repos, identity, managerFleetProvider(mgr), fopts.Provenance, d, &opts)

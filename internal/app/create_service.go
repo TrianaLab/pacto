@@ -85,12 +85,14 @@ type CreateOffering struct {
 // CreateRefusal is one refused input of a create: its code, what happened,
 // the field it is at (configurations[<name>].values.<key> or
 // environments[<env>].<configuration>.<key>), the closest valid value when
-// there is one, and the pacto init and pacto_create_service fixes.
+// there is one, the allowed values of an enum or class, and the pacto init
+// and pacto_create_service fixes.
 type CreateRefusal struct {
 	Code    string `json:"code"`
 	Message string `json:"message"`
 	Field   string `json:"field"`
 	Closest any    `json:"closest,omitempty"`
+	Allowed []any  `json:"allowed,omitempty"`
 	CLI     string `json:"cli,omitempty"`
 	MCP     string `json:"mcp,omitempty"`
 }
@@ -119,10 +121,10 @@ type CreatedService struct {
 	Index   string `json:"index,omitempty"`
 }
 
-// createValuesFile is the values file InitCLI reads when a create set any
+// CreateValuesFile is the values file InitCLI reads when a create set any
 // offering value: the planned dependencies and configurations, whole, since
 // pacto init merges an array as a whole.
-const createValuesFile = "pacto-create-values.yaml"
+const CreateValuesFile = "pacto-create-values.yaml"
 
 // createRevisionPrefix starts the default revision of a created service.
 const createRevisionPrefix = "pacto-create:"
@@ -548,7 +550,7 @@ func (d *createDoc) checkConfiguration(i int, cfg map[string]any, name string, o
 // cfgName, of offering) in the stable field form, with both fixes.
 func createRefusal(r validation.OfferingValueRefusal, i int, cfgName, offering, initCLI string) CreateRefusal {
 	code := cmp.Or(offeringValueCodes[r.Code], string(r.Code))
-	out := CreateRefusal{Code: code, Message: r.Message, Closest: r.Closest, CLI: initCLI}
+	out := CreateRefusal{Code: code, Message: r.Message, Closest: r.Closest, Allowed: r.Allowed, CLI: initCLI}
 	key, inValues := strings.CutPrefix(r.Field, "values.")
 	env, envKey, inEnv := envField(r.Field)
 	switch {
@@ -616,7 +618,7 @@ func (d *createDoc) write(dir string, write func(string, []byte, os.FileMode) er
 	return write(filepath.Join(dir, DefaultContractPath), []byte(pactify.MarshalContract(d.doc)), 0o644)
 }
 
-// valuesFile is the text of createValuesFile: the planned dependencies and
+// valuesFile is the text of CreateValuesFile: the planned dependencies and
 // configurations.
 func (d *createDoc) valuesFile() string {
 	m := map[string]any{}
@@ -650,7 +652,7 @@ func (req DeclareRequest) createCommand() string {
 	parts := []string{"pacto", "init", shellquote.Quote(req.Service), "--from", shellquote.Quote(c.Path), "--owner", shellquote.Quote(c.Owner),
 		"--registry", shellquote.Quote(path.Dir(repo))}
 	if len(c.Offerings) > 0 {
-		parts = append(parts, "--values", createValuesFile)
+		parts = append(parts, "--values", CreateValuesFile)
 	}
 	return strings.Join(parts, " ")
 }
@@ -703,10 +705,10 @@ func allFiles(files map[string]*fstest.MapFile) map[string][]byte {
 	return out
 }
 
-// acceptURL is the dashboard page a person reviews and signs the created
+// AcceptURL is the dashboard page a person reviews and signs the created
 // draft tag of repo at, "" when no dashboard serves the review. The
 // repository is named only when it is not the registry's default.
-func (req DeclareRequest) acceptURL(repo, tag string) string {
+func (req DeclareRequest) AcceptURL(repo, tag string) string {
 	if req.Create.ReviewURL == "" {
 		return ""
 	}

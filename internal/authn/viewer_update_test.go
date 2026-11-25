@@ -150,3 +150,48 @@ func TestMayUpdatePactosAsksTheSignInCluster(t *testing.T) {
 		t.Errorf("%v %v %v", ok, err, got)
 	}
 }
+
+func TestMayCreateService(t *testing.T) {
+	var got []string
+	calls := 0
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"prod": func(_ context.Context, _ Person, ns string, res ResourceAttributes) (bool, error) {
+			calls++
+			got = append(got, ns+"/"+res.Group+"/"+res.Resource+"/"+res.Verb+"/"+res.Name)
+			return true, nil
+		}}
+	})
+	ctx := context.Background()
+	if ok, err := v.MayCreateService(ctx, alice, "", "team-billing", "invoices"); !ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if ok, _ := v.MayCreateService(ctx, alice, "prod", "team-billing", "invoices"); !ok || calls != 1 {
+		t.Errorf("a second ask of the same person and name is cached: %d reviews", calls)
+	}
+	if len(got) != 1 || got[0] != "team-billing/pacto.trianalab.io/services/create/invoices" {
+		t.Errorf("reviews = %v", got)
+	}
+	if _, err := v.MayCreateService(ctx, alice, "edge", "team-billing", "invoices"); !errors.Is(err, ErrClusterNotReviewable) {
+		t.Errorf("an unreviewed cluster: %v", err)
+	}
+}
+
+func TestMayCreateServiceNamesService(t *testing.T) {
+	var names []string
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"": func(_ context.Context, _ Person, _ string, res ResourceAttributes) (bool, error) {
+			names = append(names, res.Name)
+			return res.Name == "invoices", nil
+		}}
+	})
+	ctx := context.Background()
+	if ok, _ := v.MayCreateService(ctx, alice, "", "team-billing", "invoices"); !ok {
+		t.Error("invoices refused")
+	}
+	if ok, _ := v.MayCreateService(ctx, alice, "", "team-billing", "payments"); ok {
+		t.Error("a cached allow of invoices answered payments")
+	}
+	if len(names) != 2 || names[0] != "invoices" || names[1] != "payments" {
+		t.Errorf("reviewed names = %v", names)
+	}
+}

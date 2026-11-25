@@ -386,6 +386,9 @@ func (d *declaration) Contract() []byte { return d.raw }
 // Record is pacto.inferred.yaml as the declaration would publish it.
 func (d *declaration) Record() []byte { return d.record.Marshal() }
 
+// Files is every file the declaration would publish, by path.
+func (d *declaration) Files() map[string][]byte { return allFiles(d.files) }
+
 // ownerCheck is an owner change a declaration makes: from the service's
 // effective owner to the proposed one, under the owner policy read (nil, and
 // why, when none was).
@@ -1505,7 +1508,7 @@ func (s *Service) writeDraft(ctx context.Context, req DeclareRequest, res *Decla
 	res.Executed, res.Draft, res.Signed, res.Tag, res.Published = true, true, signed, tag, d.repo+"@"+r.Digests[publish.BundleItem]
 	res.Plan.State, res.Plan.AcceptCLI = contract.DeclarationDraft, req.AcceptCLI(res.Plan.Service, tag)
 	if req.Create != nil {
-		res.Plan.AcceptURL = req.acceptURL(d.repo, tag)
+		res.Plan.AcceptURL = req.AcceptURL(d.repo, tag)
 	}
 	res.Files = bundleFiles(d.files)
 	return nil
