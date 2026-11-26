@@ -1,7 +1,11 @@
 // Per-cluster status words for meta.clusters: the Cluster filter caption on the
 // Services and Targets lists and the Clusters block on Data sources, plus the
 // member join rows (514-S3) that block shows.
-import type { ClusterSummary, ClusterJoinState } from './api.ts';
+import type { ClusterSummary, ClusterJoinState, ClusterCandidate } from './api.ts';
+import type { components } from './generated/schema.ts';
+import { formatWhen } from './dateFormat.ts';
+
+type ClusterListing = components['schemas']['Delivery.ClusterListing'];
 
 export type { ClusterSummary };
 
@@ -116,4 +120,105 @@ export function joinCounts(hidden: number, otherHubs: number, reviewFailed = fal
   if (hidden) out.push(reviewFailed ? `${clusters} hidden: whether you may approve them could not be checked` : `${clusters} you may not approve`);
   if (otherHubs) out.push(`${otherHubs} record${otherHubs === 1 ? '' : 's'} from another hub not used`);
   return out;
+}
+
+/** The sources a candidate cluster comes from, in the order their groups show. */
+const CANDIDATE_SOURCES: Record<string, string> = { argocd: 'Argo CD', flux: 'Flux', capi: 'Cluster API', ocm: 'OCM', rancher: 'Rancher' };
+
+/** The one action per source group: only Argo CD and Flux get a generated install. */
+const INSTALL_ACTIONS: Record<string, string> = { argocd: 'Get ApplicationSet', flux: 'Get Flux manifests' };
+
+type CandidateGroup = { source: string; label: string; install: 'argocd' | 'flux' | null; action: string; items: ClusterCandidate[] };
+
+/** candidateGroups are the candidates grouped by source, in CANDIDATE_SOURCES order. */
+export function candidateGroups(cands: ClusterCandidate[]): CandidateGroup[] {
+  return Object.keys(CANDIDATE_SOURCES).flatMap((source) => {
+    const items = cands.filter((c) => c.source === source);
+    if (!items.length) return [];
+    const install = source in INSTALL_ACTIONS ? (source as 'argocd' | 'flux') : null;
+    return [{ source, label: CANDIDATE_SOURCES[source], install, action: INSTALL_ACTIONS[source] ?? '', items }];
+  });
+}
+
+/** candidateWord is how a candidate stands against the members. Only a stated UID on an
+ *  approved member matches; "not matched" is the one negative word, never "not joined". */
+export function candidateWord(c: ClusterCandidate): string {
+  if (c.match === 'matched') return c.member?.name ? `matched to ${c.member.name}` : 'matched';
+  return c.match === 'same-uid' ? 'states the same UID' : 'not matched';
+}
+
+/** candidateTip says where a candidate came from and why it stands as it does; the UID
+ *  it states shows here and in no label. */
+export function candidateTip(c: ClusterCandidate): string {
+  const ref = c.namespace ? `${c.namespace}/${c.name}` : c.name;
+  const parts = [`From ${CANDIDATE_SOURCES[c.source] ?? c.source} ${c.kind} ${ref}.`];
+  if (c.uid) parts.push(`States UID ${c.uid}${c.uidSource ? ` (${c.uidSource})` : ''}.`);
+  if (c.match === 'matched') parts.push(['The approved member', c.member?.name, 'publishes that UID under its approved key.'].filter(Boolean).join(' '));
+  if (c.reason) parts.push(`${c.reason[0].toUpperCase()}${c.reason.slice(1)}.`);
+  // The card shows three labels; the rest are here, where touch reaches them too.
+  const labels = candidateLabels(c.labels);
+  if (labels.title) parts.push(`Labels: ${labels.title}.`);
+  return parts.join(' ');
+}
+
+/** candidateLabels are a candidate's first three labels as key=value, how many more it
+ *  has, and every label for the title. */
+export function candidateLabels(labels: Record<string, string> | undefined): { shown: string[]; more: number; title: string } {
+  const all = Object.keys(labels ?? {}).sort().map((k) => `${k}=${labels![k]}`);
+  return { shown: all.slice(0, 3), more: Math.max(0, all.length - 3), title: all.join(', ') };
+}
+
+/** hiddenCandidateCount words the candidates a reader may not see; '' when none. */
+export function hiddenCandidateCount(n: number): string {
+  if (!n) return '';
+  return `${n} candidate cluster${n === 1 ? '' : 's'} hidden: they show to those who may approve clusterjoins`;
+}
+
+// A cluster as an answer lists it: fleet meta clusters and delivery listing clusters both fit.
+type Named = { id: string; name?: string };
+
+// named is the cluster id stands for when the answer lists several; '' (an object of the
+// dashboard's own cluster) is the first, since a delivery listing lists its own cluster first.
+function named(id: string | undefined, clusters: Named[] | null | undefined): Named | undefined {
+  if (!clusters || clusters.length < 2) return undefined;
+  return id ? clusters.find((c) => c.id === id) : clusters[0];
+}
+
+/** clusterPrefix: "eu-prod / " before a row's label when the answer holds several clusters,
+ *  '' with one; never a uid (the uid goes only in clusterTitle). */
+export function clusterPrefix(id: string | undefined, clusters: Named[] | null | undefined): string {
+  const c = named(id, clusters);
+  return c ? `${c.name || 'unnamed cluster'} / ` : '';
+}
+
+/** clusterTitle: the full display name and the uid, for a title; '' with one cluster. */
+export function clusterTitle(id: string | undefined, clusters: Named[] | null | undefined): string {
+  const c = named(id, clusters);
+  return c ? `Cluster ${c.name || 'unnamed cluster'} (${c.id})` : '';
+}
+
+/** targetCluster: the cluster of a 4-part target key (cluster/scope/kind/name), '' for a 3-part one. */
+export function targetCluster(key: string): string {
+  const parts = key.split('/');
+  return parts.length === 4 ? decodeURIComponent(parts[0]) : '';
+}
+
+/** clusterListingWords: what one cluster of a delivery listing could not read, '' when complete. */
+export function clusterListingWords(l: ClusterListing): string {
+  if (l.completeness === 'complete') return '';
+  const name = l.name || 'unnamed cluster';
+  if (l.why) return `${name}: not read`;
+  const parts = [];
+  if (l.hidden) parts.push(`${l.hidden} namespace${l.hidden === 1 ? '' : 's'} hidden`);
+  if (l.unreadable?.length) parts.push(`${l.unreadable.length} not read`);
+  return `${name}: ${parts.join(' and ') || 'partial'}`;
+}
+
+/** clusterStale: why a target in a stale or unreachable cluster may run something else now,
+ *  with the cluster's age; '' for a fresh cluster or an answer with one cluster. */
+export function clusterStale(id: string, clusters: ClusterSummary[] | null | undefined, now: number = Date.now()): string {
+  const c = id ? (named(id, clusters) as ClusterSummary | undefined) : undefined;
+  if (!c || (c.status !== 'stale' && c.status !== 'unavailable')) return '';
+  const when = c.asOf ? `last published ${formatWhen(c.asOf, now)}` : 'could not be read';
+  return `Cluster ${c.name} ${when}, so what runs there now is unknown`;
 }

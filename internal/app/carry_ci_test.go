@@ -35,7 +35,6 @@ type carryCIEnv struct {
 
 func newCarryCIEnv(t *testing.T) *carryCIEnv {
 	t.Helper()
-	noAmbient(t)
 	e := &carryCIEnv{ciPubEnv: newCIPub(t), ss: testutil.New(t)}
 	e.svc.sys.refusalRepo = func(path string) (*remote.Repository, error) {
 		return ocireferrer.Open(path, ocireferrer.Options{Keychain: anonymous})
@@ -111,6 +110,7 @@ func (e *carryCIEnv) published(t *testing.T, r ci.Row) (string, *contract.Inferr
 }
 
 func TestCIPlanShowsCarriedAcceptance(t *testing.T) {
+	t.Parallel()
 	e := newCarryCIEnv(t)
 	p, _, err := e.svc.CIPlan(t.Context(), e.opts(nil))
 	if err != nil {
@@ -123,6 +123,7 @@ func TestCIPlanShowsCarriedAcceptance(t *testing.T) {
 }
 
 func TestCIPublishAcceptedRangeBecomesDeclared(t *testing.T) {
+	t.Parallel()
 	e := newCarryCIEnv(t)
 	r := e.publishCI(t, "r2")
 	raw, rec := e.published(t, r)
@@ -141,6 +142,7 @@ func TestCIPublishAcceptedRangeBecomesDeclared(t *testing.T) {
 // acceptance through the citation of the version it published, so the
 // service stays unchanged with the range declared.
 func TestCarryKeepsCitedRecordsAcrossPublishes(t *testing.T) {
+	t.Parallel()
 	e := newCarryCIEnv(t)
 	first := e.publishCI(t, "r2")
 	before := e.reg.writes.Load()
@@ -151,6 +153,7 @@ func TestCarryKeepsCitedRecordsAcrossPublishes(t *testing.T) {
 }
 
 func TestCIPlanAndPublishCarrySameBytes(t *testing.T) {
+	t.Parallel()
 	e := newCarryCIEnv(t)
 	bundles := map[string]*contract.Bundle{}
 	if _, _, err := e.svc.CIPlan(t.Context(), e.opts(bundles)); err != nil {
@@ -167,6 +170,7 @@ func TestCIPlanAndPublishCarrySameBytes(t *testing.T) {
 }
 
 func TestCIPlanUnreadableCitationIsUnverified(t *testing.T) {
+	t.Parallel()
 	e := newCarryCIEnv(t)
 	e.publishCI(t, "r2")
 	// The next run cannot read the record its baseline cites: dropping it
@@ -192,6 +196,7 @@ func TestCIPlanUnreadableCitationIsUnverified(t *testing.T) {
 // is already published cannot change content, so an acceptance never turns
 // its unchanged row blocked; it carries with the next version.
 func TestCIPlanDeclaredPublishedVersionCarriesNothing(t *testing.T) {
+	t.Parallel()
 	e := newCarryCIEnv(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": e.contract("reports", "1.0.0", "  owner: {team: reporting, dri: ana@acme.com}\ndependencies:\n  - name: ledger\n    required: true\n", "")})
 	p, _, err := e.svc.CIPlan(t.Context(), e.opts(nil))
@@ -212,6 +217,7 @@ func TestCIPlanDeclaredPublishedVersionCarriesNothing(t *testing.T) {
 // written, so the row reads unchanged and keeps the behind pactoVersion,
 // whether the version is derived or declared as the one published.
 func TestCIPlanBehindCarriedBaselineUnchanged(t *testing.T) {
+	t.Parallel()
 	for _, declared := range []bool{false, true} {
 		t.Run(strconv.FormatBool(declared), func(t *testing.T) { behindCarriedBaselineUnchanged(t, declared) })
 	}

@@ -52,7 +52,7 @@ When `spec.target` is omitted the Pacto is reference-only: the operator parses a
 A `Pacto` binding an OCI contract to a Service, with an interface bound to a named Service port and a configuration bound to a ConfigMap:
 
 ```yaml
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: orders-api

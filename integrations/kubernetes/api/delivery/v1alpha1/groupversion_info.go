@@ -5,10 +5,8 @@ Licensed under the MIT License.
 See LICENSE file in the project root for full license text.
 */
 
-// Package v1alpha1 contains the Pacto delivery API: Stage, Operation and
-// Approval. It is a separate group from pacto.trianalab.io so its CRDs ship only
-// with the operator chart's opt-in delivery section, never with the observing
-// operator.
+// Package v1alpha1 is the deprecated delivery.pacto.trianalab.io/v1alpha1 API.
+// It is served until chart 8.0 and stores nothing: use v1.
 // +kubebuilder:object:generate=true
 // +groupName=delivery.pacto.trianalab.io
 package v1alpha1

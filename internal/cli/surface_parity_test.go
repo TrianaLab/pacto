@@ -69,19 +69,21 @@ func camel(kebab string) string {
 }
 
 const (
-	whyNamespace     = "every delivery command takes the namespace from the delivery group's -n (delivery --namespace)"
-	whyDashboardPage = "paging and narrowing of a dashboard table; the CLI and MCP answer the whole list"
-	whyNoEdit        = "the CLI has no edit command: people edit pacto.yaml and run pacto validate"
-	whyNoCreateFlag  = "pacto init reads it from the service folder (Dockerfile, manifests, workload labels) instead of a flag"
-	whyStatusRoute   = "GET /api/fleet/status answers the whole summary with no filters; the dashboard narrows it in the page"
-	whySearchRoute   = "GET /api/fleet/services takes text, owner, scope, source, status and template only; the dashboard's Services page narrows with /api/fleet/entities"
-	whyNoApprove     = "MCP has no approve tool: people answer an operation, an agent never does"
-	whyNoLadder      = "a person signs the installation ladder keyless from a terminal; MCP has no ladder tool and the dashboard hands off this command"
-	whyCreateOnly    = "the dashboard writes and checks no contract files, and an MCP server over HTTP serves only pacto_schema of the contract tools"
-	whyImpactRefs    = "over HTTP and on a shared dashboard, both resolve only refs of revisions in the caller's view, pinned to their digest"
-	whyKeyedImpact   = "the dashboard's impact page compares two revisions of its published snapshot by key; the CLI and MCP name refs (GET /api/fleet/impact)"
-	whyAtServerStart = "the MCP server and the dashboard take it once at startup (pacto mcp and pacto dashboard flags)"
-	whyRecordRef     = "a registry reference reads with the local machine's registry credentials, so only the CLI and the local MCP server take one; " +
+	whyMemberModePerson = "only a person signs a member request, through the CLI: the MCP propose tool refuses it with MemberRequestNeedsPerson and the command, and the dashboard hands off that command"
+	whyMemberSigning    = "the CLI reads the hub's members from the registry and signs member requests keyless with the person's fresh login; the dashboard hands off that command"
+	whyNamespace        = "every delivery command takes the namespace from the delivery group's -n (delivery --namespace)"
+	whyDashboardPage    = "paging and narrowing of a dashboard table; the CLI and MCP answer the whole list"
+	whyNoEdit           = "the CLI has no edit command: people edit pacto.yaml and run pacto validate"
+	whyNoCreateFlag     = "pacto init reads it from the service folder (Dockerfile, manifests, workload labels) instead of a flag"
+	whyStatusRoute      = "GET /api/fleet/status answers the whole summary with no filters; the dashboard narrows it in the page"
+	whySearchRoute      = "GET /api/fleet/services takes text, owner, scope, source, status and template only; the dashboard's Services page narrows with /api/fleet/entities"
+	whyNoApprove        = "MCP has no approve tool: people answer an operation, an agent never does"
+	whyNoLadder         = "a person signs the installation ladder keyless from a terminal; MCP has no ladder tool and the dashboard hands off this command"
+	whyCreateOnly       = "the dashboard writes and checks no contract files, and an MCP server over HTTP serves only pacto_schema of the contract tools"
+	whyImpactRefs       = "over HTTP and on a shared dashboard, both resolve only refs of revisions in the caller's view, pinned to their digest"
+	whyKeyedImpact      = "the dashboard's impact page compares two revisions of its published snapshot by key; the CLI and MCP name refs (GET /api/fleet/impact)"
+	whyAtServerStart    = "the MCP server and the dashboard take it once at startup (pacto mcp and pacto dashboard flags)"
+	whyRecordRef        = "a registry reference reads with the local machine's registry credentials, so only the CLI and the local MCP server take one; " +
 		"the remote MCP server and the dashboard read records through a Stage the caller can see"
 	whyStatsWindow  = "the Metrics page takes a closed window that ends now (GET /api/stats?window), with the same totals"
 	whyStatsPage    = "the Metrics page answers every service and environment at once and reads the stats repository pacto dashboard --stats-registry names"
@@ -93,15 +95,16 @@ const (
 // surfaceRows maps every CLI flag, MCP argument and dashboard parameter of
 // the fleet, delivery, impact and contract surfaces to its concept. A story
 // that adds one adds its row here in the same commit.
-var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), claimRows(), acceptRows(), clusterRows())
+var surfaceRows = slices.Concat(fleetRows(), fleetDetailRows(), impactRows(), deliveryRows(), deliveryWriteRows(), deliveryViewRows(), authoringRows(), statsRows(), publishRows(), evidenceRows(), ciRows(), declareRows(), claimRows(), offeringRows(), acceptRows(), clusterRows(), createServiceRows())
 
 func fleetRows() []surfaceRow {
 	return slices.Concat(
 		alike("fleet entities", "pacto_fleet_entities", "GET /api/fleet/entities", "", "business-domain", "consumes", "created-from", "environment", "cluster",
 			"has-non-compliant", "limit", "offering", "offset", "owner", "owner-key", "ownership", "phase", "sort", "source-kind", "status", "template",
-			"declaration", "group", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class"),
+			"declaration", "group", "capability", "domain", "readiness", "scope", "service", "source", "source-health", "failed", "lifecycle", "gap", "class", "outside-contract"),
 		[]surfaceRow{
 			{"fleet entities --kind", "pacto_fleet_entities.kind", "GET /api/fleet/entities?kinds", "the route takes several kinds, the CLI and MCP one"},
+			{"fleet offerings --consumable", "pacto_fleet_entities.consumable", "GET /api/fleet/entities?consumable", ""},
 			{"fleet entities [text]", "pacto_fleet_entities.text", "GET /api/fleet/entities?text", ""},
 		},
 		alike("fleet attention", "pacto_fleet_attention", "GET /api/fleet/attention", "", "business-domain", "category", "limit", "offset", "owner", "owner-key", "service", "severity",
@@ -200,6 +203,7 @@ func deliveryRows() []surfaceRow {
 			{"delivery --namespace", "", "", "each delivery tool and route takes namespace as an argument; its row follows the tool"},
 			{"delivery --delivery-namespace", "", "", whyAtServerStart},
 			{"delivery --trust", "", "", whyAtServerStart},
+			{"delivery --detected", "", "", whyAtServerStart + "; plans read the hub's approved members from the detection the server reads"},
 			{"delivery status --why", "pacto_delivery_status.why", "GET /api/delivery/progress", "the dashboard's progress page plans the candidates of one Stage"},
 			{"", "", "GET /api/delivery/progress?stage", "pacto delivery status --why and pacto_delivery_status with why plan every Stage of a service"},
 			{"", "", "GET /api/delivery/progress?namespace", "pacto delivery status --why and pacto_delivery_status with why plan every Stage of a service"},
@@ -266,6 +270,16 @@ func deliveryWriteRows() []surfaceRow {
 			"fulcio-url", "keyless", "timestamp-url"),
 		alike("delivery approve", "", "", "only the CLI approves from an intent record, signed keyless with the person's fresh login and no kubeconfig; MCP reads approval records and never writes one",
 			"intent", "signers"),
+		body("delivery plan", "pacto_delivery_operation_plan", plan, "", "service", "environment"),
+		body("delivery propose", "pacto_delivery_operation_propose", propose, whyMemberModePerson, "service", "environment"),
+		[]surfaceRow{
+			{"delivery plan --member", "pacto_delivery_operation_plan.members", plan + " body.members", ""},
+			{"delivery propose --member", "pacto_delivery_operation_propose.members", propose + " body.members", whyMemberModePerson},
+		},
+		alike("delivery plan", "", "", whyMemberSigning, "registry"),
+		alike("delivery propose", "", "", whyMemberSigning, "registry", "confirm", "issuer", "fulcio-url", "timestamp-url"),
+		alike("delivery approve", "", "", "only the CLI approves from an intent record; with --registry it verifies a member's intent under the recorder key the member advertises",
+			"registry"),
 		[]surfaceRow{{"delivery ladder confirm", "", "", whyNoLadder}},
 		alike("delivery ladder confirm", "", "", whyNoLadder, "proposal", "drop", "issuer", "create-namespaces"),
 	)
@@ -285,10 +299,33 @@ func deliveryViewRows() []surfaceRow {
 		view("trust", "domain", "limit", "offset", "q", "service"),
 		[]surfaceRow{
 			{"delivery refusals", "pacto_delivery_refusals", "GET /api/delivery/refusals", ""},
+			{"delivery refusals --registry", "", "", "the dashboard and the MCP server read the members of the hub they run on; the CLI names the registry its members publish to"},
+			{"delivery environments --registry", "", "", "the dashboard and the MCP server read the members of the hub they run on; the CLI names the registry its members publish to"},
 			{"delivery caller", "pacto_delivery_caller", "GET /api/delivery/caller", ""},
 			{"delivery types", "pacto_delivery_operation_types", "", "the dashboard's propose panel lists the types it offers"},
 		},
+		deliveryClusterRows(),
 	)
+}
+
+// deliveryClusterRows are the routes that name a Stage or change of another
+// cluster the dashboard reads; the CLI reads one cluster at a time through
+// its kubeconfig context.
+func deliveryClusterRows() []surfaceRow {
+	const read = "the dashboard names the cluster of a Stage it read from another cluster; the CLI reads the cluster its kubeconfig context names"
+	const write = "the dashboard acts only in its own cluster and refuses another with RemoteClusterReadOnly; the CLI acts in the cluster its kubeconfig context names"
+	var out []surfaceRow
+	for _, r := range []struct{ tool, route string }{{"pacto_delivery_history", "history"}, {"pacto_delivery_blame", "blame"}, {"pacto_delivery_undo_plan", "undo"},
+		{"pacto_delivery_record_get", "record"}, {"pacto_delivery_get", "operations/{namespace}/{name}"}} {
+		out = append(out, surfaceRow{"", r.tool + ".cluster", "GET /api/delivery/" + r.route + "?cluster", read})
+	}
+	out = append(out, surfaceRow{"", "pacto_delivery_explain.cluster", "", read + "; the dashboard's operation page explains it"},
+		surfaceRow{"", "", "GET /api/delivery/progress?cluster", read})
+	for _, r := range []string{"POST /api/delivery/plan", "POST /api/delivery/operations", "POST /api/delivery/operations/{namespace}/{name}/decision",
+		"DELETE /api/delivery/operations/{namespace}/{name}"} {
+		out = append(out, surfaceRow{"", "", r + "?cluster", write})
+	}
+	return out
 }
 
 func authoringRows() []surfaceRow {
@@ -378,7 +415,8 @@ func ciRows() []surfaceRow {
 // contract's first tool: the agent's dry_run and intent_digest are the
 // person's --yes and --intent.
 func declareRows() []surfaceRow {
-	const why = "the dashboard Declare panel names the inferred service by its fleet key and reads its workload from the snapshot"
+	const why = "the dashboard Declare panel names the inferred service by its fleet key and reads its workload from the snapshot; " +
+		"a golden path a catalog holds is named template:<namespace>/<name> on every surface"
 	const whyLocal = "a person's local signing: MCP callers are agents and never sign a declared record"
 	const plan, accept = "POST /api/fleet/declare", "POST /api/fleet/declare/accept"
 	const prWhy = "D7: --pr runs only where your Git token is"
@@ -396,6 +434,7 @@ func declareRows() []surfaceRow {
 			{"declare --dir", "pacto_declare.dir", "", "the dashboard declares a workload the fleet sees, never a folder; over MCP dir is stdio only"},
 			{"", "pacto_declare.on_behalf_of", "", "an MCP caller is an agent and names the person it acts for (over HTTP the caller the server reviewed); the CLI and the dashboard run as that person"},
 			{"declare --delivery-trust", "", "", "stdio pacto_declare and the dashboard read the server's own --delivery-trust"},
+			{"declare --backstage-url", "", "", "the dashboard and HTTP MCP read the catalog the installation configured; stdio pacto_declare reads the server's own --backstage-url"},
 			{"declare --draft", "pacto_declare.draft", "", "the dashboard Declare panel writes drafts through POST /api/fleet/declare/accept mode draft; over HTTP MCP every write is a draft, written only when the server has --registry"},
 		},
 		alike("declare", "pacto_declare", "", "the dashboard reads the workload's namespace from the snapshot, declares into its own --registry and reads the cluster as the person",
@@ -425,12 +464,35 @@ func claimRows() []surfaceRow {
 			{"claim --owner", "pacto_declare.owner", plan + " body.owner", ""},
 			{"", "", accept + " body.owner", "the accept route carries out the plan with the owner it named"},
 			{"claim --name", "pacto_declare.name", plan + " body.name", ""},
+			{"claim --offering", "pacto_declare.offering", plan + " body.offering", ""},
+			{"", "", accept + " body.offering", "the accept route carries out the plan with the offering it named"},
 			{"", "", accept + " body.name", "the accept route carries out the plan with the name it named"},
 		},
 		alike("claim", "", "", why, "registry", "yes", "intent", "draft", "from-draft", "delivery-trust"),
 		alike("claim", "", "", whyLocal, "sign-key", "oidc-issuer-url", "oidc-client-id", "device", "fulcio-url", "timestamp-url",
 			"rekor-url", "trusted-root"),
 	)
+}
+
+// offeringRows map pacto fleet offerings and the acceptance of an inferred
+// offering: pacto declare offering:<name> is pacto_declare with service
+// offering:<name> (pacto_declare.service, the declare <service> row).
+func offeringRows() []surfaceRow {
+	const why = "pacto_fleet_entities and GET /api/fleet/entities list the inferred offerings with kind offering and declaration inferred (the fleet entities --declaration row)"
+	const whyPage = "pacto_fleet_entities and GET /api/fleet/entities page the same list (the fleet entities --limit and --offset rows)"
+	const whyDash = "the dashboard accepts an inferred offering with the Accept action of its contributed service page, which sends the declare routes its version and ref"
+	return []surfaceRow{
+		{"fleet offerings --inferred", "", "", why},
+		{"fleet offerings --limit", "", "", whyPage},
+		{"fleet offerings --offset", "", "", whyPage},
+		{"declare --version", "pacto_declare.version", "", whyDash},
+		{"declare --from", "pacto_declare.from", "", whyDash},
+		{"declare --owner", "", "", "pacto_declare.owner and the declare routes' body.owner, the claim --owner row, also name an offering's owner"},
+		{"declare --detected", "", "", "stdio pacto_declare verifies with the server's own --detected; over HTTP the server's --detected is read with the caller's own cluster credentials"},
+		{"declare --contribution-trust", "", "", "a third-party producer's grant is a file on the person's machine; pacto_declare and the dashboard verify with their detection and name this flag in the CLI a refusal prints"},
+		{"", "", "POST /api/fleet/declare body.offeringAcceptance", "the dashboard's offering input holds the version, owner and registry declare --version, --owner and --registry name; the server takes --from from the viewer's fleet and --detected from its own"},
+		{"", "", "POST /api/fleet/declare/accept body.offeringAcceptance", "the accept route carries out the plan with the offering input it named"},
+	}
 }
 
 // acceptRows map pacto accept and pacto_accept, the agent write contract's
@@ -460,14 +522,49 @@ func acceptRows() []surfaceRow {
 	)
 }
 
+// createServiceRows map creating a service from a golden path: the
+// dashboard's Create service routes and pacto_create_service. The pacto init
+// flags a person creates locally with are pacto_create's rows (authoringRows).
+func createServiceRows() []surfaceRow {
+	const why = "a person creates locally with pacto init <name> --from <ref> and publishes with pacto publish; the server-side create exists for the dashboard and agents"
+	const whyAccept = "the accept route carries out the plan with the inputs it planned"
+	const whyCluster = "MCP reviews the caller in the cluster it signed them in against; the dashboard names the cluster of the namespace"
+	const whyDraft = "MCP callers are agents and never accept a draft; a person signs a created draft in the dashboard"
+	const plan, accept = "POST /api/fleet/services", "POST /api/fleet/services/accept"
+	inputs := []string{"path", "name", "owner", "namespace", "repository", "revision", "offerings"}
+	return slices.Concat(
+		body("", "pacto_create_service", plan, why, inputs...),
+		body("", "", accept, whyAccept, inputs...),
+		[]surfaceRow{
+			{"", "pacto_create_service.intent_digest", accept + " body.intentDigest", why},
+			{"", "pacto_create_service.dry_run", accept + " body.mode", why + "; dry_run false writes a draft, the dashboard signs (mode sign) or saves a draft (mode draft)"},
+			{"", "", plan + " body.intentDigest", "back from the dashboard's signing login, the plan the login was started for"},
+			{"", "pacto_create_service.on_behalf_of", "", "over HTTP the caller the server reviewed; the dashboard runs as that person"},
+			{"", "", plan + " body.cluster", whyCluster},
+			{"", "", accept + " body.cluster", whyCluster},
+			{"", "", plan + " body.fromDraft", whyDraft},
+			{"", "", accept + " body.fromDraft", whyDraft},
+		},
+	)
+}
+
 // clusterRows map pacto cluster list.
 func clusterRows() []surfaceRow {
 	return slices.Concat(
 		[]surfaceRow{{CLI: "cluster list", MCP: "pacto_cluster_list", HTTP: "GET /api/fleet/clusters"}},
 		alike("cluster list", "", "", "pacto_cluster_list and the dashboard read the hub they run in, from the registry its operator advertises; "+
 			"the CLI names the hub, its registry and where its approver signers are published", "context", "registry", "detected", "delivery-namespace"),
+		[]surfaceRow{{CLI: "cluster install", HTTP: "GET /api/fleet/clusters/install", Reason: whyInstall}},
+		alike("cluster install", "", "GET /api/fleet/clusters/install", whyInstall, "from"),
+		alike("cluster install", "", "", "the dashboard hands out the install for the hub it runs in, from its operator's detection; "+
+			"the CLI names the hub, its registry and chart and pushes", "context", "registry", "detected", "delivery-namespace", "chart", "chart-version",
+			"push", "digest", "insecure-registry"),
+		alike("cluster install", "", "", "the dashboard never sets hub.url: a crafted link could point every new member at another hub", "hub-url"),
 	)
 }
+
+// whyInstall is why pacto cluster install has no MCP tool.
+const whyInstall = "a person installs members; an agent reads candidates with pacto_cluster_list"
 
 // excludedFromSurfaces are the commands no other surface mirrors, each with
 // the reason. Every other command has rows in surfaceRows, so a new command
@@ -611,7 +708,7 @@ func collectSurfaces(t *testing.T) surfaces {
 
 // mcpNames are "<tool>.<argument>", or the tool's name when it takes none,
 // for every tool of a composed fleet and delivery server that may write, with
-// every contract tool.
+// every contract tool, and of an HTTP server with a registry.
 func mcpNames(t *testing.T) map[string]bool {
 	t.Helper()
 	q := fleet.NewQuery(&fleet.FleetSnapshot{})
@@ -625,8 +722,13 @@ func mcpNames(t *testing.T) map[string]bool {
 	expect(t, err == nil, "server: %v", err)
 	res, err := sessionOn(t, server).ListTools(context.Background(), nil)
 	expect(t, err == nil, "tools: %v", err)
+	// pacto_create_service registers over HTTP only, with a registry.
+	remote, err := pactomcp.New("v", pactomcp.Authoring{Remote: true, CreateService: remoteCreator{}}, pactomcp.Modes{})
+	expect(t, err == nil, "remote server: %v", err)
+	more, err := sessionOn(t, remote).ListTools(context.Background(), nil)
+	expect(t, err == nil, "remote tools: %v", err)
 	out := map[string]bool{}
-	for _, tool := range res.Tools {
+	for _, tool := range slices.Concat(res.Tools, more.Tools) {
 		props, _ := tool.InputSchema.(map[string]any)["properties"].(map[string]any)
 		if len(props) == 0 {
 			out[tool.Name] = true
@@ -985,6 +1087,7 @@ var jsonRuns = map[string][]string{
 	"accept":                  {"--dry-run", "does-not-exist"},
 	"ci":                      {"."},
 	"cluster list":            {"--registry", "127.0.0.1:1/acme/pacto-targets"},
+	"cluster install":         {"--from", "argocd", "--registry", "127.0.0.1:1/acme/pacto-targets"},
 	"claim":                   {"stripe", "--owner", "team-platform"},
 	"declare":                 {"invoices", "--dir", "/nonexistent"},
 	"delivery approve":        {"-n", "prod", "held"},
@@ -1021,6 +1124,7 @@ var jsonRuns = map[string][]string{
 	"fleet graph":             {"payments"},
 	"fleet map":               {},
 	"fleet neighborhood":      {"payments"},
+	"fleet offerings":         {"--inferred"},
 	"fleet overview":          {},
 	"fleet providers":         {},
 	"fleet reconcile":         {"--traces", "does-not-exist.json"},

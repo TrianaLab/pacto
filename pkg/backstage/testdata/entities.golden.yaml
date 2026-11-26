@@ -31,6 +31,8 @@ metadata:
   annotations:
     pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
     pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/conformance: Compliant
+    pacto.trianalab.io/dependency-ranges: '{"component:default/payments-f9945306":[{"range":"^1","rangeStatus":"satisfied"}]}'
     pacto.trianalab.io/inferred-depends-on: resource:default/host-legacy-mq.example
     pacto.trianalab.io/owner-provenance: declared
     pacto.trianalab.io/provenance: declared
@@ -55,6 +57,7 @@ metadata:
   annotations:
     pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
     pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/conformance: NotEvaluated
     pacto.trianalab.io/owner: team:acme/billing
     pacto.trianalab.io/owner-provenance: declared
     pacto.trianalab.io/owner-unmapped: "true"
@@ -94,6 +97,7 @@ metadata:
   annotations:
     pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
     pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/conformance: NotEvaluated
     pacto.trianalab.io/provenance: declared
     pacto.trianalab.io/service-key: ghcr.io%2Fother/payments
 spec:
@@ -110,6 +114,7 @@ metadata:
   annotations:
     pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
     pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/conformance: NotEvaluated
     pacto.trianalab.io/owner-provenance: declared
     pacto.trianalab.io/provenance: declared
     pacto.trianalab.io/service-key: ghcr.io%2Facme/payments

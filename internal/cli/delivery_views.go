@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/trianalab/pacto/v4/internal/app"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 )
 
@@ -18,27 +20,34 @@ import (
 var deliveryViews = []struct{ route, short string }{
 	{"caller", "Show who you are to delivery: the user the API server names and your actor class"},
 	{"inbox", "Show what waits on you: held changes your teams may answer, frozen Stages, the Errored changes on them and an installation ladder proposal"},
-	{"environments", "Show every Stage by service and environment: what it runs, whether it is verified, failed, frozen or held, and where it runs and why"},
+	{"environments", "Show every Stage by service and environment: what it runs, whether it is verified, failed, frozen or held, where it runs and why and, with --registry on a hub, its members"},
 	{"autonomy", "Show the path to autonomy: each Stage's level, the next level Pacto proposes and what blocks it"},
 	{"published", "Show the versions the Stages know per service and whether Flux or the registry watch verified their signature"},
-	{"refusals", "Show the publishes and promotes Pacto refused: the version bump a refused publish needs and the Stage of a refused promote"},
+	{"refusals", "Show the publishes and promotes Pacto refused: the version bump a refused publish needs, the Stage of a refused promote and, with --registry on a hub, the requests its members refused"},
 	{"trust", "Show which publishers each service accepts: the rule, the signed policy, the pinned identities and the signers waiting for a person"},
+}
+
+// memberViews are the views that also read a hub's members with --registry,
+// and what they read there.
+var memberViews = map[string]string{
+	"refusals":     "on a hub: also read the requests its members refused, from the request streams of the members that publish to this registry",
+	"environments": "on a hub, with --service: also read which members a promote is placed on and what each did with the newest request, from the members that publish to this registry",
 }
 
 // positionalService are the views whose one optional argument is --service.
 var positionalService = map[string]bool{"trust": true}
 
-func newDeliveryViewCommands(d deps) []*cobra.Command {
+func newDeliveryViewCommands(svc *app.Service, d deps) []*cobra.Command {
 	var out []*cobra.Command
 	for _, view := range deliveryViews {
-		out = append(out, newDeliveryViewCommand(d, view.route, view.short))
+		out = append(out, newDeliveryViewCommand(svc, d, view.route, view.short))
 	}
 	return out
 }
 
 // newDeliveryViewCommand runs one dashboard delivery view in process, as the
 // kubeconfig user. Each route parameter is a flag of the same name.
-func newDeliveryViewCommand(d deps, route, short string) *cobra.Command {
+func newDeliveryViewCommand(svc *app.Service, d deps, route, short string) *cobra.Command {
 	params, description, _ := pactomcp.DeliveryReadParams(route) // every view is a read route
 	cmd := &cobra.Command{
 		Use:   route,
@@ -63,7 +72,14 @@ func newDeliveryViewCommand(d deps, route, short string) *cobra.Command {
 				ns = ""
 			}
 			cluster, _ := d.clusterConfig() // nil: no discovery and no namespace listing
-			reads := mcpDeliveryReads(baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace), nil, ns)(c, "")
+			id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
+			if registry, _ := cmd.Flags().GetString("registry"); registry != "" {
+				id.members = newMemberDelivery(svc, &app.JoinOptions{Resolve: func(ctx context.Context) (app.JoinOptions, error) {
+					_, o, err := hubJoins(ctx, d, "", registry, "", c.PolicyNamespace)
+					return o, err
+				}})
+			}
+			reads := mcpDeliveryReads(id, nil, ns)(c, "")
 			body, err := reads(cmd.Context(), route, viewQuery(cmd, params))
 			if err != nil {
 				return err
@@ -71,6 +87,9 @@ func newDeliveryViewCommand(d deps, route, short string) *cobra.Command {
 			// ponytail: JSON for every format; a table per view when people ask for one.
 			return printJSON(cmd, json.RawMessage(body))
 		},
+	}
+	if help, ok := memberViews[route]; ok {
+		cmd.Flags().String("registry", "", help)
 	}
 	if positionalService[route] {
 		cmd.Use, cmd.Args = route+" [service]", cobra.MaximumNArgs(1)

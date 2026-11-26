@@ -14,6 +14,7 @@ import (
 )
 
 func TestGraph_Local(t *testing.T) {
+	t.Parallel()
 	path := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	result, err := svc.Graph(context.Background(), GraphOptions{Path: path})
@@ -29,6 +30,7 @@ func TestGraph_Local(t *testing.T) {
 }
 
 func TestGraph_WithStore(t *testing.T) {
+	t.Parallel()
 	path := writeTestBundle(t)
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
@@ -42,6 +44,7 @@ func TestGraph_WithStore(t *testing.T) {
 }
 
 func TestGraph_OCIRef(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	result, err := svc.Graph(context.Background(), GraphOptions{Path: "oci://ghcr.io/acme/svc:1.0.0"})
@@ -54,6 +57,7 @@ func TestGraph_OCIRef(t *testing.T) {
 }
 
 func TestGraph_ResolveError(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.Graph(context.Background(), GraphOptions{Path: "/nonexistent/pacto.yaml"})
 	if err == nil {
@@ -62,6 +66,7 @@ func TestGraph_ResolveError(t *testing.T) {
 }
 
 func TestDepFetcher_OCISuccess(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	f := &depFetcher{store: store, baseDir: ""}
 	c, err := f.Fetch(context.Background(), contract.Dependency{Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"})
@@ -74,6 +79,7 @@ func TestDepFetcher_OCISuccess(t *testing.T) {
 }
 
 func TestDepFetcher_OCIError(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			return nil, fmt.Errorf("pull failed")
@@ -87,6 +93,7 @@ func TestDepFetcher_OCIError(t *testing.T) {
 }
 
 func TestDepFetcher_OCINilStore(t *testing.T) {
+	t.Parallel()
 	f := &depFetcher{store: nil, baseDir: ""}
 	_, err := f.Fetch(context.Background(), contract.Dependency{Ref: "oci://ghcr.io/acme/svc:1.0.0", Compatibility: "^1.0.0"})
 	if err == nil {
@@ -95,6 +102,7 @@ func TestDepFetcher_OCINilStore(t *testing.T) {
 }
 
 func TestDepFetcher_LocalSuccess(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	f := &depFetcher{baseDir: filepath.Dir(dir)}
 	c, err := f.Fetch(context.Background(), contract.Dependency{Ref: filepath.Base(dir), Compatibility: "^1.0.0"})
@@ -107,6 +115,7 @@ func TestDepFetcher_LocalSuccess(t *testing.T) {
 }
 
 func TestDepFetcher_LocalAbsPath(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	f := &depFetcher{baseDir: ""}
 	c, err := f.Fetch(context.Background(), contract.Dependency{Ref: dir, Compatibility: "^1.0.0"})
@@ -119,6 +128,7 @@ func TestDepFetcher_LocalAbsPath(t *testing.T) {
 }
 
 func TestDepFetcher_FileScheme(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	f := &depFetcher{baseDir: ""}
 	c, err := f.Fetch(context.Background(), contract.Dependency{Ref: "file://" + dir, Compatibility: "^1.0.0"})
@@ -131,6 +141,7 @@ func TestDepFetcher_FileScheme(t *testing.T) {
 }
 
 func TestDepFetcher_LocalError(t *testing.T) {
+	t.Parallel()
 	f := &depFetcher{baseDir: "/nonexistent"}
 	_, err := f.Fetch(context.Background(), contract.Dependency{Ref: "missing", Compatibility: "^1.0.0"})
 	if err == nil {
@@ -139,6 +150,7 @@ func TestDepFetcher_LocalError(t *testing.T) {
 }
 
 func TestDepFetcher_OCI_NoTag_ResolvesWithCompatibility(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
 			return []string{"1.0.0", "1.5.0", "2.0.0"}, nil
@@ -157,6 +169,7 @@ func TestDepFetcher_OCI_NoTag_ResolvesWithCompatibility(t *testing.T) {
 }
 
 func TestDepFetcher_OCI_NoTag_ListTagsError(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		ListTagsFn: func(_ context.Context, _ string) ([]string, error) {
 			return nil, fmt.Errorf("list failed")
@@ -172,6 +185,7 @@ func TestDepFetcher_OCI_NoTag_ListTagsError(t *testing.T) {
 }
 
 func TestGraph_LocalDependency(t *testing.T) {
+	t.Parallel()
 	// Create a dependency bundle
 	depDir := t.TempDir()
 	depBundleDir := filepath.Join(depDir, "dep-svc")
@@ -260,6 +274,7 @@ capabilities:
 }
 
 func TestGraph_FileSchemeDependency(t *testing.T) {
+	t.Parallel()
 	depDir := t.TempDir()
 	depBundleDir := filepath.Join(depDir, "dep-svc")
 	if err := os.MkdirAll(depBundleDir, 0755); err != nil {
@@ -318,6 +333,7 @@ capabilities:
 // -- which is what an empty base does -- would let a remote contract choose
 // which local files Pacto reads.
 func TestNewDepFetcher_OCIBaseRefRefusesLocalRefs(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	df := svc.newDepFetcher("oci://ghcr.io/acme/svc:1.0.0").(*depFetcher)
 
@@ -337,6 +353,7 @@ func TestNewDepFetcher_OCIBaseRefRefusesLocalRefs(t *testing.T) {
 // local bundle reports its directory, so `./b` declared one level down joins
 // onto that directory rather than the root's.
 func TestDepFetcher_FetchFromReportsTheFetchedBundlesBase(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	df := svc.newDepFetcher(filepath.Dir(bundleDir)).(*depFetcher)

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -21,14 +22,12 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
+	"github.com/trianalab/pacto/v4/internal/k8sclient"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 )
-
-// deliveryGroupVersion is the API the chart's delivery section installs.
-const deliveryGroupVersion = "delivery.pacto.trianalab.io/v1alpha1"
 
 // dashboardIdentity is how the dashboard identifies callers and acts for them.
 type dashboardIdentity struct {
@@ -42,14 +41,21 @@ type dashboardIdentity struct {
 	newClient func(*rest.Config) (dynamic.Interface, error)
 	// scope is the sign-in cluster's API discovery, built once at start:
 	// discovery is the same for every caller.
-	scope  delivery.ScopeFunc
-	infra  delivery.InfraFunc
-	served func(*rest.Config, string) (bool, error)
-	now    func() time.Time
-	state  func(context.Context) authn.State
+	scope delivery.ScopeFunc
+	infra delivery.InfraFunc
+	// planMembers are the hub's approved members a promote's plan reads
+	// (Service.PlanMembers); nil reads none.
+	planMembers func(context.Context, string, map[string]bool) delivery.Members
+	served      func(*rest.Config, string) (bool, error)
+	now         func() time.Time
+	state       func(context.Context) authn.State
 	// viewer narrows the fleet views to what the signed-in person's Kubernetes
 	// RBAC lets them read; nil outside shared mode with sign-in.
 	viewer *authn.Viewer
+	// entries are the resolved contexts the fleet reads, kept a minute: the
+	// delivery of each other cluster is read beside the dashboard's own (see
+	// remotes); nil reads only the dashboard's own.
+	entries func(context.Context) []app.K8sEntry
 	// homeUID is the sign-in cluster's cached id (homeCluster.UID), set with
 	// viewer; nil reads as unknown.
 	homeUID func(context.Context) (string, bool)
@@ -75,17 +81,24 @@ type dashboardIdentity struct {
 	checked   time.Time
 	installed bool
 	probeErr  error
+	// version maps each Pacto group to the version the cluster serves it at
+	// (see servedVersion); nil until asked.
+	version map[string]string
 
 	mu        sync.Mutex
 	revisions map[string]delivery.Revision
+	// members reads the hub's members' plans and refusals; nil on a host
+	// that reads no members.
+	members *memberDelivery
 	// streams keeps verified record streams across requests (see app.StreamCache).
 	streams app.StreamCache
 	// reads keeps each caller's apiserver reads for a moment (see readCache).
 	reads *readCache
 	// shared is the one cache of the delivery objects signed-in people read
 	// from (see sharedReads), started by the first signed-in request.
-	sharedOnce sync.Once
-	shared     *sharedReads
+	sharedOnce    sync.Once
+	sharedStarted atomic.Bool
+	shared        *sharedReads
 
 	// nsMu guards the namespace names and, by caller, the namespaces each
 	// may list Stages in (see StageNamespaces).
@@ -124,10 +137,72 @@ func (id *dashboardIdentity) deliveryInstalled(context.Context) (bool, error) {
 	if now.Sub(id.checked) > ttl {
 		cfg := rest.CopyConfig(id.cluster)
 		cfg.Timeout = discoveryTimeout
-		id.installed, id.probeErr = id.served(cfg, deliveryGroupVersion)
+		id.version, id.probeErr = servedVersion(id.served, cfg)
+		id.installed = id.version[deliveryGroup] != ""
 		id.checked = now
 	}
 	return id.installed && id.probeErr == nil, id.probeErr
+}
+
+// servedVersion maps each Pacto group the cluster serves to its version: v1,
+// else the deprecated v1alpha1 a chart-6 cluster serves. Each group is asked
+// on its own: with crds.install=false the two groups' CRDs can be upgraded
+// apart.
+func servedVersion(served func(*rest.Config, string) (bool, error), cfg *rest.Config) (map[string]string, error) {
+	out := map[string]string{}
+	for _, group := range []string{deliveryGroup, k8sclient.PactoGroup} {
+		for _, v := range []string{"v1", "v1alpha1"} {
+			ok, err := served(cfg, group+"/"+v)
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				out[group] = v
+				break
+			}
+		}
+	}
+	return out, nil
+}
+
+// versions is the version each Pacto group is served at, as deliveryInstalled
+// found; nil before it found the delivery group, so the client addresses v1.
+func (id *dashboardIdentity) versions() map[string]string {
+	id.probe.Lock()
+	defer id.probe.Unlock()
+	if id.version[deliveryGroup] == "" || id.probeErr != nil {
+		return nil
+	}
+	return id.version
+}
+
+// servedVersions is app.Delivery.ServedVersions for the CLI: it asks d's
+// cluster, on use, which version it serves the Pacto groups at
+// (servedVersion). nil, so the client addresses v1, without a cluster config
+// or when discovery fails or serves no delivery group; that is not kept, so
+// a long-lived MCP server asks again on its next call.
+// ponytail: a found answer is kept for the process; a long-lived server
+// started on a chart-6 cluster keeps v1alpha1, which chart 7 still serves.
+func servedVersions(d deps) func() map[string]string {
+	var mu sync.Mutex
+	var found map[string]string
+	return func() map[string]string {
+		mu.Lock()
+		defer mu.Unlock()
+		if found != nil || d.clusterConfig == nil {
+			return found
+		}
+		cfg, err := d.clusterConfig()
+		if err != nil {
+			return nil
+		}
+		cfg = rest.CopyConfig(cfg)
+		cfg.Timeout = discoveryTimeout
+		if v, err := servedVersion(d.served, cfg); err == nil && v[deliveryGroup] != "" {
+			found = v
+		}
+		return found
+	}
 }
 
 // deliveryCheckedAt is when deliveryInstalled last asked discovery.
@@ -135,6 +210,32 @@ func (id *dashboardIdentity) deliveryCheckedAt() time.Time {
 	id.probe.Lock()
 	defer id.probe.Unlock()
 	return id.checked
+}
+
+// personOf names the person of request r for viewedMembers.
+func (id *dashboardIdentity) personOf(r *http.Request) func(context.Context) (authn.Person, bool) {
+	p := id.state(r.Context()).Person
+	return func(context.Context) (authn.Person, bool) { return p, true }
+}
+
+// viewedMembers are members as the reader personOf names sees them: with a
+// viewer, a member cluster they may not list Pactos in cluster-wide, that
+// cannot review them, or any for a request that names nobody, is only
+// counted, so its consumers stay unknown to the gate and are never named.
+// ponytail: a reader of some namespaces there sees the cluster as unread; a
+// per-namespace restriction of the member snapshot would name what they may read.
+func viewedMembers(v *authn.Viewer, members func(context.Context, string, map[string]bool) delivery.Members,
+	personOf func(context.Context) (authn.Person, bool)) func(context.Context, string, map[string]bool) delivery.Members {
+	if v == nil || members == nil {
+		return members
+	}
+	return func(ctx context.Context, environment string, known map[string]bool) delivery.Members {
+		p, named := personOf(ctx)
+		return delivery.RestrictMembers(members(ctx, environment, known), func(uid string) bool {
+			all, err := v.MayList(ctx, p, uid, "", authn.PactoResource, "list")
+			return named && err == nil && all
+		})
+	}
 }
 
 // delivery is the caller's delivery API: the kubeconfig user in local mode,
@@ -175,7 +276,8 @@ func (id *dashboardIdentity) delivery(r *http.Request) (dashboard.DeliveryAPI, e
 		return nil, err
 	}
 	act := &app.Delivery{Dynamic: dyn, Registry: id.registry, Records: id.records, Trust: id.trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope, Infra: id.infra}
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: id.policyNS, Now: id.now, Streams: &id.streams, Scope: id.scope, Infra: id.infra, Members: viewedMembers(id.viewer, id.planMembers, id.personOf(r)),
+		Versions: id.versions()}
 	out := newDashDelivery(id, act, who)
 	if s := id.sharedReads(); s != nil && token != "" {
 		c, sc := *act, sharedClient{Interface: dyn, s: s, token: token}
@@ -193,16 +295,22 @@ func newDashDelivery(id *dashboardIdentity, act *app.Delivery, who string) dashD
 
 // sharedReads starts the shared cache with the dashboard's own credentials
 // the first time a signed-in person reads delivery; nil outside shared mode.
+// The informers watch the version discovery found, so it is asked first; nil,
+// and nothing started, while discovery fails.
 // ponytail: it watches for the life of the process, as the dashboard serves.
 func (id *dashboardIdentity) sharedReads() *sharedReads {
 	if !id.auth.SignsIn() {
 		return nil
 	}
+	if _, err := id.deliveryInstalled(context.Background()); err != nil && !id.sharedStarted.Load() {
+		return nil
+	}
 	id.sharedOnce.Do(func() {
+		defer id.sharedStarted.Store(true)
 		cfg := rest.CopyConfig(id.cluster)
 		cfg.QPS, cfg.Burst = sarQPS, sarBurst
 		if sa, err := id.newClient(cfg); err == nil { // a config that fails here fails every person's client too
-			id.shared = newSharedReads(context.Background(), sa, id.reads.wrote)
+			id.shared = newSharedReads(context.Background(), sa, id.versions()[deliveryGroup], id.reads.wrote)
 		}
 	})
 	return id.shared
@@ -261,6 +369,10 @@ func refusal(err error) error {
 	var stale *app.PlanStaleError
 	if errors.As(err, &stale) {
 		return &dashboard.DeliveryError{Status: http.StatusConflict, Code: "PlanStale", Detail: err.Error(), Plan: &stale.Plan, Differs: stale.Differs}
+	}
+	var hub *delivery.HubRefusalError
+	if errors.As(err, &hub) {
+		return dashboard.Refuse(http.StatusUnprocessableEntity, hub.Code, hub.Error())
 	}
 	var who *app.PrincipalError
 	if errors.As(err, &who) {
@@ -329,6 +441,9 @@ func (a dashDelivery) History(ctx context.Context, ns, stage string, listed *del
 }
 
 func (a dashDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
+	if memberRequest(req) {
+		return a.memberPlan(ctx, req)
+	}
 	p, _, err := a.act.Plan(ctx, req)
 	return p, refusal(err)
 }
@@ -380,7 +495,7 @@ func (a dashDelivery) Undo(ctx context.Context, ns, name, stage string) (*delive
 // the delivery trust config when one is set.
 func (a dashDelivery) PublishRefusals(ctx context.Context, ns string) (*dashboard.PublishRefusals, error) {
 	if a.d.Records == nil {
-		return nil, nil
+		return a.memberRefusals(ctx, nil), nil
 	}
 	stages, err := a.d.Stages(ctx, ns)
 	if err != nil {
@@ -421,7 +536,7 @@ func (a dashDelivery) PublishRefusals(ctx context.Context, ns string) (*dashboar
 			out.Completeness, out.Unreadable = "partial", append(out.Unreadable, ref.Name+": "+err.Error())
 		}
 	}
-	return out, nil
+	return a.memberRefusals(ctx, out), nil
 }
 
 // applyRefusalsOf appends the apply refusals of svc kept in the streams

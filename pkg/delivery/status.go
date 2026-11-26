@@ -14,6 +14,23 @@ type Listing struct {
 	AsOf         string   `json:"asOf"`
 	Completeness string   `json:"completeness" enum:"complete,partial"`
 	Unreadable   []string `json:"unreadable,omitempty" doc:"What could not be listed, each naming its namespace and why, or * when the namespaces could not be known"`
+	// Clusters and HiddenClusters are set only when the answer reads more
+	// than one cluster.
+	Clusters       []ClusterListing `json:"clusters,omitempty" doc:"How completely each cluster was read, when the answer reads more than one; absent for one cluster"`
+	HiddenClusters int              `json:"hiddenClusters,omitempty" doc:"How many clusters the reader may not see, or that have no live channel: counted, never named"`
+}
+
+// ClusterListing is how completely one cluster of a multi-cluster answer was
+// read. A namespace the reader may not list is counted in Hidden, never
+// named.
+type ClusterListing struct {
+	ID           string   `json:"id" doc:"The cluster's kube-system namespace UID"`
+	Name         string   `json:"name,omitempty" doc:"The cluster's display name"`
+	Completeness string   `json:"completeness" enum:"complete,partial"`
+	AsOf         string   `json:"asOf,omitempty" doc:"When the cluster's objects were read or recorded"`
+	Unreadable   []string `json:"unreadable,omitempty" doc:"What could not be read in namespaces the reader may list, each with why"`
+	Hidden       int      `json:"hidden,omitempty" doc:"How many namespaces the reader may not list there: counted, never named"`
+	Why          string   `json:"why,omitempty" doc:"Why nothing of the cluster was read, when nothing was"`
 }
 
 // StatusQuery asks where each Stage of one service stands: in Namespace, or
@@ -37,6 +54,7 @@ type ServiceStatus struct {
 // StageRow is one Stage: one service in one environment, as every surface
 // shows it (the dashboard, pacto delivery status and MCP).
 type StageRow struct {
+	Cluster          string   `json:"cluster,omitempty" doc:"The cluster the Stage was read from, when the answer reads several; empty for the reader's own cluster"`
 	Namespace        string   `json:"namespace"`
 	Stage            string   `json:"stage"`
 	Service          string   `json:"service"`
@@ -134,7 +152,7 @@ type RowInput struct {
 // it offers is asked for here.
 func RowOf(st StageObject, in RowInput) StageRow {
 	ss := st.Status
-	row := StageRow{Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Domain: st.Spec.Service.Domain,
+	row := StageRow{Cluster: st.Metadata.Cluster, Namespace: st.Metadata.Namespace, Stage: st.Metadata.Name, Service: st.Spec.Service.Name, Domain: st.Spec.Service.Domain,
 		Environment: st.Spec.Environment, Pointer: ss.Pointer, Verified: slices.Contains(ss.Verified, ss.Pointer),
 		Failed: slices.Contains(ss.FailedDigests, ss.Pointer), Frozen: ss.Frozen, FrozenReason: ss.FrozenReason, AutoHold: ss.AutoHold,
 		Held: in.Held, HeldUnknown: in.HeldUnknown, Candidate: ss.Candidate, Level: string(ss.Level), Actions: []string{},
@@ -367,7 +385,7 @@ func StageStateWord(state string) string {
 func StagesByName(stages []StageObject) map[string]*StageObject {
 	out := map[string]*StageObject{}
 	for i := range stages {
-		out[stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name] = &stages[i]
+		out[StageKey(stages[i].Metadata, stages[i].Metadata.Name)] = &stages[i]
 	}
 	return out
 }

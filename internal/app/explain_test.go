@@ -71,6 +71,7 @@ func pinnedService(at time.Time) *Service {
 }
 
 func TestExplain_WithReadiness(t *testing.T) {
+	t.Parallel()
 	path := writeReadinessBundle(t)
 	svc := pinnedService(time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC))
 	result, err := svc.Explain(context.Background(), ExplainOptions{Path: path})
@@ -114,6 +115,7 @@ func TestExplain_WithReadiness(t *testing.T) {
 }
 
 func TestExplain_WithoutReadiness(t *testing.T) {
+	t.Parallel()
 	path := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	result, err := svc.Explain(context.Background(), ExplainOptions{Path: path})
@@ -126,6 +128,7 @@ func TestExplain_WithoutReadiness(t *testing.T) {
 }
 
 func TestExplain_Local(t *testing.T) {
+	t.Parallel()
 	path := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	result, err := svc.Explain(context.Background(), ExplainOptions{Path: path})
@@ -147,6 +150,7 @@ func TestExplain_Local(t *testing.T) {
 }
 
 func TestExplain_WithInterfaces(t *testing.T) {
+	t.Parallel()
 	path := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	result, err := svc.Explain(context.Background(), ExplainOptions{Path: path})
@@ -169,6 +173,7 @@ func TestExplain_WithInterfaces(t *testing.T) {
 }
 
 func TestExplain_OCIRef(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	result, err := svc.Explain(context.Background(), ExplainOptions{Path: "oci://ghcr.io/acme/svc:1.0.0"})
@@ -181,6 +186,7 @@ func TestExplain_OCIRef(t *testing.T) {
 }
 
 func TestExplain_WithDependencies(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{
 		PullFn: func(_ context.Context, _ string) (*contract.Bundle, error) {
 			b := testBundle()
@@ -208,6 +214,7 @@ func TestExplain_WithDependencies(t *testing.T) {
 }
 
 func TestExplain_NotFound(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.Explain(context.Background(), ExplainOptions{Path: "/nonexistent/pacto.yaml"})
 	if err == nil {
@@ -216,6 +223,7 @@ func TestExplain_NotFound(t *testing.T) {
 }
 
 func TestExplain_WithEnvironments(t *testing.T) {
+	t.Parallel()
 	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: writeEnvironmentBundle(t, "")})
 	if err != nil {
 		t.Fatal(err)
@@ -226,6 +234,7 @@ func TestExplain_WithEnvironments(t *testing.T) {
 }
 
 func TestExplain_WithGuaranteesEpochAndRequires(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	doc := `pactoVersion: "2.2"
 service: {name: checkout, version: 1.0.0}
@@ -254,6 +263,7 @@ dependencies:
 }
 
 func TestExplain_Domain(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n  domain: payments\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -268,6 +278,7 @@ func TestExplain_Domain(t *testing.T) {
 }
 
 func TestExplain_OfferingAndSummary(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n  offering: postgresql\n  summary: Primary database\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -282,6 +293,7 @@ func TestExplain_OfferingAndSummary(t *testing.T) {
 }
 
 func TestExplain_Lifecycle(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte("pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n  lifecycle:\n    deprecated: \"2026-01-01\"\n    sunset: \"2027-06-30\"\n"), 0o644); err != nil {
 		t.Fatal(err)
@@ -296,6 +308,7 @@ func TestExplain_Lifecycle(t *testing.T) {
 }
 
 func TestExplain_TemplateAndOrigin(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	digest := "sha256:" + strings.Repeat("a", 64)
 	yaml := "pactoVersion: \"2.4\"\nservice:\n  name: svc\n  version: 1.0.0\n  template:\n    plugins:\n      - name: dockerfile\n" +
@@ -356,6 +369,7 @@ environments:
 // Explain gives an adapter each environment's effective request: the inline
 // values with the environment's file deep-merged on top, a null deleting.
 func TestExplain_ConfigurationEnvironmentValues(t *testing.T) {
+	t.Parallel()
 	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: writeRequestBundle(t, "database:\n  backups: null\n")})
 	if err != nil {
 		t.Fatal(err)
@@ -388,6 +402,7 @@ func TestExplain_ConfigurationEnvironmentValues(t *testing.T) {
 // A values file that cannot be read fails the explain rather than reporting
 // the inline values alone as the request.
 func TestExplain_UnreadableEnvironmentFile(t *testing.T) {
+	t.Parallel()
 	_, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: writeRequestBundle(t, "database: [unclosed\n")})
 	if err == nil || !strings.Contains(err.Error(), "environment staging: cannot read environments/staging.yaml") {
 		t.Fatalf("err = %v", err)
@@ -395,6 +410,7 @@ func TestExplain_UnreadableEnvironmentFile(t *testing.T) {
 }
 
 func TestExplainConfiguration_SchemaSummary(t *testing.T) {
+	t.Parallel()
 	c := ExplainConfiguration{Name: "chart", Schema: "chart/values.schema.json"}
 	if s := c.Summary(); s != "chart: chart/values.schema.json (optional)" {
 		t.Errorf("summary = %q", s)
@@ -405,6 +421,7 @@ func TestExplainConfiguration_SchemaSummary(t *testing.T) {
 }
 
 func TestExplainConfigurations_NoBundleFiles(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{
 		Configurations: []contract.Configuration{{Name: "database", Values: map[string]any{"size": "medium"}}},
 		Environments:   []contract.Environment{{Name: "production", File: "environments/production.yaml"}},
@@ -421,6 +438,7 @@ func TestExplainConfigurations_NoBundleFiles(t *testing.T) {
 
 // Explain compares every declared environment, or the ones named.
 func TestExplainEnvironmentDifferences(t *testing.T) {
+	t.Parallel()
 	dir := writeRequestBundle(t, "database:\n  size: small\n")
 	result, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
 	if err != nil {
@@ -445,6 +463,7 @@ func TestExplainEnvironmentDifferences(t *testing.T) {
 // Without names, a comparison that cannot run is reported and explain still
 // answers.
 func TestExplainDifferencesErrorWithoutNames(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := "pactoVersion: \"2.3\"\nservice:\n  name: svc\n  version: 1.0.0\nenvironments:\n  - name: a\n    file: a.yaml\n  - name: b\n    file: b.yaml\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(content), 0o644); err != nil {
@@ -460,6 +479,7 @@ func TestExplainDifferencesErrorWithoutNames(t *testing.T) {
 }
 
 func TestExplainPortAndBreaks(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	writeFiles(t, dir, map[string]string{"pacto.yaml": `pactoVersion: "2.5"
 service:

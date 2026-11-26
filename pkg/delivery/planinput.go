@@ -28,6 +28,10 @@ type PlanSources interface {
 	// Manifests inspects the deploy artifact digest through the Stage's
 	// apply repository, bounded (PlanInput.Manifests).
 	Manifests(ctx context.Context, stage StageObject, digest string) ManifestInspection
+	// Members are the hub's members a promote in environment reads beyond
+	// the hub's own Pactos, known the environments the hub's Stages declare
+	// (KnownEnvironments); Members{} with none.
+	Members(ctx context.Context, environment string, known map[string]bool) Members
 }
 
 // AssemblePlanInput gathers everything PlanFor reads for spec on stage, raised
@@ -78,6 +82,6 @@ func AssemblePlanInput(ctx context.Context, src PlanSources, spec OperationSpec,
 	ks, ksErr := src.Kustomizations(ctx)
 	pactos, in.Misplaced = EnvironmentPactos(pactos, in.Stages, ks, errors.Join(in.StagesErr, ksErr), stage.Spec.Environment)
 	in.Candidates = src.Describe
-	in.Snapshot, err = Snapshot(ctx, pactos, listErr, []Revision{in.From, in.To}, now)
+	in.Snapshot, err = Snapshot(ctx, pactos, listErr, []Revision{in.From, in.To}, now, src.Members(ctx, stage.Spec.Environment, KnownEnvironments(in.Stages)))
 	return in, err
 }

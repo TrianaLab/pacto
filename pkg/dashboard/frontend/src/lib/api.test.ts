@@ -195,7 +195,7 @@ describe('product endpoint serialization + schema validation', () => {
   it('fleetProviders GET /api/fleet/providers resolves the rows with a product meta', async () => {
     const body = {
       meta: { schemaVersion: PRODUCT_SCHEMA_VERSION, asOf: '2026-11-17T00:00:00Z', completeness: 'complete', snapshotId: 's', sourceCounts: { total: 1 }, sources: [{ id: 'k8s', kind: 'kubernetes', status: 'available', revisionCount: 0, targetCount: 2 }] },
-      total: 1, providers: [{ id: 'pacto-crd', source: 'k8s', name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1alpha1)', usedFor: ['declared-targets'], status: 'available' }],
+      total: 1, providers: [{ id: 'pacto-crd', source: 'k8s', name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1)', usedFor: ['declared-targets'], status: 'available' }],
     };
     mockFetch.mockResolvedValue(jsonResponse(body));
     const res = await api.fleetProviders();
@@ -291,6 +291,20 @@ describe('fleetClusters', () => {
   it('throws with the problem detail on a 502', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ status: 502, detail: 'cannot read ghcr.io/acme/pacto-targets' }, 502));
     await expect(api.fleetClusters()).rejects.toThrow('cannot read ghcr.io/acme/pacto-targets');
+  });
+});
+
+describe('fleetClusterInstall', () => {
+  it('GET /api/fleet/clusters/install resolves the YAML text', async () => {
+    mockFetch.mockResolvedValue(new Response('registry: ghcr.io/acme\n', { status: 200, headers: { 'Content-Type': 'application/yaml' } }));
+    await expect(api.fleetClusterInstall('flux')).resolves.toBe('registry: ghcr.io/acme\n');
+    expect(urlFor().pathname).toBe('/api/fleet/clusters/install');
+    expect(urlFor().searchParams.get('from')).toBe('flux');
+  });
+
+  it('throws an ApiError with the status on a 403', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ status: 403, detail: 'the member install is for those who may approve clusterjoins' }, 403));
+    await expect(api.fleetClusterInstall('argocd')).rejects.toMatchObject({ status: 403, message: 'the member install is for those who may approve clusterjoins' });
   });
 });
 

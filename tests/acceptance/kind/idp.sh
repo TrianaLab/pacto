@@ -23,13 +23,25 @@
 #      a fixture XRD is accepted, the row reads Crossplane v2.<n>.<n> and
 #      GET /api/capabilities reads provisioning engine crossplane; a second
 #      helm upgrade with the same values succeeds (the release owns Crossplane).
+#   3b. xrd_offerings: a fixture XRD (an immutable engine, a bounded storageGB)
+#      and two Compositions selecting it: the operator, up before Crossplane,
+#      pushes xdatabase_0.0.0-inferred.1.0 to its own
+#      <registry>/pacto-inferred/crossplane-<clusterID>/services with no
+#      restart; the bundle keeps the bounds, the class enum and closes every
+#      object; the dashboard lists it with declaration=inferred, its producer
+#      row reads available and the declared offering list leaves it out;
+#      pacto declare offering:xdatabase plans the acceptance with --detected
+#      and writes nothing, and without --detected is refused
+#      OfferingSourceUnverified; a second XRD revision pushes
+#      xdatabase_0.0.0-inferred.2.0.
 #   4. to_default: profile=default, delivery.enabled=true,
 #      idp.crossplane.install=false: no pacto-evidence, no recorder, no
 #      --evidence-server-auto or --idp-recorder, no Crossplane Deployment; the
 #      Crossplane CRDs and the fixture XRD stay, the row reads APIs served,
 #      controller not found and the engine is no longer crossplane; a Pacto
 #      still reconciles, the target snapshot push continues and the promoter
-#      stays Ready. Then what Crossplane left: its webhook configurations, an
+#      stays Ready, and with the Crossplane controller gone and its CRDs left
+#      the offering publisher pushes no new tag. Then what Crossplane left: its webhook configurations, an
 #      XRD change against them, their deletion and the same change accepted.
 #   5. reenable: helm upgrade --dry-run=server back to idp with
 #      idp.crossplane.install=true succeeds on the CRD-only cluster, and the
@@ -54,6 +66,8 @@ LOCAL_DASH_PORT=18531
 LOCAL_REG_PORT=18532
 XRD=xbuckets.e2e.pacto.run
 XRD_KIND=compositeresourcedefinitions.apiextensions.crossplane.io
+DB_XRD=xdatabases.e2e.pacto.run
+FIX="$(dirname "$0")/fixtures/idp"
 HINT="helm upgrade <release> <chart> --reuse-values --set idp.crossplane.install=true"
 VER="$(release_version kubernetes)"
 OP_REPO="localhost:5001/pacto-operator/pacto-controller"
@@ -78,7 +92,8 @@ teardown() {
   left="$(crossplane_webhooks 2>/dev/null || true)"
   # shellcheck disable=SC2086  # one argument per object
   [ -z "$left" ] || kubectl delete $left --ignore-not-found >/dev/null 2>&1 || true
-  kubectl delete "$XRD_KIND" "$XRD" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete "$XRD_KIND" "$XRD" "$DB_XRD" --ignore-not-found --wait=false >/dev/null 2>&1 || true
+  kubectl delete compositions.apiextensions.crossplane.io xdatabase-small xdatabase-large --ignore-not-found --wait=false >/dev/null 2>&1 || true
   left="$(kubectl get crd -o name 2>/dev/null | grep -E '(crossplane\.io|e2e\.pacto\.run)$' || true)"
   # shellcheck disable=SC2086  # one argument per CRD
   [ -z "$left" ] || kubectl delete $left --ignore-not-found --wait=false >/dev/null 2>&1 || true
@@ -211,9 +226,80 @@ helm upgrade "$REL" "$CHART" -n "$REL" --reuse-values --wait --timeout 300s >/de
   || fail "a second helm upgrade of the release that installed Crossplane failed"
 pass "a second helm upgrade with the same values succeeds: the release owns its Crossplane"
 
-section "SCENARIO 4 (to_default): profile default keeps observation, CI reads and delivery"
+section "SCENARIO 3b (xrd_offerings): each XRD becomes an inferred offering a person accepts"
 CLUSTER_ID="$(detected_json | jq -r .cluster)"
 REG_PF="$(pf "$LOCAL_REG_PORT" svc/pacto-registry 5000)"
+REPO="acme/pacto-inferred/crossplane-$CLUSTER_ID/services"
+LREG="127.0.0.1:$LOCAL_REG_PORT"
+# The CLI runs on the host: HTTP_PROXY sends its plain-HTTP registry traffic to
+# the port-forward, so refs keep the in-cluster name the detection advertises
+# as the installation's own offerings repository.
+reg_pacto() { timeout 120 env HTTP_PROXY="http://$LREG" PACTO_INSECURE_REGISTRIES="$REG_HOST" "$PACTO_BIN" "$@"; }
+offering_tags() { curl -fsS "http://$LREG/v2/$REPO/tags/list" | jq -c '.tags // [] | sort'; }
+has_tag() { curl -fsS "http://$LREG/v2/$REPO/tags/list" | jq -e --arg t "$1" '.tags | index($t)' >/dev/null 2>&1; }
+dash() { curl -fsS -H "Cookie: __Host-pacto-session=$SESSION" "http://127.0.0.1:${LOCAL_DASH_PORT}$1"; }
+# Compositions first: the class enum is complete in the very first push.
+kubectl apply -f "$FIX/composition-small.yaml" -f "$FIX/composition-large.yaml" >/dev/null \
+  || fail "the Pipeline Compositions naming an uninstalled Function were refused"
+kubectl apply -f "$FIX/xdatabase-xrd.yaml" >/dev/null || fail "the fixture XRD $DB_XRD was refused"
+TAG1=xdatabase_0.0.0-inferred.1.0
+eventually 180 has_tag "$TAG1" || fail "the operator never pushed $REPO:$TAG1: $(offering_tags || true)"
+pass "the operator, up before Crossplane, pushed $REPO:$TAG1 with no restart"
+PULLED="$(mktemp -d)"
+reg_pacto pull "oci://$REG_HOST/$REPO:$TAG1" -o "$PULLED/b" >/dev/null || fail "pacto pull $REPO:$TAG1 failed"
+SCHEMA="$PULLED/b/configuration/provisioning.schema.json"
+# x-pacto-tier: an untiered field reads as contract until the mapper writes it.
+jq -e '.properties as $p
+  | $p.class.enum == ["xdatabase-large", "xdatabase-small"]
+  and ($p.engine["x-pacto-tier"] // "contract") == "contract"
+  and $p.engine.enum == ["postgres", "mysql"]
+  and $p.storageGB.minimum == 10 and $p.storageGB.maximum == 500
+  and ([.. | objects | select(.type == "object")] | all(.additionalProperties == false))
+  and ([paths | .[-1] | strings | select(startswith("x-kubernetes-"))] == [])' "$SCHEMA" >/dev/null \
+  || fail "the inferred provisioning schema lost a bound, an enum or the class enum, or left an object open: $(jq -c . "$SCHEMA")"
+pass "the schema keeps the bounds and enums, offers classes xdatabase-large and xdatabase-small and closes every object"
+inferred_listed() {
+  local rc=0
+  login && dash "/api/fleet/entities?kinds=offering&declaration=inferred" | jq -e --arg p "crossplane-$CLUSTER_ID" \
+    'any(.entities[]; .declaration == "inferred" and .inferredOffering.offering == "xdatabase" and .inferredOffering.producer == $p)' >/dev/null 2>&1 || rc=1
+  kill "$DASH_PF" 2>/dev/null || true
+  return $rc
+}
+producer_available() {
+  local rc=0
+  login && dash /api/fleet/providers | jq -e --arg id "producer/crossplane-$CLUSTER_ID" \
+    'any(.providers[]; .id == $id and .status == "available")' >/dev/null 2>&1 || rc=1
+  kill "$DASH_PF" 2>/dev/null || true
+  return $rc
+}
+declared_leaves_out() {
+  local rc=0
+  login && dash "/api/fleet/entities?kinds=offering" | jq -e 'all(.entities[]; .key != "xdatabase")' >/dev/null 2>&1 || rc=1
+  kill "$DASH_PF" 2>/dev/null || true
+  return $rc
+}
+eventually 120 inferred_listed || fail "GET /api/fleet/entities?kinds=offering&declaration=inferred does not list xdatabase from crossplane-$CLUSTER_ID"
+eventually 60 producer_available || fail "the producer row producer/crossplane-$CLUSTER_ID does not read available"
+declared_leaves_out || fail "the declared offering list lists the inferred offering xdatabase"
+pass "the dashboard lists xdatabase as inferred, producer/crossplane-$CLUSTER_ID reads available and the declared list leaves it out"
+FROM="oci://$REG_HOST/$REPO:$TAG1"
+DECL=(declare offering:xdatabase --from "$FROM" --registry "$REG_HOST/acme/offerings" --version 1.0.0 --owner team-data --output-format json)
+plan="$(reg_pacto "${DECL[@]}" --detected "k8s:$NS/$DETECTED" 2>/dev/null)" \
+  || fail "pacto declare offering:xdatabase --detected did not plan: $plan"
+jq -e --arg repo "$REG_HOST/acme/offerings/xdatabase" --arg p "offering:crossplane-$CLUSTER_ID/xdatabase@sha256:" \
+  '.bundleRepo == $repo and (.inferredFrom | startswith($p)) and .refusal == null' <<<"$plan" >/dev/null \
+  || fail "the acceptance plan does not name $REG_HOST/acme/offerings/xdatabase and an offering inferredFrom: $plan"
+! curl -fsS "http://$LREG/v2/acme/offerings/xdatabase/tags/list" >/dev/null 2>&1 || fail "planning the acceptance wrote acme/offerings/xdatabase"
+pass "pacto declare offering:xdatabase plans $(jq -r .inferredFrom <<<"$plan") and writes nothing"
+refused="$(reg_pacto "${DECL[@]}" 2>/dev/null || true)"
+jq -e '.refusal.code == "OfferingSourceUnverified"' <<<"$refused" >/dev/null \
+  || fail "accepting with no --detected was not refused OfferingSourceUnverified: $refused"
+pass "without --detected the acceptance is refused OfferingSourceUnverified"
+kubectl apply -f "$FIX/xdatabase-xrd-v2.yaml" >/dev/null || fail "the second revision of $DB_XRD was refused"
+eventually 180 has_tag xdatabase_0.0.0-inferred.2.0 || fail "the second XRD revision never pushed xdatabase_0.0.0-inferred.2.0: $(offering_tags || true)"
+pass "the second XRD revision pushed xdatabase_0.0.0-inferred.2.0"
+
+section "SCENARIO 4 (to_default): profile default keeps observation, CI reads and delivery"
 pushed || { kill "$REG_PF" 2>/dev/null || true; fail "the operator never pushed $REG_HOST/acme/pacto-targets:cluster-$CLUSTER_ID"; }
 snapshot_digest() {
   curl -fsS -o /dev/null -D - -H 'Accept: application/vnd.oci.image.manifest.v1+json' \
@@ -234,6 +320,10 @@ crossplane_deploys() { kubectl get deploy -A -l app.kubernetes.io/name=crossplan
 no_crossplane() { [ -z "$(crossplane_deploys)" ]; }
 eventually 40 no_crossplane || fail "a Crossplane Deployment outlived idp.crossplane.install=false: $(crossplane_deploys)"
 pass "no pacto-evidence, no recorder and no Crossplane Deployment"
+tags_before="$(offering_tags)"
+same_tags() { [ "$(offering_tags)" = "$tags_before" ]; }
+always 40 same_tags || fail "with the Crossplane controller gone the publisher pushed a new tag: $tags_before -> $(offering_tags)"
+pass "with the Crossplane controller gone and its CRDs left, the publisher keeps $tags_before and pushes nothing new"
 kubectl get crd "$XRD_KIND" >/dev/null 2>&1 || fail "the Crossplane CRD $XRD_KIND went with the release"
 kubectl get "$XRD_KIND" "$XRD" >/dev/null 2>&1 || fail "the fixture XRD $XRD went with the release"
 pass "the Crossplane CRDs and the fixture XRD $XRD stay"
@@ -244,7 +334,7 @@ eventually 60 engine_is '. != "crossplane"' || { show_engine || true; fail "GET 
 pass "GET /api/capabilities no longer reads provisioning engine crossplane"
 kubectl create ns idp-a >/dev/null 2>&1 || true
 kubectl apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: idp-after, namespace: idp-a}
 spec:

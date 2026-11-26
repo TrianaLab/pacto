@@ -93,7 +93,7 @@ export interface paths {
         };
         /**
          * Every Stage
-         * @description Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo.
+         * @description Service by environment: the digest and version each Stage runs and whether it is verified, failed, frozen, held or on auto-hold. With service it also says, per Stage, which actions the caller may take and why, including freeze and undo, and, on a hub, which members a promote is placed on and what each did with the newest request.
          */
         get: operations["delivery-environments"];
         put?: never;
@@ -239,7 +239,7 @@ export interface paths {
         put?: never;
         /**
          * Plan a change
-         * @description What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you.
+         * @description What the promoter would do: verdicts, whether a person must decide, who and the question, and, in next, what proposing it leads to for you. With service, environment and a sha256 to instead of a Stage, on a hub: members, the placement over its members, where it came from, each member's state and the command a person runs to sign the requests.
          */
         post: operations["delivery-plan"];
         delete?: never;
@@ -317,7 +317,7 @@ export interface paths {
         };
         /**
          * Publishes and promotes Pacto refused
-         * @description Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing.
+         * @description Recent publishes and promotes Pacto refused, newest first, with the check that refused each, the version bump a refused publish needs and the namespace, Stage, digest and operation record of a refused promote (check manifests: the manifest inspector refused what the version applies). On a hub, the requests its members refused or whose promote their gates rejected (check member, with the member in cluster). recorded false means this cluster keeps no record of refused publishes or promotes, so an empty list proves nothing.
          */
         get: operations["delivery-refusals"];
         put?: never;
@@ -457,9 +457,29 @@ export interface paths {
         };
         /**
          * List the member clusters of this hub
-         * @description The clusters that publish to this hub's registry and where each stands: approved members, pending clusters with why they are pending and removed members, as pacto cluster list and pacto_cluster_list answer. A signed-in reader who may not approve clusterjoins sees the approved members only; the rest are counted in hidden. Approving is a person's signed decision with pacto cluster approve.
+         * @description The clusters that publish to this hub's registry and where each stands: approved members, pending clusters with why they are pending and removed members, as pacto cluster list and pacto_cluster_list answer. A signed-in reader who may not approve clusterjoins sees the approved members only; the rest are counted in hidden, and the candidate clusters the hub's GitOps and cluster managers know in hiddenCandidates. A candidate is matched to a member only by a UID it states. Approving is a person's signed decision with pacto cluster approve.
          */
         get: operations["get-fleet-clusters"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/clusters/install": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Download the install of the Pacto chart on every member
+         * @description The Argo CD ApplicationSet (from=argocd) or Flux HelmReleases (from=flux) that install the Pacto chart on every cluster the engine reaches, as pacto cluster install prints them. The values are only registry: set hub.url with pacto cluster install --hub-url. Pacto writes nothing to Git and applies nothing; deleting the files never uninstalls Pacto from a member. Only for a reader who may approve clusterjoins.
+         */
+        get: operations["get-fleet-clusters-install"];
         put?: never;
         post?: never;
         delete?: never;
@@ -745,7 +765,31 @@ export interface paths {
          */
         get: operations["fleet-search"];
         put?: never;
-        post?: never;
+        /**
+         * Plan creating a service from a golden path
+         * @description Plans the first version of a service created from a declared golden path in your view: pacto.yaml at 0.1.0, the offering values checked against each offering's closed schema, the repository, the revision and who signs. It writes nothing. It needs create services.pacto.trianalab.io in the namespace, named by the service.
+         */
+        post: operations["fleet-create-service"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/fleet/services/accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Sign a created service or save it as a draft
+         * @description Carries out a create plan the person reviewed, by its intent digest: publishes 0.1.0 signed by the person's fresh login and writes its organization index entry, saves a draft-<n> a person signs later, or accepts a draft. Pacto holds no Git token: the answer hands over the files and the commands.
+         */
+        post: operations["fleet-create-service-accept"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1280,9 +1324,16 @@ export interface components {
              * @description Stages, over every page, Pacto proposes a next level for
              */
             canMoveUp: number;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             contracted?: components["schemas"]["ContractShare"];
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             /** @description Which Stages this page holds */
             page: components["schemas"]["Page"];
             /** @description Counted over every Stage, not only this page */
@@ -1371,8 +1422,12 @@ export interface components {
         CapabilitiesOutputBody: {
             /** @description What this caller's Kubernetes permissions leave out of the fleet views */
             auth: components["schemas"]["CapabilityAuth"];
+            /** @description This caller can plan creating a service from a golden path: the host creates and knows who the caller is */
+            createService: boolean;
             /** @description This caller can plan declaring an inferred service: the host declares and knows who the caller is */
             declare: boolean;
+            /** @description This caller may accept a golden path a catalog holds: on a shared host, update pactos in the installation namespace */
+            declareTemplate: boolean;
             /** @description The delivery views and actions are served */
             delivery: boolean;
             /** @description The operational-graph (fleet) endpoints are served */
@@ -1385,6 +1440,8 @@ export interface components {
             miraURL?: string;
             /** @description An observation source backs impact analysis */
             observed: boolean;
+            /** @description Where the configured developer portal creates a service; empty without one */
+            portalCreateURL?: string;
             /** @description The Metrics page has a stats repository to read */
             stats: boolean;
         };
@@ -1743,6 +1800,192 @@ export interface components {
              */
             uncontractedCallers: number;
         };
+        CreateServiceAcceptAnswer: {
+            /** @description The page a person reviews and signs the draft at */
+            acceptUrl?: string;
+            /** @description How soon the fleet shows the service declared at 0.1.0; empty when its index entry was not written */
+            appearsWithin?: string;
+            draft?: boolean;
+            /** @description The published files, at most 64 of at most 64 KiB each */
+            files?: components["schemas"]["CreateServiceFile"][] | null;
+            /** Format: int64 */
+            filesTotal?: number;
+            /** @description Makes the repository with your own Git token; Pacto holds none */
+            gitCli?: string;
+            /** @description Where the organization index entry went, or why it was not written: the publish stands either way */
+            index?: string;
+            /** @description The pacto init that recreates the folder on your machine */
+            initCli?: string;
+            /** @description The fresh plan of a PlanStale refusal */
+            plan?: components["schemas"]["CreateServiceAnswer"];
+            /** @description The bundle written, as <repository>@sha256:<hex> */
+            published?: string;
+            /** @description Pulls the published bundle */
+            pullCli?: string;
+            refusal?: components["schemas"]["DeclareRefusal"];
+            refusals?: components["schemas"]["CreateServiceRefusal"][] | null;
+            signed?: boolean;
+            tag?: string;
+            /** @description The values file InitCLI reads, beside it */
+            valuesFile?: components["schemas"]["CreateServiceFile"];
+        };
+        CreateServiceAcceptInput: {
+            /** @description The cluster the review runs in; empty for the only one */
+            cluster?: string;
+            /** @description Plan accepting this created draft instead: its inputs are read from it and checked again against your view */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent a signing login was started for */
+            intentDigest?: string;
+            /**
+             * @description sign: publish 0.1.0 signed by your fresh login; draft: save a draft-<n> a person signs later
+             * @enum {string}
+             */
+            mode: "sign" | "draft";
+            /** @description The new service's name */
+            name: string;
+            /** @description The namespace you are reviewed in: create services.pacto.trianalab.io there, named by the service */
+            namespace: string;
+            /** @description The values set on each offering the service consumes; an offering the golden path does not request is added */
+            offerings?: components["schemas"]["CreateServiceOffering"][] | null;
+            /** @description The team that owns the new service; you must belong to it or be a default approver */
+            owner?: string;
+            /** @description The service key of the declared golden path to create from */
+            path: string;
+            /** @description Where the first version goes: under the dashboard's registry and ending in the service name; defaults to <registry>/<name> */
+            repository?: string;
+            /** @description The publish revision; defaults to pacto-create:<you>:<time> */
+            revision?: string;
+        };
+        CreateServiceAnswer: {
+            consumableAsOf?: string;
+            consumableCompleteness: string;
+            /** @description Your own drafts of this service, newest first */
+            drafts?: components["schemas"]["DeclareDraft"][] | null;
+            /** Format: int64 */
+            draftsTotal?: number;
+            /** @description The offerings you may consume, the requested ones first */
+            offerings: components["schemas"]["CreateServiceOfferingView"][] | null;
+            /** @description Absent when the plan was refused */
+            plan?: components["schemas"]["CreateServicePlan"];
+            refusal?: components["schemas"]["DeclareRefusal"];
+            /** @description Every refused input, each at its field; a refused plan has no intent digest */
+            refusals?: components["schemas"]["CreateServiceRefusal"][] | null;
+            /** @description Starts the signing login once: /auth/sign?ticket=<signTicket>&return=<page> */
+            signTicket?: string;
+            signedIn?: boolean;
+            signing: components["schemas"]["DeclareSigning"];
+            write: components["schemas"]["DeclareWrite"];
+        };
+        CreateServiceFile: {
+            path: string;
+            text: string;
+            /** @description The file is longer than 64 KiB and only its start is shown */
+            truncated?: boolean;
+        };
+        CreateServiceInput: {
+            /** @description The cluster the review runs in; empty for the only one */
+            cluster?: string;
+            /** @description Plan accepting this created draft instead: its inputs are read from it and checked again against your view */
+            fromDraft?: components["schemas"]["DraftRef"];
+            /** @description The intent a signing login was started for */
+            intentDigest?: string;
+            /** @description The new service's name */
+            name: string;
+            /** @description The namespace you are reviewed in: create services.pacto.trianalab.io there, named by the service */
+            namespace: string;
+            /** @description The values set on each offering the service consumes; an offering the golden path does not request is added */
+            offerings?: components["schemas"]["CreateServiceOffering"][] | null;
+            /** @description The team that owns the new service; you must belong to it or be a default approver */
+            owner?: string;
+            /** @description The service key of the declared golden path to create from */
+            path: string;
+            /** @description Where the first version goes: under the dashboard's registry and ending in the service name; defaults to <registry>/<name> */
+            repository?: string;
+            /** @description The publish revision; defaults to pacto-create:<you>:<time> */
+            revision?: string;
+        };
+        CreateServiceOffering: {
+            /** @description The values set per environment the golden path declares, by environment then field; only tunable fields */
+            environments?: {
+                [key: string]: {
+                    [key: string]: unknown;
+                };
+            };
+            /** @description The offering, as the consumable offerings list names it */
+            offering: string;
+            /** @description The values set once for every environment, by field */
+            values?: {
+                [key: string]: unknown;
+            };
+        };
+        CreateServiceOfferingView: {
+            classes: string[] | null;
+            /** Format: int64 */
+            classesTotal: number;
+            classesTruncated?: boolean;
+            /** @description What each interface of the offering's provider promises; empty when it declares none */
+            guarantees?: components["schemas"]["Fleet.ConsumableGuarantee"][] | null;
+            offering: string;
+            parameters: components["schemas"]["Fleet.OfferingParameter"][] | null;
+            /** Format: int64 */
+            parametersTotal: number;
+            /** @description More fields than are listed: set the rest with pacto init --values or pacto_create_service */
+            parametersTruncated?: boolean;
+            /** @description The golden path requests it; any other is added when a value is set on it */
+            requested: boolean;
+            version: string;
+        };
+        CreateServicePlan: {
+            bundleRepo: string;
+            consumableAsOf?: string;
+            consumableCompleteness: string;
+            /** @description pacto.yaml as it would be published */
+            contract: components["schemas"]["DeclareText"];
+            /** @description Every other file it would publish, the environment values files included */
+            files?: components["schemas"]["CreateServiceFile"][] | null;
+            /** Format: int64 */
+            filesTotal?: number;
+            /** @description The pacto init that recreates the folder on your machine */
+            initCli: string;
+            intentDigest: string;
+            /** @description Who may create the service with this owner */
+            mayAccept?: string[] | null;
+            namespace: string;
+            notes?: string[] | null;
+            owner?: string;
+            /** @description The golden path's digest-pinned reference */
+            path: string;
+            pathName: string;
+            pathVersion: string;
+            policyNote?: string;
+            /** @description pacto.inferred.yaml as it would be published */
+            record: components["schemas"]["DeclareText"];
+            revision: string;
+            service: string;
+            /** @description The golden path's signature step, checked against the installation's template keys */
+            signature: components["schemas"]["Fleet.CreationStep"];
+            signer: components["schemas"]["DeclareSigner"];
+            /** @description declared for a person's login, else draft */
+            state: string;
+            /** @description The values file InitCLI reads */
+            valuesFile?: components["schemas"]["CreateServiceFile"];
+            version: string;
+        };
+        CreateServiceRefusal: {
+            /** @description The values an enum or class allows */
+            allowed?: unknown[] | null;
+            /** @description The pacto init command that sets the fix */
+            cli?: string;
+            /** @description The closest valid value, when there is one */
+            closest?: unknown;
+            /** @enum {string} */
+            code: "OfferingNotConsumable" | "OfferingUnknown" | "ParameterNotDeclared" | "ParameterOutOfRange" | "ParameterSensitive" | "ClassNotOffered" | "TierNotTunable" | "EnvironmentNotDeclared";
+            /** @description configurations[<name>].values.<key>, environments[<env>].<configuration>.<key>, environments[<env>] or offerings[<offering>] */
+            field: string;
+            /** @description The pacto_create_service argument fragment that sets the fix */
+            mcp?: string;
+            message: string;
+        };
         CrossReference: {
             contractStatus?: string;
             name: string;
@@ -1794,9 +2037,13 @@ export interface components {
             mode: "sign" | "draft";
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
+            /** @description The platform offering the external system is meant to join, written as display-only metadata on the claimed contract and never as service.offering; joining an offering another team provides writes a draft for that team. Invalid slugs are refused with OfferingInvalid */
+            offering?: string;
+            /** @description The offering acceptance the plan was made for */
+            offeringAcceptance?: components["schemas"]["OfferingInput"];
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
-            /** @description The inferred service to declare, or external:<identity> to claim an external system */
+            /** @description The inferred service to declare, or external:<identity> to claim an external system, or template:<namespace>/<name> for a golden path a catalog holds */
             serviceKey: string;
         };
         DeclareAnswer: {
@@ -1847,9 +2094,13 @@ export interface components {
             intentDigest?: string;
             /** @description The claimed contract's service name; defaults to the name the visible claim already has, else the identity's last segment */
             name?: string;
+            /** @description The platform offering the external system is meant to join, written as display-only metadata on the claimed contract and never as service.offering; joining an offering another team provides writes a draft for that team. Invalid slugs are refused with OfferingInvalid */
+            offering?: string;
+            /** @description Set to accept the inferred offering serviceKey names as a declared offering; the server takes the record it is accepted from from your view of the fleet */
+            offeringAcceptance?: components["schemas"]["OfferingInput"];
             /** @description The team that owns the external system; set only when serviceKey is external:<identity> */
             owner?: string;
-            /** @description The inferred service to declare, or external:<identity> to claim an external system */
+            /** @description The inferred service to declare, or external:<identity> to claim an external system, or template:<namespace>/<name> for a golden path a catalog holds */
             serviceKey: string;
         };
         DeclarePlan: {
@@ -1905,10 +2156,10 @@ export interface components {
         };
         DeclareRefusal: {
             /**
-             * @description The pacto declare and pacto claim refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed and DraftNotOffered (a shared dashboard claims only with the person's own signature)
+             * @description The pacto declare, pacto claim and create service refusal codes, plus the dashboard's own: IdentityRequired, SignInLinkReadsFleet, ReviewFailed, ClusterNotReviewable, NotAllowed, DraftNotOffered (a shared dashboard claims only with the person's own signature) and TemplateSourceUnverified (a golden path is accepted only from the catalog the installation configured)
              * @enum {string}
              */
-            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "DraftNotOffered";
+            code: "PlanStale" | "IntentRequired" | "WorkloadNotFound" | "WorkloadAmbiguous" | "AlreadyDeclared" | "RangeNotProposed" | "NoRegistry" | "RegistryUnreadable" | "VersionConflict" | "SignerNotAllowed" | "SignerUnverified" | "DraftNotFound" | "ExecuteNeedsStdio" | "BaselineNeedsMigration" | "BundleRepoMismatch" | "AcceptNothingProposed" | "FieldNotAcceptable" | "BreakNotAnnounced" | "NotPublished" | "PersonSigningUnavailable" | "OWNER_SIGNER_NOT_PERSON" | "OWNER_SIGNER_NOT_ALLOWED" | "OWNER_POLICY_UNVERIFIED" | "OWNER_SIGNER_UNVERIFIED" | "IdentityRequired" | "SignInLinkReadsFleet" | "ReviewFailed" | "ClusterNotReviewable" | "NotAllowed" | "OwnerRequired" | "ExternalMismatch" | "ExternalUnknown" | "ClaimRepositoryInferred" | "OfferingInvalid" | "OfferingSchemaOpen" | "OfferingSourceInvalid" | "OfferingSourceUnverified" | "OfferingMismatch" | "VersionRequired" | "DraftNotOffered" | "TemplateNotFound" | "TemplateCatalogUnset" | "TemplateCatalogUnavailable" | "TemplateNameInvalid" | "TemplateNameTaken" | "TemplateSourceUnverified" | "ServiceExists" | "GoldenPathNotDeclared" | "RepositoryOutsideRegistry" | "OfferingNotConsumable" | "OfferingUnknown" | "ParameterNotDeclared" | "ParameterOutOfRange" | "ParameterSensitive" | "ClassNotOffered" | "TierNotTunable" | "EnvironmentNotDeclared";
             /** @description The command a person runs about it */
             command?: string;
             message: string;
@@ -2000,6 +2251,8 @@ export interface components {
              * @enum {string}
              */
             state: "Adopted" | "Unmanaged" | "Conflict" | "Unknown";
+            /** @description The values file or Kustomize overlay the applier selects, as observed on the applyRef object, such as values-production.yaml or overlays/production; the Mediated condition says whether Pacto accepts it; empty when it selects none */
+            values?: string;
             /** @description The workloads checked, such as Deployment payments */
             workloads?: string[] | null;
         };
@@ -2086,13 +2339,35 @@ export interface components {
             result: "Pass" | "Fail" | "Unknown";
             verdicts: components["schemas"]["Delivery.Verdict"][] | null;
         };
+        "Delivery.ClusterCandidate": {
+            displayName?: string;
+            kind: string;
+            labels?: {
+                [key: string]: string;
+            };
+            /** @enum {string} */
+            match: "matched" | "same-uid" | "unmatched";
+            member?: components["schemas"]["Delivery.ClusterRef"];
+            name: string;
+            namespace?: string;
+            reason?: string;
+            /** @enum {string} */
+            source: "argocd" | "flux" | "capi" | "ocm" | "rancher";
+            uid?: string;
+            uidSource?: string;
+        };
         "Delivery.ClusterJoinList": {
             asOf: string;
             canApprove: boolean;
+            candidates?: components["schemas"]["Delivery.ClusterCandidate"][] | null;
+            candidatesAsOf?: string;
+            candidatesCompleteness?: string;
             clusters: components["schemas"]["Delivery.ClusterJoinState"][] | null;
             completeness: string;
             /** Format: int64 */
             hidden: number;
+            /** Format: int64 */
+            hiddenCandidates?: number;
             hub: components["schemas"]["Delivery.ClusterRef"];
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             /** Format: int64 */
@@ -2105,6 +2380,7 @@ export interface components {
             approvedPublicKey?: string;
             approver?: string;
             environments?: components["schemas"]["Delivery.AdvertisedEnvironment"][] | null;
+            inventoryEnvironments?: components["schemas"]["Delivery.InventoryEnvironment"][] | null;
             keyID?: string;
             mappings?: components["schemas"]["Delivery.GroupMappingState"][] | null;
             mayReplace?: components["schemas"]["Delivery.ClusterRef"];
@@ -2114,11 +2390,35 @@ export interface components {
             publicKey?: string;
             reason?: string;
             record?: string;
+            recorderKey?: components["schemas"]["Delivery.TrustedKey"];
+            requests?: components["schemas"]["Delivery.JoinRequests"];
             snapshotAsOf?: string;
             /** @enum {string} */
             state: "pending" | "approved" | "removed";
             status?: string;
+            streams?: components["schemas"]["Delivery.JoinStream"][] | null;
+            streamsCut?: boolean;
+            streamsRepository?: string;
             uid: string;
+        };
+        "Delivery.ClusterListing": {
+            /** @description When the cluster's objects were read or recorded */
+            asOf?: string;
+            /** @enum {string} */
+            completeness: "complete" | "partial";
+            /**
+             * Format: int64
+             * @description How many namespaces the reader may not list there: counted, never named
+             */
+            hidden?: number;
+            /** @description The cluster's kube-system namespace UID */
+            id: string;
+            /** @description The cluster's display name */
+            name?: string;
+            /** @description What could not be read in namespaces the reader may list, each with why */
+            unreadable?: string[] | null;
+            /** @description Why nothing of the cluster was read, when nothing was */
+            why?: string;
         };
         "Delivery.ClusterRef": {
             name?: string;
@@ -2245,6 +2545,20 @@ export interface components {
         "Delivery.ImpactGate": {
             declaredConsumersOnly?: boolean;
         };
+        "Delivery.InventoryEnvironment": {
+            candidate: string;
+            name: string;
+            source: string;
+        };
+        "Delivery.JoinRequests": {
+            environments: string[] | null;
+            issuers: string[] | null;
+        };
+        "Delivery.JoinStream": {
+            environment: string;
+            service: components["schemas"]["Delivery.ServiceRef"];
+            stream: string;
+        };
         "Delivery.LadderRung": {
             name: string;
             provenance: string;
@@ -2315,6 +2629,42 @@ export interface components {
         "Delivery.LocalRef": {
             name: string;
         };
+        "Delivery.MemberPlacementPlan": {
+            clusters: components["schemas"]["Delivery.PlacedMember"][] | null;
+            confirmedBy?: string;
+            policy?: string;
+            /** @enum {string} */
+            source: "policy" | "advertised" | "unconfirmed";
+            unplaced?: components["schemas"]["Delivery.UnplacedMember"][] | null;
+        };
+        "Delivery.MemberPlan": {
+            asOf: string;
+            completeness: string;
+            digest?: string;
+            environment: string;
+            /** Format: int64 */
+            hidden: number;
+            hiddenReason?: string;
+            members: components["schemas"]["Delivery.MemberState"][] | null;
+            next?: string;
+            notes?: string[] | null;
+            orderUnknown?: boolean;
+            placement: components["schemas"]["Delivery.MemberPlacementPlan"];
+            service: components["schemas"]["Delivery.ServiceRef"];
+            version?: string;
+        };
+        "Delivery.MemberState": {
+            asOf?: string;
+            digest?: string;
+            name: string;
+            next?: string;
+            operation?: string;
+            reason?: string;
+            stale?: boolean;
+            /** @enum {string} */
+            state: "no request" | "waiting" | "unknown" | "refused" | "raised" | "held" | "applied" | "failed" | "concluded";
+            uid: string;
+        };
         "Delivery.MoveFirst": {
             accepts?: string;
             candidate?: components["schemas"]["Delivery.Candidate"];
@@ -2329,6 +2679,8 @@ export interface components {
             annotations?: {
                 [key: string]: string;
             };
+            /** @description The cluster this object was read from, when the answer reads several; empty for the dashboard's own cluster */
+            cluster?: string;
             creationTimestamp?: string;
             finalizers?: string[] | null;
             /** Format: int64 */
@@ -2418,6 +2770,13 @@ export interface components {
             /** @description The Stage whose registry watch read it */
             stage: string;
         };
+        "Delivery.PlacedMember": {
+            evidence: string;
+            name: string;
+            reviewable?: boolean;
+            stale?: boolean;
+            uid: string;
+        };
         "Delivery.Plan": {
             conflicts?: string[] | null;
             floor?: components["schemas"]["Delivery.Floor"];
@@ -2439,6 +2798,7 @@ export interface components {
             from?: string;
             impactDigest?: string;
             intentDigest: string;
+            members?: components["schemas"]["Delivery.MemberPlan"];
             next?: string[] | null;
             order?: components["schemas"]["Delivery.Order"];
             precedent?: components["schemas"]["Delivery.Precedent"];
@@ -2632,14 +2992,20 @@ export interface components {
         "Delivery.Request": {
             cause?: components["schemas"]["Delivery.Cause"];
             correlationID?: string;
+            /** @description member mode: the environment to promote it in */
+            environment?: string;
             from?: string;
             intentDigest?: string;
+            /** @description member mode: the member uids to request on; empty is every placed member */
+            members?: string[] | null;
             name?: string;
             namespace: string;
             onBehalfOf?: string;
             reason?: string;
             record?: string;
-            stage: string;
+            /** @description member mode: the service to promote on the members */
+            service?: string;
+            stage?: string;
             to?: string;
             type?: string;
             undoes?: string;
@@ -2808,6 +3174,24 @@ export interface components {
             held?: string;
             started?: string;
             verifyDeadline?: string;
+        };
+        "Delivery.TrustedKey": {
+            identity?: string;
+            issuer?: string;
+            name?: string;
+            providers?: string[] | null;
+            publicKey?: string;
+            role?: string;
+            streams?: string[] | null;
+            trustedRoot?: string;
+            untilRecord?: string;
+            /** Format: int64 */
+            untilSeq?: number;
+        };
+        "Delivery.UnplacedMember": {
+            name: string;
+            reason: string;
+            uid: string;
         };
         "Delivery.Upstream": {
             /** @description kind stage: the upstream Stage's environment, when it could be read */
@@ -2986,6 +3370,8 @@ export interface components {
             candidate?: string;
             /** @description The version the candidate's contract declares, when the artifact could be read */
             candidateVersion?: string;
+            /** @description The cluster the Stage was read from, when the answer reads several; empty for the reader's own cluster */
+            cluster?: string;
             /** @description The digest-pinned contract the running artifact names (delivery.pacto.trianalab.io/contract), when its artifact could be read */
             contractRef?: string;
             /** @description The registry domain the Stage names for its service; empty when it names none */
@@ -3052,6 +3438,8 @@ export interface components {
         };
         EnvironmentsOutputBody: {
             asOf: string;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Failed, frozen and waiting Stages over every page, after q, environment, tier and state; byEnvironment before environment, tier and state */
@@ -3064,6 +3452,13 @@ export interface components {
             };
             /** @description The Stages of the services on this page */
             environments: components["schemas"]["EnvironmentRow"][] | null;
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
+            /** @description With service, on a hub with approved members: per environment of the service (its Stages' in promotion order, then those a member takes requests for), the members a promote there is placed on, where that placement came from and the newest request a person signed for each member with what the member answered; only environments placed on a member. Absent on a hub with no members */
+            members?: components["schemas"]["Delivery.MemberPlan"][] | null;
             /** @description Which services this page holds; offset and limit count services */
             page: components["schemas"]["Page"];
             /** @description With service: that service's promotion graph, from its Stages' declared upstreams */
@@ -3274,6 +3669,11 @@ export interface components {
              * @enum {string}
              */
             access?: "no-access" | "review-failed" | "not-reviewable";
+            /**
+             * Format: date-time
+             * @description The oldest last successful read among the sources that reported the cluster. Absent when none was ever read.
+             */
+            asOf?: string;
             /** @description The kube-system namespace UID; empty for a Kubernetes source whose cluster could not be identified. */
             id: string;
             /** @description The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel. */
@@ -3329,6 +3729,58 @@ export interface components {
             unknown: number;
             /** Format: int64 */
             warning: number;
+        };
+        "Fleet.ConsumableGuarantee": {
+            guarantees: components["schemas"]["Contract.Guarantees"];
+            interface: string;
+            text: string;
+        };
+        "Fleet.ConsumableOffering": {
+            /** @description The providers of this offering a caller may consume, at most 10, by service key */
+            providers: components["schemas"]["Fleet.ConsumableProvider"][] | null;
+            /**
+             * Format: int64
+             * @description How many providers of this offering a caller may consume
+             */
+            providersTotal: number;
+            /** @description More providers may be consumed than providers lists */
+            providersTruncated: boolean;
+        };
+        "Fleet.ConsumableProvider": {
+            /**
+             * @description How the revision is accepted: a person's verified declaration the installation signer policy allows, or a verified signer an installation publisher rule, pin, policy or the release signer covers
+             * @enum {string}
+             */
+            acceptance: "declaration" | "publisher";
+            /** @description The classes the offering provisions: the enum of the class property of a required configuration, at most 50 */
+            classes: string[] | null;
+            /**
+             * Format: int64
+             * @description How many classes the class property allows
+             */
+            classesTotal: number;
+            /** @description The class property allows more classes than classes lists */
+            classesTruncated: boolean;
+            /** @description The bundle digest acceptance covers; run pacto lock to pin it */
+            digest: string;
+            /** @description The interfaces of the revision that declare guarantees; empty when it declares none */
+            guarantees: components["schemas"]["Fleet.ConsumableGuarantee"][] | null;
+            /** @enum {string} */
+            lifecycle: "supported" | "deprecated";
+            /** @description The fields of the required configurations' closed schemas, at most 50, by configuration then path */
+            parameters: components["schemas"]["Fleet.OfferingParameter"][] | null;
+            /** Format: int64 */
+            parametersTotal: number;
+            parametersTruncated: boolean;
+            /** @description Who accepted it: the declaring person or the verified signer */
+            publisher: string;
+            /** @description The newest revision of the provider, the one acceptance judged and the snippet pins */
+            revision: components["schemas"]["Fleet.EntityRef"];
+            /** @description The schema files the parameters come from, in the bundle that declares each */
+            schemaPaths: string[] | null;
+            service: components["schemas"]["Fleet.EntityRef"];
+            snippet: components["schemas"]["Fleet.ConsumeSnippet"];
+            version: string;
         };
         "Fleet.ConsumeConfiguration": {
             configuration?: string;
@@ -3611,6 +4063,8 @@ export interface components {
             businessDomainUnknown?: boolean;
             /** @description On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it */
             catalogEntry?: string;
+            /** @description Set only when the list asks for consumable offerings: the providers an agent may consume, each with its version, digest, publisher and a snippet */
+            consumable?: components["schemas"]["Fleet.ConsumableOffering"];
             /** Format: int64 */
             consumers?: number;
             /** @description On an inferred service only a producer's contribution describes: that producer */
@@ -3638,6 +4092,8 @@ export interface components {
             hiddenProviders?: number;
             /** @description The image an inferred service runs, on list rows */
             image?: string;
+            /** @description On a row of the inferred offering list: the producer, source object, generation, classes and asOf */
+            inferredOffering?: components["schemas"]["Fleet.InferredOfferingFacts"];
             /**
              * @description On an external list row, how its consumers join it
              * @enum {string}
@@ -3928,7 +4384,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); connectionSecret (a managed resource's connection Secret a workload references); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -3989,6 +4445,10 @@ export interface components {
             at?: string;
             /** @description True only when this installation's operator signed both revisions; an unchecked change raises no attention */
             checked: boolean;
+            /** @description The observed engines the older revision records, set when the observed engine set moved */
+            engineFrom?: string;
+            /** @description The observed engines the newer revision records, set when the observed engine set moved */
+            engineTo?: string;
             /** @description The version of the older revision */
             from: string;
             /** @description The vendor OpenAPI document the older revision links, set when the digest moved */
@@ -4045,6 +4505,11 @@ export interface components {
              */
             hiddenConsumers?: number;
             /**
+             * Format: int64
+             * @description How many of its managed resources the caller's permissions hide
+             */
+            hiddenResources?: number;
+            /**
              * @description How its consumers join it, the strongest match among its sources: identity, catalog-alias, host or normalized-name (joined by name only)
              * @enum {string}
              */
@@ -4055,6 +4520,13 @@ export interface components {
             label: string;
             /** @description The inferred contract published for it under pacto-inferred; never a service, and a range is never checked against it */
             provider?: components["schemas"]["Fleet.ExternalProvider"];
+            /** @description The managed resources sources read for it: a cluster object, a Terraform state entry or a cloud inventory item; at most 20 */
+            resources?: components["schemas"]["Fleet.ManagedResource"][] | null;
+            /**
+             * Format: int64
+             * @description How many managed resources were read for it
+             */
+            resourcesTotal?: number;
             /** @description The evidence that names this external system, one per consumer and dependency position, each with its own provenance */
             sources: components["schemas"]["Fleet.ExternalSource"][] | null;
             /**
@@ -4076,7 +4548,7 @@ export interface components {
              * @enum {string}
              */
             kind: "contract" | "observed" | "pod-spec" | "repository";
-            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest), resource (a Terraform resource or Crossplane object) or its inferred contract (a ref to its pacto-inferred repository) */
+            /** @description How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest), resource (a Terraform resource, a Crossplane object or a managed resource's connection Secret) or its inferred contract (a ref to its pacto-inferred repository) */
             match: string;
             /** @enum {string} */
             provenance: "declared" | "observed" | "inferred";
@@ -4184,6 +4656,8 @@ export interface components {
             /** Format: date-time */
             generatedAt: string;
             inferredRelationships?: components["schemas"]["Fleet.Relationship"][] | null;
+            /** @description Golden paths catalogs outside every registry hold, inferred: never services, never signed or declared, never offered for creation until a person accepts one */
+            inferredTemplates?: components["schemas"]["Fleet.InferredTemplate"][] | null;
             limitations?: components["schemas"]["Fleet.Limitation"][] | null;
             providers?: components["schemas"]["Fleet.Provider"][] | null;
             provisioning?: components["schemas"]["Fleet.ProvisioningRecord"][] | null;
@@ -4202,6 +4676,11 @@ export interface components {
                 [key: string]: components["schemas"]["Fleet.TargetRecord"];
             };
             uncontractedCallers?: components["schemas"]["Fleet.UncontractedCaller"][] | null;
+            /**
+             * Format: int64
+             * @description How many clusters publish to this hub's targets repository and are not members, so consumers there are unknown. Never names a cluster.
+             */
+            unreadClusters?: number;
             usage?: components["schemas"]["Fleet.UsageRecord"][] | null;
         };
         "Fleet.GraphNode": {
@@ -4309,6 +4788,30 @@ export interface components {
             /** Format: int64 */
             services?: number;
         };
+        "Fleet.InferredOfferingFacts": {
+            /** @description The declared offering a person accepted it as, when visible */
+            acceptedAs?: components["schemas"]["Fleet.EntityRef"];
+            /**
+             * Format: date-time
+             * @description When the producer made the record, from its signed manifest
+             */
+            asOf?: string;
+            /** @description The classes its configuration schema offers */
+            classes?: string[] | null;
+            /** @description The source object, <kind> <name>, as the bundle's source/object.yaml names it */
+            from?: string;
+            /**
+             * Format: int64
+             * @description The source object's generation
+             */
+            generation?: number;
+            /** @description The offering slug */
+            offering: string;
+            /** @description The producer that contributed the inferred offering */
+            producer: string;
+            /** @description The oci:// ref of the newest record: the from an acceptance (pacto declare offering:<name> --from, pacto_declare from) takes */
+            ref?: string;
+        };
         "Fleet.InferredPort": {
             /** @description The object path Pacto read the port from */
             from: string;
@@ -4359,7 +4862,7 @@ export interface components {
             entry?: string;
             /** @description The normalized host and port; empty when only a key name matched */
             host?: string;
-            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
+            /** @description What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); connectionSecret (a managed resource's connection Secret a workload references); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane */
             kind: string;
             /**
              * Format: date-time
@@ -4374,6 +4877,67 @@ export interface components {
             target?: string;
             /** @description The object and key it was found in, never a value */
             where?: string;
+        };
+        "Fleet.InferredTemplate": {
+            /** @description The source is one an operator configured, so a person may accept the template as a golden path */
+            acceptable: boolean;
+            /** @description The key of the declared golden path holding the same name; such an item is never listed or counted as inferred, it only gives that golden path its link */
+            declaredAs?: string;
+            /** @description The catalog's own reference, such as template:default/springboot-service */
+            entity: string;
+            /** @description Where the template was read, as the source writes it */
+            from: string;
+            /** @description The catalog's name for the template, the service.name accepting it gives the golden path */
+            name: string;
+            /** @description A service that is no golden path already holds the name; the template is never offered for acceptance */
+            nameTaken?: boolean;
+            /**
+             * Format: date-time
+             * @description When the source read the template
+             */
+            observedAt?: string;
+            /** @description The owner the catalog names; shown, never declared */
+            owner?: string;
+            /** @description The canonical key of the owner the catalog names */
+            ownerKey?: string;
+            /**
+             * @description Always inferred
+             * @enum {string}
+             */
+            provenance: "inferred";
+            /** @description The id of the source that read the template */
+            source: string;
+            /** @description The catalog's description, cut to 200 characters */
+            summary?: string;
+            /** @description The catalog's display title */
+            title?: string;
+            /** @description The catalog's template type, such as service or website */
+            type?: string;
+            /** @description Where a person opens the template; empty when the source gives no address a browser opens */
+            url?: string;
+        };
+        "Fleet.InferredTemplateList": {
+            /**
+             * Format: date-time
+             * @description When the oldest listed template was read, else when a source last listed templates
+             */
+            asOf?: string;
+            /**
+             * @description Partial when a source that lists templates could not read them all or the list was capped; a missing template is then unknown
+             * @enum {string}
+             */
+            completeness: "complete" | "partial";
+            /** @description Catalog templates a declared golden path holds the name of: the link of that golden path, never listed or counted as inferred */
+            declared?: components["schemas"]["Fleet.InferredTemplate"][] | null;
+            /** @description The inferred golden paths, sorted by name; never paged */
+            items: components["schemas"]["Fleet.InferredTemplate"][] | null;
+            /** @description Why the list is partial and which templates were left out */
+            limitations?: components["schemas"]["Fleet.Limitation"][] | null;
+            /**
+             * Format: int64
+             * @description How many inferred golden paths are listed; the ones a declared golden path holds the name of are not counted
+             */
+            total: number;
         };
         "Fleet.InferredValue": {
             /** @description The object path Pacto read the value from */
@@ -4683,6 +5247,48 @@ export interface components {
             total: number;
             truncated: boolean;
         };
+        "Fleet.ManagedResource": {
+            /** @description The verified claim, <Kind> <namespace>/<name> */
+            claim?: string;
+            /** @description The cluster id of the cluster that read it; empty for a state file the CLI read */
+            cluster?: string;
+            /** @description A display name for the cluster that read it; never an identity */
+            clusterName?: string;
+            /**
+             * @description offering when a verified, current provisioning record from the offering provider a consumer uses names it; outside for every other resource
+             * @enum {string}
+             */
+            contract?: "offering" | "outside";
+            /** @description The engine and version the resource reports it runs */
+            engine?: string;
+            /** @description The engine and version the resource requests, when it reports none it runs */
+            engineRequested?: string;
+            /** @description The producer and time of that provisioning record, never its body */
+            evidence?: string;
+            /** @description The state URL or file name, never its contents */
+            location?: string;
+            /** @description The identity segments that were not read, so the system is its catalog entry's identity */
+            missing?: string[] | null;
+            /** @description The object name, the Terraform address or the inventory id */
+            name: string;
+            namespace?: string;
+            /**
+             * Format: date-time
+             * @description When the source last read it
+             */
+            observedAt?: string;
+            /** @description The offering whose provider's provisioning record names it; absent outside contract */
+            offering?: components["schemas"]["Fleet.EntityRef"];
+            /** @enum {string} */
+            provenance: "inferred";
+            /**
+             * @description The reader: a cluster object of Crossplane, ACK, Config Connector or ASO, a Terraform state or a cloud inventory
+             * @enum {string}
+             */
+            source: "crossplane" | "ack" | "config-connector" | "aso" | "terraform" | "aws-resource-explorer" | "gcp-cloud-asset" | "azure-resource-graph";
+            /** @description The <group>/<Kind> of a cluster object, the Terraform type or the inventory type */
+            type: string;
+        };
         "Fleet.MapAttention": {
             /** Format: int64 */
             errors: number;
@@ -4749,6 +5355,11 @@ export interface components {
             missing?: components["schemas"]["Fleet.SectionCount"][] | null;
             /**
              * Format: int64
+             * @description Managed resources of the group's external systems no offering produced
+             */
+            outsideContract?: number;
+            /**
+             * Format: int64
              * @description Mean contract completeness of the group's judged services; absent when none is judged
              */
             percentComplete?: number;
@@ -4791,6 +5402,11 @@ export interface components {
              * @description Visible services it depends on
              */
             out?: number;
+            /**
+             * Format: int64
+             * @description Managed resources of this external system no offering produced
+             */
+            outsideContract?: number;
             owner?: string;
             /** Format: int64 */
             percentComplete?: number;
@@ -4938,6 +5554,8 @@ export interface components {
              * @description Matched services and dependencies over those Pacto can observe, rounded down; absent when Pacto observes none
              */
             percent?: number;
+            /** @description The managed resources an offering produced over those discovered, fleet-wide; absent when none was discovered */
+            resources?: components["schemas"]["Fleet.ResourceCoverage"];
             /** @description Services that are no golden path, by match state; an inferred service is observed-only */
             services: components["schemas"]["Fleet.MatchCounts"];
         };
@@ -5062,6 +5680,64 @@ export interface components {
              * @description Requests no adapter reports on; their status is Unknown
              */
             unattributed: number;
+        };
+        "Fleet.OfferingDrift": {
+            /** @description The digest of the inferred record that was accepted */
+            acceptedDigest: string;
+            /**
+             * Format: date-time
+             * @description When the producer last observed its source objects
+             */
+            asOf?: string;
+            /** @description The repository@digest of the producer's newest record; absent when unknown or hidden */
+            newestRef?: string;
+            /** @description The version of the producer's newest record */
+            newestVersion?: string;
+            /** @description The producer the offering was accepted from */
+            producer: string;
+            /** @description Why the offering drifted or why Pacto cannot tell */
+            reason: string;
+            /**
+             * @description drifted: the producer's newest record differs from the one accepted; unknown: Pacto cannot tell
+             * @enum {string}
+             */
+            state: "drifted" | "unknown";
+        };
+        "Fleet.OfferingParameter": {
+            /** @description The provider's configuration the field belongs to */
+            configuration: string;
+            default?: unknown;
+            /** @description The allowed values, at most 50 */
+            enum?: unknown[] | null;
+            /**
+             * Format: int64
+             * @description How many values the schema allows
+             */
+            enumTotal?: number;
+            /** Format: double */
+            exclusiveMaximum?: number;
+            /** Format: double */
+            exclusiveMinimum?: number;
+            /** Format: int64 */
+            maxLength?: number;
+            /** Format: double */
+            maximum?: number;
+            /** Format: int64 */
+            minLength?: number;
+            /** Format: double */
+            minimum?: number;
+            /** @description The field's path in dot notation */
+            path: string;
+            pattern?: string;
+            required: boolean;
+            /** @description The field is writeOnly, holds a writeOnly field or sits under a writeOnly object */
+            sensitive: boolean;
+            /**
+             * @description contract: set once, the same in every environment; tunable: may change per environment within the bounds
+             * @enum {string}
+             */
+            tier: "contract" | "tunable";
+            type?: string;
         };
         "Fleet.OperationalHealthTally": {
             /**
@@ -5686,6 +6362,23 @@ export interface components {
             state: "reported" | "unknown" | "not-reported";
             verified?: boolean;
         };
+        "Fleet.ResourceCoverage": {
+            /**
+             * Format: int64
+             * @description Managed resources the sources read
+             */
+            discovered: number;
+            /**
+             * Format: int64
+             * @description throughOfferings over discovered, rounded down
+             */
+            percent?: number;
+            /**
+             * Format: int64
+             * @description Managed resources a verified, current provisioning record of an offering provider names
+             */
+            throughOfferings: number;
+        };
         "Fleet.RevisionCapabilities": {
             revision: string;
             skills?: string[] | null;
@@ -5789,6 +6482,8 @@ export interface components {
              * @description When the producer made the record, from its signed manifest; absent when unknown
              */
             asOf?: string;
+            /** @description The cluster whose installation advertised the repository; only a reader of that cluster sees the service */
+            cluster?: string;
             /** @description The key of the producer that verified the record's signature */
             keyId?: string;
             /** @description A newer version of the record that was refused, so this older one is shown stale */
@@ -5867,6 +6562,8 @@ export interface components {
             name: string;
             nameInferred?: components["schemas"]["Contract.Inferred"];
             offering?: string;
+            /** @description On a declared offering accepted from an inferred one: whether its source changed since; absent when in sync or not accepted from one */
+            offeringDrift?: components["schemas"]["Fleet.OfferingDrift"];
             /** @enum {string} */
             offeringProvenance?: "declared" | "observed";
             origin?: components["schemas"]["Fleet.ServiceOrigin"];
@@ -6230,7 +6927,7 @@ export interface components {
         GetSourcesOutputBody: {
             /** @description True while the first snapshot is still being built */
             discovering: boolean;
-            /** @description Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set) */
+            /** @description Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set) or managed resources (resources set) */
             sources: components["schemas"]["SourceInfo"][] | null;
         };
         GlobalGraph: {
@@ -6281,10 +6978,17 @@ export interface components {
             asOf: string;
             /** @description With at: which revision each Stage on this page ran at that time. Each revision is one this dashboard's fleet holds, never a guess */
             at?: components["schemas"]["Delivery.AtAnswer"];
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Without a stage: Stages that wait for a person and frozen Stages, over every page */
             counts?: components["schemas"]["HistoryCounts"];
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             histories: components["schemas"]["StageHistory"][] | null;
             /** @description Which Stages this page holds. With a stage, offset, limit and q page its changes instead (see entriesPage) */
             page: components["schemas"]["Page"];
@@ -6341,6 +7045,8 @@ export interface components {
             break?: components["schemas"]["Impact.BreakState"];
             /** @description For an external answer: the client library and major the consumer's inferred record names; absent when none names a major */
             client?: components["schemas"]["Fleet.ExternalClient"];
+            /** @description The ids of the clusters this consumer's targets run in; names and status are in the answer's clusters. Absent with one cluster */
+            clusters?: string[] | null;
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -6620,6 +7326,13 @@ export interface components {
             /** @description The canonical owner key of the changed service */
             changedOwnerKey?: string;
             classification: string;
+            /** @description The clusters the answer read, with their status and age. Absent with one cluster */
+            clusters?: components["schemas"]["Fleet.ClusterSummary"][] | null;
+            /**
+             * Format: int64
+             * @description How many clusters the answer read that clusters leaves out: it lists at most fleet.MaxMetaClusters
+             */
+            clustersTruncated?: number;
             completeness: string;
             /** @description How the organization index was read: which repository, how many services it lists and how many depend on the changed service. Absent when no index was read, such as for local folders, over HTTP or in the dashboard */
             consumerIndex?: components["schemas"]["Impact.ConsumerIndex"];
@@ -6669,6 +7382,11 @@ export interface components {
             targetSnapshots?: components["schemas"]["Fleet.SourceState"][] | null;
             /** @description The service keys of the golden paths that reference the changed service's policy: they run nowhere, so they never hold the gate, but a service created from one checks against the new policy. Review each */
             templates?: string[] | null;
+            /**
+             * Format: int64
+             * @description How many clusters publish to this hub and are not members, so consumers there are unknown: a BREAKING change stays unverified. Never names a cluster
+             */
+            unreadClusters?: number;
         };
         "Impact.RunningBaseline": {
             /** @description The running revisions with the new revision's digest, left out of the baseline: a revision is never its own baseline */
@@ -6757,6 +7475,8 @@ export interface components {
             upstream: string[] | null;
         };
         InboxItem: {
+            /** @description The cluster the operation was read from, when the answer reads several; empty for the dashboard's own cluster */
+            cluster?: string;
             /** @description The services that made a person necessary */
             consumers?: string[] | null;
             /** @description The decision asked for: approve, or accept-unknown */
@@ -6765,6 +7485,8 @@ export interface components {
             fromVersion?: string;
             name: string;
             namespace: string;
+            /** @description With readOnly: the command that acts on the operation in its own cluster */
+            next?: string;
             /** @description What must move first: the consumers whose declared range does not accept the new version, their Stages and any verified version upstream that can go first */
             order?: components["schemas"]["Delivery.Order"];
             outcome?: string;
@@ -6774,6 +7496,8 @@ export interface components {
             /** @description For a trust operation: the CI signer a person is asked to confirm */
             publisher?: components["schemas"]["Delivery.PublisherIdentity"];
             question?: string;
+            /** @description The operation is in another cluster: this dashboard only reads it */
+            readOnly?: boolean;
             reason?: string;
             /** @description The service the Stage delivers, when the caller can read the Stage */
             service?: string;
@@ -6806,6 +7530,8 @@ export interface components {
             asOf: string;
             /** @description What waits to enter each environment, over every page after q, service and domain (environment and except do not narrow it), in the promotion order the Stages declare (candidates.upstreamStage), then by name; only environments where something waits */
             byEnvironment: components["schemas"]["InboxEnvironment"][] | null;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Errored operations of the caller's services whose Stage is still frozen */
@@ -6822,6 +7548,11 @@ export interface components {
              * @description How many held changes, over every page, more than one team may answer
              */
             heldShared: number;
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             /** @description The installation ladder proposal waiting for a person to confirm it; absent when there is none. No query narrows it */
             ladder?: components["schemas"]["InboxLadder"];
             /** @description What could not be listed, each naming its namespace and why, or * when the namespaces could not be known */
@@ -6872,6 +7603,8 @@ export interface components {
         };
         LifecycleOutputBody: {
             asOf: string;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description The digest-pinned contract the artifact names */
@@ -6879,6 +7612,11 @@ export interface components {
             /** @description The artifact digest Stages point at */
             digest: string;
             domain?: string;
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             note: string;
             /** @description The names of the people named here who signed in to this dashboard, by username */
             people?: {
@@ -6995,6 +7733,16 @@ export interface components {
             /** Format: int64 */
             terminationGracePeriodSeconds?: number;
             workloadKind?: string;
+        };
+        OfferingInput: {
+            /** @description The offering accepted; defaults to the one the inferred offering offers */
+            name?: string;
+            /** @description The team that owns the offering; needed on its first acceptance */
+            owner?: string;
+            /** @description The registry path the offering is published under: the dashboard's registry (the default) or a path below it */
+            registry?: string;
+            /** @description The release version (MAJOR.MINOR.PATCH) the declared offering is published at */
+            version?: string;
         };
         OperationOutputBody: {
             /** @description What the caller may ask for: approve, reject, accept-unknown, cancel, rollback */
@@ -7324,6 +8072,13 @@ export interface components {
              * @description When external systems are listed, how many only hidden services declare; never named
              */
             hidden?: number;
+            /** @description With template only: golden paths catalogs hold that no registry publishes, inferred and listed apart from the declared ones; declaration declared leaves them out */
+            inferredTemplates?: components["schemas"]["Fleet.InferredTemplateList"];
+            /**
+             * Format: int64
+             * @description When declared offerings are listed: how many inferred offerings declaration=inferred lists under the same text filter; never counted in total
+             */
+            inferredTotal?: number;
             /** Format: int64 */
             limit: number;
             meta: components["schemas"]["Fleet.ProductMeta"];
@@ -7495,6 +8250,8 @@ export interface components {
             break?: components["schemas"]["Impact.BreakState"];
             /** @description For an external answer: the client library and major the consumer's inferred record names; absent when none names a major */
             client?: components["schemas"]["Fleet.ExternalClient"];
+            /** @description The ids of the clusters this consumer's targets run in; names and status are in meta.clusters. Absent with one cluster */
+            clusters?: string[] | null;
             compatibility?: string;
             compatibilityVerdict: string;
             confidence: string;
@@ -7674,6 +8431,11 @@ export interface components {
              * @description Visible services it depends on
              */
             out?: number;
+            /**
+             * Format: int64
+             * @description Managed resources of this external system no offering produced
+             */
+            outsideContract?: number;
             owner?: string;
             /** Format: int64 */
             percentComplete?: number;
@@ -7780,6 +8542,8 @@ export interface components {
             configurations: components["schemas"]["ProductConfigurationsPreview"];
             consume?: components["schemas"]["Fleet.ConsumeSnippet"];
             currentRevision?: components["schemas"]["ProductRef"];
+            /** @description When the provider was accepted from an inferred offering: whether its source changed since */
+            drift?: components["schemas"]["Fleet.OfferingDrift"];
             interfaces: components["schemas"]["Fleet.InterfacesPreview"];
             latestSupported?: components["schemas"]["ProductRef"];
             lifecycle?: components["schemas"]["Contract.InterfaceLifecycle"];
@@ -7989,6 +8753,8 @@ export interface components {
             businessDomainUnknown?: boolean;
             /** @description On an external list row, the catalog entry that joined it; empty when no catalog entry classifies it */
             catalogEntry?: string;
+            /** @description Set only when the list asks for consumable offerings: the providers an agent may consume, each with its version, digest, publisher and a snippet */
+            consumable?: components["schemas"]["Fleet.ConsumableOffering"];
             /** Format: int64 */
             consumers?: number;
             /** @description On an inferred service only a producer's contribution describes: that producer */
@@ -8017,6 +8783,8 @@ export interface components {
             href: string;
             /** @description The image an inferred service runs, on list rows */
             image?: string;
+            /** @description On a row of the inferred offering list: the producer, source object, generation, classes and asOf */
+            inferredOffering?: components["schemas"]["Fleet.InferredOfferingFacts"];
             /**
              * @description On an external list row, how its consumers join it
              * @enum {string}
@@ -8399,6 +9167,8 @@ export interface components {
             nodes: components["schemas"]["PromotionNode"][] | null;
         };
         PromotionNode: {
+            /** @description The cluster of the Stage, when the answer reads several; empty for the dashboard's own */
+            cluster?: string;
             /** @description The Stage is on a cycle of upstream links, so the graph gives it no place */
             cycle?: boolean;
             environment: string;
@@ -8423,8 +9193,10 @@ export interface components {
             at: string;
             /** @description The highest published version below it, the one the change was compared with */
             baseline?: string;
-            /** @description The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote */
+            /** @description The check that refused it: version, sign, lock, validation or conflict for a publish; manifests (the manifest inspector, before the promoter wrote the pointer) for a promote; member for a request a member refused or whose promote its gates rejected */
             check: string;
+            /** @description On a check member row: the member that refused it, by its display name */
+            cluster?: string;
             /** @description The stable code of a refused promote, such as RawInfraInArtifact, when it has one */
             code?: string;
             /** @description The deploy artifact digest a refused promote asked for */
@@ -8494,10 +9266,17 @@ export interface components {
         };
         PublishedOutputBody: {
             asOf: string;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
             /** @description Over every page after q, service and domain, before signed */
             counts: components["schemas"]["PublishedCounts"];
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             /** @description Which services this page holds; offset and limit count services */
             page: components["schemas"]["Page"];
             services: components["schemas"]["PublishedService"][] | null;
@@ -8657,6 +9436,11 @@ export interface components {
             asOf: string;
             /** @enum {string} */
             completeness: "complete" | "partial";
+            /**
+             * Format: int64
+             * @description How many members no live channel reviews for were not read for a reader whose access is restricted
+             */
+            hidden?: number;
             /** @description Where the refusals were read and what may be missing */
             note?: string;
             /** @description This cluster keeps a record of refused publishes or promotes; false means an empty list proves nothing */
@@ -8957,10 +9741,10 @@ export interface components {
             name: string;
         };
         SourceInfo: {
-            /** @description The cluster an egress row describes, when its source names one; set on egress rows only */
+            /** @description The cluster an egress or resources row describes, when its source names one; set on those rows only */
             cluster?: string;
             /**
-             * @description How much of the calls leaving the cluster an egress row read; set on egress rows only
+             * @description How much an egress or resources row read; set on those rows only
              * @enum {string}
              */
             coverage?: "complete" | "partial" | "unavailable";
@@ -8968,7 +9752,9 @@ export interface components {
             egress?: boolean;
             enabled: boolean;
             reason?: string;
-            /** @description The fleet source that reported an egress row; set on egress rows only */
+            /** @description Set on a row projected from a detected provider that reads managed resources; such a row is not a data source */
+            resources?: boolean;
+            /** @description The fleet source that reported an egress or resources row; set on those rows only */
             source?: string;
             type: string;
         };
@@ -8990,6 +9776,8 @@ export interface components {
         };
         StageHistory: {
             asOf: string;
+            /** @description The cluster the Stage was read from, when the answer reads several or names one; empty for the dashboard's own cluster */
+            cluster?: string;
             completeness: string;
             entries: components["schemas"]["Delivery.HistoryEntry"][] | null;
             /** @description Which of the Stage's changes entries holds, newest first */
@@ -9467,8 +10255,15 @@ export interface components {
         };
         TrustOutputBody: {
             asOf: string;
+            /** @description How completely each cluster was read, when the answer reads more than one; absent for one cluster */
+            clusters?: components["schemas"]["Delivery.ClusterListing"][] | null;
             /** @enum {string} */
             completeness: "complete" | "partial";
+            /**
+             * Format: int64
+             * @description How many clusters the reader may not see, or that have no live channel: counted, never named
+             */
+            hiddenClusters?: number;
             /** @description Why no rule or policy accepts a signer, so only pins do, or why the rule is unknown */
             noRule?: string;
             /** @description Which services this page holds; offset and limit count services */
@@ -9724,6 +10519,8 @@ export interface operations {
                 stage: string;
                 /** @description The digest to blame; empty means the one the Stage runs */
                 digest?: string;
+                /** @description The cluster of the Stage, as a multi-cluster answer names it; empty for the dashboard's own */
+                cluster?: string;
             };
             header?: never;
             path?: never;
@@ -9961,6 +10758,8 @@ export interface operations {
                 namespace?: string;
                 /** @description One Stage's name */
                 stage?: string;
+                /** @description With namespace and stage: the cluster of the Stage, as the answer's cluster names it; empty for the dashboard's own */
+                cluster?: string;
                 /** @description Without a stage: keep only the Stages of the service with exactly this name */
                 service?: string;
                 /** @description With service: the service's registry domain, empty for the default. A Stage that names another domain is left out; one that names none matches any */
@@ -10235,7 +11034,10 @@ export interface operations {
     };
     "delivery-propose": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The cluster to act in; empty for the dashboard's own, the only one it acts in: another is refused with RemoteClusterReadOnly */
+                cluster?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -10313,7 +11115,10 @@ export interface operations {
     };
     "delivery-operation": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The cluster of the operation, as a multi-cluster answer names it; empty for the dashboard's own. A change in another cluster is only read: cancelling it is refused with RemoteClusterReadOnly */
+                cluster?: string;
+            };
             header?: never;
             path: {
                 namespace: string;
@@ -10390,7 +11195,10 @@ export interface operations {
     };
     "delivery-cancel": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The cluster of the operation, as a multi-cluster answer names it; empty for the dashboard's own. A change in another cluster is only read: cancelling it is refused with RemoteClusterReadOnly */
+                cluster?: string;
+            };
             header?: never;
             path: {
                 namespace: string;
@@ -10467,7 +11275,10 @@ export interface operations {
     };
     "delivery-decide": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The cluster of the operation; empty for the dashboard's own, the only one it acts in: another is refused with RemoteClusterReadOnly */
+                cluster?: string;
+            };
             header?: never;
             path: {
                 namespace: string;
@@ -10548,7 +11359,10 @@ export interface operations {
     };
     "delivery-plan": {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The cluster to act in; empty for the dashboard's own, the only one it acts in: another is refused with RemoteClusterReadOnly */
+                cluster?: string;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -10631,6 +11445,8 @@ export interface operations {
                 namespace: string;
                 /** @description The Stage */
                 stage: string;
+                /** @description The cluster of the Stage, as a multi-cluster answer names it; empty for the dashboard's own */
+                cluster?: string;
             };
             header?: never;
             path?: never;
@@ -10799,6 +11615,8 @@ export interface operations {
                 stage: string;
                 /** @description The record's id (sha256:...), as a history line names it */
                 id: string;
+                /** @description The cluster of the Stage, as a multi-cluster answer names it; empty for the dashboard's own */
+                cluster?: string;
             };
             header?: never;
             path?: never;
@@ -11030,6 +11848,8 @@ export interface operations {
                 name: string;
                 /** @description Its Stage, to find it in the records when it is gone from the cluster */
                 stage?: string;
+                /** @description The cluster of the operation, as a multi-cluster answer names it; empty for the dashboard's own */
+                cluster?: string;
             };
             header?: never;
             path?: never;
@@ -11293,6 +12113,67 @@ export interface operations {
             };
         };
     };
+    "get-fleet-clusters-install": {
+        parameters: {
+            query: {
+                /** @description the engine that applies the install */
+                from: "argocd" | "flux";
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The install as YAML, an attachment */
+            200: {
+                headers: {
+                    "Content-Disposition"?: string;
+                    "Content-Type"?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/yaml": string;
+                };
+            };
+            /** @description Forbidden */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Unprocessable Entity */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+            /** @description Bad Gateway */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
     "fleet-declare": {
         parameters: {
             query?: never;
@@ -11401,7 +12282,7 @@ export interface operations {
                 service?: string;
                 /** @description Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template */
                 template?: "only" | "exclude";
-                /** @description Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; declared leaves them out. Absent lists every service, inferred ones marked */
+                /** @description Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; with kinds=offering it lists only the inferred offerings producers contribute, as service rows carrying inferredOffering, never consumable; declared leaves them out. Absent lists every service, inferred ones marked; with template only, inferred lists the golden paths a catalog holds (inferredTemplates) and declared leaves them out */
                 declaration?: "declared" | "inferred";
                 /** @description Group filter for inferred service entities: the workload.group.key of an inferred service; with no kinds it lists services only */
                 group?: string;
@@ -11415,8 +12296,12 @@ export interface operations {
                 lifecycle?: "deprecated" | "sunset";
                 /** @description Keeps the offerings with at least one failed provisioning request (offering entities) */
                 failed?: boolean;
+                /** @description Keeps the offerings the viewer may consume and fills each row's consumable (offering entities); with no kinds it lists offerings */
+                consumable?: boolean;
                 /** @description Keeps the external systems of this class (external entities) */
                 class?: "vendor-api" | "managed-cloud" | "legacy" | "unclassified" | "other-egress";
+                /** @description Keeps the external systems with a managed resource no offering produced (external entities) */
+                outsideContract?: boolean;
                 /** @description Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings and external systems with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key */
                 sort?: "name" | "health" | "services" | "nonCompliant" | "rate" | "created" | "failed" | "consumers" | "gaps";
                 /** @description Max entities to return (negatives rejected; excessive values capped) */
@@ -11858,6 +12743,72 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Fleet.SearchResult"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-create-service": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateServiceInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateServiceAnswer"];
+                };
+            };
+            /** @description Error */
+            default: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["V2.ErrorModel"];
+                };
+            };
+        };
+    };
+    "fleet-create-service-accept": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateServiceAcceptInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CreateServiceAcceptAnswer"];
                 };
             };
             /** @description Error */

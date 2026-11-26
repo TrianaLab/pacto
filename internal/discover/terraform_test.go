@@ -349,3 +349,41 @@ func TestUnrecordablePathsGiveNoExternals(t *testing.T) {
 		}
 	}
 }
+
+func TestTerraformBackendFinding(t *testing.T) {
+	dir := writeTree(t, t.TempDir(), map[string]string{
+		"infra/backend.tf": "terraform {\n  required_version = \">= 1.5\"\n  backend \"s3\" {\n    bucket = \"acme-tf\"\n    key    = \"prod.tfstate\" # the prod state\n" +
+			"    region = \"eu-west-1\"\n    assume_role {\n      role_arn = \"arn:aws:iam::123456789012:role/tf\"\n    }\n  }\n}\n",
+		"gcs/backend.tf":   "terraform {\n  backend \"gcs\" {\n    bucket = \"acme-tf\"\n    prefix = \"prod\"\n  }\n}\n",
+		"azure/backend.tf": "terraform {\n  backend \"azurerm\" {\n    storage_account_name = \"acmetf\"\n    container_name = \"tfstate\"\n    key = \"prod.tfstate\"\n  }\n}\n",
+	})
+	_, findings, _ := tfUsesOf(t, dir)
+	const next = "; the operator reads it once it is listed in controller.terraformStates"
+	want := []string{
+		CodeTerraformBackend + " azure/backend.tf:2 Terraform backend azurerm://acmetf/tfstate/prod.tfstate in azure/backend.tf:2" + next,
+		CodeTerraformBackend + " gcs/backend.tf:2 Terraform backend gs://acme-tf/prod/default.tfstate in gcs/backend.tf:2" + next,
+		CodeTerraformBackend + " infra/backend.tf:3 Terraform backend s3://acme-tf/prod.tfstate?region=eu-west-1 in infra/backend.tf:3" + next,
+	}
+	slices.Sort(findings)
+	if !slices.Equal(findings, want) {
+		t.Errorf("findings\n got %q\nwant %q", findings, want)
+	}
+}
+
+func TestTerraformBackendInterpolatedNoFinding(t *testing.T) {
+	for name, main := range map[string]string{
+		"interpolated":  "terraform {\n  backend \"s3\" {\n    bucket = \"acme-${var.env}\"\n    key = \"prod.tfstate\"\n    region = \"eu-west-1\"\n  }\n}\n",
+		"partial":       "terraform {\n  backend \"s3\" {\n    bucket = \"acme-tf\"\n    key = \"prod.tfstate\"\n  }\n}\n",
+		"empty":         "terraform {\n  backend \"s3\" {}\n}\n",
+		"other kind":    "terraform {\n  backend \"remote\" {\n    organization = \"acme\"\n  }\n}\n",
+		"odd chars":     "terraform {\n  backend \"gcs\" {\n    bucket = \"acme tf\"\n    prefix = \"prod\"\n  }\n}\n",
+		"not terraform": "locals {\n  backend \"s3\" {\n    bucket = \"acme-tf\"\n    key = \"prod.tfstate\"\n    region = \"eu-west-1\"\n  }\n}\n",
+		"upper bucket":  "terraform {\n  backend \"s3\" {\n    bucket = \"Acme-TF\"\n    key = \"prod.tfstate\"\n    region = \"eu-west-1\"\n  }\n}\n",
+		"dot-dot key":   "terraform {\n  backend \"azurerm\" {\n    storage_account_name = \"acmetf\"\n    container_name = \"tfstate\"\n    key = \"../prod.tfstate\"\n  }\n}\n",
+		"resource attr": "resource \"aws_sqs_queue\" \"q\" {\n  key = \"x\"\n  bucket = \"y\"\n}\n",
+	} {
+		if _, findings, _ := tfUsesOf(t, tfDir(t, main)); len(findings) != 0 {
+			t.Errorf("%s: findings %q", name, findings)
+		}
+	}
+}

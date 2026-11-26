@@ -57,6 +57,7 @@ var corePackages = []string{
 	"github.com/trianalab/pacto/v4/pkg/fleet/...",
 	"github.com/trianalab/pacto/v4/pkg/graph/...",
 	"github.com/trianalab/pacto/v4/pkg/impact/...",
+	"github.com/trianalab/pacto/v4/pkg/managedres/...",
 	"github.com/trianalab/pacto/v4/pkg/memberlink/...",
 	"github.com/trianalab/pacto/v4/pkg/oci/...",
 	"github.com/trianalab/pacto/v4/pkg/orgindex/...",
@@ -268,6 +269,22 @@ func TestCorePackagesHaveNoKubernetesOrIntegrationDeps(t *testing.T) {
 	}
 }
 
+// TestDeliveryRecordIsKubernetesFree keeps pkg/deliveryrecord, where the
+// hub's join reading lives, usable by the operator module: it reaches the
+// registry (so it is not a core package, which may never reach oras) and
+// never a Kubernetes client, an integration or the CLI's internal packages,
+// so the operator's promoter computes the join states the hub's surfaces do.
+func TestDeliveryRecordIsKubernetesFree(t *testing.T) {
+	const mod = "github.com/trianalab/pacto/v4/"
+	for _, dep := range deps(t, mod+"pkg/deliveryrecord/...") {
+		for _, bad := range []string{"k8s.io/", "sigs.k8s.io/", "github.com/trianalab/pacto/integrations/", mod + "integrations/", mod + "internal/"} {
+			if strings.HasPrefix(dep, bad) {
+				t.Errorf("boundary violation: pkg/deliveryrecord reaches %q; it stays Kubernetes-free", dep)
+			}
+		}
+	}
+}
+
 // TestInferredContractIsKubernetesFree keeps pkg/inferredcontract usable by
 // the CLI and the operator alike: it publishes through pkg/publish (which
 // reaches the registry, so it is not a core package) and never reaches a
@@ -313,6 +330,26 @@ func TestDiscoverReadsNoClusterOrRuntime(t *testing.T) {
 // cluster records they come from.
 var clusterViewSymbols = []string{"ClusterSummary", "ClusterRecord", "ClusterNoAccess", "ClusterReviewFailed", "ClusterNotReviewable"}
 
+// joinListReaders are the gate-path files whose Clusters selectors name the
+// hub's member join list (delivery.ClusterJoinList.Clusters) and the
+// candidate inventory (detect.Clusters), never a fleet cluster view; every
+// other check still applies to them.
+var joinListReaders = map[string]string{
+	"pkg/delivery/clustercandidates.go": "matches the hub's candidate clusters to its join list by stated UID; it reads no fleet view",
+	"pkg/delivery/members.go":           "counts the join list's pending clusters for gates; it reads no fleet view",
+}
+
+// clusterAttribution are the impact files that name where a consumer runs:
+// the answer's cluster summaries, each consumer's cluster ids and the
+// stale-cluster rule, which reads a cluster's source status and age (the same
+// for every reader) and only ever lowers a verdict to unknown. Access marks,
+// cluster records and the Cluster filter stay banned there.
+var clusterAttribution = map[string]string{
+	"pkg/impact/clusters.go": "attributes consumers to clusters and turns compatible unknown on a stale cluster",
+	"pkg/impact/impact.go":   "declares Result.Clusters and AffectedConsumer.Clusters",
+	"pkg/impact/product.go":  "copies a consumer's cluster ids",
+}
+
 // TestNoGateReadsClusterAccess keeps cluster access marks, per-cluster
 // summaries and the Cluster list filter out of every gate: they describe what
 // one reader may see, so a gate that read them would pass or fail by who asked.
@@ -351,7 +388,9 @@ func clusterViewReads(t *testing.T, path, rel string) []string {
 		switch n := n.(type) {
 		case *ast.SelectorExpr:
 			x, ok := n.X.(*ast.Ident)
-			if (ok && x.Name == "fleet" && slices.Contains(clusterViewSymbols, n.Sel.Name)) || n.Sel.Name == "Clusters" || n.Sel.Name == "ClustersTruncated" {
+			allowed := (joinListReaders[rel] != "" || clusterAttribution[rel] != "") && n.Sel.Name == "Clusters"
+			summary := ok && x.Name == "fleet" && n.Sel.Name == "ClusterSummary" && clusterAttribution[rel] != ""
+			if (ok && x.Name == "fleet" && slices.Contains(clusterViewSymbols, n.Sel.Name) && !summary) || (n.Sel.Name == "Clusters" && !allowed) || n.Sel.Name == "ClustersTruncated" {
 				at(n)
 			}
 		case *ast.CompositeLit:

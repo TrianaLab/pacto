@@ -24,8 +24,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
@@ -130,8 +130,8 @@ func buildContract(s contractSpec) string {
 }
 
 // apiBinding is the standard interface->port binding used across cases.
-func apiBinding(iface string) []pactov1alpha1.InterfaceBinding {
-	return []pactov1alpha1.InterfaceBinding{{Interface: iface, ServicePort: intstr.FromInt32(port)}}
+func apiBinding(iface string) []pactov1.InterfaceBinding {
+	return []pactov1.InterfaceBinding{{Interface: iface, ServicePort: intstr.FromInt32(port)}}
 }
 
 // =====================================================================================
@@ -142,62 +142,62 @@ func TestWorkload(t *testing.T) {
 	t.Run("explicit_name_and_kind_match_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
 		createDeployment(t, ns, "wl", deployOpts{})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
-			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
+			Target:      pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
 	})
 
 	t.Run("explicit_wrong_kind_noncompliant_WORKLOAD_MISMATCH", func(t *testing.T) {
 		ns := newNamespace(t)
 		createJob(t, ns, "wl")
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
-			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Job"}},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
+			Target:      pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "wl", Kind: "Job"}},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "WORKLOAD_MISMATCH")
 	})
 
 	t.Run("defaulted_kind_wrong_type_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
 		ns := newNamespace(t)
 		createDeployment(t, ns, "wl", deployOpts{}) // observed type "service"
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+		createPacto(t, "p", ns, pactov1.PactoSpec{
 			// contract wants a job; kind is left unspecified (defaulted to Deployment for the GET only).
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "job"})},
-			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl"}},
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "job"})},
+			Target:      pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "wl"}},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 		requireNoFinding(t, p, "WORKLOAD_MISMATCH")
 	})
 
 	t.Run("notfound_unknown_EVIDENCE_MISSING", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
-			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "ghost", Kind: "Deployment"}},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
+			Target:      pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "ghost", Kind: "Deployment"}},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_MISSING")
 	})
 
 	t.Run("api_failure_unknown_COLLECTION_FAILED", func(t *testing.T) {
 		ns := newNamespace(t)
 		createDeployment(t, ns, "wl", deployOpts{})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
-			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
+			Target:      pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
 		})
 		// Full real pipeline, but the apiserver GET of this Deployment errors (non-NotFound).
 		p := reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failDeploymentName: "wl"}}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "COLLECTION_FAILED")
 	})
 
@@ -206,12 +206,12 @@ func TestWorkload(t *testing.T) {
 		// ServiceName->Deployment resolution branch (distinct from the WorkloadRef rows above).
 		ns := newNamespace(t)
 		createDeployment(t, ns, "wl", deployOpts{})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "wl"}, // no WorkloadRef -> kind defaulted, not explicit
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "service"})},
+			Target:      pactov1.TargetRef{ServiceName: "wl"}, // no WorkloadRef -> kind defaulted, not explicit
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
 	})
 
@@ -221,12 +221,12 @@ func TestWorkload(t *testing.T) {
 		// (-> EVIDENCE_INSUFFICIENT, never WORKLOAD_MISMATCH); present as its own matrix row via ServiceName.
 		ns := newNamespace(t)
 		createDeployment(t, ns, "wl", deployOpts{})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "job"})},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "wl"},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", workload: "job"})},
+			Target:      pactov1.TargetRef{ServiceName: "wl"},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 		requireNoFinding(t, p, "WORKLOAD_MISMATCH")
 	})
@@ -242,55 +242,55 @@ func TestPersistence(t *testing.T) {
 	emptyDir := []corev1.Volume{{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}
 	hostPath := []corev1.Volume{{Name: "hp", VolumeSource: corev1.VolumeSource{HostPath: &corev1.HostPathVolumeSource{Path: "/data"}}}}
 
-	persistentTarget := func() pactov1alpha1.TargetRef {
-		return pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"}}
+	persistentTarget := func() pactov1.TargetRef {
+		return pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "wl", Kind: "Deployment"}}
 	}
 
 	t.Run("binding_declared_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
 		createDeployment(t, ns, "wl", deployOpts{volumes: pvc})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
 			Target:      persistentTarget(),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
 	})
 
 	t.Run("all_ephemeral_noncompliant_PERSISTENCE_MISMATCH", func(t *testing.T) {
 		ns := newNamespace(t)
 		createDeployment(t, ns, "wl", deployOpts{volumes: emptyDir})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
 			Target:      persistentTarget(),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "PERSISTENCE_MISMATCH")
 	})
 
 	t.Run("ambiguous_volume_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
 		ns := newNamespace(t)
 		createDeployment(t, ns, "wl", deployOpts{volumes: hostPath})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
 			Target:      persistentTarget(),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 		requireNoFinding(t, p, "PERSISTENCE_MISMATCH")
 	})
 
 	t.Run("workload_notfound_unknown_EVIDENCE_MISSING", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
-			Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "ghost", Kind: "Deployment"}},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", persistence: "persistent"})},
+			Target:      pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "ghost", Kind: "Deployment"}},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_MISSING")
 	})
 
@@ -298,14 +298,14 @@ func TestPersistence(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+		createPacto(t, "p", ns, pactov1.PactoSpec{
 			// ephemeral persistence adds NO required assertion; only the interface is required.
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{
 				name: "app", persistence: "ephemeral", ifaces: []ifaceSpec{{name: "api"}}})},
-			Target: pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")},
+			Target: pactov1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1) // persistence NOT counted
 	})
 }
@@ -315,18 +315,18 @@ func TestPersistence(t *testing.T) {
 // =====================================================================================
 
 func TestInterfaces(t *testing.T) {
-	ifaceTarget := pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
+	ifaceTarget := pactov1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
 
 	t.Run("bound_ready_compliant_availability", func(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
 			Target:      ifaceTarget,
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
 	})
 
@@ -334,12 +334,12 @@ func TestInterfaces(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 0) // slice exists, zero ready
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
 			Target:      ifaceTarget,
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 		requireNoFinding(t, p, "INTERFACE_ABSENT")
 	})
@@ -348,14 +348,14 @@ func TestInterfaces(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 0)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
 			Target:      ifaceTarget,
 		})
 		reconcile(t, "p", ns, reconcileOpts{}) // seed window (within -> Unknown)
 		backdateWindows(t, "p", ns)
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "INTERFACE_ABSENT")
 		requireNoIP(t, p)
 	})
@@ -366,12 +366,12 @@ func TestInterfaces(t *testing.T) {
 		// false INTERFACE_ABSENT.
 		ns := newNamespace(t)
 		// no createService("svc") -> Service GET returns NotFound
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
 			Target:      ifaceTarget,
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_MISSING")
 		requireNoFinding(t, p, "INTERFACE_ABSENT")
 	})
@@ -383,12 +383,12 @@ func TestInterfaces(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
 			Target:      ifaceTarget,
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failServiceName: "svc"}}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown) // Unknown, not NonCompliant
+		requireStatus(t, p, pactov1.ContractStatusUnknown) // Unknown, not NonCompliant
 		requireFinding(t, p, "COLLECTION_FAILED")
 		requireNoFinding(t, p, "INTERFACE_ABSENT")
 	})
@@ -399,20 +399,20 @@ func TestInterfaces(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 0)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
 			Target:      ifaceTarget,
 		})
 		reconcile(t, "p", ns, reconcileOpts{}) // seed window (within -> Unknown)
 		backdateWindows(t, "p", ns)
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "INTERFACE_ABSENT")
 
 		// Endpoint becomes ready -> window resets and status recovers.
 		setEndpointSliceReady(t, ns, "svc", port)
 		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		if len(p.Status.ObservationWindows) != 0 {
 			t.Fatalf("expected window reset after recovery, got %+v", p.Status.ObservationWindows)
 		}
@@ -422,25 +422,25 @@ func TestInterfaces(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "svc"}, // no interfaceBindings
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "app", ifaces: []ifaceSpec{{name: "api"}}})},
+			Target:      pactov1.TargetRef{ServiceName: "svc"}, // no interfaceBindings
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
 	})
 
 	t.Run("asyncapi_no_binding_unknown", func(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{
 				name: "app", ifaces: []ifaceSpec{{name: "events", typ: "asyncapi"}}})},
-			Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+			Target: pactov1.TargetRef{ServiceName: "svc"},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
 	})
 }
@@ -455,17 +455,17 @@ func TestHealth(t *testing.T) {
 		ifaces: []ifaceSpec{{name: "api"}},
 		caps:   []capSpec{{typ: "health", iface: "api", path: "/healthz"}},
 	})
-	target := pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
+	target := pactov1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
 
 	t.Run("direct_probe_2xx_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		startProbeServer(t, ns, "svc", port, okHealth)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 2, 2) // interface availability + health
 	})
 
@@ -476,10 +476,10 @@ func TestHealth(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		createDeployment(t, ns, "svc", deployOpts{readinessProbePort: port}) // workload name defaults to svc
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{probingDisabled: true}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 2, 2) // interface availability + health (Tier B)
 	})
 
@@ -490,10 +490,10 @@ func TestHealth(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 0)
 		createDeployment(t, ns, "svc", deployOpts{readinessProbePort: port})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{probingDisabled: true}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "HEALTH_FAILING")
 		requireNoFinding(t, p, "COLLECTION_FAILED")
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
@@ -505,10 +505,10 @@ func TestHealth(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		startProbeServer(t, ns, "svc", port, okHealthWithBody)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireStatusExcludes(t, p, healthBodyCanary)
 	})
 
@@ -517,12 +517,12 @@ func TestHealth(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		startProbeServer(t, ns, "svc", port, status404)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		reconcile(t, "p", ns, reconcileOpts{}) // 404 within window -> Unknown
 		backdateWindows(t, "p", ns)
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "CAPABILITY_ABSENT")
 	})
 
@@ -533,12 +533,12 @@ func TestHealth(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		flip := startSwitchableProbeServer(t, ns, "svc", port, status404)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		reconcile(t, "p", ns, reconcileOpts{}) // 404 within window -> Unknown
 		backdateWindows(t, "p", ns)
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "CAPABILITY_ABSENT")
 
 		// Health path starts serving 2xx -> status recovers, the confirmed CAPABILITY_ABSENT clears, and the
@@ -546,7 +546,7 @@ func TestHealth(t *testing.T) {
 		// exactly like the interface/dependency/configuration recovery cases.
 		flip(okHealth)
 		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
 		if len(p.Status.ObservationWindows) != 0 {
 			t.Fatalf("expected health window reset after recovery, got %+v", p.Status.ObservationWindows)
@@ -556,7 +556,7 @@ func TestHealth(t *testing.T) {
 		// Unknown (EVIDENCE_INSUFFICIENT), NOT immediately confirmed CAPABILITY_ABSENT off the stale window.
 		flip(status404)
 		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 	})
@@ -569,10 +569,10 @@ func TestHealth(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		startProbeServer(t, ns, "svc", port, okHealth)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failServiceName: "svc"}}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown) // Unknown, not NonCompliant
+		requireStatus(t, p, pactov1.ContractStatusUnknown) // Unknown, not NonCompliant
 		requireFinding(t, p, "COLLECTION_FAILED")
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
 	})
@@ -582,10 +582,10 @@ func TestHealth(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		startProbeServer(t, ns, "svc", port, status503) // serving but unhealthy -> present and failing, not absent
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "HEALTH_FAILING")
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
 		requireNoFinding(t, p, "COLLECTION_FAILED")
@@ -596,10 +596,10 @@ func TestHealth(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		startProbeServer(t, ns, "svc", port, status501) // does not serve GET -> neither healthy nor absent
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 		requireNoFinding(t, p, "HEALTH_FAILING")
 	})
@@ -610,36 +610,36 @@ func TestHealth(t *testing.T) {
 		createEndpointSlice(t, ns, "svc", port, 1)
 		createDeployment(t, ns, "svc", deployOpts{}) // no readiness probe -> no usable tier-B evidence
 		pointAtClosedPort(t, ns, "svc", port)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		// Spec section 7.4: liveness-only / no-probe -> EVIDENCE_INSUFFICIENT, not COLLECTION_FAILED (M13).
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 	})
 
 	t.Run("no_binding_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+		createPacto(t, "p", ns, pactov1.PactoSpec{
 			// health capability with NO binding block -> Unsupported.
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{
 				name: "app", caps: []capSpec{{typ: "health"}}})},
-			Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+			Target: pactov1.TargetRef{ServiceName: "svc"},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
 	})
 
 	t.Run("undeclared_interface_invalid_CAPABILITY_INTERFACE_UNKNOWN", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{
 				name: "app", caps: []capSpec{{typ: "health", iface: "ghost", path: "/healthz"}}})},
-			Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+			Target: pactov1.TargetRef{ServiceName: "svc"},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusInvalid)
+		requireStatus(t, p, pactov1.ContractStatusInvalid)
 		if !contains(validationCodes(p), "CAPABILITY_INTERFACE_UNKNOWN") {
 			t.Fatalf("expected CAPABILITY_INTERFACE_UNKNOWN, got %v", validationCodes(p))
 		}
@@ -658,17 +658,17 @@ func TestMetrics(t *testing.T) {
 			caps:   []capSpec{{typ: "metrics", iface: "api", path: path}},
 		})
 	}
-	target := pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
+	target := pactov1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
 
 	t.Run("active_probe_prometheus_parsed_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		startProbeServer(t, ns, "svc", port, promMetrics)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 2, 2)
 	})
 
@@ -677,10 +677,10 @@ func TestMetrics(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		startProbeServer(t, ns, "svc", port, substringButNotPrometheus)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 	})
 
@@ -694,12 +694,12 @@ func TestMetrics(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1) // interface availability satisfied -> no interface window
 		startProbeServer(t, ns, "svc", port, status404)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
 
 		// Cycle 1: first reachable-404 negative.
 		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
 		if len(p.Status.ObservationWindows) != 0 {
@@ -708,7 +708,7 @@ func TestMetrics(t *testing.T) {
 
 		// Cycle 2: sustained negative stays Unknown with still no window (no path to a confirmed violation).
 		p = reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
 		if len(p.Status.ObservationWindows) != 0 {
@@ -723,10 +723,10 @@ func TestMetrics(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1) // interface availability satisfied
 		pointAtClosedPort(t, ns, "svc", port)      // scrape probe gets connection-refused
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown) // Unknown, not NonCompliant
+		requireStatus(t, p, pactov1.ContractStatusUnknown) // Unknown, not NonCompliant
 		requireFinding(t, p, "COLLECTION_FAILED")
 		requireNoFinding(t, p, "CAPABILITY_ABSENT")
 	})
@@ -735,10 +735,10 @@ func TestMetrics(t *testing.T) {
 		ns := newNamespace(t)
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: metricsContract("/metrics")}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: false}).pacto // flag OFF
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
 	})
 
@@ -747,10 +747,10 @@ func TestMetrics(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		// metrics binding without a path, no ServiceMonitor/annotation/named-port -> nothing to probe.
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("")}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: metricsContract("")}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
 	})
 
@@ -767,10 +767,10 @@ func TestMetrics(t *testing.T) {
 			})
 		createEndpointSlice(t, ns, "svc", port, 1)
 		startProbeServer(t, ns, "svc", port, promMetrics)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("")}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: metricsContract("")}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 2, 2) // interface availability + metrics
 	})
 
@@ -786,10 +786,10 @@ func TestMetrics(t *testing.T) {
 			}, nil)
 		createEndpointSlice(t, ns, "svc", port, 1) // availability on the interface port
 		startProbeServer(t, ns, "svc", metricsScrapePort, promMetrics)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract("")}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: metricsContract("")}, Target: target})
 		p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: true}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 2, 2) // interface availability + metrics
 	})
 
@@ -815,15 +815,15 @@ func TestMetrics(t *testing.T) {
 
 func TestExtensionCapability(t *testing.T) {
 	ns := newNamespace(t)
-	createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+	createPacto(t, "p", ns, pactov1.PactoSpec{
+		ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{
 			name: "app", caps: []capSpec{{typ: "extension", ref: "example.com/backup"}}})},
-		Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+		Target: pactov1.TargetRef{ServiceName: "svc"},
 	})
 	p := reconcile(t, "p", ns, reconcileOpts{}).pacto
 	// No evaluator exists for an extension, so it is listed as unverified coverage rather than counted as a
 	// required assertion nothing could satisfy: the contract reaches Compliant.
-	requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+	requireStatus(t, p, pactov1.ContractStatusCompliant)
 	requireNoFinding(t, p, "EXTENSION_EVALUATOR_UNAVAILABLE")
 	requireNoFinding(t, p, "EVIDENCE_MISSING")
 	requireCoverage(t, p, 0, 0)
@@ -845,17 +845,17 @@ func TestDependencies(t *testing.T) {
 			deps: []depSpec{{name: "payments", ref: "oci://ghcr.io/e2e/" + ns + "-payments", required: required, compat: "1.x"}},
 		})
 	}
-	mainTarget := pactov1alpha1.TargetRef{ServiceName: "main-svc"}
+	mainTarget := pactov1.TargetRef{ServiceName: "main-svc"}
 
 	t.Run("ready_backend_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
 		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 1)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
 	})
 
@@ -864,10 +864,10 @@ func TestDependencies(t *testing.T) {
 		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 0)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 	})
 
@@ -876,22 +876,22 @@ func TestDependencies(t *testing.T) {
 		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 0)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 		reconcile(t, "p", ns, reconcileOpts{})
 		backdateWindows(t, "p", ns)
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "DEPENDENCY_UNREACHABLE")
 		requireNoIP(t, p)
 	})
 
 	t.Run("no_sibling_external_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
 	})
 
@@ -901,10 +901,10 @@ func TestDependencies(t *testing.T) {
 		ns := newNamespace(t)
 		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		// no createService("pay-svc") -> Service GET returns NotFound
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 		requireNoFinding(t, p, "DEPENDENCY_UNREACHABLE")
 	})
@@ -913,12 +913,12 @@ func TestDependencies(t *testing.T) {
 		// Same absent-Service negative sustained beyond the stabilization window -> confirmed unreachable.
 		ns := newNamespace(t)
 		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 		reconcile(t, "p", ns, reconcileOpts{}) // seed window (within -> Unknown)
 		backdateWindows(t, "p", ns)
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "DEPENDENCY_UNREACHABLE")
 		requireNoIP(t, p)
 	})
@@ -929,19 +929,19 @@ func TestDependencies(t *testing.T) {
 		ns := newNamespace(t)
 		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createExternalNameService(t, ns, "pay-svc", "payments.external.example.com")
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
 	})
 
 	t.Run("optional_absent_no_finding_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, false)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, false)}, Target: mainTarget})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant) // optional + unresolvable -> no false Unknown
+		requireStatus(t, p, pactov1.ContractStatusCompliant) // optional + unresolvable -> no false Unknown
 		if len(p.Status.Findings) != 0 {
 			t.Fatalf("optional absent dependency should surface no finding, got %v", findingCodes(p))
 		}
@@ -952,12 +952,12 @@ func TestDependencies(t *testing.T) {
 		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 0)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, false)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, false)}, Target: mainTarget})
 		reconcile(t, "p", ns, reconcileOpts{})
 		backdateWindows(t, "p", ns)
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusWarning) // optional contradiction -> Warning, not Error
+		requireStatus(t, p, pactov1.ContractStatusWarning) // optional contradiction -> Warning, not Error
 		f := findFinding(p, "DEPENDENCY_UNREACHABLE")
 		if f == nil || f.Severity != "warning" {
 			t.Fatalf("expected optional DEPENDENCY_UNREACHABLE at warning severity, got %+v", f)
@@ -973,12 +973,12 @@ func TestDependencies(t *testing.T) {
 		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 0) // sustained zero-ready negative
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 
 		// 1. First negative -> within window -> Unknown; window seeded.
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 
 		// 2. Backdate the window beyond the stabilization boundary.
@@ -991,7 +991,7 @@ func TestDependencies(t *testing.T) {
 
 		// 3. COLLECTION_FAILED cycle: the dependency Service GET errors -> Failed, no window update.
 		p = reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failServiceName: "pay-svc"}}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "COLLECTION_FAILED")
 		if len(p.Status.ObservationWindows) != 1 {
 			t.Fatalf("COLLECTION_FAILED cycle must PRESERVE the window, got %d", len(p.Status.ObservationWindows))
@@ -1003,7 +1003,7 @@ func TestDependencies(t *testing.T) {
 
 		// 4. Normal reconcile: the sustained negative is now beyond the PRESERVED window -> confirmed.
 		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "DEPENDENCY_UNREACHABLE")
 	})
 
@@ -1012,8 +1012,8 @@ func TestDependencies(t *testing.T) {
 		createSiblingPacto(t, ns, "pay", "pay-svc", "ghcr.io/e2e/"+ns+"-payments:1.0.0", "1.0.0")
 		createService(t, ns, "pay-svc", port)
 		createEndpointSlice(t, ns, "pay-svc", port, 0)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: depContract(ns, true)}, Target: mainTarget})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
 		if len(p.Status.ObservationWindows) == 0 {
 			t.Fatalf("expected a window after a negative observation")
@@ -1021,7 +1021,7 @@ func TestDependencies(t *testing.T) {
 		// Backend becomes ready -> window must reset and status recover.
 		setEndpointSliceReady(t, ns, "pay-svc", port)
 		p = reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		if len(p.Status.ObservationWindows) != 0 {
 			t.Fatalf("expected window reset after recovery, got %+v", p.Status.ObservationWindows)
 		}
@@ -1084,10 +1084,10 @@ func TestConfigurations(t *testing.T) {
 		return buildContract(contractSpec{name: "app", cfgs: []cfgSpec{{name: "appcfg", required: required, schema: schema}}})
 	}
 	bundled := bundleLoader{files: fstest.MapFS{configSchemaPath: &fstest.MapFile{Data: []byte(configSchemaBody)}}}
-	bind := func(kind, name, key, format string) pactov1alpha1.TargetRef {
-		return pactov1alpha1.TargetRef{
+	bind := func(kind, name, key, format string) pactov1.TargetRef {
+		return pactov1.TargetRef{
 			ServiceName:    "main-svc",
-			ConfigBindings: []pactov1alpha1.ConfigBinding{{Configuration: "appcfg", Kind: kind, Name: name, Key: key, Format: format}},
+			ConfigBindings: []pactov1.ConfigBinding{{Configuration: "appcfg", Kind: kind, Name: name, Key: key, Format: format}},
 		}
 	}
 
@@ -1097,12 +1097,12 @@ func TestConfigurations(t *testing.T) {
 		// ConfigMap's VALUES even on the conforming path — only the boolean result may surface (INV-5).
 		const cfgValueCanary = "prod-CONFIGVALUE-LEAK-CANARY-42"
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: " + cfgValueCanary + "\n"})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
 		requireStatusExcludes(t, p, cfgValueCanary)
 	})
@@ -1112,12 +1112,12 @@ func TestConfigurations(t *testing.T) {
 		// dimension is Failed -> COLLECTION_FAILED, service Unknown (never NonCompliant on a collection gap).
 		ns := newNamespace(t)
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{cl: faultClient{Client: k8sClient, failConfigMapName: "app-cm"}, loader: bundled}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown) // Unknown, not NonCompliant
+		requireStatus(t, p, pactov1.ContractStatusUnknown) // Unknown, not NonCompliant
 		requireFinding(t, p, "COLLECTION_FAILED")
 	})
 
@@ -1125,12 +1125,12 @@ func TestConfigurations(t *testing.T) {
 		ns := newNamespace(t)
 		// level is an int, schema requires string; a distinctive extra key must NOT surface in the finding.
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: 123\nother_key: sideValue987\n"})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		f := findFinding(p, "CONFIGURATION_MISMATCH")
 		if f == nil {
 			t.Fatalf("expected CONFIGURATION_MISMATCH, got %v", findingCodes(p))
@@ -1146,12 +1146,12 @@ func TestConfigurations(t *testing.T) {
 		// and the service status is Warning.
 		ns := newNamespace(t)
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: 123\n"}) // level int, schema wants string
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(false, configSchemaPath)}, // required: false
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: cfgContract(false, configSchemaPath)}, // required: false
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusWarning) // optional contradiction -> Warning, not Error
+		requireStatus(t, p, pactov1.ContractStatusWarning) // optional contradiction -> Warning, not Error
 		f := findFinding(p, "CONFIGURATION_MISMATCH")
 		if f == nil || f.Severity != "warning" {
 			t.Fatalf("expected optional CONFIGURATION_MISMATCH at warning severity, got %+v", f)
@@ -1170,12 +1170,12 @@ func TestConfigurations(t *testing.T) {
 		t.Setenv(loader.InsecureRegistriesEnvVar, "")
 		ns := newNamespace(t)
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: refContract},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: refContract},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		f := findFinding(p, "CONFIG_REF_UNVERIFIED")
 		if f == nil || !strings.Contains(f.Message, loader.InsecureRegistriesEnvVar) {
 			t.Fatalf("expected CONFIG_REF_UNVERIFIED naming %s, got %+v", loader.InsecureRegistriesEnvVar, f)
@@ -1188,37 +1188,37 @@ func TestConfigurations(t *testing.T) {
 	t.Run("ref_configmap_conforms_resolved_schema_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: refContract},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: refContract},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 1, 1)
 	})
 
 	t.Run("ref_configmap_violates_resolved_schema_noncompliant_CONFIGURATION_MISMATCH", func(t *testing.T) {
 		ns := newNamespace(t)
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: 123\n"}) // level int, schema wants string
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: refContract},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: refContract},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "CONFIGURATION_MISMATCH")
 	})
 
 	t.Run("bound_configmap_missing_beyond_window_noncompliant_CONFIGURATION_ABSENT", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "missing-cm", "config.yaml", "yaml"),
 		})
 		reconcile(t, "p", ns, reconcileOpts{loader: bundled})
 		backdateWindows(t, "p", ns)
 		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "CONFIGURATION_ABSENT")
 	})
 
@@ -1226,20 +1226,20 @@ func TestConfigurations(t *testing.T) {
 		// A bound ConfigMap absent beyond the window -> confirmed CONFIGURATION_ABSENT; creating a present +
 		// conformant ConfigMap then resets the window and recovers to Compliant (spec section 7.7 recovery path).
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "app-cm", "config.yaml", "yaml"),
 		})
 		reconcile(t, "p", ns, reconcileOpts{loader: bundled}) // absent within window -> Unknown
 		backdateWindows(t, "p", ns)
 		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+		requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 		requireFinding(t, p, "CONFIGURATION_ABSENT")
 
 		// The bound ConfigMap appears with conformant content -> window resets and status recovers.
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
 		p = reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		if len(p.Status.ObservationWindows) != 0 {
 			t.Fatalf("expected window reset after recovery, got %+v", p.Status.ObservationWindows)
 		}
@@ -1247,35 +1247,35 @@ func TestConfigurations(t *testing.T) {
 
 	t.Run("no_binding_unknown_OBSERVATION_UNSUPPORTED", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "main-svc"}, // no configBindings
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
+			Target:      pactov1.TargetRef{ServiceName: "main-svc"}, // no configBindings
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "OBSERVATION_UNSUPPORTED")
 	})
 
 	t.Run("configmap_without_key_format_unknown_EVIDENCE_INSUFFICIENT", func(t *testing.T) {
 		ns := newNamespace(t)
 		createConfigMap(t, ns, "app-cm", map[string]string{"config.yaml": "level: info\n"})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: cfgContract(true, configSchemaPath)},
 			Target:      bind("ConfigMap", "app-cm", "", ""), // existence-only
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 		requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 	})
 
 	t.Run("optional_missing_no_finding_compliant", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: cfgContract(false, configSchemaPath)},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: cfgContract(false, configSchemaPath)},
 			Target:      bind("ConfigMap", "missing-cm", "config.yaml", "yaml"),
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{loader: bundled}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant) // optional + within-window absence -> no finding
+		requireStatus(t, p, pactov1.ContractStatusCompliant) // optional + within-window absence -> no finding
 		if len(p.Status.Findings) != 0 {
 			t.Fatalf("optional missing configuration should surface no finding, got %v", findingCodes(p))
 		}
@@ -1298,21 +1298,21 @@ func TestSecretNoLeak(t *testing.T) {
 		secretKey1: []byte(secretVal1),
 		secretKey2: []byte(secretVal2),
 	})
-	createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
+	createPacto(t, "p", ns, pactov1.PactoSpec{
 		// A schema is required structurally (config needs schema XOR ref); the Secret observation path is
 		// metadata-only and never reads it.
-		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+		ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{
 			name: "app", cfgs: []cfgSpec{{name: "appcfg", required: true, schema: configSchemaPath}}})},
-		Target: pactov1alpha1.TargetRef{
+		Target: pactov1.TargetRef{
 			ServiceName:    "main-svc",
-			ConfigBindings: []pactov1alpha1.ConfigBinding{{Configuration: "appcfg", Kind: "Secret", Name: "creds"}},
+			ConfigBindings: []pactov1.ConfigBinding{{Configuration: "appcfg", Kind: "Secret", Name: "creds"}},
 		},
 	})
 	res := reconcile(t, "p", ns, reconcileOpts{})
 	p := res.pacto
 
 	// Metadata-only existence -> Unknown, never satisfied.
-	requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+	requireStatus(t, p, pactov1.ContractStatusUnknown)
 	requireFinding(t, p, "EVIDENCE_INSUFFICIENT")
 
 	// Scan the ENTIRE serialized status + every recorded event for secret values and key names.
@@ -1345,17 +1345,17 @@ func TestSSRFRejection(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			ns := newNamespace(t)
 			createService(t, ns, "svc", port)
-			createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-				ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+			createPacto(t, "p", ns, pactov1.PactoSpec{
+				ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{
 					name:   "app",
 					ifaces: []ifaceSpec{{name: "api"}},
 					caps:   []capSpec{{typ: "health", iface: "api", path: tc.path}},
 				})},
-				Target: pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")},
+				Target: pactov1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")},
 			})
 			p := reconcile(t, "p", ns, reconcileOpts{}).pacto
 			// A hostile path is rejected at validation -> Invalid, never a runtime state.
-			requireStatus(t, p, pactov1alpha1.ContractStatusInvalid)
+			requireStatus(t, p, pactov1.ContractStatusInvalid)
 			codes := validationCodes(p)
 			if !contains(codes, "CAPABILITY_PATH_INVALID") && !contains(codes, "SCHEMA_VIOLATION") {
 				t.Fatalf("expected a path-rejection error (CAPABILITY_PATH_INVALID/SCHEMA_VIOLATION), got %v", codes)
@@ -1366,16 +1366,16 @@ func TestSSRFRejection(t *testing.T) {
 	// A schema-valid-but-crossfield-unsafe path (embedded fragment) exercises the dedicated AR4 code.
 	t.Run("crossfield_fragment_CAPABILITY_PATH_INVALID", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{
 				name:   "app",
 				ifaces: []ifaceSpec{{name: "api"}},
 				caps:   []capSpec{{typ: "health", iface: "api", path: "/healthz#frag"}},
 			})},
-			Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+			Target: pactov1.TargetRef{ServiceName: "svc"},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusInvalid)
+		requireStatus(t, p, pactov1.ContractStatusInvalid)
 		if !contains(validationCodes(p), "CAPABILITY_PATH_INVALID") {
 			t.Fatalf("expected CAPABILITY_PATH_INVALID, got %v", validationCodes(p))
 		}
@@ -1405,16 +1405,16 @@ func TestCoveragePropagation(t *testing.T) {
 		caps:     []capSpec{{typ: "health"}, {typ: "metrics", iface: "api"}},
 		deps:     []depSpec{{name: "dep", ref: "oci://ghcr.io/e2e/" + ns + "-dep", required: true, compat: "1.x"}},
 	})
-	createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-		ContractRef: pactov1alpha1.ContractRef{Inline: c},
-		Target: pactov1alpha1.TargetRef{
+	createPacto(t, "p", ns, pactov1.PactoSpec{
+		ContractRef: pactov1.ContractRef{Inline: c},
+		Target: pactov1.TargetRef{
 			ServiceName:       "svc",
-			WorkloadRef:       &pactov1alpha1.WorkloadRef{Name: "svc", Kind: "Deployment"},
+			WorkloadRef:       &pactov1.WorkloadRef{Name: "svc", Kind: "Deployment"},
 			InterfaceBindings: apiBinding("api"), // only api bound; b unbound
 		},
 	})
 	p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: false}).pacto
-	requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+	requireStatus(t, p, pactov1.ContractStatusUnknown)
 	requireCoverage(t, p, 2, 6)
 }
 
@@ -1432,16 +1432,16 @@ func TestAggregatePrecedence(t *testing.T) {
 		ifaces:      []ifaceSpec{{name: "api"}},
 		caps:        []capSpec{{typ: "metrics", iface: "api", path: "/metrics"}},
 	})
-	createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-		ContractRef: pactov1alpha1.ContractRef{Inline: c},
-		Target: pactov1alpha1.TargetRef{
+	createPacto(t, "p", ns, pactov1.PactoSpec{
+		ContractRef: pactov1.ContractRef{Inline: c},
+		Target: pactov1.TargetRef{
 			ServiceName:       "svc",
-			WorkloadRef:       &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"},
+			WorkloadRef:       &pactov1.WorkloadRef{Name: "wl", Kind: "Deployment"},
 			InterfaceBindings: apiBinding("api"),
 		},
 	})
 	p := reconcile(t, "p", ns, reconcileOpts{metricsEnabled: false}).pacto
-	requireStatus(t, p, pactov1alpha1.ContractStatusNonCompliant)
+	requireStatus(t, p, pactov1.ContractStatusNonCompliant)
 	requireFinding(t, p, "PERSISTENCE_MISMATCH")    // the confirmed Error
 	requireFinding(t, p, "OBSERVATION_UNSUPPORTED") // the coexisting Unknown, still surfaced
 	if p.Status.Summary == nil || p.Status.Summary.ErrorCount == 0 || p.Status.Summary.UnknownCount == 0 {
@@ -1466,24 +1466,24 @@ func TestLoadFailures(t *testing.T) {
 	t.Run("malformed_contract_invalid", func(t *testing.T) {
 		ns := newNamespace(t)
 		// Unsupported pactoVersion -> structural failure -> Invalid, never reaches runtime aggregation.
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: "pactoVersion: \"1.0\"\nservice:\n  name: app\n  version: 1.0.0\n"},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "svc"},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: "pactoVersion: \"1.0\"\nservice:\n  name: app\n  version: 1.0.0\n"},
+			Target:      pactov1.TargetRef{ServiceName: "svc"},
 		})
 		p := reconcile(t, "p", ns, reconcileOpts{}).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusInvalid)
+		requireStatus(t, p, pactov1.ContractStatusInvalid)
 	})
 
 	t.Run("transient_registry_unreachable_unknown", func(t *testing.T) {
 		ns := newNamespace(t)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{OCI: "oci://ghcr.io/e2e/" + ns + "-svc:1.0.0"},
-			Target:      pactov1alpha1.TargetRef{ServiceName: "svc"},
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{OCI: "oci://ghcr.io/e2e/" + ns + "-svc:1.0.0"},
+			Target:      pactov1.TargetRef{ServiceName: "svc"},
 		})
 		ldr := stubLoader{err: &oci.RegistryUnreachableError{Ref: "ghcr.io/e2e/svc:1.0.0", Err: fmt.Errorf("dial tcp: connection refused")}}
 		p := reconcile(t, "p", ns, reconcileOpts{loader: ldr}).pacto
 		// A transient obtain-failure is Unknown, NOT Invalid and NOT NonCompliant.
-		requireStatus(t, p, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, p, pactov1.ContractStatusUnknown)
 	})
 }
 
@@ -1503,7 +1503,7 @@ func TestLoadFailures(t *testing.T) {
 func TestReconciledStatusIsNamedByTheFleet(t *testing.T) {
 	cases := []struct {
 		name      string
-		reconcile func(*testing.T) *pactov1alpha1.Pacto
+		reconcile func(*testing.T) *pactov1.Pacto
 		want      string
 	}{
 		{"compliant", reconcileWorkloadCompliant, fleet.StatusCompliant},
@@ -1525,8 +1525,8 @@ func TestReconciledStatusIsNamedByTheFleet(t *testing.T) {
 	// sources that were never runtime-evaluated (see the ContractStatus doc comments).
 	t.Run("reserved_states", func(t *testing.T) {
 		for _, tc := range []struct{ operator, engine string }{
-			{pactov1alpha1.ContractStatusWarning, fleet.StatusWarning},
-			{pactov1alpha1.ContractStatusNotEvaluated, fleet.StatusNotEvaluated},
+			{pactov1.ContractStatusWarning, fleet.StatusWarning},
+			{pactov1.ContractStatusNotEvaluated, fleet.StatusNotEvaluated},
 		} {
 			if tc.operator != tc.engine {
 				t.Errorf("operator status %q is not the fleet's %q", tc.operator, tc.engine)
@@ -1535,12 +1535,12 @@ func TestReconciledStatusIsNamedByTheFleet(t *testing.T) {
 	})
 }
 
-func reconcileWorkloadCompliant(t *testing.T) *pactov1alpha1.Pacto {
+func reconcileWorkloadCompliant(t *testing.T) *pactov1.Pacto {
 	ns := newNamespace(t)
 	createDeployment(t, ns, "wl", deployOpts{})
-	createPacto(t, "cmp", ns, pactov1alpha1.PactoSpec{
-		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "svc-compliant", workload: "service"})},
-		Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
+	createPacto(t, "cmp", ns, pactov1.PactoSpec{
+		ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "svc-compliant", workload: "service"})},
+		Target:      pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
 	})
 	return reconcile(t, "cmp", ns, reconcileOpts{}).pacto
 }
@@ -1548,33 +1548,33 @@ func reconcileWorkloadCompliant(t *testing.T) *pactov1alpha1.Pacto {
 // reconcileUnboundUnknown declares an interface the CR never binds to a Service port: the collector cannot
 // observe it (OBSERVATION_UNSUPPORTED), which is Unknown. An extension capability no longer serves here: it is
 // listed as unverified coverage and reaches Compliant.
-func reconcileUnboundUnknown(t *testing.T) *pactov1alpha1.Pacto {
+func reconcileUnboundUnknown(t *testing.T) *pactov1.Pacto {
 	ns := newNamespace(t)
-	createPacto(t, "unk", ns, pactov1alpha1.PactoSpec{
-		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+	createPacto(t, "unk", ns, pactov1.PactoSpec{
+		ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{
 			name: "svc-unknown", ifaces: []ifaceSpec{{name: "api"}}})},
-		Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+		Target: pactov1.TargetRef{ServiceName: "svc"},
 	})
 	return reconcile(t, "unk", ns, reconcileOpts{}).pacto
 }
 
-func reconcilePersistenceNonCompliant(t *testing.T) *pactov1alpha1.Pacto {
+func reconcilePersistenceNonCompliant(t *testing.T) *pactov1.Pacto {
 	ns := newNamespace(t)
 	createDeployment(t, ns, "wl", deployOpts{volumes: []corev1.Volume{
 		{Name: "tmp", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}}})
-	createPacto(t, "ncp", ns, pactov1alpha1.PactoSpec{
-		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "svc-noncompliant", persistence: "persistent"})},
-		Target:      pactov1alpha1.TargetRef{WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
+	createPacto(t, "ncp", ns, pactov1.PactoSpec{
+		ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "svc-noncompliant", persistence: "persistent"})},
+		Target:      pactov1.TargetRef{WorkloadRef: &pactov1.WorkloadRef{Name: "wl", Kind: "Deployment"}},
 	})
 	return reconcile(t, "ncp", ns, reconcileOpts{}).pacto
 }
 
-func reconcileInvalid(t *testing.T) *pactov1alpha1.Pacto {
+func reconcileInvalid(t *testing.T) *pactov1.Pacto {
 	ns := newNamespace(t)
-	createPacto(t, "inv", ns, pactov1alpha1.PactoSpec{
-		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{
+	createPacto(t, "inv", ns, pactov1.PactoSpec{
+		ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{
 			name: "svc-invalid", caps: []capSpec{{typ: "health", iface: "ghost", path: "/healthz"}}})},
-		Target: pactov1alpha1.TargetRef{ServiceName: "svc"},
+		Target: pactov1.TargetRef{ServiceName: "svc"},
 	})
 	// Invalid short-circuits before populateContractStatus, so status.contract stays nil. Do NOT hand-patch
 	// it: a consumer with no status.contract to read falls back to metadata.name, and this is the only
@@ -1582,10 +1582,10 @@ func reconcileInvalid(t *testing.T) *pactov1alpha1.Pacto {
 	return reconcile(t, "inv", ns, reconcileOpts{}).pacto
 }
 
-func reconcileReference(t *testing.T) *pactov1alpha1.Pacto {
+func reconcileReference(t *testing.T) *pactov1.Pacto {
 	ns := newNamespace(t)
-	createPacto(t, "ref", ns, pactov1alpha1.PactoSpec{
-		ContractRef: pactov1alpha1.ContractRef{Inline: buildContract(contractSpec{name: "svc-reference"})},
+	createPacto(t, "ref", ns, pactov1.PactoSpec{
+		ContractRef: pactov1.ContractRef{Inline: buildContract(contractSpec{name: "svc-reference"})},
 		// no target -> reference-only
 	})
 	return reconcile(t, "ref", ns, reconcileOpts{}).pacto

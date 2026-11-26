@@ -3,7 +3,9 @@
 Pacto composes the interface tools it sits between, such as OpenAPI and config
 schemas, and complements the deploy tools, such as Helm and Terraform. Its
 core makes no deployment decisions. The opt-in delivery component decides
-which version runs where and leaves applying it to Flux or Argo CD.
+which version runs where and leaves applying it to Flux or Argo CD. Pacto sits on top of the IDP an
+organization runs, public such as Backstage or Port, or its own private
+portal, and adds ranges, impact and conformance to it.
 
 This page grades Pacto and several nearby projects on the same criteria.
 Reviewed on 2026-11-16. Maintainers review this page at every minor release.
@@ -144,13 +146,15 @@ named after it.
   [Descriptor format](https://backstage.io/docs/features/software-catalog/descriptor-format).
   A Pacto contract also records which versions of each dependency it accepts,
   so `pacto impact` names the consumers a new version breaks among the
-  contracts it is given ([impact](impact.md)).
+  contracts it is given ([impact](impact.md)). See
+  [Sit on top of any IDP](any-idp.md).
 - **Port** wins at a data model where relations connect blueprints and their
   entities and several sources add targets to the same relation,
   [Relate blueprints](https://docs.port.io/context-lake/data-model/setup-blueprint/relate-blueprints/).
   From the sources you connect, Pacto keeps relationships declared in contracts
   apart from those observed in traffic and says how complete each answer is
-  ([operational graph](operational-graph.md)).
+  ([operational graph](operational-graph.md)). See
+  [Sit on top of any IDP](any-idp.md).
 - **Pact** wins at testing the requests each consumer expects against the
   provider before it deploys,
   [Pact Broker introduction](https://docs.pact.io/pact_broker). From the

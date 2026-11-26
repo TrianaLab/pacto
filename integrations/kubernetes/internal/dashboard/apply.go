@@ -11,8 +11,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/util/intstr"
@@ -22,6 +22,7 @@ import (
 	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
 
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/detect"
 )
 
 // serviceAccountAC returns a server-side apply configuration for the dashboard ServiceAccount.
@@ -518,7 +519,9 @@ func configMapFiles(cfg Config) ([]*corev1ac.EnvVarApplyConfiguration, []*corev1
 			corev1ac.ConfigMapVolumeSource().WithName(cfg.DetectedConfigMap).
 				WithItems(corev1ac.KeyToPath().WithKey(detectedKey).WithPath(detectedKey),
 					// The linker's key, read from beside the detection file.
-					corev1ac.KeyToPath().WithKey(core.LinkedConfigMapKey).WithPath(core.LinkedConfigMapKey)).
+					corev1ac.KeyToPath().WithKey(core.LinkedConfigMapKey).WithPath(core.LinkedConfigMapKey),
+					// The candidate clusters, beside the detection file.
+					corev1ac.KeyToPath().WithKey(detect.ClustersConfigMapKey).WithPath(detect.ClustersConfigMapKey)).
 				WithOptional(true)))
 	}
 

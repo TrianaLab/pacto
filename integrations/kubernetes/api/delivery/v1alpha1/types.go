@@ -13,14 +13,9 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
-// RecordFinalizer keeps a concluded Operation until its record is written. The
-// client sets it and admission requires it. The recorder removes it once the
-// record is in the registry; without a recorder, the promoter removes it when
-// the concluded operation is deleted.
-const RecordFinalizer = "delivery.pacto.trianalab.io/record"
-
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:deprecatedversion:warning="delivery.pacto.trianalab.io/v1alpha1 is deprecated; use v1 (removed in chart 8.0)"
 // +kubebuilder:resource:categories=pacto-delivery
 // +kubebuilder:printcolumn:name="Service",type=string,JSONPath=`.spec.service.name`
 // +kubebuilder:printcolumn:name="Env",type=string,JSONPath=`.spec.environment`
@@ -38,7 +33,13 @@ type Stage struct {
 	metav1.TypeMeta `json:",inline"`
 	// +optional
 	metav1.ObjectMeta `json:"metadata,omitzero"`
+	// Spec is one service in one environment. Its environment must be a DNS
+	// label when the Stage is created and is fixed afterwards; a Stage created
+	// before that rule keeps its environment. The rules sit on the Stage, never
+	// on StageSpec, which an Operation's status.policy also copies.
 	// +required
+	// +kubebuilder:validation:XValidation:rule="oldSelf.hasValue() || self.environment.matches('^[a-z0-9]([-a-z0-9]*[a-z0-9])?$')",optionalOldSelf=true,fieldPath=".environment",reason="FieldValueInvalid",message="environment must be a DNS label, such as production"
+	// +kubebuilder:validation:XValidation:rule="self.environment == oldSelf.environment",fieldPath=".environment",message="environment is fixed at creation; create a new Stage"
 	Spec delivery.StageSpec `json:"spec"`
 	// +optional
 	Status delivery.StageStatus `json:"status,omitzero"`
@@ -55,6 +56,7 @@ type StageList struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:deprecatedversion:warning="delivery.pacto.trianalab.io/v1alpha1 is deprecated; use v1 (removed in chart 8.0)"
 // +kubebuilder:resource:categories=pacto-delivery
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
 // +kubebuilder:printcolumn:name="Stage",type=string,JSONPath=`.spec.stage`
@@ -90,6 +92,7 @@ type OperationList struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:deprecatedversion:warning="delivery.pacto.trianalab.io/v1alpha1 is deprecated; use v1 (removed in chart 8.0)"
 // +kubebuilder:resource:categories=pacto-delivery
 // +kubebuilder:printcolumn:name="Operation",type=string,JSONPath=`.spec.operation`
 // +kubebuilder:printcolumn:name="Decision",type=string,JSONPath=`.spec.decision`

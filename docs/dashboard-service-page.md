@@ -151,10 +151,14 @@ Stages the same way with the `service` and `domain` parameters of
 
 The page of a [golden path](golden-paths.md) adds a **Golden path** section:
 
-- **Create a service from it** holds a copyable CLI command and MCP call that
+- **Create service** creates a service from the path in place, with a
+  registry: the essentials first, then **Review** with the plan and every
+  refusal at its field, then **Sign as** to publish `0.1.0`; see
+  [Create a service from the dashboard or an agent](golden-paths.md#create-a-service-from-the-dashboard-or-an-agent).
+  Its **Run it yourself** fold holds a copyable CLI command and MCP call that
   name the path's newest revision by digest when a registry served it, or its
   folder when it was read from local files, or says why no command is
-  available;
+  available. Without a registry the panel shows only that fold, expanded;
 - **Signature** shows the path's signature check: who signed it and whether
   a publisher rule, pin or policy accepts that signer;
 - **Plugins** lists the generate plugins the path names;

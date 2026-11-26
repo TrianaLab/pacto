@@ -95,8 +95,9 @@ var writeOnceTagWriters = map[string]string{
 }
 
 // writeOnceTagSimulators name a write-once tag and write no registry: the
-// WASM demo's declarer keeps its draft-<n> list in the browser tab (513-S6).
-var writeOnceTagSimulators = []string{"examples/demo/source_declare.go"}
+// WASM demo's declarer and creator keep their draft-<n> lists in the browser
+// tab (513-S6, 515-S6).
+var writeOnceTagSimulators = []string{"examples/demo/source_declare.go", "examples/demo/source_create_service.go"}
 
 // TestOnlyAllowedCallersWriteOnceTags keeps write-once tags where the
 // operator may push. Tests and the primitive itself are exempt.

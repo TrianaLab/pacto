@@ -17,8 +17,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
@@ -30,16 +30,16 @@ import (
 // ref-based policies. Local policy schemas bundled in the contract are enforced by
 // validation.Validate() during contract loading. refs holds what each configuration that names its
 // schema by ref resolved to.
-func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr *loader.LoadResult, refs validation.ConfigRefs) {
+func (r *PactoReconciler) populateContractStatus(pacto *pactov1.Pacto, lr *loader.LoadResult, refs validation.ConfigRefs) {
 	c := lr.Contract
 
 	// Initialize slices so JSON output is [] instead of null when empty.
-	pacto.Status.Configurations = []pactov1alpha1.ConfigurationInfo{}
-	pacto.Status.Policies = []pactov1alpha1.PolicyInfo{}
-	pacto.Status.Capabilities = []pactov1alpha1.CapabilityInfo{}
+	pacto.Status.Configurations = []pactov1.ConfigurationInfo{}
+	pacto.Status.Policies = []pactov1.PolicyInfo{}
+	pacto.Status.Capabilities = []pactov1.CapabilityInfo{}
 
 	// Contract info
-	info := &pactov1alpha1.ContractInfo{
+	info := &pactov1.ContractInfo{
 		ServiceName: c.Service.Name,
 		Version:     c.Service.Version,
 		Domain:      c.Service.Domain,
@@ -52,11 +52,11 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 		info.OwnerDisplay = c.Service.Owner.DisplayString()
 	}
 	pacto.Status.Contract = info
-	pacto.Status.StatusFormat = pactov1alpha1.PactoStatusFormat
+	pacto.Status.StatusFormat = pactov1.PactoStatusFormat
 
 	// Interfaces (v2: Type is openapi/asyncapi/grpc, Ref not Contract)
 	for _, iface := range c.Interfaces {
-		ii := pactov1alpha1.InterfaceInfo{
+		ii := pactov1.InterfaceInfo{
 			Name:       iface.Name,
 			Type:       iface.Type,
 			Ref:        iface.Ref,
@@ -67,17 +67,17 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 			Port:               int32(iface.Port), // the schema bounds it to 1-65535
 		}
 		if l := iface.Lifecycle; l != nil {
-			ii.Lifecycle = new(pactov1alpha1.InterfaceLifecycleInfo(*l))
+			ii.Lifecycle = new(pactov1.InterfaceLifecycleInfo(*l))
 		}
 		if g := iface.Guarantees; g != nil {
-			ii.Guarantees = new(pactov1alpha1.GuaranteesInfo(*g))
+			ii.Guarantees = new(pactov1.GuaranteesInfo(*g))
 		}
 		pacto.Status.Interfaces = append(pacto.Status.Interfaces, ii)
 	}
 
 	// Capabilities (v2)
 	for _, cap := range c.Capabilities {
-		pacto.Status.Capabilities = append(pacto.Status.Capabilities, pactov1alpha1.CapabilityInfo{
+		pacto.Status.Capabilities = append(pacto.Status.Capabilities, pactov1.CapabilityInfo{
 			Type: cap.Type,
 			Ref:  cap.Ref,
 		})
@@ -85,7 +85,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 
 	// Configurations
 	for _, cfg := range c.Configurations {
-		ci := pactov1alpha1.ConfigurationInfo{
+		ci := pactov1.ConfigurationInfo{
 			Name:      cfg.Name,
 			HasSchema: cfg.Schema != "",
 			Ref:       cfg.Ref,
@@ -113,11 +113,11 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 
 	// Dependencies
 	for _, dep := range c.Dependencies {
-		requires := make([]pactov1alpha1.RequirementInfo, 0, len(dep.Requires))
+		requires := make([]pactov1.RequirementInfo, 0, len(dep.Requires))
 		for _, req := range dep.Requires {
-			requires = append(requires, pactov1alpha1.RequirementInfo{Interface: req.Interface, GuaranteesInfo: pactov1alpha1.GuaranteesInfo(req.Guarantees)})
+			requires = append(requires, pactov1.RequirementInfo{Interface: req.Interface, GuaranteesInfo: pactov1.GuaranteesInfo(req.Guarantees)})
 		}
-		pacto.Status.Dependencies = append(pacto.Status.Dependencies, pactov1alpha1.DependencyInfo{
+		pacto.Status.Dependencies = append(pacto.Status.Dependencies, pactov1.DependencyInfo{
 			Requires:      requires,
 			Name:          dep.Name,
 			Ref:           dep.Ref,
@@ -130,7 +130,7 @@ func (r *PactoReconciler) populateContractStatus(pacto *pactov1alpha1.Pacto, lr 
 
 	// Policies
 	for _, pol := range c.Policies {
-		pi := pactov1alpha1.PolicyInfo{
+		pi := pactov1.PolicyInfo{
 			Name:      pol.Name,
 			HasSchema: pol.Schema != "",
 			Schema:    pol.Schema,
@@ -170,7 +170,7 @@ func metadataString(v any) string {
 // schemaPropsFromBundle reads a JSON Schema file from the bundle FS and returns
 // its flattened properties as status entries. Returns nil when the bundle, file,
 // or properties are unavailable (the dashboard then falls back to metadata only).
-func schemaPropsFromBundle(fsys fs.FS, path string) []pactov1alpha1.SchemaProperty {
+func schemaPropsFromBundle(fsys fs.FS, path string) []pactov1.SchemaProperty {
 	if fsys == nil || path == "" {
 		return nil
 	}
@@ -195,18 +195,18 @@ func schemaMetaFromBundle(fsys fs.FS, path string) (title, description string) {
 }
 
 // toSchemaProps converts shared schemax properties into CRD status properties.
-func toSchemaProps(ps []schemax.Property) []pactov1alpha1.SchemaProperty {
+func toSchemaProps(ps []schemax.Property) []pactov1.SchemaProperty {
 	if len(ps) == 0 {
 		return nil
 	}
-	out := make([]pactov1alpha1.SchemaProperty, 0, len(ps))
+	out := make([]pactov1.SchemaProperty, 0, len(ps))
 	for _, p := range ps {
-		out = append(out, pactov1alpha1.SchemaProperty{Key: p.Key, Value: p.Value, Type: p.Type})
+		out = append(out, pactov1.SchemaProperty{Key: p.Key, Value: p.Value, Type: p.Type})
 	}
 	return out
 }
 
-func (r *PactoReconciler) setCondition(pacto *pactov1alpha1.Pacto, condType string, status metav1.ConditionStatus, reason, message string) {
+func (r *PactoReconciler) setCondition(pacto *pactov1.Pacto, condType string, status metav1.ConditionStatus, reason, message string) {
 	meta.SetStatusCondition(&pacto.Status.Conditions, metav1.Condition{
 		Type:               condType,
 		Status:             status,
@@ -216,15 +216,15 @@ func (r *PactoReconciler) setCondition(pacto *pactov1alpha1.Pacto, condType stri
 	})
 }
 
-func mapValidationResult(vr validation.ValidationResult) *pactov1alpha1.ValidationResult {
-	result := &pactov1alpha1.ValidationResult{Valid: len(vr.Errors) == 0}
+func mapValidationResult(vr validation.ValidationResult) *pactov1.ValidationResult {
+	result := &pactov1.ValidationResult{Valid: len(vr.Errors) == 0}
 	for _, e := range vr.Errors {
-		result.Errors = append(result.Errors, pactov1alpha1.ValidationIssue{
+		result.Errors = append(result.Errors, pactov1.ValidationIssue{
 			Code: e.Code, Path: e.Path, Message: e.Message,
 		})
 	}
 	for _, w := range vr.Warnings {
-		result.Warnings = append(result.Warnings, pactov1alpha1.ValidationIssue{
+		result.Warnings = append(result.Warnings, pactov1.ValidationIssue{
 			Code: w.Code, Path: w.Path, Message: w.Message,
 		})
 	}
@@ -233,8 +233,8 @@ func mapValidationResult(vr validation.ValidationResult) *pactov1alpha1.Validati
 
 // summarizeFindings counts findings by severity. It does NOT rank them: the compliance
 // ladder has one producer, validation.DeriveStatus (spec section 1.4).
-func summarizeFindings(findings []finding.Finding) pactov1alpha1.Summary {
-	var summary pactov1alpha1.Summary
+func summarizeFindings(findings []finding.Finding) pactov1.Summary {
+	var summary pactov1.Summary
 	for _, f := range findings {
 		switch f.Severity {
 		case finding.SeverityError:
@@ -269,28 +269,28 @@ func formatValidationErrors(validationErrors []contract.ValidationError) string 
 // (ReasonObservationFailed) with every failure in the message, rather than
 // claiming success: True means the collection fully succeeded. Both messages end
 // with observe, which names where each observation setting came from.
-func (r *PactoReconciler) setRuntimeObservedCondition(pacto *pactov1alpha1.Pacto, obsErr error, observe string) {
+func (r *PactoReconciler) setRuntimeObservedCondition(pacto *pactov1.Pacto, obsErr error, observe string) {
 	if obsErr != nil {
-		r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionFalse,
-			pactov1alpha1.ReasonObservationFailed, "Runtime observation failed: "+strings.ReplaceAll(obsErr.Error(), "\n", "; ")+". Observation: "+observe)
+		r.setCondition(pacto, pactov1.ConditionRuntimeObserved, metav1.ConditionFalse,
+			pactov1.ReasonObservationFailed, "Runtime observation failed: "+strings.ReplaceAll(obsErr.Error(), "\n", "; ")+". Observation: "+observe)
 		return
 	}
-	r.setCondition(pacto, pactov1alpha1.ConditionRuntimeObserved, metav1.ConditionTrue,
-		pactov1alpha1.ReasonFound, "Runtime evidence collected successfully. Observation: "+observe)
+	r.setCondition(pacto, pactov1.ConditionRuntimeObserved, metav1.ConditionTrue,
+		pactov1.ReasonFound, "Runtime evidence collected successfully. Observation: "+observe)
 }
 
 // mapOwnerToInfo converts a contract.Owner to the CRD OwnerInfo representation.
 // Owner is object-only (team, DRI, contacts); fields are mapped directly.
-func mapOwnerToInfo(o contract.Owner) *pactov1alpha1.OwnerInfo {
+func mapOwnerToInfo(o contract.Owner) *pactov1.OwnerInfo {
 	if o.IsEmpty() {
 		return nil
 	}
-	result := &pactov1alpha1.OwnerInfo{
+	result := &pactov1.OwnerInfo{
 		Team: o.Team,
 		DRI:  o.DRI,
 	}
 	for _, c := range o.Contacts {
-		result.Contacts = append(result.Contacts, pactov1alpha1.OwnerContact{
+		result.Contacts = append(result.Contacts, pactov1.OwnerContact{
 			Type:    c.Type,
 			Value:   c.Value,
 			Purpose: c.Purpose,

@@ -61,12 +61,15 @@ func externalCounts(consumers []impact.AffectedConsumer) string {
 }
 
 // externalChangeText says what changed between the two inferred revisions:
-// the versions, the vendor OpenAPI digest, the surface values added (+) and
+// the versions, the vendor OpenAPI digest, the observed engines, the surface values added (+) and
 // removed (-), and whether the pair's signatures were checked.
 func externalChangeText(c *fleet.ExternalProviderChange) string {
 	parts := []string{c.From + " -> " + c.To}
 	if c.OpenAPIFrom != "" || c.OpenAPITo != "" {
 		parts = append(parts, "openapi "+openAPIDigestText(c.OpenAPIFrom)+" -> "+openAPIDigestText(c.OpenAPITo))
+	}
+	if c.EngineFrom != "" || c.EngineTo != "" {
+		parts = append(parts, "engine "+orNone([]string{c.EngineFrom})+" -> "+orNone([]string{c.EngineTo}))
 	}
 	for _, sign := range []struct {
 		mark   string

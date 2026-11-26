@@ -266,7 +266,7 @@ func operation(name, user string, groups []string) *unstructured.Unstructured {
 		g = append(g, x)
 	}
 	actor := map[string]any{"user": user, "groups": g}
-	u := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", name, nil, map[string]any{
+	u := obj("delivery.pacto.trianalab.io/v1", "Operation", name, nil, map[string]any{
 		"type": "delivery.pacto.trianalab.io/promote", "stage": "payments", "facet": "pointer",
 		"params": map[string]any{"from": digestA, "to": digestB}, "actor": actor,
 	})

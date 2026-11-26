@@ -24,7 +24,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
@@ -135,6 +135,9 @@ func (r *EnvironmentReconciler) readPrivate(ctx context.Context) (managedState, 
 type placedEnv struct {
 	row      *delivery.PlacementRow
 	upstream string
+	// remote is the stream of another member's Stage it follows instead of
+	// a Stage of upstream here.
+	remote   *delivery.RemoteStage
 	manager  workloadmanager.Manager
 	workload *delivery.WorkloadRef
 	deploy   *delivery.FluxApplierInput
@@ -218,7 +221,7 @@ func (r *EnvironmentReconciler) applyManaged(ctx context.Context, st *placementS
 		applier, why = r.ensureAppliers(ctx, st, svc, e, name)
 	}
 	var upstream *delivery.StageRef
-	if why == "" && e.upstream != "" {
+	if why == "" && e.upstream != "" && e.remote == nil {
 		if upstream = refs[e.upstream]; upstream == nil {
 			why = "upstream " + e.upstream + " has no Stage of " + svc.Name + " in this cluster yet"
 		}
@@ -228,6 +231,9 @@ func (r *EnvironmentReconciler) applyManaged(ctx context.Context, st *placementS
 		return nil
 	}
 	spec := delivery.ManagedStageSpec(svc, row.Environment, upstream, applier, e.workload, r.guarded(ctx, ns, name, applier))
+	if e.remote != nil {
+		spec.Candidates = delivery.Candidates{UpstreamRecords: e.remote}
+	}
 	want := &dv1.Stage{ObjectMeta: metav1.ObjectMeta{Namespace: ns, Name: name,
 		Labels: delivery.ManagedLabels(svc, row.Environment), Annotations: delivery.PlacementAnnotations(row.Source, *p)}, Spec: spec}
 	ref := &delivery.StageRef{Name: name, Namespace: ns}

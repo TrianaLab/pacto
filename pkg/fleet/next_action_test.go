@@ -153,6 +153,7 @@ var preAdoptionCodes = map[string]string{
 	string(finding.CodeCapabilityAbsent): "the producer that reports the extension absent is asked, or the capability fixed; no contract edit answers it",
 	codeExtensionUnreported:              "the producer reports again; no contract edit answers it",
 	AttentionExternalChanged:             "a person reviews the consumers with pacto impact; no contract edit changes the vendor",
+	codeManagedGroupUnread:               "a person runs the row's helm upgrade; no Pacto command grants the operator a read",
 }
 
 // dynamicCodeProducers are the functions that set a computed code, each with

@@ -265,6 +265,9 @@ func TestStubProvidersForSchemaExport(t *testing.T) {
 	if _, err := s.opts.ClusterJoins(context.Background()); err == nil {
 		t.Error("stub cluster joins must error")
 	}
+	if _, err := s.opts.ClusterInstall(context.Background(), "flux"); err == nil {
+		t.Error("stub cluster install must error")
+	}
 }
 
 // TestProductImpact_RejectsNegativePaging covers the paging-validation branch of

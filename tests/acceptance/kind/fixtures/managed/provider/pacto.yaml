@@ -1,0 +1,11 @@
+pactoVersion: "2.6"
+service:
+  name: postgresql
+  version: "1.0.0"
+  offering: postgresql
+  summary: PostgreSQL databases the platform team provisions through Crossplane
+workload: service
+state:
+  type: stateless
+  persistence: {scope: local, durability: ephemeral}
+  dataCriticality: low

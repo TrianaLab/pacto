@@ -5,15 +5,19 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path"
 	"slices"
 	"strings"
 	"time"
 
 	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/client-go/dynamic"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
@@ -35,10 +39,13 @@ type mcpDeclarer struct {
 	git  deps
 }
 
-// newMCPDeclarer signs drafts against public-good Sigstore and reads the
-// owner policy from the target snapshots trust verifies.
-func newMCPDeclarer(svc *app.Service, trust string) mcpDeclarer {
-	base := app.DeclareRequest{DeliveryTrust: trust}
+// newMCPDeclarer signs drafts against public-good Sigstore, reads the
+// owner policy from the target snapshots trust verifies, verifies an
+// inferred offering with the installation key the detection detected
+// advertises and reads a template:<namespace>/<name> subject from the
+// Backstage catalog at backstageURL (the server's own --backstage-url).
+func newMCPDeclarer(svc *app.Service, trust, detected, backstageURL string) mcpDeclarer {
+	base := app.DeclareRequest{DeliveryTrust: trust, Detected: detected, BackstageURL: backstageURL}
 	base.Signing.FulcioURL, base.Signing.RekorURL = signing.PublicFulcio, signing.PublicRekor
 	return mcpDeclarer{svc: svc, base: base}
 }
@@ -47,6 +54,9 @@ func (m mcpDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.Raw
 	req, err := m.request(a)
 	if err != nil {
 		return nil, nil, err
+	}
+	if err := m.template(ctx, &req); err != nil {
+		return declareAnswer[app.DeclarePlan](nil, err)
 	}
 	if req.Dynamic, err = declareDynamic(req); err != nil {
 		return nil, nil, err
@@ -73,6 +83,9 @@ func (m mcpDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := m.template(ctx, &req); err != nil {
+		return declareAnswer[app.DeclarePlan](nil, err)
+	}
 	if req.Dynamic, err = declareDynamic(req); err != nil {
 		return nil, nil, err
 	}
@@ -92,7 +105,12 @@ func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error)
 	// would send it to pacto claim, which is this request. It takes none of
 	// a workload's arguments (ArgsRefused), and never an agent's folder.
 	if _, ok := a.Claim(); ok {
-		req.Service, req.Owner, req.Name = a.Service, a.Owner, a.Name
+		req.Service, req.Owner, req.Name, req.Offering = a.Service, a.Owner, a.Name, a.Offering
+		return req, nil
+	}
+	// An offering acceptance reads its contribution, never a workload.
+	if _, ok := a.AcceptedOffering(); ok {
+		req.Service, req.Owner, req.Version, req.From = a.Service, a.Owner, a.Version, a.From
 		return req, nil
 	}
 	req.Namespace, req.Dir, req.Accept, req.MaxItems = a.Namespace, a.Dir, a.Accept, a.MaxItems
@@ -105,6 +123,18 @@ func (m mcpDeclarer) request(a pactomcp.DeclareArgs) (app.DeclareRequest, error)
 		req.CallWindow = w
 	}
 	return req, declareSubject(&req, a.Service)
+}
+
+// template reads the golden path a template:<namespace>/<name> request
+// names from the server's own catalog, with the reader token of its
+// environment; any other request is left as it is.
+func (m mcpDeclarer) template(ctx context.Context, req *app.DeclareRequest) error {
+	if req.TemplateSubject == "" {
+		return nil
+	}
+	t, err := m.svc.InferredTemplate(ctx, req.BackstageURL, os.Getenv(backstageTokenEnv), req.TemplateSubject)
+	req.Template = t
+	return err
 }
 
 // declareAnswer is a plan or a run as pacto_declare's JSON, a declare
@@ -139,6 +169,12 @@ type remoteDeclarer struct {
 	// it writes nothing.
 	registry string
 	push     gcrauthn.Keychain
+	// detected is the detection (--detected) whose installation key
+	// verifies an inferred offering, read with the caller's own client.
+	detected string
+	// installNS is the namespace Pacto is installed in: accepting a golden
+	// path a catalog holds needs update pactos there (Decision 17).
+	installNS string
 }
 
 // writes is whether the server writes drafts.
@@ -165,6 +201,9 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	if refused := r.refused(a); refused != nil {
 		return nil, refused, nil
 	}
+	if refused := r.offeringArgs(ctx, a); refused != nil {
+		return nil, refused, nil
+	}
 	a, refused := r.claimArgs(ctx, a)
 	if refused != nil {
 		return nil, refused, nil
@@ -177,10 +216,21 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 	if who.own == nil {
 		return nil, nil, errNobodyReviewed
 	}
+	if refused := r.template(ctx, who.own.Dynamic, &req); refused != nil {
+		return nil, refused, nil
+	}
 	req.Dynamic, req.Observed = who.own.Dynamic, r.observed(ctx, req)
+	r.offering(&req)
+	if _, claim := a.Claim(); claim {
+		// An offering's providers are read from the caller's own view, never
+		// with this server's registry credentials.
+		req.Fleet = r.view(ctx).SnapshotForSerialization()
+	}
 	p, _, err := r.svc.PlanDeclare(ctx, req)
 	if p != nil {
-		if _, claim := a.Claim(); claim || !r.writes() || a.Registry != r.registry {
+		_, claim := a.Claim()
+		_, offer := a.AcceptedOffering()
+		if claim || offer || !r.writes() || a.Registry != r.registry {
 			// This server signs nothing and writes no draft here: who would sign
 			// is the person who runs the plan's command, whose login decides the state.
 			p.Signer = app.SignerView{Class: contract.SignerClassAgent, Source: "none",
@@ -192,6 +242,47 @@ func (r remoteDeclarer) Plan(ctx context.Context, a pactomcp.DeclareArgs) (json.
 		}
 	}
 	return declareAnswer(p, err)
+}
+
+// offering sets, on an offering acceptance, the detection that verifies
+// its contribution.
+func (r remoteDeclarer) offering(req *app.DeclareRequest) {
+	if strings.HasPrefix(req.Service, fleet.OfferingSubjectPrefix) {
+		req.Detected = r.detected
+	}
+}
+
+// offeringArgs refuses an offering acceptance whose from names no
+// contribution the caller's fleet view lists, with one refusal that names
+// nothing of it.
+func (r remoteDeclarer) offeringArgs(ctx context.Context, a pactomcp.DeclareArgs) *pactomcp.Refused {
+	if _, ok := a.AcceptedOffering(); !ok || listsContribution(r.view(ctx), a.From) {
+		return nil
+	}
+	return &pactomcp.Refused{Code: pactomcp.RefusalNotAllowed, Message: "your view of the fleet lists no inferred offering at " + a.From +
+		": accept the inferredOffering.ref of a row pacto_fleet_entities lists with kind offering and declaration inferred, or run pacto declare on your machine", CLI: a.Command("")}
+}
+
+// listsContribution reports whether view q (nil: one that shows nothing)
+// holds a contributed revision read from ref, by its ref or its digest.
+func listsContribution(q *fleet.Query, ref string) bool {
+	if q == nil || ref == "" {
+		return false
+	}
+	ref = contract.TrimOCIScheme(ref)
+	snap := q.SnapshotForSerialization()
+	for _, s := range snap.Services {
+		if s.Contribution == nil {
+			continue
+		}
+		for _, rk := range s.Revisions {
+			rev := snap.Revisions[rk]
+			if rev != nil && rev.ResolvedRef != "" && (contract.TrimOCIScheme(rev.ResolvedRef) == ref || repoOf(rev.ResolvedRef)+"@"+rev.Digest == ref) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // claimArgs is a as this server plans it: a claim only of an external
@@ -219,6 +310,9 @@ func (r remoteDeclarer) claimArgs(ctx context.Context, a pactomcp.DeclareArgs) (
 func (r remoteDeclarer) redact(ctx context.Context, a pactomcp.DeclareArgs, p *app.DeclarePlan, err error) (*app.DeclarePlan, error) {
 	if id, ok := a.Claim(); ok && claimHidden(r.view(ctx), id, cmp.Or(a.Name, inferredcontract.ServiceName(fleet.ExternalKey(id))), p, err) {
 		return nil, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), CLI: a.Command(""), Message: claimHiddenMessage}
+	}
+	if offer, ok := a.AcceptedOffering(); ok && offeringHidden(r.view(ctx), a.Registry, offer, p, err) {
+		return nil, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), CLI: a.Command(""), Message: offeringHiddenMessage}
 	}
 	return r.hide(ctx, p, err)
 }
@@ -248,6 +342,25 @@ func claimHidden(q *fleet.Query, id, name string, p *app.DeclarePlan, err error)
 		held = true
 		return false
 	}) || held && !showsService(q, name)
+}
+
+// offeringHiddenMessage is the one refusal of an offering acceptance whose
+// repository holds what the caller may not read.
+const offeringHiddenMessage = "the repository for this offering holds a service you may not read: accept it into another registry path, or with the CLI"
+
+// offeringHidden reports whether the repository an acceptance of offer into
+// registry writes to holds what view q (nil: one that shows nothing) does
+// not show at that repository: a published version, a draft, or a refusal
+// that names what it holds. The contributed service may share the name, so
+// the repository's own service key decides, never the bare name.
+func offeringHidden(q *fleet.Query, registry, offer string, p *app.DeclarePlan, err error) bool {
+	if p == nil {
+		p = &app.DeclarePlan{}
+	}
+	var de *app.DeclareError
+	mismatch := errors.As(err, &de) && de.Code == string(pactomcp.RefusalOfferingMismatch)
+	held := p.Baseline != nil || len(p.Skipped) > 0 || p.DraftsTotal > 0 || mismatch || baselineRefusal(err)
+	return held && !showsService(q, string(fleet.NewServiceKeyDomain(strings.TrimSuffix(registry, "/"), offer)))
 }
 
 // lists reports whether view q lists the external system id.
@@ -324,11 +437,12 @@ func (r remoteDeclarer) refused(a pactomcp.DeclareArgs) *pactomcp.Refused {
 
 // baselineRefusal reports whether err is a refusal built from what the
 // published baseline holds: its tags and signers, publish section or
-// pactoVersion, or the registry read of it.
+// pactoVersion, the registry read of it, or a golden path's repository
+// already holding versions.
 func baselineRefusal(err error) bool {
 	var de *app.DeclareError
 	return errors.As(err, &de) && slices.Contains([]pactomcp.WriteRefusal{pactomcp.RefusalVersionConflict, pactomcp.RefusalBundleRepoMismatch,
-		pactomcp.RefusalBaselineNeedsMigration, pactomcp.RefusalRegistryUnreadable}, pactomcp.WriteRefusal(de.Code))
+		pactomcp.RefusalBaselineNeedsMigration, pactomcp.RefusalRegistryUnreadable, pactomcp.RefusalTemplateNameTaken}, pactomcp.WriteRefusal(de.Code))
 }
 
 // hiddenRefusal is err for a caller who may not see service: a baseline
@@ -366,6 +480,33 @@ func hiddenOwnerRefusal(err error) error {
 	return &app.DeclareError{Code: delivery.OwnerSignerNotAllowed, Message: "you may not set the owner of this service", CLI: de.CLI}
 }
 
+// plansOnly is the refusal of an Execute this server only plans: a claim
+// and an offering acceptance (whose drafts would go with the server's own
+// push credential for any caller), and any declaration on a server that
+// writes none. Nil when the server may write the draft.
+func (r remoteDeclarer) plansOnly(ctx context.Context, a pactomcp.DeclareArgs) *pactomcp.Refused {
+	if _, claim := a.Claim(); claim {
+		a, refused := r.claimArgs(ctx, a)
+		if refused != nil {
+			return refused
+		}
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans a claim: a draft would go with its own push " +
+			"credential for any caller; run the command on your machine, where adding --yes publishes the claim signed by you", CLI: a.Command(a.IntentDigest)}
+	}
+	if _, offer := a.AcceptedOffering(); offer {
+		if refused := r.offeringArgs(ctx, a); refused != nil {
+			return refused
+		}
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans an offering acceptance: a draft would go " +
+			"with its own push credential for any caller; run the command on your machine, where adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}
+	}
+	if !r.writes() {
+		return &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no declaration: run the command on your machine; " +
+			"it prints the same plan, and adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}
+	}
+	return nil
+}
+
 // Execute writes the caller's draft when the server has a registry and a
 // push credential: into that registry alone, unsigned, on behalf of the
 // caller the apiserver reviewed, who must be allowed to update the workload
@@ -374,19 +515,12 @@ func hiddenOwnerRefusal(err error) error {
 // runs, replaying every argument the intent digest binds, without --yes.
 // A claim is never written here: no review of the caller backs it, and the
 // draft would go with the server's own push credential (the shared
-// dashboard's rule), so it names the pacto claim a person runs.
+// dashboard's rule), so it names the pacto claim a person runs. Nor is an
+// offering acceptance: no review of the caller on its source object backs
+// it either, so it names the pacto declare a person runs.
 func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (json.RawMessage, *pactomcp.Refused, error) {
-	if _, claim := a.Claim(); claim {
-		a, refused := r.claimArgs(ctx, a)
-		if refused != nil {
-			return nil, refused, nil
-		}
-		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server only plans a claim: a draft would go with its own push " +
-			"credential for any caller; run the command on your machine, where adding --yes publishes the claim signed by you", CLI: a.Command(a.IntentDigest)}, nil
-	}
-	if !r.writes() {
-		return nil, &pactomcp.Refused{Code: pactomcp.RefusalExecuteNeedsStdio, Message: "this HTTP server writes no declaration: run the command on your machine; " +
-			"it prints the same plan, and adding --yes publishes it signed by you", CLI: a.Command(a.IntentDigest)}, nil
+	if refused := r.plansOnly(ctx, a); refused != nil {
+		return nil, refused, nil
 	}
 	who := reviewedFrom(ctx)
 	switch {
@@ -403,7 +537,11 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 	if err != nil {
 		return nil, nil, err
 	}
+	if refused := r.template(ctx, who.own.Dynamic, &req); refused != nil {
+		return nil, refused, nil
+	}
 	req.Draft, req.OnBehalfOf, req.Dynamic, req.Observed = true, who.person.User, who.own.Dynamic, r.observed(ctx, req)
+	r.offering(&req)
 	p, decl, err := r.svc.PlanDeclare(ctx, req)
 	if p == nil {
 		p = &app.DeclarePlan{Service: req.Service}
@@ -417,11 +555,68 @@ func (r remoteDeclarer) Execute(ctx context.Context, a pactomcp.DeclareArgs) (js
 		return nil, &pactomcp.Refused{Code: pactomcp.RefusalPlanStale, Message: "the plan changed since intent " + a.IntentDigest + " was reviewed; it is now " +
 			p.IntentDigest + ": review the new plan"}, nil
 	}
-	if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
-		return nil, refused, nil
+	if req.Template == nil {
+		// A golden path's right was asked before the plan.
+		if refused := mayUpdateSelf(ctx, who.own.Dynamic, p.InferredFrom); refused != nil {
+			return nil, refused, nil
+		}
 	}
 	req.Store = pushWriter(r.push, p.BundleRepo)
 	return mcpWritten(writeServerDraft(ctx, r.svc, req, p, decl, who.person.User, "mcp"))
+}
+
+// template is, for a template:<namespace>/<name> request, the golden path
+// the caller's fleet view lists, set on req after the caller passed
+// Decision 17 (update pactos in the installation namespace, asked with
+// their own client dyn); a refusal when they may not, or when the view lists
+// it from a catalog the installation did not configure or under a name a
+// golden path or service already holds, or when the view cannot tell
+// whether the catalog holds it. A template a complete view does not list is
+// left unset: the planner refuses it as not found.
+func (r remoteDeclarer) template(ctx context.Context, dyn dynamic.Interface, req *app.DeclareRequest) *pactomcp.Refused {
+	if req.TemplateSubject == "" {
+		return nil
+	}
+	if refused := mayUpdatePactos(ctx, dyn, cmp.Or(r.installNS, delivery.PolicyNamespace)); refused != nil {
+		return refused
+	}
+	if q := r.view(ctx); q != nil {
+		t, known := q.InferredTemplate(req.TemplateSubject)
+		if t == nil && !known {
+			return &pactomcp.Refused{Code: pactomcp.RefusalTemplateCatalogUnavailable,
+				Message: "the installation's catalog could not be read whole, so Pacto cannot tell whether it holds " + req.TemplateSubject + ": try again once pacto_fleet_entities reads it complete"}
+		}
+		req.Template = t
+	}
+	if req.Template == nil {
+		return nil
+	}
+	if refusal := templateRefusal(req.Template, req.TemplateSubject); refusal != nil {
+		return &pactomcp.Refused{Code: pactomcp.WriteRefusal(refusal.Code), Message: refusal.Message}
+	}
+	return nil
+}
+
+// mayUpdatePactos refuses a caller the apiserver does not allow to update
+// pactos in ns: a SelfSubjectAccessReview with the caller's own client dyn.
+// A review that failed or could not be evaluated refuses too.
+func mayUpdatePactos(ctx context.Context, dyn dynamic.Interface, ns string) *pactomcp.Refused {
+	res := authn.PactoResource
+	review := &unstructured.Unstructured{Object: map[string]any{"apiVersion": "authorization.k8s.io/v1", "kind": "SelfSubjectAccessReview",
+		"spec": map[string]any{"resourceAttributes": map[string]any{"namespace": ns, "verb": "update", "group": res.Group, "resource": res.Resource}}}}
+	out, err := dyn.Resource(gvrSelfAccess).Create(ctx, review, metav1.CreateOptions{})
+	if err != nil {
+		return &pactomcp.Refused{Code: pactomcp.RefusalReviewFailed, Message: "asking whether you may update pactos in " + ns + " failed: " + err.Error()}
+	}
+	allowed, _, _ := unstructured.NestedBool(out.Object, "status", "allowed")
+	evalErr, _, _ := unstructured.NestedString(out.Object, "status", "evaluationError")
+	switch {
+	case !allowed && evalErr != "":
+		return &pactomcp.Refused{Code: pactomcp.RefusalReviewFailed, Message: "asking whether you may update pactos in " + ns + " could not be evaluated: " + evalErr}
+	case !allowed:
+		return &pactomcp.Refused{Code: pactomcp.RefusalNotAllowed, Message: "accepting a golden path needs update pactos in " + ns}
+	}
+	return nil
 }
 
 // mayUpdateSelf refuses a caller the apiserver does not allow to update the

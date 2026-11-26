@@ -10,7 +10,7 @@ import (
 // out on a pattern of about 500 instructions during package init; the
 // contract package's TestPatternsStayShallow sets the same 300 bound.
 func TestPatternsStayShallow(t *testing.T) {
-	for _, re := range []*regexp.Regexp{hostPatternRE, keyPatternRE, sdkModuleRE, goMajorRE, terraformRE, crossplaneRE, openAPIRE,
+	for _, re := range []*regexp.Regexp{hostPatternRE, keyPatternRE, sdkModuleRE, goMajorRE, terraformRE, crossplaneRE, inventoryRE, openAPIRE,
 		labelRE, pypiRunRE, hostKeyRE} {
 		parsed, err := syntax.Parse(re.String(), syntax.Perl)
 		if err != nil {

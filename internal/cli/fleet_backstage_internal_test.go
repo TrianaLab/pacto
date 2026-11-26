@@ -37,6 +37,11 @@ func TestMCPHelpListsBackstageURL(t *testing.T) {
 	if !strings.Contains(cmd.Long, "--mira-source, --backstage-url, --oci") || cmd.Flag("backstage-url") == nil {
 		t.Fatal(cmd.Long)
 	}
+	// pacto_declare reads it outside --fleet to accept a template.
+	if !strings.Contains(cmd.Long, "except --backstage-url: pacto_declare also reads it in any mode") ||
+		!strings.Contains(cmd.Flag("backstage-url").Usage, "software templates are listed as inferred golden paths") {
+		t.Fatal(cmd.Long)
+	}
 }
 
 // TestWarnPartialNotesAnUnreadCatalog: a complete answer with a Backstage
@@ -60,5 +65,23 @@ func TestWarnPartialNotesAnUnreadCatalog(t *testing.T) {
 		"note: source capped is partial: the read stopped at 5000 components or 10 pages; an inferred owner, domain or dependency may be missing\n"
 	if out.String() != want {
 		t.Errorf("stderr =\n%s\nwant\n%s", out.String(), want)
+	}
+}
+
+func TestFleetFlagNamesListsTFState(t *testing.T) {
+	names := fleetFlagNames()
+	if i := slices.Index(names, "tf-state"); i < 0 || names[i-1] != "target-state" {
+		t.Fatalf("fleetFlagNames = %v, want tf-state after target-state", names)
+	}
+	cmd := &cobra.Command{Use: "x"}
+	addFleetSourceFlags(cmd.Flags())
+	if err := cmd.Flags().Parse([]string{"--tf-state=a.tfstate", "--tf-state=b.tfstate"}); err != nil {
+		t.Fatal(err)
+	}
+	if o := fleetOptions(cmd); !slices.Equal(o.TerraformStates, []string{"a.tfstate", "b.tfstate"}) {
+		t.Errorf("TerraformStates = %q", o.TerraformStates)
+	}
+	if f := cmd.Flags().Lookup("tf-state"); f == nil || !strings.Contains(f.Usage, "type, id and region only") {
+		t.Errorf("tf-state flag %+v", f)
 	}
 }

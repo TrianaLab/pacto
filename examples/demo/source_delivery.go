@@ -265,6 +265,7 @@ func adoptedApplier(s *delivery.StageObject, at time.Time) *delivery.ApplierStat
 	in := delivery.ApplierInput{Namespace: ns, Service: svc, Ref: s.Spec.ApplyRef, Now: at}
 	if s.Spec.ApplyRef.Kind == delivery.ApplierArgoCD {
 		o.Annotations = map[string]string{"argocd.argoproj.io/tracking-id": ns + "_" + s.Spec.ApplyRef.Name + ":apps/Deployment:" + ns + "/" + svc}
+		in.Values = selectedValues(s)
 	} else {
 		o.Labels = map[string]string{"kustomize.toolkit.fluxcd.io/name": svc, "kustomize.toolkit.fluxcd.io/namespace": ns}
 		var k delivery.KustomizationView
@@ -275,6 +276,15 @@ func adoptedApplier(s *delivery.StageObject, at time.Time) *delivery.ApplierStat
 	in.Targets = []delivery.ApplierTarget{{Workload: "Deployment " + svc, Manager: workloadmanager.Detect(o)}}
 	a := delivery.AdoptApplier(in)
 	return &a
+}
+
+// selectedValues is the values file the Argo CD Application of Stage s
+// selects, as SelectedValues reads it: its Helm source names the values file
+// of the Stage's environment.
+func selectedValues(s *delivery.StageObject) string {
+	env := s.Spec.Environment
+	app := map[string]any{"spec": map[string]any{"source": map[string]any{"helm": map[string]any{"valueFiles": []any{"values-" + env + ".yaml"}}}}}
+	return delivery.SelectedValues(s.Spec.ApplyRef, app, nil, s.Metadata.Namespace, env).File
 }
 
 // demoCorrelation is the change ticket B1's promote to prod carries, so the
@@ -718,23 +728,34 @@ func (d *demoDelivery) plan(req delivery.Request, actor story.Persona) (delivery
 	if up := st.Spec.Candidates.UpstreamStage; up != nil {
 		in.Upstream = &d.stage(up.Namespace, up.Name).Status
 	}
-	if stageKey(req.Namespace, req.Stage) == inspectedStage {
-		in.InspectManifests, in.Manifests = true, func(context.Context) delivery.ManifestInspection { return inspectedWorkload(req.Namespace, req.Stage) }
+	if inspectedStages[stageKey(req.Namespace, req.Stage)] {
+		in.InspectManifests, in.Manifests = true, func(context.Context) delivery.ManifestInspection { return inspectedWorkload(st) }
 	}
 	return delivery.PlanFor(context.Background(), in), spec, nil
 }
 
-// inspectedStage is the one Stage whose promotes the manifest inspector
+// inspectedStages are the Stages whose promotes the manifest inspector
 // judges in this demo.
-var inspectedStage = stageKey(story.Prod, "checkout")
+var inspectedStages = map[string]bool{stageKey(story.Prod, "checkout"): true, stageKey(story.Prod, "payments"): true}
 
 // inspectedWorkload stands in for the inspection of a version's deploy
 // artifact: the demo has no registry, so the objects are the service's
-// workload, its Deployment and Service. PlanFor judges it as it judges a real
-// inspection.
-func inspectedWorkload(ns, svc string) delivery.ManifestInspection {
-	return delivery.ManifestInspection{Artifact: "manifests (simulated: the demo has no registry, the objects come from the contract's workload)",
+// workload, its Deployment and Service. An Argo CD Stage takes a chart and
+// applies the values file its Application selects. PlanFor judges it as it
+// judges a real inspection.
+// ponytail: no values digest, since no bytes were read; a digest would make
+// pacto.environment compare chart values the published payments bundles
+// cannot match (they declare no values.schema.json configuration), holding
+// every promote to prod.
+func inspectedWorkload(s *delivery.StageObject) delivery.ManifestInspection {
+	ns, svc := s.Metadata.Namespace, s.Metadata.Name
+	in := delivery.ManifestInspection{Artifact: "manifests (simulated: the demo has no registry, the objects come from the contract's workload)",
 		Namespace: ns, Total: 2, Objects: []delivery.ManifestObject{{Kind: "Deployment", Namespace: ns, Name: svc}, {Kind: "Service", Namespace: ns, Name: svc}}}
+	if s.Spec.ApplyRef.Kind == delivery.ApplierArgoCD {
+		in.Artifact = "chart (simulated: the demo has no registry, the objects come from the contract's workload)"
+		in.ValuesFile = selectedValues(s)
+	}
+	return in
 }
 
 // surroundings fills b with what else runs in the Stage's environment and,
@@ -1313,27 +1334,28 @@ func (d *demoDelivery) Describe(_ context.Context, st *delivery.StageObject, dig
 	return r
 }
 
-// PublishRefusals is the one refused publish of the story (B4) and one
-// refused promote. payments 2.4.3 removes a field, so the version rule asks
+// PublishRefusals is the one refused publish of the story (B4), one
+// refused promote and one member's rejected promote (demoMemberRefusal). payments 2.4.3 removes a field, so the version rule asks
 // for a major; the classification is pkg/diff over the two story contracts,
 // and nothing here signed or checked that refusal. The refused promote shows
 // the row a cluster lists for a version the manifest inspector refused: it is
 // simulated, so it names no record (the tab keeps none for it) and says it is
-// not verified. Both are fixed data.
+// not verified. All three are fixed data.
 func (d *demoDelivery) PublishRefusals(context.Context, string) (*dashboard.PublishRefusals, error) {
 	base, _ := story.Bundle("payments", "2.4.2")
 	tried, _ := story.Bundle("payments", "2.4.3")
 	c := diff.Compare(context.Background(), base.Contract, tried.Contract, base.FS, tried.FS).Classification
 	bump := diff.RequiredBump(c, "2.4.2")
 	return &dashboard.PublishRefusals{Completeness: "complete",
-		Note: "Simulated: one fixed refused publish and one fixed refused promote from the payments story; a cluster reads refused publishes and promotes from each service's contract bundle repository and delivery record stream. " +
-			"The bump is computed by Pacto's diff; nothing here signed or checked the refused publish, and the refused promote is simulated with no record kept here.",
+		Note: "Simulated: one fixed refused publish, one fixed refused promote and one fixed promote a member rejected, from the payments story; a cluster reads refused publishes and promotes from each service's contract bundle repository and delivery record stream, and a hub reads what its members refused from their request streams. " +
+			"The bump is computed by Pacto's diff; nothing here signed or checked the refused publish or the member's answer, and the refused promote is simulated with no record kept here.",
 		Refusals: []dashboard.PublishRefusal{{Service: "payments", Version: "2.4.3", Check: "version", Baseline: "2.4.2",
 			RequiredBump: string(bump), Actor: story.PayAgent.User, At: stamp(d.now().Add(-3 * time.Hour)), Verified: false,
 			Reason: fmt.Sprintf("the change is %s, so it needs a %s bump from 2.4.2", c, bump)},
 			{Service: "pay-agent", Version: "1.1.0", Check: "manifests", Namespace: story.Prod, Stage: "pay-agent",
 				Digest: story.ArtifactDigest("pay-agent", "1.1.0"), At: stamp(d.now().Add(-2 * time.Hour)),
-				Reason: "the manifest inspector refuses what the version applies: ClusterRoleBinding pay-agent-admin is cluster-scoped"}}}, nil
+				Reason: "the manifest inspector refuses what the version applies: ClusterRoleBinding pay-agent-admin is cluster-scoped"},
+			demoMemberRefusal()}}, nil
 }
 
 // wire serves d from opts: the delivery views and the simulated signed-in
@@ -1426,6 +1448,11 @@ const demoLeaf = "preview"
 // of a delivered service runs. checkout's preview environment is refused,
 // and fraud's runs where Helm owns it, so Pacto adds no applier there.
 // Everyone here may read every row.
+// Members are the hub's member plans of service (source_clusters.go).
+func (d *demoDelivery) Members(_ context.Context, service string, envs []string) []delivery.MemberPlan {
+	return demoMemberPlans(service, envs)
+}
+
 func (d *demoDelivery) Environments(context.Context) (*delivery.EnvironmentsView, []delivery.PlacementRow, bool, error) {
 	now := d.now()
 	declared := []delivery.LadderRung{

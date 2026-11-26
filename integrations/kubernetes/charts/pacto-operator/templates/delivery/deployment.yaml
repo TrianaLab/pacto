@@ -130,6 +130,11 @@ spec:
             {{- end }}
             {{- with .Values.registry }}
             - --registry={{ . }}
+            - --targets-repository={{ . }}/pacto-targets
+            {{- end }}
+            {{- /* A member reads no joins: consumers in other clusters are read on the hub. */}}
+            {{- if .Values.hub.url }}
+            - --member
             {{- end }}
             {{- with $stats.repository }}
             - --stats-repository={{ . }}

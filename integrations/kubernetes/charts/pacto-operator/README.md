@@ -222,6 +222,18 @@ The privilege idp adds:
 - `create`, `delete`, `get`, `patch` and `update` on Deployments and Services in the release namespace, for the Evidence Server
 - With `idp.crossplane.install=true` only, the upstream Crossplane chart's RBAC: the `crossplane` ServiceAccount writes CRDs, Secrets, ServiceAccounts, Services, Deployments and webhook configurations cluster-wide, the `rbac-manager` ServiceAccount may escalate and bind ClusterRoles, and the `crossplane:masters` group is bound to `crossplane-admin`
 
+### Cluster inventory
+
+`clusterInventory.enabled=true` lists the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher know on a hub; Data sources and `pacto cluster list` show them, and nothing joins on its own. It adds `list` on each inventory API the cluster serves. Argo CD cluster Secrets and Flux kubeconfig Secrets are read only in the namespaces `clusterInventory.secretNamespaces` names, each through a Role with `list` on `secrets` and its RoleBinding:
+
+```yaml
+clusterInventory:
+  enabled: true
+  secretNamespaces: [argocd, flux-system]
+```
+
+The Roles render only when both values are set. The grant lets the operator's ServiceAccount list those Secrets, data included; Pacto requests their metadata only, and no ClusterRole grants Secrets. [Install members](https://pacto.run/latest/install-members/) lists the candidates and installs the chart on them through Argo CD or Flux.
+
 ## Artifact Verification
 
 The chart and the controller image are signed keyless with Sigstore. [Published artifacts](https://pacto.run/latest/integrations/kubernetes/artifact-hub/) gives the coordinates and the verify command.
@@ -231,6 +243,9 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | Key | Type | Default | Description |
 |-----|------|---------|-------------|
 | affinity | object | `{}` | Affinity rules for the controller pod |
+| clusterInventory.enabled | bool | `false` | List the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher know on this hub: Data sources and `pacto cluster list` show them with their labels and source. Adds `list` on each inventory API the cluster serves (metadata only); nothing joins on its own. |
+| clusterInventory.secretNamespaces | list | `[]` | Namespaces where the operator may list Secrets (metadata only), for Argo CD cluster Secrets and Flux kubeconfig Secrets. This grants the operator's ServiceAccount Secret list there; no Secret is read cluster-wide. |
+| controller.cloudInventory | string | `"off"` | The cloud whose inventory the operator reads managed resources from: aws (Resource Explorer), gcp (Cloud Asset Inventory), azure (Resource Graph) or "off" (quoted: a bare off is YAML false). Read only through the workload identity of that cloud on serviceAccount.annotations, never a node identity. The identity often serves registry access too, so it is never used for the inventory until you name the cloud here; bind it a read-only role. |
 | controller.egressGatewayLogs | string | `"auto"` | Istio egress gateway access logs. auto finds Istio egress gateways and proposes the value; on reads their access log tail, which adds pods/log get; "off" stops both. on reads the istio-proxy log of the pods labelled istio=egressgateway in istio-system and grants pods/log get and pods list in a Role there, never in a ClusterRole. Quote "off": a bare off is YAML false, and false keeps meaning auto; true means on. |
 | controller.interfaceNameMatchDiscovery | bool | `false` | Resolve an unbound interface's Service port by matching a Service port whose name equals the interface name. A positive availability assist only: it never produces an absent or error result. |
 | controller.kernelEvidence.callerIgnoreNamespaces | list | `["kube-flannel","calico-system","tigera-operator"]` | Extra namespaces whose host-network pods are taken not to call workloads. The node agent cannot tell a host-network pod's calls from the node's own, so any such pod makes a Service's caller coverage partial, except in kube-system, kube-public, kube-node-lease and the node agent's namespace. The default lists the Flannel and Calico namespaces. Keep only namespaces that exist on your cluster and that you control: anyone who can create a listed namespace can call your services from a host-network pod there unseen. |
@@ -241,9 +256,11 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | controller.probing | string | `""` | Actively probe in-cluster endpoints: the health capability over HTTP and the wire protocol of each present interface. Takes auto, on or off; true and false still mean on and off. Empty means auto, and an explicit auto also overrides the deprecated enableProbing set to true. auto turns probing on only in namespaces whose owner labels them pacto.trianalab.io/observe=probing (or probing.metrics). When off, health uses passive readiness-probe and EndpointSlice signals only and interface protocols read unverified. |
 | controller.secretGrants | list | `[]` | Secrets outside the release namespace and watchNamespaces the operator may read, as namespace/name: pull secrets and Secrets that back a contract configuration. Each gets a Role limited to that Secret. |
 | controller.stabilizationWindow | string | `""` | Stabilization window: how long a sustained NEGATIVE observation must persist before it converts to a confirmed violation (a transient blip reads Unknown meanwhile). Empty string uses the controller default (2m). Accepts a Go duration (e.g. "30s", "5m"). |
+| controller.terraformStates | list | `[]` | Remote Terraform or OpenTofu states the operator reads managed resources from, through its workload identity (serviceAccount.annotations), written s3://<bucket>/<key>?region=<region>, gs://<bucket>/<object> or azurerm://<account>/<container>/<key>. Only resource types, ids, regions and engines are kept, never another attribute value. Bind a role that may only read these objects. pacto ci proposes the backends it finds. |
 | controller.watchNamespace | string | `""` | Deprecated: use watchNamespaces. Merged into it. |
 | controller.watchNamespaces | list | `[]` | Namespaces the controller and the managed dashboard watch. Empty means cluster-wide. With a list, the chart renders namespaced Roles, plus the dashboard's TokenReview grant for token sign-in; fleet answers report the rest as unknown. |
 | crds.install | bool | `true` | Install and upgrade the CRDs with the chart, the delivery CRDs too when `delivery.enabled`. They are kept on helm uninstall. Only one release in a cluster can own them: every other release, for example one per watched namespace, sets false. Set false to manage them yourself, for example from a separate GitOps source; the operator and delivery need them before they start |
+| crossplane.offerings.enabled | bool | `true` | Push each Crossplane XRD as an inferred offering to `<registry>/pacto-inferred/crossplane-<clusterID>/services`. Needs registry and a cluster-wide operator. The operator only reads XRDs and Compositions. |
 | dashboard.auth.allowAnonymous | bool | `false` | Serve the dashboard without sign-in, only with tokenSignIn.enabled=false and no issuer. Everyone who reaches it reads every service the dashboard's ServiceAccount reads. With `false` and no sign-in the dashboard refuses to start |
 | dashboard.auth.oidc.caBundle.configMap | string | `""` | A ConfigMap in the operator namespace holding the PEM certificates of the CAs that sign the issuer's certificate (corporate or self-signed), trusted on top of the image's public roots |
 | dashboard.auth.oidc.caBundle.key | string | `"ca.crt"` | The key of the bundle in that ConfigMap or Secret |
@@ -385,6 +402,10 @@ The chart and the controller image are signed keyless with Sigstore. [Published 
 | delivery.recorder.signing.publicKey | string | `""` | The recorder's public key (PEM) for an Ed25519 or KMS recorder, so the promoter and clients verify the publisher pins it writes. Keyless signing needs none: its identity names the signer. Empty with an Ed25519 or KMS recorder: no new publisher can be confirmed |
 | delivery.recorder.streamsRepository | string | `""` | Repository (`host/path`) that holds one anchor per Stage stream. Defaults to `<registry>/pacto-streams` when the top-level `registry` is set; required otherwise when enabled. |
 | delivery.recorder.trust | string | `""` | Other keys whose records the recorder accepts, as a trust config in YAML (`keys: [{publicKey: <PEM>, streams: ["*/prod/*"]}]`): list the old key here while you rotate to a new one, and set `untilSeq` and `untilRecord` on a leaked key to revoke it after the last record it signed. The recorder's own key is always trusted. A record no listed key signed is skipped as untrusted. |
+| delivery.remote.allow.environments | list | `[]` | Environments member requests are taken for. Empty takes every environment the cluster name hosts; a listed environment the cluster name does not host stays refused |
+| delivery.remote.allow.namespaces | list | `[]` | Namespaces member requests are taken for. Empty takes every namespace the operator watches; a listed namespace the operator does not watch stays refused |
+| delivery.remote.allow.services | list | `[]` | Service name patterns (globs) member requests are taken for. Empty takes every service; the `pacto.published` gate still rejects a version no trusted publisher signed |
+| delivery.remote.enabled | bool or `auto` | `"auto"` | Take member requests. `auto` and `true` take them wherever delivery renders with a `registry` and a profile other than hardened; `false` turns them off |
 | delivery.replicaCount | int | `1` | Number of promoter replicas. Only the elected leader acts. |
 | delivery.resources.limits.memory | string | `"256Mi"` | Memory limit of the promoter |
 | delivery.resources.requests.cpu | string | `"100m"` | CPU request of the promoter. It looks at every waiting operation once per `promoter.poll`, so raise it with the number of Stages. |

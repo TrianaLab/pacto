@@ -16,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/backstage"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/detect"
+	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
@@ -41,6 +42,9 @@ func bundleStoreCacheDir(store any) string {
 type FleetOptions struct {
 	LocalRoots       []string
 	TargetStateFiles []string
+	// TerraformStates are local Terraform or OpenTofu state files whose
+	// managed resources join the snapshot, type, id and region only.
+	TerraformStates []string
 	// EvidenceURLs are base URLs of Evidence Servers whose read-only Operational
 	// Graph contribution is consumed over HTTP; each becomes a fleet source of
 	// external targets. This is the ONLY way to read accepted evidence: the
@@ -251,9 +255,7 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 	if len(opts.CatalogRoots) > 0 {
 		sources = append(sources, &catalogSource{id: "catalog", svc: s, roots: opts.CatalogRoots})
 	}
-	for i, path := range opts.TargetStateFiles {
-		sources = append(sources, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
-	}
+	sources = append(sources, s.fileSources(opts, cat)...)
 	// A malformed --detected ref is a usage error, refused before any read.
 	remote, err := s.httpSources(opts)
 	fp, fpErr := loadFingerprints(opts.Fingerprints)
@@ -304,6 +306,19 @@ func (s *Service) Fleet(ctx context.Context, opts FleetOptions) (*fleet.FleetSna
 		// planner's own build leaves this false.
 		DiscloseUncheckedFreshness: true,
 	}, sources...)
+}
+
+// fileSources are the sources of the local files opts names: target-state
+// fixtures and Terraform states, the states classified with cat.
+func (s *Service) fileSources(opts FleetOptions, cat *externalcatalog.Catalog) []fleet.Source {
+	var out []fleet.Source
+	for i, path := range opts.TargetStateFiles {
+		out = append(out, fleetsrc.NewTargetStateFileSource(sourceID("target-state", i, len(opts.TargetStateFiles)), path))
+	}
+	for i, path := range opts.TerraformStates {
+		out = append(out, fleetsrc.NewTerraformStateSource(sourceID("tf-state", i, len(opts.TerraformStates)), path, cat, s.env().now))
+	}
+	return out
 }
 
 // ociSourceFor is the registry source id over refs with the provenance,
@@ -451,15 +466,19 @@ func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assem
 		bare = []fleet.Source{fleetsrc.NewReceiverSource(receiverID, nil, nil, opts.LiveEdges)}
 	}
 	src := s.detectionReader(opts.Detected)
-	switch {
-	case src == nil:
+	if src == nil {
 		return bare
-	case opts.LiveEdges == nil:
+	}
+	s.readOfferings(src, opts)
+	if opts.LiveEdges == nil && opts.BackstageURL == "" {
 		return []fleet.Source{src}
 	}
 	res, st := src.Read(ctx)
 	if st.Status == fleet.SourceUnavailable {
 		return append([]fleet.Source{src}, bare...)
+	}
+	if opts.LiveEdges == nil {
+		return []fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), withoutNotDetectedBackstage(res), s.env().now)}
 	}
 	var kinds []string
 	for kind, id := range liveEdgeIDs {
@@ -468,12 +487,39 @@ func (s *Service) detectionSources(ctx context.Context, opts FleetOptions, assem
 		}
 	}
 	rest, taken := detect.SplitEdgeKinds(res, kinds)
-	out := append([]fleet.Source{fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
+	if opts.BackstageURL != "" {
+		rest = withoutNotDetectedBackstage(rest)
+	}
+	fixed := fleetsrc.NewDetectionResultSource(src.ID(), rest, s.env().now)
+	s.readOfferings(fixed, opts)
+	out := append([]fleet.Source{fixed}, s.liveEdgeSources(res, taken, free(serviceGraphID), opts)...)
 	out = append(out, s.detectedBackstage(res, free(backstage.SourceKind))...)
 	if !slices.ContainsFunc(taken, func(e detect.Entry) bool { return e.Kind == "otel-collector" }) {
 		out = append(out, bare...)
 	}
 	return out
+}
+
+// readOfferings makes src read the inferred offerings its installation
+// advertises through the reader the Evidence Server sources use, with the
+// fleet's freshness window.
+func (s *Service) readOfferings(src *fleetsrc.DetectionSource, opts FleetOptions) {
+	now, window := s.env().now, opts.FreshnessWindow
+	if opts.Now != nil {
+		now = opts.Now
+	}
+	if window == 0 {
+		window = fleet.RecentEvidenceWindow
+	}
+	src.Contributions, src.Freshness = s.contributionReader(opts, now), window
+}
+
+// withoutNotDetectedBackstage is res without its not-detected Backstage row,
+// for a host with a configured catalog: that catalog's own state row speaks
+// for it, so never advise setting what is already set.
+func withoutNotDetectedBackstage(res detect.Result) detect.Result {
+	res.Entries = slices.DeleteFunc(slices.Clone(res.Entries), func(e detect.Entry) bool { return e.Kind == "backstage" && e.Value == detect.NotDetected })
+	return res
 }
 
 // detectedBackstage is the tokenless Backstage source over the detected
@@ -655,11 +701,7 @@ func (s *Service) httpSources(opts FleetOptions) ([]fleet.Source, error) {
 	if window == 0 {
 		window = fleet.RecentEvidenceWindow
 	}
-	var reader fleetsrc.ContributionReader
-	if s.BundleStore != nil {
-		reader = &contributionReader{Store: s.BundleStore, Registry: s.env().publishRegistry(), Roots: contributionRoots(opts),
-			Now: now, Memo: &s.contributionsVerified}
-	}
+	reader := s.contributionReader(opts, now)
 	var sources []fleet.Source
 	for i, url := range opts.EvidenceURLs {
 		src := fleetsrc.NewEvidenceHTTPSource(sourceID("evidence-http", i, len(opts.EvidenceURLs)), url)
@@ -682,8 +724,23 @@ func (s *Service) httpSources(opts FleetOptions) ([]fleet.Source, error) {
 	return sources, nil
 }
 
+// contributionReader is the reader of the records producers contribute
+// under the registry roots opts reads, remembering verified digests across
+// builds; nil without a bundle store. The Evidence Server and detection
+// sources share it.
+func (s *Service) contributionReader(opts FleetOptions, now func() time.Time) fleetsrc.ContributionReader {
+	if s.BundleStore == nil {
+		return nil
+	}
+	return &contributionReader{Store: s.BundleStore, Registry: s.env().publishRegistry(), Roots: contributionRoots(opts),
+		Now: now, Memo: &s.contributionsVerified}
+}
+
 // contributionRoots are the registry roots a producer's contribution
-// repository may live under: every root of the registry refs opts reads.
+// repository may live under: every root of the registry refs opts reads,
+// and every registry prefix it discovers from (the installation registry a
+// managed dashboard is configured with, under which the operator publishes
+// its inferred offerings).
 func contributionRoots(opts FleetOptions) []string {
 	var roots []string
 	for _, ref := range slices.Concat(opts.OCIRefs, opts.TargetSnapshot) {
@@ -691,6 +748,11 @@ func contributionRoots(opts FleetOptions) []string {
 			if !slices.Contains(roots, r) {
 				roots = append(roots, r)
 			}
+		}
+	}
+	for _, p := range opts.Discover {
+		if !slices.Contains(roots, p) {
+			roots = append(roots, p)
 		}
 	}
 	return roots

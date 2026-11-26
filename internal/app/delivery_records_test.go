@@ -8,8 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -57,8 +59,7 @@ func newRecordEnv(t *testing.T, objs ...runtime.Object) *recordEnv {
 // newRecordEnvOn is newRecordEnv on a registry configured by opts.
 func newRecordEnvOn(t *testing.T, opts testutil.ReferrersOptions, objs ...runtime.Object) *recordEnv {
 	t.Helper()
-	freshProbes(t)
-	srv := httptest.NewServer(testutil.NewReferrersRegistry(opts))
+	srv := probedServer(t, testutil.NewReferrersRegistry(opts))
 	t.Cleanup(srv.Close)
 	pub, key, _ := ed25519.GenerateKey(rand.Reader)
 	pemKey, _ := delivery.PublicKeyPEM(pub)
@@ -80,20 +81,40 @@ func newRecordEnvOn(t *testing.T, opts testutil.ReferrersOptions, objs ...runtim
 	return e
 }
 
-// probesOwner is the test that holds a fresh prober now.
-var probesOwner *testing.T
+// probedServer serves h on an address no earlier probedServer in this process
+// had. The process prober (ocireferrer.Probes) remembers each registry host for
+// the life of the process, so a server on a reused port would take what an
+// earlier test's registry supported. Every server a test probes comes from
+// here, so the tests share that prober and may run in parallel.
+func probedServer(t *testing.T, h http.Handler) *httptest.Server {
+	t.Helper()
+	return uniqueServer(t, func() *httptest.Server { return httptest.NewServer(h) })
+}
 
-// freshProbes gives the test its own registry prober, once per test: the
-// process prober remembers each host, and a test server can reuse the port
-// of an earlier one with other capabilities. The tests in this package are
-// not parallel.
-func freshProbes(t *testing.T) {
-	if probesOwner == t {
-		return
+var probedAddrs struct {
+	sync.Mutex
+	seen map[string]bool
+}
+
+// uniqueServer starts servers until one is on a new address and closes the rest.
+func uniqueServer(t *testing.T, start func() *httptest.Server) *httptest.Server {
+	t.Helper()
+	for {
+		srv := start()
+		addr := srv.Listener.Addr().String()
+		probedAddrs.Lock()
+		used := probedAddrs.seen[addr]
+		if probedAddrs.seen == nil {
+			probedAddrs.seen = map[string]bool{}
+		}
+		probedAddrs.seen[addr] = true
+		probedAddrs.Unlock()
+		if !used {
+			t.Cleanup(srv.Close)
+			return srv
+		}
+		srv.Close()
 	}
-	old, oldOwner := ocireferrer.Probes, probesOwner
-	ocireferrer.Probes, probesOwner = &ocireferrer.Prober{}, t
-	t.Cleanup(func() { ocireferrer.Probes, probesOwner = old, oldOwner })
 }
 
 func (e *recordEnv) repo(path string) *remote.Repository {
@@ -181,6 +202,7 @@ func shipSpec(to string) map[string]any {
 }
 
 func TestHistoryFromRecords(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t,
 		opFixture("ship", shipSpec(dlA), map[string]any{"phase": "Concluded", "outcome": "Succeeded", "seq": int64(2)}),
 		opFixture("next", shipSpec(dlB), map[string]any{"phase": "Verifying"}))
@@ -211,6 +233,7 @@ func TestHistoryFromRecords(t *testing.T) {
 // A seq whose conclusion is still being written, or held by a live Operation,
 // is not.
 func TestHistoryNamesASeqNothingHolds(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t,
 		opFixture("late", shipSpec(dlB), map[string]any{"phase": "Verifying"}),
 		opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "seq": int64(5)}),
@@ -230,6 +253,7 @@ func TestHistoryNamesASeqNothingHolds(t *testing.T) {
 // TestHistoryNamesARecordThatDidNotVerify: an Operation whose record exists
 // but could not be verified says so, never that it is not recorded yet.
 func TestHistoryNamesARecordThatDidNotVerify(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t, opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "seq": int64(3),
 		"record": map[string]any{"digest": "sha256:unverified", "seq": int64(3)}}))
 	e.twoRecords()
@@ -240,6 +264,7 @@ func TestHistoryNamesARecordThatDidNotVerify(t *testing.T) {
 }
 
 func TestHistoryRecordsProblems(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	e.setStream(map[string]any{"stream": map[string]any{"id": recStream, "head": "sha256:gone",
@@ -274,6 +299,7 @@ func TestHistoryRecordsProblems(t *testing.T) {
 }
 
 func TestBlame(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t,
 		opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "outcome": "Succeeded", "seq": int64(3),
 			"pointer": map[string]any{"before": dlA, "after": dlB}, "verdicts": []any{map[string]any{"gate": "health", "result": "Pass"}},
@@ -301,6 +327,7 @@ func TestBlame(t *testing.T) {
 }
 
 func TestBlameOfAVersionNeverMovedTo(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	ctx := context.Background()
@@ -339,6 +366,7 @@ func unrecordableEnv(t *testing.T) (*recordEnv, string) {
 }
 
 func TestBlameOfAnUnrecordableMove(t *testing.T) {
+	t.Parallel()
 	e, r3 := unrecordableEnv(t)
 	ctx := context.Background()
 	h, _ := e.d.History(ctx, "prod", "payments-prod")
@@ -358,6 +386,7 @@ func TestBlameOfAnUnrecordableMove(t *testing.T) {
 // TestBlameOfAnUnrecordableMoveWithItsOperationGone: what the unrecordable
 // change moved is unknown, never nobody.
 func TestBlameOfAnUnrecordableMoveWithItsOperationGone(t *testing.T) {
+	t.Parallel()
 	e, _ := unrecordableEnv(t)
 	ctx := context.Background()
 	if err := e.c.Resource(gvrOperations).Namespace("prod").Delete(ctx, "live", metav1.DeleteOptions{}); err != nil {
@@ -370,6 +399,7 @@ func TestBlameOfAnUnrecordableMoveWithItsOperationGone(t *testing.T) {
 }
 
 func TestHistorySaysWhetherItWasVerified(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	if h, _ := e.d.History(context.Background(), "prod", "payments-prod"); !h.Verified {
@@ -382,6 +412,7 @@ func TestHistorySaysWhetherItWasVerified(t *testing.T) {
 }
 
 func TestBlameFromStatusAndEmptyStage(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil,
 		opFixture("ship", map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "params": map[string]any{"to": dlA},
 			"actor": map[string]any{"user": "bot"}, "onBehalfOf": map[string]any{"user": "carol"}, "reason": "why"},
@@ -400,6 +431,7 @@ func TestBlameFromStatusAndEmptyStage(t *testing.T) {
 }
 
 func TestUndo(t *testing.T) {
+	t.Parallel()
 	applied := func(before, after string) map[string]any {
 		return map[string]any{"phase": "Concluded", "outcome": "Succeeded", "pointer": map[string]any{"before": before, "after": after}}
 	}
@@ -428,6 +460,7 @@ func TestUndo(t *testing.T) {
 }
 
 func TestUndoRefusals(t *testing.T) {
+	t.Parallel()
 	applied := map[string]any{"phase": "Concluded", "outcome": "Succeeded", "pointer": map[string]any{"before": dlC, "after": dlB}}
 	e := newRecordEnv(t, opFixture("older", shipSpec(dlC), applied))
 	e.twoRecords()
@@ -472,6 +505,7 @@ func TestUndoRefusals(t *testing.T) {
 // TestVerifyRecordsKeylessCommand: a keyless recorder has no key file, so
 // the cosign command pins its identity under its trusted root.
 func TestVerifyRecordsKeylessCommand(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	other, _, _ := ed25519.GenerateKey(rand.Reader)
@@ -490,6 +524,7 @@ func TestVerifyRecordsKeylessCommand(t *testing.T) {
 // TestVerifyRecordsGuarded: each record says whether admission checked who
 // asked and who approved, as its predicate does.
 func TestVerifyRecordsGuarded(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	v, err := e.d.VerifyRecords(context.Background(), "prod", "payments-prod")
@@ -501,6 +536,7 @@ func TestVerifyRecordsGuarded(t *testing.T) {
 // TestVerifyRecordsUnrecordable: a stand-in for an operation that failed a
 // recording check keeps nothing of what it did, so the stream does not verify.
 func TestVerifyRecordsUnrecordable(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	r1 := e.attach("delivery/streams", e.anchor, move(1, "", "boot", "", dlC))
 	stand := delivery.RecordPredicate{Kind: delivery.RecordUnrecordable, Intent: delivery.RecordIntent{UID: "uid-rb", Name: "ship-rollback"},
@@ -516,6 +552,7 @@ func TestVerifyRecordsUnrecordable(t *testing.T) {
 }
 
 func TestVerifyRecords(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	ctx := context.Background()
 	_, err := e.d.VerifyRecords(ctx, "prod", "payments-prod")
@@ -575,6 +612,7 @@ func precedentEnv(t *testing.T) (*recordEnv, string) {
 }
 
 func TestPlanPrecedent(t *testing.T) {
+	t.Parallel()
 	e, to := precedentEnv(t)
 	ctx := context.Background()
 	plan, _, err := e.d.Plan(ctx, delivery.Request{Namespace: "prod", Stage: "payments-prod", To: to})
@@ -603,6 +641,7 @@ func TestPlanPrecedent(t *testing.T) {
 }
 
 func TestPlanPrecedentUnreadable(t *testing.T) {
+	t.Parallel()
 	e, _ := precedentEnv(t)
 	ctx := context.Background()
 	ri := e.c.Resource(gvrOCIRepository).Namespace("prod")
@@ -636,6 +675,7 @@ func edSigner(key ed25519.PrivateKey) delivery.Signer {
 // TestFleetAudit walks every Stage: complete only when every Stage was read
 // and every answer is complete.
 func TestFleetAudit(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	ctx := context.Background()
@@ -649,6 +689,7 @@ func TestFleetAudit(t *testing.T) {
 }
 
 func TestFleetVerify(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	ctx := context.Background()
@@ -664,6 +705,7 @@ func TestFleetVerify(t *testing.T) {
 }
 
 func TestFleetAuditUnreadable(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	ctx := context.Background()
 	// The walk hands each listed Stage to its history read, so what fails is
@@ -691,6 +733,7 @@ func TestFleetAuditUnreadable(t *testing.T) {
 // gets every namespace it can read, and the answer names the others and is
 // partial.
 func TestFleetAuditPerNamespace(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	e := newRecordEnv(t, obj("v1", "Namespace", "", "prod", nil), obj("v1", "Namespace", "", "test", nil))
 	e.twoRecords()
@@ -719,6 +762,7 @@ func TestFleetAuditPerNamespace(t *testing.T) {
 // TestFleetAuditWalkIsBounded: the per-namespace walk stops at the audit's
 // deadline and after auditLimit Stages, naming what it did not read.
 func TestFleetAuditWalkIsBounded(t *testing.T) {
+	t.Parallel()
 	var nss []runtime.Object
 	for i := range 20 {
 		nss = append(nss, obj("v1", "Namespace", "", fmt.Sprint("ns", i), nil))
@@ -732,7 +776,7 @@ func TestFleetAuditWalkIsBounded(t *testing.T) {
 		}
 		l := &unstructured.UnstructuredList{}
 		for i := range auditLimit {
-			l.Items = append(l.Items, *obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", a.GetNamespace(), fmt.Sprint("s", i), nil))
+			l.Items = append(l.Items, *obj("delivery.pacto.trianalab.io/v1", "Stage", a.GetNamespace(), fmt.Sprint("s", i), nil))
 		}
 		return true, l, nil
 	})
@@ -758,7 +802,7 @@ func serviceStages(ns string) *unstructured.UnstructuredList {
 		if i >= 600 {
 			svc = map[string]any{"name": "payments"}
 		}
-		l.Items = append(l.Items, *obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", ns, fmt.Sprint("s", i),
+		l.Items = append(l.Items, *obj("delivery.pacto.trianalab.io/v1", "Stage", ns, fmt.Sprint("s", i),
 			map[string]any{"spec": map[string]any{"service": svc}}))
 	}
 	return l
@@ -773,6 +817,7 @@ func capped(hs *delivery.Histories) bool {
 // the caller could list, and is applied before any Stage counts toward the
 // walk's bound, cluster-wide and namespace by namespace.
 func TestHistoryAllFiltersBeforeTheCap(t *testing.T) {
+	t.Parallel()
 	payments := delivery.ServiceRef{Name: "payments"}
 	e := newRecordEnv(t, obj("v1", "Namespace", "", "a", nil), obj("v1", "Namespace", "", "b", nil))
 	e.c.PrependReactor("list", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
@@ -808,6 +853,7 @@ func TestHistoryAllFiltersBeforeTheCap(t *testing.T) {
 // TestFleetAuditNoNamespaces: a caller who may list neither Stages nor
 // namespaces cluster-wide is told to name a namespace.
 func TestFleetAuditNoNamespaces(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.c.PrependReactor("list", "stages", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, nil, apierrors.NewForbidden(gvrStages.GroupResource(), "", errors.New("no"))
@@ -820,6 +866,7 @@ func TestFleetAuditNoNamespaces(t *testing.T) {
 }
 
 func TestAuditIsBounded(t *testing.T) {
+	t.Parallel()
 	stages := make([]delivery.StageObject, auditLimit+1)
 	out, unreadable := audit(context.Background(), stages, func(ctx context.Context, _ delivery.StageObject) (*int, error) {
 		if _, ok := ctx.Deadline(); !ok {
@@ -836,6 +883,7 @@ func TestAuditIsBounded(t *testing.T) {
 // from its signed records, only with a trust config, and offers nothing when
 // they cannot be read.
 func TestDeliveryUpstreamRecords(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	ctx := context.Background()
 	p := move(1, "", "ship", "", dlB)
@@ -870,6 +918,7 @@ func TestDeliveryUpstreamRecords(t *testing.T) {
 // it and the verdict cites what the runner signed, and the answer names who
 // ran the exam.
 func TestVerifyRecordsChecksTheRunner(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	ctx := context.Background()
 	_, runnerKey, _ := ed25519.GenerateKey(rand.Reader)
@@ -908,6 +957,7 @@ func TestVerifyRecordsChecksTheRunner(t *testing.T) {
 // signed by its runner does not verify, whether its citation names a suite
 // or the auditor's runner key names its provider.
 func TestVerifyRecordsNeedsTheRunner(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	for name, c := range map[string]struct {
 		citation  map[string]string
@@ -937,6 +987,7 @@ func TestVerifyRecordsNeedsTheRunner(t *testing.T) {
 }
 
 func TestRecordFound(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	_, r2 := e.twoRecords()
 	v, err := e.d.Record(context.Background(), "prod", "payments-prod", r2)
@@ -960,6 +1011,7 @@ func TestRecordFound(t *testing.T) {
 // TestRecordViewReadsWriteOnceTagStream: a record written as a write-once
 // tag, on a registry without the Referrers API, is found by its id.
 func TestRecordViewReadsWriteOnceTagStream(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnvOn(t, testutil.ReferrersOptions{Unsupported: true})
 	e.tagged = true
 	_, r2 := e.twoRecords()
@@ -971,6 +1023,7 @@ func TestRecordViewReadsWriteOnceTagStream(t *testing.T) {
 
 // TestRecordShortID: the short id a text history prints names the record.
 func TestRecordShortID(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	_, r2 := e.twoRecords()
 	if v, err := e.d.Record(context.Background(), "prod", "payments-prod", r2[:19]); err != nil || v.Record != r2 {
@@ -984,6 +1037,7 @@ func TestRecordShortID(t *testing.T) {
 // TestRecordViewOnlyFromStream: a record the recorder wrote that does not
 // verify is never shown as a record; the error points at history.
 func TestRecordViewOnlyFromStream(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t, opFixture("live", shipSpec(dlB), map[string]any{"phase": "Concluded", "seq": int64(3),
 		"record": map[string]any{"digest": "sha256:unverified", "seq": int64(3)}}))
 	_, r2 := e.twoRecords()
@@ -1003,6 +1057,7 @@ func TestRecordViewOnlyFromStream(t *testing.T) {
 }
 
 func TestRecordAt(t *testing.T) {
+	t.Parallel()
 	rs := []delivery.StoredRecord{{ID: "sha256:abcdef0123456789"}, {ID: "sha256:abcdef012345aaaa"}, {ID: "sha256:ffff"}}
 	if i, err := recordAt(rs, "sha256:ffff", "prod/pay"); i != 2 || err != nil {
 		t.Fatalf("an exact id: %d %v", i, err)
@@ -1019,6 +1074,7 @@ func TestRecordAt(t *testing.T) {
 }
 
 func TestRecordNoAnchor(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "alice", nil, nil)
 	_, err := d.Record(context.Background(), "prod", "payments-prod", "sha256:r")
 	if err == nil || err.Error() != "Stage prod/payments-prod has no records: the recorder has not written its stream anchor" {
@@ -1040,6 +1096,7 @@ func failOperations(c *dynamicfake.FakeDynamicClient) {
 }
 
 func TestHistoryFillsRevisions(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	ctx := context.Background()
@@ -1068,7 +1125,8 @@ func TestHistoryFillsRevisions(t *testing.T) {
 // TestHistoryAllRevisionsMismatchedService: a digest any walked Stage of
 // another service names gets no key.
 func TestHistoryAllRevisionsMismatchedService(t *testing.T) {
-	orders := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "orders-prod", map[string]any{
+	t.Parallel()
+	orders := obj("delivery.pacto.trianalab.io/v1", "Stage", "prod", "orders-prod", map[string]any{
 		"spec":   map[string]any{"service": map[string]any{"name": "orders"}, "environment": "prod", "applyRef": map[string]any{"name": "payments"}},
 		"status": map[string]any{"pointer": dlA},
 	})
@@ -1083,6 +1141,7 @@ func TestHistoryAllRevisionsMismatchedService(t *testing.T) {
 }
 
 func TestBlameRevision(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	ctx := context.Background()
@@ -1120,6 +1179,7 @@ func writeOnceStage(t *testing.T) (*recordEnv, *delivery.StageObject) {
 // TestPrecedentWriteOnceTagsReadsOwnStream: a write-once-tags Stage reads its
 // own stream, never the subject listing its registry cannot serve.
 func TestPrecedentWriteOnceTagsReadsOwnStream(t *testing.T) {
+	t.Parallel()
 	e, stage := writeOnceStage(t)
 	p := e.d.precedent(context.Background(), stage, dlA)
 	if p == nil || len(p.Entries) != 1 || p.Entries[0].Stream != recStream || p.Entries[0].Seq != 2 || p.Completeness != "partial" ||
@@ -1136,6 +1196,7 @@ func TestPrecedentWriteOnceTagsReadsOwnStream(t *testing.T) {
 // TestPrecedentWriteOnceTagsNeverComplete: trust set, every record verified
 // and nothing unreadable still leaves a write-once-tags precedent partial.
 func TestPrecedentWriteOnceTagsNeverComplete(t *testing.T) {
+	t.Parallel()
 	e, stage := writeOnceStage(t)
 	if e.d.Trust == nil {
 		t.Fatal("the env sets a trust config")
@@ -1149,6 +1210,7 @@ func TestPrecedentWriteOnceTagsNeverComplete(t *testing.T) {
 // or with one that verifies no record, the write-once-tags note says so next
 // to the Referrers limit.
 func TestPrecedentWriteOnceTagsSaysWhatWasNotVerified(t *testing.T) {
+	t.Parallel()
 	e, stage := writeOnceStage(t)
 	e.d.Trust = nil
 	if p := e.d.precedent(context.Background(), stage, dlA); p.Note != "the registry serves no Referrers API, so only this Stage's records were read; no trust config was given, so no signature was checked" {
@@ -1166,6 +1228,7 @@ func TestPrecedentWriteOnceTagsSaysWhatWasNotVerified(t *testing.T) {
 // TestPrecedentNativeNote: a native precedent says it read the Stages that
 // attach records to the version.
 func TestPrecedentNativeNote(t *testing.T) {
+	t.Parallel()
 	e, to := precedentEnv(t)
 	plan, _, err := e.d.Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: to})
 	if err != nil {

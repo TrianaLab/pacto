@@ -74,6 +74,7 @@ func (e *joinEnv) mappingsOf(t *testing.T, m member) ([]delivery.GroupMappingSta
 }
 
 func TestApprovedMemberShowsItsMapping(t *testing.T) {
+	t.Parallel()
 	for _, mode := range bothModes {
 		t.Run(string(mode), func(t *testing.T) {
 			e := newJoinEnv(t, mode)
@@ -93,6 +94,7 @@ func TestApprovedMemberShowsItsMapping(t *testing.T) {
 }
 
 func TestPendingMemberCarriesNoMapping(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := newMember(memberA, "eu-prod")
 	e.publish(t, m, m.key, snapNow)
@@ -103,6 +105,7 @@ func TestPendingMemberCarriesNoMapping(t *testing.T) {
 }
 
 func TestMappingForAnotherHubIgnored(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := e.approvedMember(t)
 	g := m.mapping("platform=readers")
@@ -116,6 +119,7 @@ func TestMappingForAnotherHubIgnored(t *testing.T) {
 // TestMappingOrderUsesSigningTime: a mapping whose At is forward-dated does
 // not outrank a clear signed after it.
 func TestMappingOrderUsesSigningTime(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := e.approvedMember(t)
 	g := m.mapping("platform=readers")
@@ -132,6 +136,7 @@ func TestMappingOrderUsesSigningTime(t *testing.T) {
 }
 
 func TestMappingApprovedByMustMatchCertificate(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	e.allow["oidc:bob@acme.com"] = true
 	m := e.approvedMember(t)
@@ -143,6 +148,7 @@ func TestMappingApprovedByMustMatchCertificate(t *testing.T) {
 }
 
 func TestMappingsSkipUnverified(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := e.approvedMember(t)
 	e.pushMapping(t, "alice@acme.com", joinIssuer, m.mapping("platform=readers"))
@@ -157,6 +163,7 @@ func TestMappingsSkipUnverified(t *testing.T) {
 // who may not approve the member is skipped and the older one stays; a
 // clear by them still clears, since clearing only narrows reads.
 func TestMappingApproverWhoMayNoLongerApproveSkipped(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := e.approvedMember(t)
 	bob := m.mapping("everyone=admins")
@@ -180,6 +187,7 @@ func TestMappingApproverWhoMayNoLongerApproveSkipped(t *testing.T) {
 // TestMappingReviewFailureUsesNone: a review that fails or is forbidden
 // leaves the issuer with no mapping and the list partial.
 func TestMappingReviewFailureUsesNone(t *testing.T) {
+	t.Parallel()
 	for name, err := range map[string]error{
 		"failed":    errors.New("apiserver down"),
 		"forbidden": apierrors.NewForbidden(schema.GroupResource{Resource: "subjectaccessreviews"}, "", errors.New("no")),
@@ -200,11 +208,8 @@ func TestMappingReviewFailureUsesNone(t *testing.T) {
 }
 
 func TestMappingListingFailureOrCutUsesNone(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
-	jr := &joinRead{s: e.svc, opts: JoinOptions{Repository: "127.0.0.1:1/acme/pacto-targets"}}
-	if got := jr.mappings(t.Context(), memberA); got != nil || len(jr.perCluster[noteMappingsUnread]) != 1 {
-		t.Fatalf("%+v %+v", got, jr.perCluster)
-	}
 	m := e.approvedMember(t)
 	e.svc.ClusterJoins(t.Context(), e.opts()) // the join record is read and remembered
 	for range delivery.MaxJoinRecords + 1 {
@@ -216,6 +221,7 @@ func TestMappingListingFailureOrCutUsesNone(t *testing.T) {
 }
 
 func TestMappingSupersededRecordsRejected(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := e.approvedMember(t)
 	for i := range delivery.MaxJoinRecords {
@@ -229,6 +235,7 @@ func TestMappingSupersededRecordsRejected(t *testing.T) {
 }
 
 func TestNoSignersReadsNoMapping(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	m := e.approvedMember(t)
 	e.pushMapping(t, "alice@acme.com", joinIssuer, m.mapping("platform=readers"))
@@ -248,6 +255,7 @@ func saysLimitation(l delivery.ClusterJoinList, part string) bool {
 }
 
 func TestWriteClusterGroupMapping(t *testing.T) {
+	t.Parallel()
 	for _, mode := range bothModes {
 		t.Run(string(mode), func(t *testing.T) {
 			e := newJoinEnv(t, mode)

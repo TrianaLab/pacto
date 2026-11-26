@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { appReady } from './ready';
-import { installScaleFixture } from './layoutGate';
+import { chooseRevision, installScaleFixture } from './layoutGate';
 
 // 514-S2: with two or more clusters the Services and Targets lists filter by cluster and
 // caption the clusters the answer cannot show, and Data sources lists each cluster's
@@ -77,4 +77,39 @@ test('the demo is a hub and shows the filter and the Clusters block with its mem
   await expect(block).toContainText('eu-prod');
   await expect(block).toContainText('us-west');
   await expect(page.getByTestId('cluster-join-row')).toContainText('ap-dev');
+});
+
+// 514-S7: api-gateway also runs in the member eu-prod, and its range refuses
+// payments-service 2.0.1. Change analysis names that target by its cluster's display
+// name, never by uid, blocks the change, and says the pending ap-dev is not read.
+test('a member cluster consumer blocks the breaking change, named by its cluster', async ({ page }) => {
+  await appReady(page);
+  await page.goto('/#/fleet/changes/payments-service');
+  await chooseRevision(page, '#impact-old-rev', '1.0.0');
+  await chooseRevision(page, '#impact-new-rev', '2.0.1');
+  await page.getByRole('button', { name: /Compare revisions/ }).click();
+  await expect(page.getByTestId('impact-gate')).toContainText('Blocked', { timeout: 30_000 });
+  const fold = page.locator('#sec-affected-consumers');
+  if ((await fold.getAttribute('open')) === null) await fold.locator('> summary').click();
+  const row = page.getByTestId('consumer-row')
+    .filter({ has: page.locator('td[data-label="Consumer"]').getByRole('link', { name: 'Service api-gateway', exact: true }) });
+  await expect(row.locator('td[data-label="Runs on"]')).toContainText('eu-prod / ', { timeout: 30_000 });
+  await expect(row.locator('td[data-label="Runs on"]')).toContainText('production / ');
+  const lims = page.getByTestId('changes-limitations');
+  if ((await lims.getAttribute('open')) === null) await lims.locator('> summary').click();
+  await expect(lims).toContainText('1 cluster publishes to demo.pacto.local/pacto-targets and is not a member of this hub');
+  // Every label reads a display name: the uid lives only in titles and hrefs.
+  expect(await page.locator('main').innerText()).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+});
+
+// 514-S7: a Stage of another cluster reads here only. Its history names the cluster in
+// the title and links no change to this cluster's change page, which reads the
+// dashboard's own cluster.
+test('a history of another cluster names it and links no change to this cluster', async ({ page }) => {
+  await page.addInitScript(installScaleFixture);
+  await page.addInitScript(() => { (window as unknown as { __pactoDeliveryClusters?: boolean }).__pactoDeliveryClusters = true; });
+  await appReady(page);
+  await page.goto('/#/delivery/history?namespace=prod&stage=payments&cluster=9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34');
+  await expect(page.getByTestId('page-title')).toContainText('production-eu-central-1', { timeout: 30_000 });
+  await expect(page.locator('main a[href^="#/delivery/changes"]')).toHaveCount(0);
 });

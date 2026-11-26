@@ -13,6 +13,7 @@ import (
 )
 
 func TestDiff_LocalFiles(t *testing.T) {
+	t.Parallel()
 	oldDir := writeTestBundle(t)
 	newDir := writeTestBundle(t)
 	svc := NewService(nil, nil)
@@ -32,6 +33,7 @@ func TestDiff_LocalFiles(t *testing.T) {
 }
 
 func TestDiff_OldPathError(t *testing.T) {
+	t.Parallel()
 	newDir := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	_, err := svc.Diff(context.Background(), DiffOptions{OldPath: "/nonexistent/dir", NewPath: newDir})
@@ -41,6 +43,7 @@ func TestDiff_OldPathError(t *testing.T) {
 }
 
 func TestDiff_NewPathError(t *testing.T) {
+	t.Parallel()
 	oldDir := writeTestBundle(t)
 	svc := NewService(nil, nil)
 	_, err := svc.Diff(context.Background(), DiffOptions{OldPath: oldDir, NewPath: "/nonexistent/dir"})
@@ -50,6 +53,7 @@ func TestDiff_NewPathError(t *testing.T) {
 }
 
 func TestDiff_OCIRef(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	result, err := svc.Diff(context.Background(), DiffOptions{
@@ -113,6 +117,7 @@ capabilities:
 }
 
 func TestDiff_DependencyChanges(t *testing.T) {
+	t.Parallel()
 	oldDir := writeBundleWithDep(t, "1.0.0", "1.0.0")
 	newDir := writeBundleWithDep(t, "1.0.0", "2.0.0")
 	svc := NewService(nil, nil)
@@ -133,6 +138,7 @@ func TestDiff_DependencyChanges(t *testing.T) {
 }
 
 func TestDiff_DependencyNoChanges(t *testing.T) {
+	t.Parallel()
 	oldDir := writeBundleWithDep(t, "1.0.0", "1.0.0")
 	newDir := writeBundleWithDep(t, "1.0.0", "1.0.0")
 	svc := NewService(nil, nil)
@@ -146,6 +152,7 @@ func TestDiff_DependencyNoChanges(t *testing.T) {
 }
 
 func TestDiff_DependencyClassificationElevation(t *testing.T) {
+	t.Parallel()
 	// Old child has an extra interface; new child removes it → BREAKING in child.
 	// Parent is identical → NON_BREAKING at root.
 	// Overall should be elevated to BREAKING.
@@ -189,6 +196,7 @@ capabilities:
 }
 
 func TestDiff_DependencyOnlyInNew(t *testing.T) {
+	t.Parallel()
 	// Old has no dependencies, new has one → the dep exists only in newNodes.
 	// This tests the !exists branch at line 71.
 	oldDir := t.TempDir()
@@ -215,6 +223,7 @@ service:
 }
 
 func TestOciRefName(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		input, want string
 	}{
@@ -230,6 +239,7 @@ func TestOciRefName(t *testing.T) {
 }
 
 func TestDiff_LocalOverrideForOCIDeps(t *testing.T) {
+	t.Parallel()
 	// Regression test: when the NEW side is local and has OCI deps, the diff
 	// must resolve those deps from local siblings (not the registry). Without
 	// the local override, both sides resolve to the same published artifact
@@ -346,6 +356,7 @@ capabilities:
 }
 
 func TestNewDiffFetcher_OCIRef(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	fetcher := svc.newDiffFetcher("oci://ghcr.io/acme/svc:1.0.0")
@@ -355,6 +366,7 @@ func TestNewDiffFetcher_OCIRef(t *testing.T) {
 }
 
 func TestNewDiffFetcher_LocalRef(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	fetcher := svc.newDiffFetcher(t.TempDir())
 	if _, ok := fetcher.(*localOverrideFetcher); !ok {
@@ -363,6 +375,7 @@ func TestNewDiffFetcher_LocalRef(t *testing.T) {
 }
 
 func TestLocalOverrideFetcher_FallbackToInner(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	inner := svc.newDepFetcher("oci://ghcr.io/acme/svc:1.0.0").(*depFetcher)
@@ -378,6 +391,7 @@ func TestLocalOverrideFetcher_FallbackToInner(t *testing.T) {
 }
 
 func TestLocalOverrideFetcher_LocalDep(t *testing.T) {
+	t.Parallel()
 	// When dep ref is local (not OCI), should delegate to inner without override.
 	bundleDir := writeTestBundle(t)
 	parentDir := filepath.Dir(bundleDir)
@@ -395,6 +409,7 @@ func TestLocalOverrideFetcher_LocalDep(t *testing.T) {
 }
 
 func TestDiff_DocsDirectoryIgnored(t *testing.T) {
+	t.Parallel()
 	// Create two bundles with identical contracts but different docs/ content.
 	// The diff must produce zero changes — docs/ is informational metadata.
 	oldDir := writeTestBundle(t)
@@ -435,6 +450,7 @@ func TestDiff_DocsDirectoryIgnored(t *testing.T) {
 }
 
 func TestDiff_DocsAddedToNewBundle(t *testing.T) {
+	t.Parallel()
 	// Old bundle has no docs/, new bundle adds docs/. No changes expected.
 	oldDir := writeTestBundle(t)
 	newDir := writeTestBundle(t)
@@ -461,6 +477,7 @@ func TestDiff_DocsAddedToNewBundle(t *testing.T) {
 }
 
 func TestDiff_DocsRemovedFromBundle(t *testing.T) {
+	t.Parallel()
 	// Old bundle has docs/, new bundle removes it. No changes expected.
 	oldDir := writeTestBundle(t)
 	newDir := writeTestBundle(t)
@@ -487,6 +504,7 @@ func TestDiff_DocsRemovedFromBundle(t *testing.T) {
 }
 
 func TestDiff_SBOMChangesIncluded(t *testing.T) {
+	t.Parallel()
 	oldDir := writeTestBundle(t)
 	newDir := writeTestBundle(t)
 
@@ -526,6 +544,7 @@ func TestDiff_SBOMChangesIncluded(t *testing.T) {
 }
 
 func TestDiff_NoSBOMsNoSBOMDiff(t *testing.T) {
+	t.Parallel()
 	oldDir := writeTestBundle(t)
 	newDir := writeTestBundle(t)
 
@@ -540,6 +559,7 @@ func TestDiff_NoSBOMsNoSBOMDiff(t *testing.T) {
 }
 
 func TestDiff_DependencySBOMChanges(t *testing.T) {
+	t.Parallel()
 	// When a dependency has SBOM changes but no contract changes,
 	// the SBOM diff should still be included in the result.
 	oldDir := writeBundleWithDep(t, "1.0.0", "1.0.0")
@@ -578,6 +598,7 @@ func TestDiff_DependencySBOMChanges(t *testing.T) {
 }
 
 func TestCollectNodes_NilRoot(t *testing.T) {
+	t.Parallel()
 	nodes := collectNodes(nil)
 	if len(nodes) != 0 {
 		t.Errorf("expected empty map, got %d entries", len(nodes))
@@ -585,6 +606,7 @@ func TestCollectNodes_NilRoot(t *testing.T) {
 }
 
 func TestCollectNodes_WithDependencies(t *testing.T) {
+	t.Parallel()
 	root := &graph.Node{
 		Name:    "root",
 		Version: "1.0.0",
@@ -611,6 +633,7 @@ func TestCollectNodes_WithDependencies(t *testing.T) {
 }
 
 func TestCollectNodes_CycleHandling(t *testing.T) {
+	t.Parallel()
 	child := &graph.Node{Name: "child", Version: "1.0.0"}
 	root := &graph.Node{
 		Name:         "root",
@@ -629,6 +652,7 @@ func TestCollectNodes_CycleHandling(t *testing.T) {
 // TestDiff_RequiredBump: the root contract's classification names the bump
 // `pacto publish` needs over the old version, with the pre-1.0 rule.
 func TestDiff_RequiredBump(t *testing.T) {
+	t.Parallel()
 	write := func(version, workload string) string {
 		dir := t.TempDir()
 		y := "pactoVersion: \"2.0\"\nservice:\n  name: svc\n  version: " + version + "\nworkload: " + workload + "\n"
@@ -653,6 +677,7 @@ func TestDiff_RequiredBump(t *testing.T) {
 }
 
 func TestDiffOnResolvedSeesBothBundles(t *testing.T) {
+	t.Parallel()
 	oldDir, newDir := writeTestBundle(t), writeTestBundle(t)
 	var calls int
 	var gotOld, gotNew *contract.Bundle
@@ -664,6 +689,7 @@ func TestDiffOnResolvedSeesBothBundles(t *testing.T) {
 }
 
 func TestDiffOnResolvedNotCalledOnResolveError(t *testing.T) {
+	t.Parallel()
 	called := false
 	_, err := NewService(nil, nil).Diff(context.Background(), DiffOptions{OldPath: writeTestBundle(t), NewPath: "/nonexistent/dir",
 		OnResolved: func(_, _ *contract.Bundle) { called = true }})

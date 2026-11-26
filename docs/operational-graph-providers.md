@@ -15,7 +15,7 @@ the evidence names objects. The evidence never names a namespace.
 Each cluster reports at least two rows, from two sources: the Kubernetes
 source (such as `prod`) and its workload source (`prod-workloads`).
 
-- **Pacto CRD**: `served (pacto.trianalab.io/v1alpha1)` or `not installed`.
+- **Pacto CRD**: `served (pacto.trianalab.io/v1)` or `not installed`.
   Pacto uses it for declared targets.
 - **Kubernetes workloads**: how many Deployments, StatefulSets, DaemonSets and
   CronJobs the [workload source](operational-graph-inferred.md) listed. A kind
@@ -62,7 +62,7 @@ source (such as `prod`) and its workload source (`prod-workloads`).
 ```bash
 $ pacto fleet providers --k8s
 PROVIDER              EVIDENCE                                             USED FOR
-Pacto CRD             served (pacto.trianalab.io/v1alpha1)                 declared targets
+Pacto CRD             served (pacto.trianalab.io/v1)                       declared targets
 Kubernetes workloads  412 Deployments, DaemonSets unreadable, 31 CronJobs  inferred services (partial: source prod-workloads could not list DaemonSets in any namespace: forbidden)
 ```
 
@@ -185,7 +185,7 @@ explains what each mode means for records.
 With `--detected`, the rows the operator
 [detected in a cluster](integrations/kubernetes/detection.md)
 join from a source of kind `detection`: Registry, Cloud, Sign-in, Exposure,
-Metrics, Nodes, the Applier, the [trace backends](#trace-backends) and the egress readers. Each carries five more fields:
+Metrics, Nodes, the Applier, the [trace backends](#trace-backends), the egress readers and the managed-resource readers. Each carries five more fields:
 
 | Field | Meaning |
 |---|---|
@@ -232,6 +232,26 @@ The three egress readers are cluster-wide and read calls leaving the cluster
   such as `1 Istio egress gateway found; logs: auto`. With `auto` the row is
   `partial` and its hint is the command that sets
   `controller.egressGatewayLogs=on`.
+
+- **Managed resources** (`managed-resources`): how many Crossplane, ACK,
+  Config Connector and ASO objects of the catalog kinds the operator listed,
+  such as `14 managed resources`, or `none found`. A kind the cluster began to
+  serve after install is `unread <group>/<plural>` in the details, makes the
+  row `partial` with a `helm upgrade` hint and raises `MANAGED_GROUP_UNREAD`.
+  A namespace-scoped install reads `unknown`.
+- **Terraform state** (`terraform`): only when `controller.terraformStates`
+  lists a state, such as `2 listed states read`. A state it could not read
+  makes the row `partial`, or `unknown` when it read none.
+- **Cloud inventory** (`cloud-inventory`): the cloud
+  `controller.cloudInventory` names, read with the operator's workload
+  identity. With the value `"off"` and an identity bound, the row reads `off`
+  and names the value to set; with a cloud and no identity, it names the
+  missing identity. Beyond 500 resources per cluster the managed rows are
+  `partial` with `MANAGED_RESOURCES_CAPPED`. A resource whose kind or type no
+  catalog row names is skipped and counted in the note
+  `MANAGED_RESOURCES_UNCLASSIFIED`. See
+  [Managed resources](integrations/kubernetes/detection.md#managed-resources)
+  for the grants and the identity.
 
 ## Trace backends
 

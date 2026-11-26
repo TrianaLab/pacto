@@ -10,7 +10,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 )
 
@@ -139,6 +140,8 @@ var registryFlags = map[string]string{
 	"records-repository":                "read: the promoter reads the recorder's pins from the streams repository",
 	"dashboard-stats-registry":          "read: the dashboard only reads run records",
 	"ladder-repository":                 "read: the promoter only reads ladder records from the approvals repository",
+	"member-streams-repository":         "read: names the repository the join block advertises",
+	"targets-repository":                "read: the promoter reads peer join records and snapshots",
 	"dashboard-registry":                "push",
 	"dashboard-declare-registry-secret": "push",
 }
@@ -241,5 +244,13 @@ func TestDashboardRepositoriesDeprecationNamesDiscoveryFlag(t *testing.T) {
 	bindFlags(fs, &options{})
 	if u := fs.Lookup("dashboard-repositories").Usage; !strings.HasPrefix(u, "Deprecated: set --dashboard-registry") {
 		t.Errorf("usage %q", u)
+	}
+}
+
+// TestSchemeKnowsOperation: the operator scheme knows the delivery group, so
+// the member intake creates Operations through the typed client.
+func TestSchemeKnowsOperation(t *testing.T) {
+	if _, _, err := scheme.ObjectKinds(&dv1.Operation{}); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -5,10 +5,12 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -17,6 +19,43 @@ const MaxPushes = 8
 
 // MaxProfiles caps the profile names an installation advertises.
 const MaxProfiles = 3
+
+// MaxObservedOfferings caps the offering slugs an installation advertises:
+// the operator maps at most this many source objects per run.
+const MaxObservedOfferings = 200
+
+// OfferingsAd is what an installation's inferred-offering producer
+// advertises: its producer id, the one repository it pushes offerings to
+// (<registry>/pacto-inferred/<producer>/services), the sorted slugs its last
+// complete run observed, when that run finished and, when the newest run
+// stopped short, why. A reader never reads a slug missing from Observed as
+// deleted while Partial is set.
+type OfferingsAd struct {
+	Producer   string     `json:"producer,omitempty"`
+	Repository string     `json:"repository,omitempty"`
+	Observed   []string   `json:"observed,omitempty"`
+	AsOf       *time.Time `json:"asOf,omitempty"`
+	Partial    string     `json:"partial,omitempty"`
+}
+
+// OfferingsRepository is the repository r's installation advertises its
+// inferred offerings in, when it is that installation's own: the
+// contribution repository of its producer under its registry, the producer
+// id ending in -<the cluster id r was read in>. Any other repository is
+// never read, so two installations sharing a registry read apart and one
+// never makes Pacto pull another's.
+func (r Result) OfferingsRepository() (string, bool) {
+	inst := r.Installation
+	if inst == nil || inst.Offerings == nil || inst.Registry == "" || r.Cluster == "" {
+		return "", false
+	}
+	o := inst.Offerings
+	p, ok := contract.ContributionRef(o.Repository)
+	if !ok || p != o.Producer || !strings.HasSuffix(o.Producer, "-"+r.Cluster) || o.Repository != contract.ContributionRepository(inst.Registry, o.Producer) {
+		return "", false
+	}
+	return o.Repository, true
+}
 
 // PushResult is the last target snapshot push the operator attempted: when,
 // to which ref and, on failure, why. A failed push is never shown as healthy.
@@ -48,6 +87,18 @@ type Installation struct {
 	// Pushes is every prefix a cluster-side process may push under.
 	Pushes   []string    `json:"pushes,omitempty"`
 	LastPush *PushResult `json:"lastPush,omitempty"`
+	// ChartVersion is the chart version the operator runs, the one a
+	// generated member install pins; empty when it is not advertised. A
+	// value with any character outside semver's, a trailing space
+	// included, is dropped rather than trimmed.
+	ChartVersion string `json:"chartVersion,omitempty"`
+	// Offerings is the inferred-offering producer's advertisement; nil when
+	// the installation produces no inferred offerings.
+	Offerings *OfferingsAd `json:"offerings,omitempty"`
+	// Member says the operator joined a hub as a member (--hub-url): its
+	// promoter asks a person for any change that is not plainly
+	// non-breaking, since consumers in other clusters are read on the hub.
+	Member bool `json:"member,omitempty"`
 }
 
 // Declared is the Installation block as the capability answer reads it, with
@@ -79,6 +130,9 @@ func checkInstallation(inst *Installation) error {
 	return nil
 }
 
+// chartVersion is at most 64 bytes of semver characters.
+var chartVersion = regexp.MustCompile(`^[0-9A-Za-z.+-]{0,64}$`)
+
 // sanitizeInstallation cleans every string of inst and caps its prefixes and
 // profiles.
 func sanitizeInstallation(inst *Installation) {
@@ -88,10 +142,17 @@ func sanitizeInstallation(inst *Installation) {
 	for _, s := range []*string{&inst.Registry, &inst.Targets, &inst.Index, &inst.Inferred, &inst.SnapshotKey, &inst.SnapshotKeyID} {
 		*s = clean(*s)
 	}
+	if inst.ChartVersion = clean(inst.ChartVersion); !chartVersion.MatchString(inst.ChartVersion) {
+		inst.ChartVersion = ""
+	}
 	inst.Pushes = cleanAll(inst.Pushes, MaxPushes)
 	inst.Profile = cleanAll(inst.Profile, MaxProfiles)
 	if p := inst.LastPush; p != nil {
 		p.Ref, p.Error = clean(p.Ref), clean(p.Error)
+	}
+	if o := inst.Offerings; o != nil {
+		o.Producer, o.Repository, o.Partial = clean(o.Producer), clean(o.Repository), clean(o.Partial)
+		o.Observed = cleanAll(o.Observed, MaxObservedOfferings)
 	}
 }
 

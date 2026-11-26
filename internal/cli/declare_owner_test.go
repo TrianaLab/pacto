@@ -171,7 +171,7 @@ func TestDeclareRefusalHidesRestrictedServiceOwner(t *testing.T) {
 func TestDeclareToolRunsAsAgentAndPerson(t *testing.T) {
 	e := newDeclareE2E(t)
 	dir, reg := e.ownerChange(t)
-	decl := newMCPDeclarer(app.NewService(nil, nil), "")
+	decl := newMCPDeclarer(app.NewService(nil, nil), "", "", "")
 	decl.base.Signing.FulcioURL, decl.base.Signing.TimestampURL, decl.base.Signing.RekorURL, decl.base.Signing.TrustedRoot = e.ss.Fulcio, e.ss.TSA, "", e.root
 	server := func() *mcpsdk.Server {
 		s, _ := pactomcp.New("v", pactomcp.Authoring{Declare: decl}, pactomcp.Modes{})

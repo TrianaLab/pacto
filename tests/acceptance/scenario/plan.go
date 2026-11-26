@@ -248,7 +248,7 @@ func (s Scenario) PactoCRs(namespace, domain string, digests map[string]string) 
 			return nil, err
 		}
 		cr := pactoCR{
-			APIVersion: "pacto.trianalab.io/v1alpha1",
+			APIVersion: "pacto.trianalab.io/v1",
 			Kind:       "Pacto",
 			Metadata:   crMeta{Name: svc.Name, Namespace: namespace},
 			Spec: crSpec{

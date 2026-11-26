@@ -53,6 +53,7 @@ func hasNote(notes []string, s string) bool {
 }
 
 func TestReadAcceptancesBothForms(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, true)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("bob@acme.com")})
 	tagged := e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
@@ -75,6 +76,7 @@ func TestReadAcceptancesBothForms(t *testing.T) {
 }
 
 func TestForgedUnsignedAcceptanceIgnored(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.attach(t, attachment{record: e.rangesRecord(), tag: true})
 	got, notes := e.read(t, e.store(t), e.query())
@@ -84,6 +86,7 @@ func TestForgedUnsignedAcceptanceIgnored(t *testing.T) {
 }
 
 func TestAcceptanceForOtherSubjectIgnored(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, true)
 	older := e.publishBundle(t, e.repo, "1.5.0", e.reportsFiles("1.5.0", false), nil)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), statement: older})
@@ -99,6 +102,7 @@ func TestAcceptanceForOtherSubjectIgnored(t *testing.T) {
 }
 
 func TestAcceptanceTagCopiedToOtherSubjectIgnored(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	older := e.publishBundle(t, e.repo, "1.5.0", e.reportsFiles("1.5.0", false), nil)
 	r := e.rangesRecord()
@@ -111,6 +115,7 @@ func TestAcceptanceTagCopiedToOtherSubjectIgnored(t *testing.T) {
 }
 
 func TestAcceptanceTagSuffixMismatchIgnored(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	d := e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	_, hex, _ := strings.Cut(e.digest, ":")
@@ -129,6 +134,7 @@ func TestAcceptanceTagSuffixMismatchIgnored(t *testing.T) {
 }
 
 func TestAcceptanceOnForeignHostNeverRead(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, true)
 	foreign := provenanceTestRegistryOf(t, true)
 	q := e.query()
@@ -142,6 +148,7 @@ func TestAcceptanceOnForeignHostNeverRead(t *testing.T) {
 }
 
 func TestOversizedAcceptanceNeverDownloaded(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, true)
 	big := e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), pad: delivery.MaxAcceptanceBytes})
 	e.reset()
@@ -163,6 +170,7 @@ func TestOversizedAcceptanceNeverDownloaded(t *testing.T) {
 }
 
 func TestOversizedAcceptanceManifestNeverFetched(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	st := e.store(t)
 	st.listings[e.repo+"@"+e.digest] = []acceptanceCandidate{{name: "big", desc: ocispec.Descriptor{Digest: "sha256:00", Size: maxAcceptanceManifest + 1}}}
@@ -174,6 +182,7 @@ func TestOversizedAcceptanceManifestNeverFetched(t *testing.T) {
 }
 
 func TestReadAcceptancesBounded(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	for i := range delivery.MaxAcceptances + 1 {
 		r := e.rangesRecord()
@@ -187,6 +196,7 @@ func TestReadAcceptancesBounded(t *testing.T) {
 }
 
 func TestAcceptanceFloodDoesNotHideCountedRecord(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, true)
 	for i := range delivery.MaxAcceptances + 1 {
 		r := e.rangesRecord()
@@ -201,6 +211,7 @@ func TestAcceptanceFloodDoesNotHideCountedRecord(t *testing.T) {
 }
 
 func TestAcceptanceListingMemoized(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	st := e.store(t)
@@ -255,6 +266,7 @@ func TestNoSignerPolicyNote(t *testing.T) {
 }
 
 func TestAcceptanceSignedOutsidePolicyIgnored(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.attach(t, attachment{record: e.rangesRecord(), token: testutil.Token("ana@acme.com", "https://other.example"), tag: true})
 	got, notes := e.read(t, e.store(t), e.query())
@@ -264,6 +276,7 @@ func TestAcceptanceSignedOutsidePolicyIgnored(t *testing.T) {
 }
 
 func TestReadAcceptancesRegistryFailures(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("ana@acme.com"), tag: true})
 	for name, fail := range map[string]func(*http.Request) bool{
@@ -292,6 +305,7 @@ func TestReadAcceptancesRegistryFailures(t *testing.T) {
 }
 
 func TestAcceptanceTagGoneIgnored(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	_, hex, _ := strings.Cut(e.digest, ":")
 	st := e.store(t)
@@ -313,6 +327,7 @@ func (headDown) Head(context.Context, string) (*publish.Remote, error) {
 // A provider repository that cannot be read fails the break read, never
 // reads as the version not being published.
 func TestBreakSourceRegistryDown(t *testing.T) {
+	t.Parallel()
 	b, ref, err := breakSource(t.Context(), headDown{}, "r.io/acme/ledger", "ledger", "3.0.0", "")
 	if b != nil || ref != "" || err == nil || err.Error() != "reading ledger 3.0.0: down" {
 		t.Fatalf("%v %q %v", b, ref, err)

@@ -54,6 +54,62 @@ type MatchTally struct {
 	Percent      *int         `json:"percent,omitempty" doc:"Matched services and dependencies over those Pacto can observe, rounded down; absent when Pacto observes none"`
 	Coverage     *int         `json:"coverage,omitempty" doc:"Services and dependencies Pacto can observe over all counted, rounded down; absent when none is counted"`
 	Completeness Completeness `json:"completeness" enum:"complete,partial" doc:"partial when a source the tally reads is partial or stale"`
+	// Resources is set only on the fleet-wide tally, and only when a source
+	// read any managed resource.
+	Resources *ResourceCoverage `json:"resources,omitempty" doc:"The managed resources an offering produced over those discovered, fleet-wide; absent when none was discovered"`
+}
+
+// ResourceCoverage is how many of the managed resources the viewer may read
+// an offering produced (see resourceContract), its own figure beside the
+// match.
+type ResourceCoverage struct {
+	ThroughOfferings int  `json:"throughOfferings" doc:"Managed resources a verified, current provisioning record of an offering provider names"`
+	Discovered       int  `json:"discovered" doc:"Managed resources the sources read"`
+	Percent          *int `json:"percent,omitempty" doc:"throughOfferings over discovered, rounded down"`
+}
+
+// resourceCoverage is the fleet-wide resource coverage, nil when no managed
+// resource was discovered. A resource several sources read counts once.
+func (q *Query) resourceCoverage() *ResourceCoverage {
+	var c ResourceCoverage
+	for _, rec := range q.snap.Externals {
+		// Every complete read of a complete identity is one resource
+		// (sameIdentity gave them one state): it counts once.
+		one := false
+		for _, r := range q.managedResources(rec) {
+			if len(r.Missing) == 0 && completeIdentity(rec.Key) {
+				if one {
+					continue
+				}
+				one = true
+			}
+			c.Discovered++
+			c.ThroughOfferings += b2i(r.Contract == ContractOffering)
+		}
+	}
+	if c.Discovered == 0 {
+		return nil
+	}
+	c.Percent = percentOf(c.ThroughOfferings, c.Discovered)
+	return &c
+}
+
+// resourcesIncomplete is one SOURCE_PARTIAL limitation per provider row
+// that reads managed resources and did not read them all: partial (unread
+// kinds, a capped list, a state that failed), stale, or unavailable with no
+// hint (a read that failed; a row with a hint is off until a person turns it
+// on). Nil when every reader read in full. An answer that counts or filters
+// managed resources is partial with them: what was not read is unknown.
+func (q *Query) resourcesIncomplete() []Limitation {
+	var out []Limitation
+	for _, p := range q.snap.Providers {
+		if !slices.Contains(p.UsedFor, UseManagedResources) || p.Status == SourceAvailable || p.Status == SourceUnavailable && p.Hint != "" {
+			continue
+		}
+		out = append(out, Limitation{Code: LimitationSourcePartial, Source: p.Source,
+			Message: p.Name + " is " + string(p.Status) + ", so the managed resources counted may be incomplete"})
+	}
+	return out
 }
 
 // serviceMatch is the match state of one service that is no golden path. A

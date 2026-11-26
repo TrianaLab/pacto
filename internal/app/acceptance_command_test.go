@@ -23,6 +23,7 @@ func intentOf(t *testing.T, cli string) string {
 // every argument of the run, --from included, and the new intent digest,
 // so running it plans exactly the digest it carries.
 func TestAcceptPlanStaleCommandReplaysTheRun(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opts := e.trust()
 	opts.Break, opts.From, opts.Intent = "ledger@3.0.0", writeDir(t, ledgerFiles("3.0.0", "2026-12-31", "reports")), "sha256:00"
@@ -48,6 +49,7 @@ func TestAcceptPlanStaleCommandReplaysTheRun(t *testing.T) {
 // an agent's draft of an unpublished break with reads it from the same
 // --from, and a refusal of a draft run names the draft.
 func TestAcceptDraftOfUnpublishedBreakNamesFrom(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opts := e.trust()
 	opts.Signing = e.signing()
@@ -66,6 +68,7 @@ func TestAcceptDraftOfUnpublishedBreakNamesFrom(t *testing.T) {
 // TestAcceptRefusesTwoKindsOfRecord: a break with ranges, or a draft with
 // anything else, is refused before the registry is read.
 func TestAcceptRefusesTwoKindsOfRecord(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.reset()
 	for _, o := range []AcceptOptions{
@@ -86,6 +89,7 @@ func TestAcceptRefusesTwoKindsOfRecord(t *testing.T) {
 // TestAcceptTaggedOrPinnedRef: a tagged or pinned reference names its
 // repository's newest version.
 func TestAcceptTaggedOrPinnedRef(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	for _, ref := range []string{"oci://" + e.repo + ":1.6.0", "oci://" + e.subject, e.repo + ":latest"} {
 		opts := e.trust()
@@ -99,6 +103,7 @@ func TestAcceptTaggedOrPinnedRef(t *testing.T) {
 // TestAcceptBreakFromCheckoutDatesUndatedBreak: an undated break read from
 // a checkout expires as pacto ci and pacto impact date it.
 func TestAcceptBreakFromCheckoutDatesUndatedBreak(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	from := writeDir(t, ledgerFiles("3.0.0", "", "reports"))
 	commit := "0123456789abcdef0123456789abcdef01234567"

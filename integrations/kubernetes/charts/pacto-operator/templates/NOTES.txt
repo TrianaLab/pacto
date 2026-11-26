@@ -9,7 +9,7 @@ Pacto Operator has been installed.
 2. Install a Pacto contract:
 
    kubectl apply -f - <<EOF
-   apiVersion: pacto.trianalab.io/v1alpha1
+   apiVersion: pacto.trianalab.io/v1
    kind: Pacto
    metadata:
      name: my-service
@@ -23,6 +23,35 @@ Pacto Operator has been installed.
 3. Check contract status:
 
    kubectl get pactos
+{{- /* Chart 7 stores the Pacto CRDs as v1; the operator migrates what an
+earlier chart stored as v1alpha1. */}}
+{{- if .Release.IsUpgrade }}
+{{- $pactoCRD := lookup "apiextensions.k8s.io/v1" "CustomResourceDefinition" "" "pactos.pacto.trianalab.io" }}
+{{- if has "v1alpha1" (dig "status" "storedVersions" (list) $pactoCRD) }}
+{{- $crds := list "pactos.pacto.trianalab.io" "pactorevisions.pacto.trianalab.io" "noderuntimeobservations.pacto.trianalab.io" }}
+{{- if include "pacto-operator.deliveryEnabled" . }}
+{{- $crds = concat $crds (list "stages.delivery.pacto.trianalab.io" "operations.delivery.pacto.trianalab.io" "approvals.delivery.pacto.trianalab.io") }}
+{{- end }}
+
+The Pacto CRDs now store objects as v1.
+{{- if include "pacto-operator.watchNamespaces" . | fromYamlArray }}
+With controller.watchNamespaces set, the operator does not rewrite stored Pacto
+objects: run the script in "Upgrading from 6.x" in
+https://pacto.run/latest/integrations/kubernetes/installation/
+{{- else }}
+The operator rewrites stored Pacto objects as v1 when it starts and retries
+until the new CRDs are served, so no restart is needed.
+{{- if include "pacto-operator.deliveryEnabled" . }} The delivery promoter
+does the same for the delivery objects.{{ end }} Check the progress:
+
+   kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "pacto-operator.fullname" . }} | grep 'storage migration'
+{{- end }}
+   kubectl get crd {{ join " " $crds }} -o custom-columns=NAME:.metadata.name,STORED:.status.storedVersions
+
+The migration is done when every row prints [v1]. v1alpha1 stays served until
+chart 8.0.
+{{- end }}
+{{- end }}
 
 {{- if include "pacto-operator.dashboardEnabled" . }}
 {{- if include "pacto-operator.dashboardTokenSignIn" . }}
@@ -336,6 +365,10 @@ Registry: {{ . }}
   target, provisioning and usage record (cost included) the Evidence Server
   accepted, so give it its own read ACL.
   Delivery is {{ if (include "pacto-operator.deliveryEnabled" $) }}on{{ else if (include "pacto-operator.hardened" $) }}off: profile hardened renders no Pacto delivery{{ else }}off: turn it on with delivery.enabled=true{{ end }}.
+{{- if and (include "pacto-operator.deliveryEnabled" $) (not (include "pacto-operator.delivery.pinSigner" $)) }}
+  This member advertises no recorder key: set delivery.recorder.signing.publicKey
+  (and delivery.publishers) so other members can follow its Stages.
+{{- end }}
 {{- /* The key comes from the installation key Secret, which only the
 operator writes; the ConfigMap's snapshotKey is forgeable by any ConfigMap
 writer. */}}
@@ -381,6 +414,14 @@ Proposed pull Secret (inferred from pod specs; it needs push on
 
   --set registryPullSecret={{ $proposedSecret }}
 {{- end }}
+{{- end }}
+{{- end }}
+{{- if dig "enabled" false (.Values.clusterInventory | default dict) }}
+
+Candidate clusters show in the dashboard's Data sources and in
+`pacto cluster list`; nothing joins on its own.
+{{- if not (dig "secretNamespaces" list (.Values.clusterInventory | default dict)) }}
+  Argo CD and Flux clusters need clusterInventory.secretNamespaces.
 {{- end }}
 {{- end }}
 {{- with include "pacto-operator.evidenceLedgers" . | fromYamlArray }}

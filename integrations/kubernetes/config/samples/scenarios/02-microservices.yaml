@@ -19,7 +19,7 @@
 #   user-service ──req──→ postgresql (scenario 03)
 ---
 # order-service — internal HTTP API + event producer, depends on payments and notifications
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: order-service
@@ -84,7 +84,7 @@ spec:
         tier: standard
 ---
 # payment-service — high-criticality internal API, depends on external payment gateway
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: payment-service
@@ -144,7 +144,7 @@ spec:
         pci-scope: "true"
 ---
 # user-service — gRPC API with a separate HTTP port for metrics
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: user-service
@@ -206,7 +206,7 @@ spec:
         tier: critical
 ---
 # frontend — public-facing web app, depends on order-service and user-service
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: frontend

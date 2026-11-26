@@ -57,7 +57,7 @@ const RefreshEvery = 10
 const leaseIntervals = 3
 
 // GVR is the NodeRuntimeObservation resource.
-var GVR = schema.GroupVersionResource{Group: "pacto.trianalab.io", Version: "v1alpha1", Resource: "noderuntimeobservations"}
+var GVR = schema.GroupVersionResource{Group: "pacto.trianalab.io", Version: "v1", Resource: "noderuntimeobservations"}
 
 // LeaseGVR is the heartbeat resource.
 var LeaseGVR = schema.GroupVersionResource{Group: "coordination.k8s.io", Version: "v1", Resource: "leases"}

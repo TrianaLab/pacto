@@ -131,6 +131,7 @@ func TestProvenanceWithoutInferredSignerNeverVerified(t *testing.T) {
 // TestInstallationTrustReadsInferredSigner: the operator's signer is the key
 // the detection advertises; none without a readable advertisement.
 func TestInstallationTrustReadsInferredSigner(t *testing.T) {
+	t.Parallel()
 	now := time.Date(2026, 11, 20, 0, 0, 0, 0, time.UTC)
 	_, adv := operatorKey(t)
 	b, _ := json.Marshal(detect.Result{SchemaVersion: detect.SchemaVersion, AsOf: now, Entries: []detect.Entry{},

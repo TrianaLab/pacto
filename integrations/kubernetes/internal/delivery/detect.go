@@ -8,6 +8,7 @@ See LICENSE file in the project root for full license text.
 package delivery
 
 import (
+	"cmp"
 	"context"
 	"time"
 
@@ -18,7 +19,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
@@ -40,6 +41,7 @@ func (c Cluster) detectApplier(ctx context.Context, stage *dv1.Stage, now time.T
 		in.NoAPI = true
 		return delivery.AdoptApplier(in)
 	}
+	in.Values = c.selectedValues(ctx, stage)
 	list := &unstructured.UnstructuredList{}
 	list.SetGroupVersionKind(gvkPactoList)
 	if err := c.Client.List(ctx, list, client.InNamespace(stage.Namespace)); err != nil {
@@ -82,6 +84,39 @@ func (c Cluster) detectApplier(ctx context.Context, stage *dv1.Stage, now time.T
 	}
 	in.Kustomizations, in.Unread = c.detectKustomizations(ctx, in.Targets, in.Unread)
 	return delivery.AdoptApplier(in)
+}
+
+// selectedValues is the values file or overlay the Stage's applier selects
+// for its environment, refused or not, as observed on the applyRef object
+// and, for an OCIRepository, the Kustomizations applying it. It is empty when
+// the applier selects none or its applyRef object is gone. A read that fails
+// otherwise keeps the values last observed, so a transient error neither
+// reads as "selects none" nor resets since: a values read never reaches
+// Unread, so it never moves the applier state. A HelmRelease selects none.
+func (c Cluster) selectedValues(ctx context.Context, stage *dv1.Stage) string {
+	last := ""
+	if stage.Status.Applier != nil {
+		last = stage.Status.Applier.Values
+	}
+	ref := stage.Spec.ApplyRef
+	flux := cmp.Or(ref.Kind, delivery.ApplierFlux) == delivery.ApplierFlux
+	if ref.Kind == delivery.ApplierHelmRelease || flux && c.NoFlux {
+		return ""
+	}
+	a, err := c.applier(ctx, stage.Namespace, ref)
+	switch {
+	case apierrors.IsNotFound(err):
+		return ""
+	case err != nil:
+		return last
+	}
+	var ks []delivery.KustomizationView
+	if flux {
+		if ks, err = c.kustomizations(ctx); err != nil {
+			return last
+		}
+	}
+	return delivery.SelectedValues(ref, a.object().Object, ks, stage.Namespace, stage.Spec.Environment).File
 }
 
 // detectKustomizations reads, live, the Kustomization each Flux-labelled

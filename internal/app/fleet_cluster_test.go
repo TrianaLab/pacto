@@ -22,6 +22,7 @@ const (
 )
 
 func TestK8sSourceIDIsClusterUID(t *testing.T) {
+	t.Parallel()
 	svc := k8sService("eu-prod-ctx")
 	fake := &fakeFleetK8sClient{
 		disc:     &k8sclient.CRDDiscovery{Found: true, ResourceName: "pactos"},
@@ -69,6 +70,7 @@ func hasLimitation(lims []fleet.Limitation, code, source string) bool {
 }
 
 func TestK8sSourceIdentityUnreadKeepsContextID(t *testing.T) {
+	t.Parallel()
 	// Alone: the context id stays and nothing is said about clusters, since
 	// none is known.
 	snap, err := k8sService("eu-prod-ctx").Fleet(context.Background(), FleetOptions{IncludeK8s: true})
@@ -116,6 +118,7 @@ func evidenceTargets(snap *fleet.FleetSnapshot) []*fleet.TargetRecord {
 }
 
 func TestTwoEvidenceServersSameProducerTwoTargets(t *testing.T) {
+	t.Parallel()
 	// Two clusters, each with its own Evidence Server over its own registry,
 	// accept a report about the same producer and subject.
 	fa, fb := serveTestFixtures(t), serveTestFixtures(t)
@@ -142,6 +145,7 @@ func TestTwoEvidenceServersSameProducerTwoTargets(t *testing.T) {
 }
 
 func TestTwoEvidenceServersSharedRegistryOneTarget(t *testing.T) {
+	t.Parallel()
 	// Two servers in two clusters list one registry; only A accepted the record.
 	f := serveTestFixtures(t)
 	a, b := evidenceServer(t, f, clusterA), evidenceServer(t, f, clusterB)
@@ -166,6 +170,7 @@ func TestTwoEvidenceServersSharedRegistryOneTarget(t *testing.T) {
 }
 
 func TestEvidenceServeRejectsInvalidClusterID(t *testing.T) {
+	t.Parallel()
 	f := serveTestFixtures(t)
 	for name, c := range map[string]*evidenceingest.ClusterDTO{
 		"id":          {ID: "-bad id"},
@@ -184,6 +189,7 @@ func TestEvidenceServeRejectsInvalidClusterID(t *testing.T) {
 // promoters the workload source reports; a missing or invalid file is refused
 // before any source is read.
 func TestFleetFingerprintsAddPromoterRows(t *testing.T) {
+	t.Parallel()
 	path := filepath.Join(t.TempDir(), "fingerprints.yaml")
 	if err := os.WriteFile(path, []byte("promoters:\n- product: Promoter\n  crd: stages.promoter.example.com\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -212,6 +218,7 @@ func TestFleetFingerprintsAddPromoterRows(t *testing.T) {
 }
 
 func TestFleetWithoutMemberLinksUnchanged(t *testing.T) {
+	t.Parallel()
 	build := func(links func() map[string]fleet.ClusterLink) *fleet.FleetSnapshot {
 		t.Helper()
 		svc := k8sService("eu-prod-ctx")

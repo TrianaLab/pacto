@@ -53,7 +53,8 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 			"over a fleet snapshot, rebuilt when a call arrives 30 seconds or more after the last rebuild attempt. " +
 			"With --dashboard-url their answers link each entity to its page on that dashboard. The shared fleet source flags (--local, --target-state, " +
 			"--evidence-url, --traces, --mira-source, --backstage-url, --oci, --cache, --k8s, --namespace and --freshness) compose " +
-			"that snapshot and are read in --fleet mode only.\n\n" +
+			"that snapshot and are read in --fleet mode only, except --backstage-url: pacto_declare also reads it in any mode to accept a template:<namespace>/<name> " +
+			"subject, a software template that catalog lists, as a golden path.\n\n" +
 			"With --delivery, the server exposes the Pacto delivery tools (pacto_delivery_*) over the " +
 			"ambient cluster: operation types, plan, get, explain, history, blame, undo plans and record checks, the dashboard's delivery views " +
 			"(caller, inbox, environments, autonomy, published and refusals, scoped by --namespace like the dashboard's), plus propose and cancel only when the " +
@@ -150,7 +151,7 @@ func newMCPCommand(svc *app.Service, version string, d deps) *cobra.Command {
 	cmd.Flags().StringArray("auth", nil, "credential for a security scheme as name=value (repeatable)")
 	cmd.Flags().Bool("allow-writes", false, "expose mutating operations (POST/PUT/PATCH/DELETE) as tools")
 	cmd.Flags().Bool("fleet", false, "expose read-only operational-graph (fleet) query tools")
-	cmd.Flags().String("dashboard-url", "", "with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there")
+	cmd.Flags().String("dashboard-url", "", "with --fleet: base URL of a Pacto dashboard; fleet answers then carry an href to each entity's page there, and a pacto_create_service draft the page a person signs it at")
 	cmd.Flags().String("stats-read-registry", "", "with --fleet: the stats repository pacto_stats reads; it reads and never records. "+
 		"Over stdio the default is $PACTO_STATS_REGISTRY; over HTTP only this flag enables pacto_stats")
 	cmd.Flags().Bool("delivery", false, "expose the Pacto delivery tools over the ambient cluster")
@@ -201,7 +202,7 @@ func buildMCPServer(cmd *cobra.Command, svc *app.Service, version string, args [
 	}
 	m, err := mcpModes(cmd, svc, version, args, d)
 	if err == nil && deliveryMode {
-		m.Delivery, err = buildDeliveryMode(cmd, d, m.Fleet)
+		m.Delivery, err = buildDeliveryMode(cmd, svc, d, m.Fleet)
 	}
 	if err != nil {
 		return nil, err
@@ -381,7 +382,7 @@ func checkMCPMode(hasBundle, hasRoots, fleetMode, deliveryMode, publishMode bool
 // an agent must run under its own identity, and a person's credentials get
 // the read-only surface. The read tools run the dashboard's routes over fm,
 // the fleet mode when there is one.
-func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pactomcp.DeliveryMode, error) {
+func buildDeliveryMode(cmd *cobra.Command, svc *app.Service, d deps, fm *pactomcp.FleetMode) (*pactomcp.DeliveryMode, error) {
 	c, _, err := deliveryClient(cmd, d)
 	if err != nil {
 		return nil, err
@@ -392,15 +393,34 @@ func buildDeliveryMode(cmd *cobra.Command, d deps, fm *pactomcp.FleetMode) (*pac
 	}
 	cluster, _ := d.clusterConfig() // nil: delivery reads skip discovery and cannot list namespaces
 	id := baseDashboardIdentity(cluster, d, c.Trust, c.PolicyNamespace)
+	// Over stdio the caller is this process's own user: members a hub
+	// detection names read unrestricted, as pacto delivery plan reads them.
+	id.members = newMemberDelivery(svc, mcpFleetOptions(cmd).ClusterJoins)
+	// The kubeconfig user reads every other context the fleet reads with
+	// that context's own credentials, as the fleet does.
+	id.entries = memoEntries(fleetEntries(svc, d, mcpFleetOptions(cmd)))
 	reads := mcpDeliveryReads(id, fm, deliveryNarrowing(flagNamespaces(cmd)))
-	return &pactomcp.DeliveryMode{API: mcpDelivery{c}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
+	return &pactomcp.DeliveryMode{API: mcpDelivery{Delivery: c, members: id.members}, Writes: caller.Class == delivery.ClassAgent, Caller: caller,
 		Reads: reads(c, ""), CallerAt: time.Now(), Installed: id.installedProbe(), InstalledAt: id.installedAt(), Refs: c}, nil
 }
 
-// mcpDelivery adapts app.Delivery to the MCP tools' interface.
-type mcpDelivery struct{ *app.Delivery }
+// mcpDelivery adapts app.Delivery to the MCP tools' interface. members
+// plans member requests, narrowed by scope when set (else as the server's
+// own user); nil reads no members.
+type mcpDelivery struct {
+	*app.Delivery
+	members *memberDelivery
+	scope   func(context.Context, *app.MemberPlanOptions)
+}
 
 func (m mcpDelivery) Plan(ctx context.Context, req delivery.Request) (delivery.PlanAnswer, error) {
+	if memberRequest(req) {
+		return m.members.plan(ctx, req, func(o *app.MemberPlanOptions) {
+			if m.scope != nil {
+				m.scope(ctx, o)
+			}
+		})
+	}
 	p, _, err := m.Delivery.Plan(ctx, req)
 	return p, err
 }
@@ -487,9 +507,11 @@ func mcpAuthoring(cmd *cobra.Command, svc *app.Service) pactomcp.Authoring {
 	a.Remote = transport != "stdio"
 	if !a.Remote {
 		trust, _ := cmd.Flags().GetString("delivery-trust")
+		backstageURL, _ := cmd.Flags().GetString("backstage-url")
 		a.Init = mcpInit(svc, trust)
 		a.Catalog, a.CatalogUnavailable = mcpCatalog(cmd, svc)
-		a.Declare, a.Accept = newMCPDeclarer(svc, trust), mcpAcceptor{svc: svc, trust: publisherTrust(cmd, fleetDeps(), "")}
+		detected, _ := cmd.Flags().GetString("detected")
+		a.Declare, a.Accept = newMCPDeclarer(svc, trust, detected, backstageURL), mcpAcceptor{svc: svc, trust: publisherTrust(cmd, fleetDeps(), "")}
 	}
 	return a
 }
@@ -724,11 +746,12 @@ func viewerFleetView(v *authn.Viewer) pactomcp.FleetView {
 
 // remoteAuthoring is the contract tools of an HTTP server whose callers the
 // apiserver names: pacto_schema, and pacto_declare planning only in the
-// registries ociRefs name. Every HTTP authoring tool is set here, so both
+// registries ociRefs name, and accepting a golden path only for a caller who
+// may update pactos in installNS. Every HTTP authoring tool is set here, so both
 // remote servers (pacto mcp -t http and the dashboard's /mcp) register it.
-func remoteAuthoring(svc *app.Service, ociRefs []string, fleet *pactomcp.FleetMode, registry string, push gcrauthn.Keychain) pactomcp.Authoring {
+func remoteAuthoring(svc *app.Service, ociRefs []string, fleet *pactomcp.FleetMode, registry string, push gcrauthn.Keychain, detected, installNS string) pactomcp.Authoring {
 	rd := newRemoteDeclarer(svc, ociRefs, fleet)
-	rd.registry, rd.push = registry, push
+	rd.registry, rd.push, rd.detected, rd.installNS = registry, push, detected, installNS
 	return pactomcp.Authoring{Validate: svc.ValidationReport, Remote: true, Declare: rd}
 }
 

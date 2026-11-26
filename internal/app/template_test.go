@@ -101,6 +101,7 @@ func TestResolveTemplate_Directory(t *testing.T) {
 // TestResolveTemplate_UndeclaredVersion: an undeclared version has no
 // published coordinate, so the ref stays local.
 func TestResolveTemplate_UndeclaredVersion(t *testing.T) {
+	t.Parallel()
 	target := filepath.Join(t.TempDir(), "gift-cards")
 	unversioned := writeGoldenPath(t, "")
 	if err := os.WriteFile(filepath.Join(unversioned, "pacto.yaml"), []byte(strings.Replace(goldenPathYAML, "  version: 1.0.0\n", "", 1)+"publish:\n  bundle: oci://ghcr.io/acme/paths/http-service\n"), 0o644); err != nil {
@@ -114,6 +115,7 @@ func TestResolveTemplate_UndeclaredVersion(t *testing.T) {
 // TestDirTemplateErrors: a directory with no contract, an unreadable
 // .pactoignore or an unreadable file is refused.
 func TestDirTemplateErrors(t *testing.T) {
+	t.Parallel()
 	target := filepath.Join(t.TempDir(), "gift-cards")
 	missing := t.TempDir()
 	if _, err := dirTemplate(missing, missing, target); err == nil || !strings.Contains(err.Error(), "reading the golden path") {
@@ -134,6 +136,7 @@ func TestDirTemplateErrors(t *testing.T) {
 // TestResolveTemplate_NotAGoldenPath: a contract with no service.template is
 // refused, from a directory or a registry.
 func TestResolveTemplate_NotAGoldenPath(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	plain := "pactoVersion: \"2.1\"\nservice: {name: payments, version: 1.0.0}\n"
 	_ = os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(plain), 0o644)
@@ -162,6 +165,7 @@ const pathDigest = "sha256:11111111111111111111111111111111111111111111111111111
 // pulled by that manifest digest; the origin keeps the ref as given and the
 // content hash.
 func TestResolveTemplate_OCIPullsByDigest(t *testing.T) {
+	t.Parallel()
 	var pulled []string
 	store := &mockBundleStore{
 		ResolveFn: func(context.Context, string) (string, error) { return pathDigest, nil },
@@ -197,6 +201,7 @@ func TestResolveTemplate_OCIPullsByDigest(t *testing.T) {
 // TestResolveTemplate_OCIErrors: a registry that does not answer, or answers
 // with a bundle that cannot be read, creates nothing.
 func TestResolveTemplate_OCIErrors(t *testing.T) {
+	t.Parallel()
 	for name, c := range map[string]struct {
 		store *mockBundleStore
 		want  string
@@ -340,6 +345,7 @@ func TestTemplateVerifyReadsSigTags(t *testing.T) {
 
 // TestKeyName: a key is named by its name, its keyless identity or both.
 func TestKeyName(t *testing.T) {
+	t.Parallel()
 	for want, k := range map[string]delivery.TrustedKey{
 		"platform":                         {Name: "platform"},
 		"ci@acme from https://issuer":      {Identity: "ci@acme", Issuer: "https://issuer"},
@@ -430,6 +436,7 @@ func TestOriginDigestIsContentHash(t *testing.T) {
 // for its local origin, and refused before anything is read when an option
 // cannot go with a golden path.
 func TestInitFrom(t *testing.T) {
+	t.Parallel()
 	from := writeGoldenPath(t, "")
 	target := filepath.Join(t.TempDir(), "gift-cards")
 	r, err := (&Service{}).InitFrom(t.Context(), InitOptions{Dir: target, Owner: "checkout"}, InitFrom{From: from})
@@ -471,6 +478,7 @@ func TestInitFrom(t *testing.T) {
 // configuration ref cannot resolve, and creation is refused with nothing
 // written.
 func TestTemplateStrictValidation_UnresolvedRef(t *testing.T) {
+	t.Parallel()
 	from := writeGoldenPath(t, "configurations:\n  - name: database\n    ref: oci://ghcr.io/acme/postgresql:1.0.0\n    required: true\n")
 	target := filepath.Join(t.TempDir(), "gift-cards")
 	_, err := (&Service{}).InitFrom(t.Context(), InitOptions{Dir: target, Owner: "checkout"}, InitFrom{From: from})
@@ -516,6 +524,7 @@ func TestInitFromRunsPlugins(t *testing.T) {
 // read like a pulled bundle: a symlink, even to a file outside the folder, is
 // refused, and so is a file over a bundle's size limits.
 func TestDirTemplateReadsOnlyRegularFiles(t *testing.T) {
+	t.Parallel()
 	target := filepath.Join(t.TempDir(), "gift-cards")
 	secret := filepath.Join(t.TempDir(), "secret.txt")
 	_ = os.WriteFile(secret, []byte("token"), 0o600)
@@ -569,6 +578,7 @@ func TestLocalRef(t *testing.T) {
 // TestInitFromPublishedDirectory pins that a directory whose contract names
 // its published coordinate says that coordinate was never checked.
 func TestInitFromPublishedDirectory(t *testing.T) {
+	t.Parallel()
 	from := writeGoldenPath(t, "publish:\n  bundle: oci://ghcr.io/acme/paths/http-service\n")
 	r, err := (&Service{}).InitFrom(t.Context(), InitOptions{Dir: filepath.Join(t.TempDir(), "gift-cards"), Owner: "checkout", Plan: true}, InitFrom{From: from})
 	if err != nil {
@@ -576,5 +586,21 @@ func TestInitFromPublishedDirectory(t *testing.T) {
 	}
 	if r.Unknown[len(r.Unknown)-1] != publishedOrigin {
 		t.Errorf("unknown: %v", r.Unknown)
+	}
+}
+
+// TestInitFromInferredTemplateRefused: an inferred golden path is never
+// offered for creation: pacto init --from names the accept command, and
+// nothing is written.
+func TestInitFromInferredTemplateRefused(t *testing.T) {
+	t.Parallel()
+	target := filepath.Join(t.TempDir(), "gift-cards")
+	_, err := (&Service{}).InitFrom(t.Context(), InitOptions{Dir: target, Owner: "checkout"}, InitFrom{From: "template:default/springboot-service"})
+	if err == nil || err.Error() != "template:default/springboot-service is an inferred golden path: open it in Backstage, "+
+		"or accept it first with pacto declare template:default/springboot-service" {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(target); !os.IsNotExist(err) {
+		t.Fatalf("wrote %s: %v", target, err)
 	}
 }

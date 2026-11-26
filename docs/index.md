@@ -136,8 +136,7 @@ Contracts work anywhere, and the checks above work on Linux. Delivery, the
 part that moves versions, is alpha: its settings and commands may still
 change. It needs:
 
-- Kubernetes 1.30 or later, with Flux (Argo CD works too, as an experimental
-  option).
+- Kubernetes 1.30 or later, with Flux or Argo CD.
 - Your container registry, to hold contracts and versions.
 - For signed records, and so for the two automatic levels, any OCI registry.
   Pacto checks whether it serves the OCI Referrers API (the feature that lets

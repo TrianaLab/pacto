@@ -16,7 +16,7 @@ func TestPublishedGateRegistry(t *testing.T) {
 	stage := stageSpec()
 	stage.Candidates = registryCands
 	plan := func(status StageStatus, to Revision) Plan {
-		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+		snap, _ := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now, Members{})
 		return autonomousPlan(PlanInput{Spec: promote(dA, dB), Stage: stage, Status: status, From: from, To: to, Snapshot: snap, Class: ClassAgent})
 	}
 	accepted := StageStatus{Pointer: dA, Published: []string{dB}, Verified: []string{dA}}

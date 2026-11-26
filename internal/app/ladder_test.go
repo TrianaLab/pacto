@@ -59,6 +59,7 @@ func viewJSON(v delivery.EnvironmentsView) string {
 }
 
 func TestLadderViewReads(t *testing.T) {
+	t.Parallel()
 	got, err := ladderDelivery(ladderConfigMap(viewJSON(ladderView()))).LadderView(t.Context())
 	if err != nil || got.ProposalDigest != ladderView().ProposalDigest || len(got.Declared) != 2 {
 		t.Fatalf("%+v %v", got, err)
@@ -79,6 +80,7 @@ func TestLadderViewReads(t *testing.T) {
 }
 
 func TestLadderRungsDropKeepsTheRest(t *testing.T) {
+	t.Parallel()
 	rungs, dropped, err := LadderRungs(ladderView(), []string{"qa", "qa"})
 	if err != nil || len(rungs) != 3 || rungs[2].Name != "preview" || rungs[2].Upstream != "" || rungs[2].Provenance != delivery.RungInferred ||
 		len(dropped) != 1 || dropped[0] != "qa" {
@@ -109,6 +111,7 @@ func ladderRecord(t *testing.T) delivery.LadderRecord {
 // TestWriteLadderPushesWhatThePromoterReads: in either form the record is on
 // the cluster's ladder stream, verifies as alice's and holds what she kept.
 func TestWriteLadderPushesWhatThePromoterReads(t *testing.T) {
+	t.Parallel()
 	for _, mode := range bothModes {
 		t.Run(string(mode), func(t *testing.T) {
 			e := newJoinEnv(t, mode)
@@ -140,6 +143,7 @@ func TestWriteLadderPushesWhatThePromoterReads(t *testing.T) {
 // changed, a record Check refuses, a repository that cannot be opened or
 // reached and a signer that fails get nothing written.
 func TestWriteLadderRefuses(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	view := viewJSON(ladderView())
 	changed := ladderView()
@@ -168,6 +172,7 @@ func TestWriteLadderRefuses(t *testing.T) {
 }
 
 func TestLadderRungsSignConfirmedAgain(t *testing.T) {
+	t.Parallel()
 	v := ladderView()
 	v.Confirmed = []delivery.LadderRung{{Name: "dev", Source: "the cluster name eu-dev", Provenance: delivery.RungConfirmed}}
 	rungs, _, err := LadderRungs(v, []string{"qa"})
@@ -181,6 +186,7 @@ func TestLadderRungsSignConfirmedAgain(t *testing.T) {
 // again; one the person now keeps (here a confirmed one) is no longer
 // dropped.
 func TestLadderRungsCarryEarlierDrops(t *testing.T) {
+	t.Parallel()
 	v := ladderView()
 	v.Confirmed = []delivery.LadderRung{{Name: "dev", Source: "the cluster name eu-dev", Provenance: delivery.RungConfirmed}}
 	v.Dropped = []string{"perf", "dev"}
@@ -196,6 +202,7 @@ func TestLadderRungsCarryEarlierDrops(t *testing.T) {
 // TestLadderRungsBoundedBeforeSigning: more kept rungs than a record holds
 // are refused before the login, naming --drop.
 func TestLadderRungsBoundedBeforeSigning(t *testing.T) {
+	t.Parallel()
 	v := ladderView()
 	for i := range 15 {
 		v.Confirmed = append(v.Confirmed, delivery.LadderRung{Name: fmt.Sprintf("c%d", i), Provenance: delivery.RungConfirmed})
@@ -217,6 +224,7 @@ func placementsConfigMap(candidates string) *unstructured.Unstructured {
 }
 
 func TestNamespaceCandidates(t *testing.T) {
+	t.Parallel()
 	got, err := ladderDelivery(placementsConfigMap(`["payments-staging","orders-staging"]`)).NamespaceCandidates(t.Context())
 	if err != nil || len(got) != 2 || got[0] != "payments-staging" {
 		t.Fatalf("%v %v", got, err)
@@ -248,6 +256,7 @@ func TestNamespaceCandidates(t *testing.T) {
 }
 
 func TestWriteLadderBindsNamespaceCandidates(t *testing.T) {
+	t.Parallel()
 	e := newJoinEnv(t, capabilities.ReferrersNative)
 	rec := ladderRecord(t)
 	rec.NamespacesDigest = delivery.NamespacesDigest([]string{"payments-staging"})
@@ -276,6 +285,7 @@ func rowsConfigMap(ns, rows string) *unstructured.Unstructured {
 }
 
 func TestEnvironmentsReadsConfiguredNamespace(t *testing.T) {
+	t.Parallel()
 	rows := `[{"service":"payments","environment":"production","source":"ladder","reason":"waiting"}]`
 	d := ladderDelivery(inNamespace(ladderConfigMap(viewJSON(ladderView())), "ops"), rowsConfigMap("ops", rows),
 		ladderConfigMap(`{"proposalDigest":"sha256:default"}`))
@@ -291,6 +301,7 @@ func TestEnvironmentsReadsConfiguredNamespace(t *testing.T) {
 }
 
 func TestEnvironmentsAnswers(t *testing.T) {
+	t.Parallel()
 	forbidden := apierrors.NewForbidden(schema.GroupResource{Resource: "configmaps"}, delivery.PlacementsConfigMap, errors.New("no"))
 	view := ladderConfigMap(viewJSON(ladderView()))
 	for _, c := range []struct {

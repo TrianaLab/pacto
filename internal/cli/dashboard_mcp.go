@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"strings"
 
+	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/spf13/viper"
 
@@ -17,6 +18,7 @@ import (
 	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/impact"
 )
@@ -67,6 +69,32 @@ func dashboardMCPSourceFor(v *viper.Viper, id *dashboardIdentity) string {
 	return "this dashboard, at " + v.GetString("dashboard.mcp-url") + "; your MCP client signs in with " + v.GetString("dashboard.oidc-issuer-url")
 }
 
+// dashboardAuthoring is /mcp's authoring: it plans declarations only, and
+// verifies an offering's contribution with the dashboard's own detection, as
+// the dashboard's declarer does, and accepts a golden path only for a caller
+// who may update pactos in installNS. pacto_create_service is set apart
+// (dashboardMCPCreator): only it writes drafts through the dashboard's push
+// credential.
+func dashboardAuthoring(v *viper.Viper, svc *app.Service, repos []string, fleet *pactomcp.FleetMode, installNS string) pactomcp.Authoring {
+	return remoteAuthoring(svc, repos, fleet, "", nil, v.GetString("dashboard.detected"), installNS)
+}
+
+// dashboardMCPCreator is /mcp's pacto_create_service: the dashboard's
+// registry and the push credential its shared declarer writes with
+// (--declare-registry-config), and the trust it loaded at start; nil without
+// a registry.
+func dashboardMCPCreator(v *viper.Viper, svc *app.Service, fleet *pactomcp.FleetMode, trust *delivery.TrustConfig) (pactomcp.CreateServicer, error) {
+	var push gcrauthn.Keychain
+	if path := v.GetString("dashboard.declare-registry-config"); path != "" {
+		kc, err := loadDockerConfig(path)
+		if err != nil {
+			return nil, err
+		}
+		push = kc
+	}
+	return newRemoteCreator(svc, fleet, v.GetString("dashboard.registry"), push, trust), nil
+}
+
 // newDashboardMCP builds the dashboard's /mcp endpoint and its RFC 9728
 // metadata from what the dashboard already holds: its identity (sign-in,
 // viewer, trust and policy namespace), its fleet and its delivery probe. Every
@@ -86,14 +114,16 @@ func newDashboardMCP(v *viper.Viper, svc *app.Service, version string, repos []s
 		claims: claimsFlags(func(name string) string { return v.GetString("dashboard." + name) })}
 	rm.modes = pactomcp.Modes{Transport: "http", Fleet: &pactomcp.FleetMode{Src: src, Opts: pactomcp.FleetOptions{
 		View: viewerFleetView(id.viewer), Impact: dashboardMCPImpact(svc, prov), DashboardURL: strings.TrimSuffix(resource, "/mcp")}}}
-	// ponytail: /mcp plans declarations only; pass the dashboard's registry
-	// and push credential here once agents should write drafts through it.
-	rm.authoring = remoteAuthoring(svc, repos, rm.modes.Fleet, "", nil)
+	rm.authoring = dashboardAuthoring(v, svc, repos, rm.modes.Fleet, id.policyNS)
+	if rm.authoring.CreateService, err = dashboardMCPCreator(v, svc, rm.modes.Fleet, id.trust); err != nil {
+		return nil, err
+	}
 	// Delivery follows the dashboard: served with a cluster, with its trust
 	// and policy namespace.
-	rm.delivery = deliveryClientsFor(id.trust, id.policyNS, d)
+	rm.delivery = deliveryClientsFor(id.trust, id.policyNS, viewedMembers(id.viewer, id.planMembers, personFrom), d)
 	rm.reads = mcpDeliveryReads(id, rm.modes.Fleet, deliveryNarrowing(splitNamespaces(v.GetString("dashboard.namespace"))))
 	rm.installed, rm.installedAt = id.installedProbe(), id.installedAt()
+	rm.id = id
 	// ponytail: only a bundle can fail to register, and the dashboard serves
 	// none; check the error here once a mode that can fail is added.
 	mw, _ := rm.middleware()

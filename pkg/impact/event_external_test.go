@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -504,10 +505,30 @@ func signedStripe(version, fill string) fleet.RawRevision {
 
 // The EXTERNAL_CHANGED item counts the consumers the external answer lists,
 // hidden ones included, in the full and in a restricted view.
+// engineStripe is signedStripe linking digest a and recording the observed
+// engine.
+func engineStripe(version, engine string) fleet.RawRevision {
+	r := signedStripe(version, "a")
+	r.Bundle.Contract.Metadata[fleet.ExternalEngineMetadataKey] = engine
+	return r
+}
+
 func TestExternalChangedCountMatchesImpact(t *testing.T) {
+	t.Run("openapi", func(t *testing.T) {
+		externalChangedCountMatchesImpact(t, signedStripe("0.0.1", "a"), signedStripe("0.0.2", "b"))
+	})
+	t.Run("engine", func(t *testing.T) {
+		externalChangedCountMatchesImpact(t, engineStripe("0.0.1", "postgres 15"), engineStripe("0.0.2", "postgres 16"))
+	})
+}
+
+// externalChangedCountMatchesImpact checks the item over stripe's revisions
+// older and newer; a restricted view raises no engine-only item.
+func externalChangedCountMatchesImpact(t *testing.T, older, newer fleet.RawRevision) {
 	col := &fleet.Collection{
-		Revisions: []fleet.RawRevision{signedStripe("0.0.1", "a"), signedStripe("0.0.2", "b"), rev("payments", stripeUse(true)), rev("billing", stripeUse(false)), rev("checkout", pinned(""))},
+		Revisions: []fleet.RawRevision{older, newer, rev("payments", stripeUse(true)), rev("billing", stripeUse(false)), rev("checkout", pinned(""))},
 	}
+	engineOnly := newer.Bundle.Contract.Metadata[fleet.ExternalEngineMetadataKey] != nil
 	for name, ns := range map[string]string{"payments": "prod", "checkout": "prod", "billing": "secret"} {
 		col.Targets = append(col.Targets, fleet.RawTarget{Scope: ns, Kind: fleet.SourceKindKubernetes, Name: name, Service: name, Compliance: fleet.StatusCompliant, EvidenceAt: ago(0)})
 	}
@@ -529,6 +550,12 @@ func TestExternalChangedCountMatchesImpact(t *testing.T) {
 			if it.Code == fleet.AttentionExternalChanged {
 				label = it.Label
 			}
+		}
+		if engineOnly && name == "restricted" {
+			if label != "" {
+				t.Errorf("restricted engine-only change raised %q", label)
+			}
+			continue
 		}
 		if want := fmt.Sprintf(": %d consumers to review", len(res.Consumers)+res.Hidden); label == "" || !strings.HasSuffix(label, want) {
 			t.Errorf("%s: label %q, want suffix %q (consumers %d, hidden %d)", name, label, want, len(res.Consumers), res.Hidden)
@@ -581,5 +608,34 @@ func TestImpactExternalSubjectClaimantsNamesNoClaim(t *testing.T) {
 	want := "external stripe is claimed by 2 services, so no claim counts until all but one are retracted"
 	if !reflect.DeepEqual(res.Notes, []string{want}) {
 		t.Errorf("notes %q", res.Notes)
+	}
+}
+
+// TestExternalEventConsumerClusters: on two clusters each consumer of an
+// external system names the clusters of its uses: an observed or pod-spec use
+// its target's, a declared use every target the consumer runs on.
+func TestExternalEventConsumerClusters(t *testing.T) {
+	use := func(svc string) fleet.RawExternalUse {
+		return fleet.RawExternalUse{Service: svc, Namespace: "prod", Identity: "stripe", Class: "vendor-api", Confidence: "likely", Kind: "env",
+			Where: "deployment/" + svc + " env STRIPE_API_BASE", Host: "api.stripe.com"}
+	}
+	eu := clusterSource(euID, "eu-prod", fleet.ClusterNameFromApproval, evidenceNow, "checkout", "payments", "ledger")
+	us := clusterSource(usID, "us-prod", fleet.ClusterNameFromContext, evidenceNow, "ledger", "payments")
+	for src, user := range map[fleet.Source]string{eu: "checkout", us: "ledger"} {
+		col, _ := src.Collect(context.Background())
+		col.ExternalUses = []fleet.RawExternalUse{use(user)}
+		for i := range col.Targets {
+			col.Targets[i].Kind = fleet.SourceKindKubernetes // a pod-spec use names its Kubernetes target
+		}
+	}
+	snap := clusterFleet(t, []fleet.RawRevision{clusterRev("checkout"), clusterRev("ledger"), rev("payments", stripeUse(true))}, eu, us)
+	res := externalEvent(snap, EventChanged, "stripe")
+	if len(res.Clusters) != 2 {
+		t.Fatalf("clusters %+v", res.Clusters)
+	}
+	for name, want := range map[string][]string{"checkout": {euID}, "ledger": {usID}, "payments": {usID, euID}} {
+		if got := rowOf(t, res, name).Clusters; !slices.Equal(got, want) {
+			t.Errorf("%s clusters %v, want %v", name, got, want)
+		}
 	}
 }

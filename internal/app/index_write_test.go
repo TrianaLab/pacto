@@ -7,7 +7,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -45,8 +44,7 @@ func newIndexReg(t *testing.T) *indexReg {
 	t.Helper()
 	ir := &indexReg{}
 	inner := registry.New(registry.Logger(log.New(io.Discard, "", 0)))
-	freshProbes(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ir.mu.Lock()
 		ir.reqs = append(ir.reqs, r.Method+" "+r.URL.Path)
 		hook := ir.hook
@@ -144,6 +142,7 @@ func publishedIndex(t *testing.T, ir *indexReg, svc *Service, opts PublishOption
 }
 
 func TestPublishWritesIndexEntry(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	res, repo, tag, err := publishedIndex(t, ir, indexPublishService(ir), PublishOptions{})
 	if err != nil || res.Index != "indexed as "+repo+":"+tag {
@@ -162,6 +161,7 @@ func TestPublishWritesIndexEntry(t *testing.T) {
 }
 
 func TestPublishIndexEntryCarriesPublisherAndMode(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	dir := writePublishBundle(t, ir.host, "")
 	pub := signingKey(t, dir)
@@ -210,6 +210,7 @@ func deniedWrites(w http.ResponseWriter, r *http.Request) bool {
 }
 
 func TestPublishIndexWriteFailureWarnsAndSucceeds(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	ir.hook = deniedWrites
 	res, repo, _, err := publishedIndex(t, ir, indexPublishService(ir), PublishOptions{})
@@ -219,6 +220,7 @@ func TestPublishIndexWriteFailureWarnsAndSucceeds(t *testing.T) {
 }
 
 func TestIndexTextNeverCarriesDigest(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	ir.hook = deniedWrites
 	res, _, _, _ := publishedIndex(t, ir, indexPublishService(ir), PublishOptions{})
@@ -228,6 +230,7 @@ func TestIndexTextNeverCarriesDigest(t *testing.T) {
 }
 
 func TestPublishIndexEntryNeverOverwritten(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	repo := ir.host + "/pacto/pacto-index"
 	tag, _ := orgindex.Tag(fleet.NewServiceKeyDomain(ir.host+"/pacto", "payments"), "1.0.0")
@@ -246,6 +249,7 @@ func TestPublishIndexEntryNeverOverwritten(t *testing.T) {
 }
 
 func TestPublishRerunKeepsTheEntry(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	svc := indexPublishService(ir)
 	dir := writePublishBundle(t, ir.host, "")
@@ -261,6 +265,7 @@ func TestPublishRerunKeepsTheEntry(t *testing.T) {
 }
 
 func TestPublishPlanWritesNoIndexEntry(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	res, _, _, err := publishedIndex(t, ir, indexPublishService(ir), PublishOptions{Plan: true})
 	if err != nil || res.Index != "" || ir.count("", "pacto-index") != 0 {
@@ -269,6 +274,7 @@ func TestPublishPlanWritesNoIndexEntry(t *testing.T) {
 }
 
 func TestPublishRefusedWritesNoIndexEntry(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	svc := indexPublishService(ir)
 	svc.sys.now = func() time.Time { return time.Date(2026, 10, 22, 10, 0, 0, 0, time.UTC) }
@@ -286,6 +292,7 @@ func TestPublishRefusedWritesNoIndexEntry(t *testing.T) {
 }
 
 func TestPublishIndexNone(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	res, _, _, err := publishedIndex(t, ir, indexPublishService(ir), PublishOptions{Index: IndexNone})
 	if err != nil || res.Index != "" || ir.count("", "pacto-index") != 0 {
@@ -303,32 +310,35 @@ func seedIndex(t *testing.T, repo string) {
 }
 
 func TestIndexRepositoryPrefersFirstRoot(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	seedIndex(t, ir.host+"/acme/pacto-index")
 	seedIndex(t, ir.host+"/pacto-index")
 	svc := &Service{sys: sysDeps{refusalRepo: anonRepo}}
-	repo, note, _, err := svc.indexRepository(t.Context(), indexCandidates("", ir.host+"/acme/contracts/ledger"))
+	repo, note, _, err := svc.indexRepository(t.Context(), svc.env().refusalRepo, indexCandidates("", ir.host+"/acme/contracts/ledger"))
 	if err != nil || repo != ir.host+"/acme/pacto-index" || note != "" {
 		t.Fatalf("%q %q %v", repo, note, err)
 	}
 }
 
 func TestIndexRepositoryFallsThroughOnNotFound(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	svc := &Service{sys: sysDeps{refusalRepo: anonRepo}}
 	cands := indexCandidates("", ir.host+"/acme/contracts/ledger")
-	repo, _, _, err := svc.indexRepository(t.Context(), cands)
+	repo, _, _, err := svc.indexRepository(t.Context(), svc.env().refusalRepo, cands)
 	if !errors.Is(err, errIndexNotFound) || repo != ir.host+"/acme/pacto-index" {
 		t.Fatalf("every candidate absent: %q %v", repo, err)
 	}
 	seedIndex(t, ir.host+"/pacto-index")
-	repo, note, _, err := svc.indexRepository(t.Context(), cands)
+	repo, note, _, err := svc.indexRepository(t.Context(), svc.env().refusalRepo, cands)
 	if err != nil || repo != ir.host+"/pacto-index" || note != "after "+ir.host+"/acme/pacto-index: not found" {
 		t.Fatalf("fallback: %q %q %v", repo, note, err)
 	}
 }
 
 func TestIndexRepositoryStopsOnAuthFailure(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	seedIndex(t, ir.host+"/pacto-index")
 	ir.hook = func(w http.ResponseWriter, r *http.Request) bool {
@@ -341,17 +351,18 @@ func TestIndexRepositoryStopsOnAuthFailure(t *testing.T) {
 		return true
 	}
 	svc := &Service{sys: sysDeps{refusalRepo: anonRepo}}
-	repo, _, _, err := svc.indexRepository(t.Context(), indexCandidates("", ir.host+"/acme/contracts/ledger"))
+	repo, _, _, err := svc.indexRepository(t.Context(), svc.env().refusalRepo, indexCandidates("", ir.host+"/acme/contracts/ledger"))
 	if err == nil || errors.Is(err, errIndexNotFound) || repo != ir.host+"/acme/pacto-index" {
 		t.Fatalf("a denied candidate fell through: %q %v", repo, err)
 	}
 	// A candidate that cannot be opened stops too.
-	if _, _, _, err := svc.indexRepository(t.Context(), []string{"Bad Host/pacto-index"}); err == nil || errors.Is(err, errIndexNotFound) {
+	if _, _, _, err := svc.indexRepository(t.Context(), svc.env().refusalRepo, []string{"Bad Host/pacto-index"}); err == nil || errors.Is(err, errIndexNotFound) {
 		t.Fatalf("unopenable: %v", err)
 	}
 }
 
 func TestIndexWriteRefusesBundleOutsideIndexRoot(t *testing.T) {
+	t.Parallel()
 	ir, elsewhere := newIndexReg(t), newIndexReg(t)
 	res, _, _, err := publishedIndex(t, ir, indexPublishService(ir), PublishOptions{Index: "oci://" + elsewhere.host + "/pacto-index"})
 	if err != nil || !strings.HasPrefix(res.Index, "not indexed in "+elsewhere.host+"/pacto-index: ") || !strings.Contains(res.Index, "not the index host") ||
@@ -362,6 +373,7 @@ func TestIndexWriteRefusesBundleOutsideIndexRoot(t *testing.T) {
 
 // TestKeepIndexEntryRefusals: what keepIndexEntry says when it cannot write.
 func TestKeepIndexEntryRefusals(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	svc := &Service{sys: sysDeps{refusalRepo: anonRepo}}
 	b := &contract.Bundle{Contract: &contract.Contract{Service: contract.Service{Name: "payments", Version: "1.0.0"}}}
@@ -411,13 +423,14 @@ func TestKeepIndexEntryRefusals(t *testing.T) {
 }
 
 func TestRegistryModeUnknown(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	svc := &Service{sys: sysDeps{refusalRepo: func(string) (*remote.Repository, error) { return nil, errors.New("no") }}}
-	if got := svc.registryMode(t.Context(), ir.host+"/pacto/payments", digest64); got != "unknown" {
+	if got := svc.registryMode(t.Context(), svc.env().refusalRepo, ir.host+"/pacto/payments", digest64); got != "unknown" {
 		t.Fatalf("unopened: %q", got)
 	}
 	svc.sys.refusalRepo = anonRepo
-	if got := svc.registryMode(t.Context(), ir.host+"/pacto/payments", digest64); got != "unknown" {
+	if got := svc.registryMode(t.Context(), svc.env().refusalRepo, ir.host+"/pacto/payments", digest64); got != "unknown" {
 		t.Fatalf("a subject the registry lacks: %q", got)
 	}
 }
@@ -437,6 +450,7 @@ func pushTag(ir *indexReg) string {
 }
 
 func TestPushWritesIndexEntry(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	res, err := pushIndexService(ir).Push(t.Context(), PushOptions{Ref: "oci://" + ir.host + "/acme/svc", Path: writeTestBundle(t)})
 	repo := ir.host + "/acme/pacto-index"
@@ -450,6 +464,7 @@ func TestPushWritesIndexEntry(t *testing.T) {
 }
 
 func TestPushAlreadyPublishedBackfillsEntry(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	svc, dir := pushIndexService(ir), writeTestBundle(t)
 	ref := "oci://" + ir.host + "/acme/svc"
@@ -466,6 +481,7 @@ func TestPushAlreadyPublishedBackfillsEntry(t *testing.T) {
 }
 
 func TestPushForceKeepsTheOldEntry(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	svc, dir := pushIndexService(ir), writeTestBundle(t)
 	ref := "oci://" + ir.host + "/acme/svc"
@@ -487,6 +503,7 @@ func TestPushForceKeepsTheOldEntry(t *testing.T) {
 }
 
 func TestPushLatestTagWritesNoEntry(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	res, err := pushIndexService(ir).Push(t.Context(), PushOptions{Ref: "oci://" + ir.host + "/acme/svc:latest", Path: writeTestBundle(t)})
 	if err != nil || res.Index != "not indexed: pushed as latest; the index names versions" || ir.count("", "pacto-index") != 0 {
@@ -495,6 +512,7 @@ func TestPushLatestTagWritesNoEntry(t *testing.T) {
 }
 
 func TestPushDigestRefWritesNoEntry(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{ResolveFn: func(context.Context, string) (string, error) { return "", &oci.ArtifactNotFoundError{} }}
 	res, err := offlineService(store).Push(t.Context(), PushOptions{Ref: "oci://ghcr.io/acme/svc@" + digest64, Path: writeTestBundle(t)})
 	if err != nil || res.Index != "not indexed: pushed as a digest; the index names versions" {
@@ -503,6 +521,7 @@ func TestPushDigestRefWritesNoEntry(t *testing.T) {
 }
 
 func TestIndexFlagOverridesRepository(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	repo := ir.host + "/pacto-index"
 	pushed, err := pushIndexService(ir).Push(t.Context(), PushOptions{Ref: "oci://" + ir.host + "/acme/svc", Path: writeTestBundle(t), Index: "oci://" + repo})
@@ -516,6 +535,7 @@ func TestIndexFlagOverridesRepository(t *testing.T) {
 }
 
 func TestIndexFlagNoneWritesNothing(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	res, err := pushIndexService(ir).Push(t.Context(), PushOptions{Ref: "oci://" + ir.host + "/acme/svc", Path: writeTestBundle(t), Index: IndexNone})
 	if err != nil || res.Index != "" || ir.count("", "pacto-index") != 0 {

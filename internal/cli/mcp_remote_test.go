@@ -292,6 +292,12 @@ type remoteFleet struct {
 // newRemoteFleet takes the server's auth from a, else w.fa.
 func newRemoteFleet(t *testing.T, a ...mcpAuth) *remoteFleet {
 	t.Helper()
+	return newRemoteFleetFlags(t, nil, a...)
+}
+
+// newRemoteFleetFlags is newRemoteFleet with more pacto mcp flags set.
+func newRemoteFleetFlags(t *testing.T, flags map[string]string, a ...mcpAuth) *remoteFleet {
+	t.Helper()
 	w := &remoteFleet{fa: &fakeMCPAuth{exchange: true}, reviewed: authn.Person{User: "alice", Groups: []string{"team-a"}}, readers: map[string]bool{"alice": true}}
 	d := defaultDeps()
 	d.clusterConfig = func() (*rest.Config, error) {
@@ -329,6 +335,9 @@ func newRemoteFleet(t *testing.T, a ...mcpAuth) *remoteFleet {
 	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 	cmd.SetContext(context.Background())
 	for k, v := range map[string]string{"fleet": "true", "local": root, "transport": "http", "auth-issuer": "https://idp", "oidc-username-claim": "email"} {
+		expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
+	}
+	for k, v := range flags {
 		expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
 	}
 	s := mcpServe{auth: authOr(w.fa, a), issuer: "https://idp", resource: "https://mcp.example/mcp"}
@@ -634,7 +643,7 @@ func TestNoMCPServerListsApproveTool(t *testing.T) {
 		cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
 		cmd.SetContext(context.Background())
 		_ = cmd.Flags().Set("delivery", "true")
-		mode, err := buildDeliveryMode(cmd, d, nil)
+		mode, err := buildDeliveryMode(cmd, app.NewService(nil, nil), d, nil)
 		expect(t, err == nil, "%s: %v", name, err)
 		expect(t, mode.Writes == (name == "stdio agent"), "%s writes: %v", name, mode.Writes)
 		server, err := buildMCPServer(cmd, app.NewService(nil, nil), "v", nil, d)
@@ -884,4 +893,21 @@ func TestFleetOnlyModesHint(t *testing.T) {
 	expect(t, m.Delivery == nil && m.Bundle == nil && m.DeliveryHidden, "fleet-only modes serve delivery: %+v", m)
 	expect(t, !fleetOnlyModes(pactomcp.Modes{}, "").DeliveryHidden, "a host with no delivery hides none")
 	expect(t, strings.HasSuffix(m.FleetOnlyHint, "--audience pacto-dashboard --audience https://kubernetes.default.svc"), "hint: %s", m.FleetOnlyHint)
+}
+
+// TestRemoteCreatorRefusesABadTrustConfig: with a registry and the fleet
+// view, pacto_create_service reads the trust file at start, and an
+// unreadable one fails it.
+func TestRemoteCreatorRefusesABadTrustConfig(t *testing.T) {
+	d := deliveryDeps("system:serviceaccount:agents:bot", nil)
+	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k"}, nil }
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", d)
+	cmd.SetContext(t.Context())
+	for k, v := range map[string]string{"delivery-trust": filepath.Join(t.TempDir(), "absent"), "fleet": "true", "registry": "ghcr.io/acme",
+		"declare-registry-config": emptyDockerConfig(t)} {
+		expect(t, cmd.Flags().Set(k, v) == nil, "flag %s", k)
+	}
+	s := mcpServe{auth: &fakeMCPAuth{exchange: true}}
+	err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", nil, d, &s)
+	expect(t, err != nil && strings.Contains(err.Error(), "absent"), "an unreadable trust file was accepted: %v", err)
 }

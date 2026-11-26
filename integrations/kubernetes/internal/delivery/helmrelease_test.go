@@ -26,7 +26,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -258,7 +258,7 @@ func TestHelmReleaseMediated(t *testing.T) {
 			chart.SetLabels(tc.chartLabels)
 		}
 		a := helmReleaseApplier{hr: withHR(helmReleaseObj("True", "", dA, dA), tc.edit), chart: &source{obj: chart}}
-		c, err := Cluster{}.mediated(t.Context(), ns, a)
+		c, err := Cluster{}.mediated(t.Context(), ns, "prod", a)
 		if err != nil || c.Reason != tc.reason || !strings.Contains(c.Message, tc.msg) {
 			t.Errorf("%s: %+v %v", tc.name, c, err)
 		}

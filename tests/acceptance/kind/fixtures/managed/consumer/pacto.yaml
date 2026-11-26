@@ -1,0 +1,15 @@
+pactoVersion: "2.6"
+service:
+  name: orders
+  version: "1.0.0"
+environments: [{name: prod}]
+dependencies:
+  - name: postgresql
+    ref: oci://__REG_HOST__/demo/postgresql
+    required: true
+    compatibility: "^1.0.0"
+workload: service
+state:
+  type: stateless
+  persistence: {scope: local, durability: ephemeral}
+  dataCriticality: low

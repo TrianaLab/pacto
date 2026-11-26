@@ -19,6 +19,11 @@ Controller flags and their exact defaults are captured from the operator's real 
 | Flag | Type | Default | Via chart | Description |
 | --- | --- | --- | --- | --- |
 | `-caller-coverage-ignore-namespace` | `value` |  | chart value | Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's are always ignored. |
+| `-chart-version` | `string` |  | always on | The chart version this operator was installed with, advertised in the detected ConfigMap so a generated member install pins the same chart. |
+| `-cloud-inventory` | `=cloud` |  | chart value | The cloud whose inventory to read managed resources from, written =cloud: aws (Resource Explorer), gcp (Cloud Asset Inventory), azure (Resource Graph) or off. Read only through the operator's workload identity for that cloud. off by default. |
+| `-cluster-inventory` | `bool` |  | chart value | List the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher know into the detected ConfigMap, as metadata only; nothing joins on its own. |
+| `-cluster-inventory-namespaces` | `value` |  | chart value | Comma-separated namespaces the chart grants Secret list in: the operator reads Argo CD cluster Secrets and Flux kubeconfig Secrets there, metadata only, and nowhere else. |
+| `-crossplane-offerings` | `bool` | `true` | chart value | Push each Crossplane XRD as an inferred offering to &lt;registry&gt;/pacto-inferred/crossplane-&lt;clusterID&gt;/services. Needs --registry and a cluster-wide operator; the operator only reads XRDs and Compositions. |
 | `-dashboard-allow-anonymous` | `bool` |  | chart value | Serve the dashboard without sign-in when neither an issuer nor token sign-in is set; everyone who reaches it reads what its ServiceAccount reads. |
 | `-dashboard-backstage-token-key` | `string` | `token` | chart value | Key of the reader token in that Secret. |
 | `-dashboard-backstage-token-secret` | `string` |  | chart value | Secret in the operator namespace holding the catalog reader token, which the dashboard sends only to --dashboard-backstage-url; the operator never reads it. |
@@ -70,6 +75,7 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-dashboard-token-login` | `bool` |  | chart value | Let people sign in to the dashboard with a Kubernetes token; a ServiceAccount token minted for the pacto-dashboard audience reads the fleet only, and a person's own token acts as them. |
 | `-dashboard-trace-source` | `value` |  | chart value | Repeatable: an offline OTLP/JSON trace file to mount read-only into the dashboard, as name=NAME,file=RELATIVE_PATH,existingClaim=PVC (or configMap=NAME). NAME is the stable Data Source identity. Configures offline input; the dashboard also receives OTLP/HTTP JSON in the cluster. |
 | `-dashboard-trusted-root-configmap` | `string` |  | chart value | Immutable ConfigMap in the operator namespace whose trusted_root.json the dashboard verifies the declarations it signs with (a private Sigstore or an air-gapped install). Empty: public-good Sigstore. |
+| `-delivery-policy-configmap` | `string` |  | chart value | namespace/name of the ConfigMap holding the delivery identity policy (policy.json), whose approver signers verify member requests. |
 | `-egress-gateway-logs` | `=mode` |  | chart value | Istio egress gateway access logs, written =mode: auto, on or off. on reads the access log tail of the pods labelled istio=egressgateway in istio-system to name the calls that left through them (the chart then grants pods/log get there); auto reads nothing and proposes on in the detected providers; off reads nothing and proposes nothing. auto by default. |
 | `-enable-dashboard` | `bool` |  | chart value | Enable the managed Pacto dashboard deployment. Disabled by default. |
 | `-enable-evidence-server` | `bool` |  | chart value | Enable the managed Pacto Evidence Server deployment. Disabled by default. |
@@ -97,6 +103,11 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-kernel-evidence-staleness` | `duration` |  | chart value | How old a node's heartbeat (its Lease renewal, or the observation's lastPublished without a Lease) may be before its evidence reads stale. 0 uses three times the publish interval the node agent reports. |
 | `-kubeconfig` | `string` |  | no | Paths to a kubeconfig. Only required if out-of-cluster. |
 | `-leader-elect` | `bool` |  | chart value | Enable leader election for controller manager. Enabling this will ensure there is only one active controller manager. |
+| `-member-allow-environments` | `string` |  | chart value | Comma-separated environments member requests are taken for, among those the cluster name hosts; empty takes them all. |
+| `-member-allow-namespaces` | `string` |  | chart value | Comma-separated namespaces member requests are taken for, among the watched ones; empty takes every watched namespace. |
+| `-member-allow-services` | `string` |  | chart value | Comma-separated service name patterns member requests are taken for; empty takes every service. |
+| `-member-requests` | `bool` |  | chart value | Take member requests: the elected leader reads this cluster's request stream in &lt;registry&gt;/pacto-targets and raises one promote, as an agent on the person's behalf, for each request a person signed that this cluster's approver signers verify, its RBAC allows and its allowlist takes. Needs --registry and --delivery-policy-configmap. |
+| `-member-streams-repository` | `string` |  | chart value | The delivery recorder's streams repository: the join block names it and lists the Stages that record a stream. Empty lists no Stage. |
 | `-metrics-bind-address` | `string` | `:8080` | chart value | The address the metrics endpoint binds to. Use :8443 for HTTPS or :8080 for HTTP, or set to 0 to disable the metrics service. |
 | `-metrics-cert-key` | `string` | `tls.key` | no | The name of the metrics server key file. |
 | `-metrics-cert-name` | `string` | `tls.crt` | no | The name of the metrics server certificate file. |
@@ -116,14 +127,18 @@ Controller flags and their exact defaults are captured from the operator's real 
 | `-publishers-policy` | `string` |  | chart value | The signed delivery policy's tag reference (delivery.publishers.policy): once verified, its publisher rules replace the derived rule and its signer class rules classify who signed an owner change, as the fleet does. |
 | `-publishers-policy-signers` | `string` |  | chart value | A trust config (YAML) whose role: policy keys sign the delivery policy. Required with --publishers-policy. |
 | `-publishers-registry` | `string` |  | chart value | The registry (host/org) the installation's services publish to: its derived publisher rule (the organization's CI on the default branch) is the only CI identity whose signed CODEOWNERS or catalog-info.yaml owner counts as attested when an owner change is judged. Empty: no owner is attested. |
+| `-recorded-ttl` | `duration` |  | chart value | How long the delivery recorder keeps a concluded Operation: no member request outlives it. 0 adds no bound. |
+| `-recorder-trust-file` | `string` |  | chart value | File holding a one-key trust config: the key the delivery recorder signs Stage records with, named in the join block so other members can follow them. A file that does not parse stops the operator. |
 | `-registry` | `string` |  | chart value | The installation registry (host/path): Pacto publishes the target snapshot and inferred contracts under it and pushes nowhere else; empty turns those features off. |
 | `-registry-pull-secret` | `string` |  | chart value | namespace/name of the Secret that authenticates to the installation registry; used only under the push prefixes. |
 | `-registry-push-prefix` | `value` |  | chart value | Repeatable: a repository prefix a Pacto component may push under; the chart renders every one. |
 | `-stabilization-window` | `duration` | `2m0s` | chart value | The stabilization window duration for compliance assertions before they trigger a false condition. Assertions must remain unsatisfied for this entire window before being considered a failure. |
+| `-terraform-state` | `value` |  | chart value | A remote Terraform or OpenTofu state to read managed resources from (repeatable), written s3://&lt;bucket&gt;/&lt;key&gt;?region=&lt;region&gt;, gs://&lt;bucket&gt;/&lt;object&gt; or azurerm://&lt;account&gt;/&lt;container&gt;/&lt;key&gt;. Read through the operator's workload identity; only resource types, ids, regions and engines are kept. |
 | `-trusted-root` | `string` |  | chart value | File holding a Sigstore trusted root (trusted_root.json) that the signatures of an owner change must chain to. Empty fetches public-good Sigstore's root through TUF, caching nothing on disk. |
 | `-version` | `bool` |  | no | Print version information and exit. |
 | `-watch-namespace` | `string` |  | no | Deprecated: use --watch-namespaces. Merged into the --watch-namespaces list. |
 | `-watch-namespaces` | `string` |  | chart value | Restrict the controller and the managed dashboard to these namespaces (comma-separated). Empty (default) means cluster-wide. |
+| `-workload-identity` | `string` |  | chart value | The workload identity bound to the operator ServiceAccount, written &lt;cloud&gt;=&lt;value&gt;, the value being a role ARN, a service account email or a client id; the chart renders it from serviceAccount.annotations. Empty reads the identity webhooks' environment. |
 | `-zap-devel` | `bool` |  | no | Development Mode defaults(encoder=consoleEncoder,logLevel=Debug,stackTraceLevel=Warn). Production Mode defaults(encoder=jsonEncoder,logLevel=Info,stackTraceLevel=Error) |
 | `-zap-encoder` | `value` |  | no | Zap log encoding (one of 'json' or 'console') |
 | `-zap-log-level` | `value` |  | no | Zap Level to configure the verbosity of logging. Can be one of 'debug', 'info', 'error', 'panic' or any integer value > 0 which corresponds to custom debug levels of increasing verbosity |

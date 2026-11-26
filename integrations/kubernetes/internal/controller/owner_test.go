@@ -25,8 +25,8 @@ import (
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/publish"
@@ -70,8 +70,8 @@ func newOwnerFixture(t *testing.T) *ownerFixture {
 	host := strings.TrimPrefix(srv.URL, "http://")
 	f := &ownerFixture{t: t, ss: testutil.New(t), repo: host + "/payments", reg: publish.NewClient(authn.NewMultiKeychain(), host),
 		bundles: map[string]*loader.LoadResult{}}
-	pacto := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "pay", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{ContractRef: pactov1alpha1.ContractRef{OCI: "oci://" + f.repo + ":1.0.0"}}}
+	pacto := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "pay", Namespace: "default", UID: "u"},
+		Spec: pactov1.PactoSpec{ContractRef: pactov1.ContractRef{OCI: "oci://" + f.repo + ":1.0.0"}}}
 	f.r = newReconciler(pacto)
 	f.r.Loader = &mockLoader{loadFn: func(_ context.Context, ref, _ string) (*loader.LoadResult, error) {
 		d := f.current
@@ -140,7 +140,7 @@ func (f *ownerFixture) publish(owner contract.Owner, rec *contract.InferredRecor
 }
 
 // run reconciles with the CR resolving to digest d and returns the Pacto.
-func (f *ownerFixture) run(d string) *pactov1alpha1.Pacto {
+func (f *ownerFixture) run(d string) *pactov1.Pacto {
 	f.t.Helper()
 	f.current = d
 	if _, err := f.r.Reconcile(f.t.Context(), reconcileReq("pay", "default")); err != nil {
@@ -161,11 +161,11 @@ func attestedOwnerRecord(team string) *contract.InferredRecord {
 			Confidence: contract.ConfidenceLikely, Declare: "service:\n  owner:\n    team: " + team + "\n"}}}
 }
 
-func ownerCondition(p *pactov1alpha1.Pacto) *metav1.Condition {
-	return meta.FindStatusCondition(p.Status.Conditions, pactov1alpha1.ConditionOwnerVerified)
+func ownerCondition(p *pactov1.Pacto) *metav1.Condition {
+	return meta.FindStatusCondition(p.Status.Conditions, pactov1.ConditionOwnerVerified)
 }
 
-func wantOwnerVerified(t *testing.T, p *pactov1alpha1.Pacto, status metav1.ConditionStatus, reason string) {
+func wantOwnerVerified(t *testing.T, p *pactov1.Pacto, status metav1.ConditionStatus, reason string) {
 	t.Helper()
 	c := ownerCondition(p)
 	if c == nil || c.Status != status || c.Reason != reason {
@@ -173,7 +173,7 @@ func wantOwnerVerified(t *testing.T, p *pactov1alpha1.Pacto, status metav1.Condi
 	}
 }
 
-func statusOwnerTeam(p *pactov1alpha1.Pacto) string {
+func statusOwnerTeam(p *pactov1.Pacto) string {
 	if p.Status.Contract == nil || p.Status.Contract.Owner == nil {
 		return ""
 	}
@@ -184,7 +184,7 @@ func TestOwnerVerifiedTrueForDefaultApprover(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.run(f.publish(teamPayments, nil))
 	p := f.run(f.publish(teamBilling, declarationRecord(), f.person("admin@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1.ReasonOwnerSignerAllowed)
 	if statusOwnerTeam(p) != "billing" || p.Status.Contract.OwnerDisplay == "" {
 		t.Fatalf("an allowed owner is shown: %+v", p.Status.Contract)
 	}
@@ -201,7 +201,7 @@ func TestOwnerVerifiedTrueForAttestedOwnerMember(t *testing.T) {
 		t.Fatalf("an accepted CI publish is outside the rule: %+v", ownerCondition(p))
 	}
 	p = f.run(f.publish(teamBilling, declarationRecord(), f.person("alice@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1.ReasonOwnerSignerAllowed)
 	if !strings.Contains(ownerCondition(p).Message, "attested-owner") || statusOwnerTeam(p) != "billing" {
 		t.Fatalf("a member of the attested owner sets it: %+v", ownerCondition(p))
 	}
@@ -211,14 +211,14 @@ func TestOwnerVerifiedTrueForAttestedOwnerMember(t *testing.T) {
 	f.r.Owners.Rules = nil
 	f.run(f.publish(contract.Owner{}, attestedOwnerRecord("payments"), f.ci()))
 	p = f.run(f.publish(teamBilling, declarationRecord(), f.person("alice@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
+	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotAllowed)
 }
 
 func TestOwnerVerifiedFalseWithholdsOwner(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.run(f.publish(teamPayments, nil))
 	p := f.run(f.publish(teamBilling, declarationRecord(), f.person("eve@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
+	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotAllowed)
 	if p.Status.Contract == nil || p.Status.Contract.Owner != nil || p.Status.Contract.OwnerDisplay != "" {
 		t.Fatalf("a refused owner is withheld: %+v", p.Status.Contract)
 	}
@@ -238,7 +238,7 @@ func TestOwnerVerifiedFalseWithholdsOwner(t *testing.T) {
 func TestOwnerVerifiedFirstRunIsUnverified(t *testing.T) {
 	f := newOwnerFixture(t)
 	p := f.run(f.publish(teamBilling, declarationRecord(), f.person("alice@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1.ReasonOwnerSignerUnverified)
 	c := ownerCondition(p)
 	if tl := judged(c); tl.ref != "" || !tl.kept || !strings.Contains(c.Message, "the owner before it was not read") ||
 		strings.Contains(c.Message, "no declared or attested owner yet") || statusOwnerTeam(p) != "" {
@@ -246,7 +246,7 @@ func TestOwnerVerifiedFirstRunIsUnverified(t *testing.T) {
 	}
 	f = newOwnerFixture(t)
 	p = f.run(f.publish(teamBilling, declarationRecord(), f.person("admin@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1.ReasonOwnerSignerAllowed)
 	// A condition another writer left without the tail names no bundle: judged again.
 	c = ownerCondition(p)
 	c.Message = "edited"
@@ -259,7 +259,7 @@ func TestOwnerVerifiedFalseForAgentSigner(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.run(f.publish(teamPayments, nil))
 	p := f.run(f.publish(teamBilling, declarationRecord(), f.agent()))
-	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotPerson)
+	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotPerson)
 	if statusOwnerTeam(p) != "" {
 		t.Fatal("an agent's owner is withheld")
 	}
@@ -271,21 +271,21 @@ func TestOwnerVerifiedUnknownWhenRootUnreachable(t *testing.T) {
 	f.r.Owners.Root = func() (root.TrustedMaterial, error) { return nil, errors.New("tuf mirror unreachable") }
 	d := f.publish(teamBilling, declarationRecord(), f.person("admin@acme.example"))
 	p := f.run(d)
-	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1.ReasonOwnerSignerUnverified)
 	if statusOwnerTeam(p) != "" || !strings.Contains(ownerCondition(p).Message, "tuf mirror unreachable") {
 		t.Fatalf("unknown withholds the owner and says why: %+v", ownerCondition(p))
 	}
 	// Unknown is judged again, against the same reference, once the root is back.
 	f.r.Owners.Root = func() (root.TrustedMaterial, error) { return f.ss.Root, nil }
 	p = f.run(d)
-	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1.ReasonOwnerSignerAllowed)
 	// A reference that cannot be read is unknown too.
 	f = newOwnerFixture(t)
 	gone := f.publish(teamPayments, nil)
 	f.run(gone)
 	delete(f.bundles, gone)
 	p = f.run(f.publish(teamBilling, declarationRecord(), f.person("admin@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1.ReasonOwnerSignerUnverified)
 	if !strings.Contains(ownerCondition(p).Message, "manifest unknown") {
 		t.Fatalf("message: %s", ownerCondition(p).Message)
 	}
@@ -301,7 +301,7 @@ func TestOwnerVerifiedGoneReferenceNotSticky(t *testing.T) {
 	f.run(gone)
 	delete(f.bundles, gone)
 	p := f.run(f.publish(teamBilling, declarationRecord(), f.person("eve@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1.ReasonOwnerSignerUnverified)
 	if p = f.run(f.publish(teamBilling, nil, f.ci())); ownerCondition(p) != nil || statusOwnerTeam(p) != "billing" {
 		t.Fatalf("a CI publish after a gone reference: %+v %+v", ownerCondition(p), p.Status.Contract)
 	}
@@ -311,7 +311,7 @@ func TestOwnerVerifiedGoneReferenceNotSticky(t *testing.T) {
 	delete(f.bundles, gone)
 	f.run(f.publish(teamBilling, declarationRecord(), f.person("eve@acme.example")))
 	p = f.run(f.publish(teamBilling, declarationRecord(), f.person("admin@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1.ReasonOwnerSignerAllowed)
 	if strings.Contains(ownerCondition(p).Message, gone) {
 		t.Fatalf("judged against the gone reference: %s", ownerCondition(p).Message)
 	}
@@ -323,17 +323,17 @@ func TestOwnerVerifiedPolicyChangeJudgesAgain(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.run(f.publish(teamPayments, nil))
 	d := f.publish(teamBilling, declarationRecord(), f.person("bob@acme.example"))
-	wantOwnerVerified(t, f.run(d), metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
+	wantOwnerVerified(t, f.run(d), metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotAllowed)
 	withBob := *ownerPolicy
 	withBob.DefaultApprovers = append([]core.SignerRule{{Name: "bob", Issuer: ownerPersonIssuer, Subject: `^bob@acme\.example$`}}, ownerPolicy.DefaultApprovers...)
 	f.r.Owners.Policy = &withBob
 	p := f.run(d)
-	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+	wantOwnerVerified(t, p, metav1.ConditionTrue, pactov1.ReasonOwnerSignerAllowed)
 	if statusOwnerTeam(p) != "billing" {
 		t.Fatal("the allowed owner is shown")
 	}
 	f.r.Owners.Policy = ownerPolicy
-	wantOwnerVerified(t, f.run(d), metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
+	wantOwnerVerified(t, f.run(d), metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotAllowed)
 }
 
 // TestOwnerVerifiedNoPolicyIsKept: with no policy mounted an owner change is
@@ -344,7 +344,7 @@ func TestOwnerVerifiedNoPolicyIsKept(t *testing.T) {
 	f.r.Owners.Policy = nil
 	f.run(f.publish(teamPayments, nil))
 	d := f.publish(teamBilling, declarationRecord(), f.person("eve@acme.example"))
-	wantOwnerVerified(t, f.run(d), metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	wantOwnerVerified(t, f.run(d), metav1.ConditionUnknown, pactov1.ReasonOwnerSignerUnverified)
 	roots := 0
 	f.r.Owners.Root = func() (root.TrustedMaterial, error) { roots++; return f.ss.Root, nil }
 	if p := f.run(d); roots != 0 || ownerCondition(p).Status != metav1.ConditionUnknown {
@@ -369,7 +369,7 @@ func TestOwnerVerifiedDeliveryPolicyClassifiesSigners(t *testing.T) {
 	f.r.Owners.DeliveryPolicy = func(context.Context) (*core.PublisherPolicy, string) { return pol, "" }
 	f.run(f.publish(teamPayments, nil))
 	p := f.run(f.publish(teamBilling, declarationRecord(), f.person("release-bot@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotPerson)
+	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotPerson)
 	if statusOwnerTeam(p) != "" {
 		t.Fatal("an agent's owner is withheld")
 	}
@@ -379,7 +379,7 @@ func TestOwnerVerifiedDeliveryPolicyClassifiesSigners(t *testing.T) {
 	f.r.Owners.Policy = members
 	f.run(f.publish(teamPayments, nil))
 	wantOwnerVerified(t, f.run(f.publish(teamBilling, declarationRecord(), f.person("release-bot@acme.example"))),
-		metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+		metav1.ConditionTrue, pactov1.ReasonOwnerSignerAllowed)
 
 	// A policy that does not verify: even a default approver is unverified,
 	// judged again once it reads.
@@ -389,12 +389,12 @@ func TestOwnerVerifiedDeliveryPolicyClassifiesSigners(t *testing.T) {
 	f.run(f.publish(teamPayments, nil))
 	d := f.publish(teamBilling, declarationRecord(), f.person("admin@acme.example"))
 	p = f.run(d)
-	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1.ReasonOwnerSignerUnverified)
 	if tl := judged(ownerCondition(p)); tl.kept || !strings.Contains(ownerCondition(p).Message, "bad signature") || statusOwnerTeam(p) != "" {
 		t.Fatalf("%+v", ownerCondition(p))
 	}
 	f.r.Owners.DeliveryPolicy = func(context.Context) (*core.PublisherPolicy, string) { return pol, "" }
-	wantOwnerVerified(t, f.run(d), metav1.ConditionTrue, pactov1alpha1.ReasonOwnerSignerAllowed)
+	wantOwnerVerified(t, f.run(d), metav1.ConditionTrue, pactov1.ReasonOwnerSignerAllowed)
 }
 
 // TestOwnerVerifiedCIWithoutRuleIsUnverified: with no publisher rule, whether
@@ -405,7 +405,7 @@ func TestOwnerVerifiedCIWithoutRuleIsUnverified(t *testing.T) {
 	f.r.Owners.Rules = nil
 	f.run(f.publish(teamPayments, nil))
 	p := f.run(f.publish(teamBilling, nil, f.ci()))
-	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1.ReasonOwnerSignerUnverified)
 	if tl := judged(ownerCondition(p)); !tl.kept || statusOwnerTeam(p) != "" || !strings.Contains(ownerCondition(p).Message, "no installation publisher rule") {
 		t.Fatalf("%+v", ownerCondition(p))
 	}
@@ -417,7 +417,7 @@ func TestOwnerVerifiedStrippedKeysChecked(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.run(f.publish(teamPayments, nil))
 	p := f.run(f.publish(teamBilling, nil, f.person("eve@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
+	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotAllowed)
 }
 
 // TestOwnerVerifiedBaselineLaunderingRefused: a refused declaration never
@@ -426,11 +426,11 @@ func TestOwnerVerifiedBaselineLaunderingRefused(t *testing.T) {
 	f := newOwnerFixture(t)
 	f.run(f.publish(teamPayments, nil))
 	refused := f.publish(teamBilling, declarationRecord(), f.person("eve@acme.example"))
-	wantOwnerVerified(t, f.run(refused), metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
+	wantOwnerVerified(t, f.run(refused), metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotAllowed)
 	rec := declarationRecord()
 	rec.Declaration.Baseline = &contract.InferredBaseline{Version: "1.0.0", Bundle: f.repo + "@" + refused}
 	p := f.run(f.publish(teamBilling, rec, f.person("eve@acme.example")))
-	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
+	wantOwnerVerified(t, p, metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotAllowed)
 	if statusOwnerTeam(p) != "" || !strings.Contains(ownerCondition(p).Message, "declared as team payments") {
 		t.Fatalf("judged against the refused claim: %+v", ownerCondition(p))
 	}
@@ -453,7 +453,7 @@ func TestOwnerVerifiedAbsentForOrdinaryBundle(t *testing.T) {
 	}
 	// A refusal clears once an ordinary bundle replaces it.
 	wantOwnerVerified(t, f.run(f.publish(teamPayments, declarationRecord(), f.person("eve@acme.example"))),
-		metav1.ConditionFalse, pactov1alpha1.ReasonOwnerSignerNotAllowed)
+		metav1.ConditionFalse, pactov1.ReasonOwnerSignerNotAllowed)
 	if p = f.run(f.publish(teamBilling, nil)); ownerCondition(p) != nil {
 		t.Fatalf("stale condition: %+v", ownerCondition(p))
 	}
@@ -465,8 +465,8 @@ func TestOwnerVerifiedAbsentForOrdinaryBundle(t *testing.T) {
 }
 
 func TestOwnerVerifiedAbsentForInlineContract(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "pay", Namespace: "default", UID: "u"},
-		Spec: pactov1alpha1.PactoSpec{ContractRef: pactov1alpha1.ContractRef{Inline: validContract}}}
+	pacto := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "pay", Namespace: "default", UID: "u"},
+		Spec: pactov1.PactoSpec{ContractRef: pactov1.ContractRef{Inline: validContract}}}
 	r := newReconciler(pacto)
 	r.Loader = loader.New()
 	r.Owners = &OwnerCheck{Policy: ownerPolicy, Root: func() (root.TrustedMaterial, error) { t.Fatal("no root is read"); return nil, nil }}
@@ -479,7 +479,7 @@ func TestOwnerVerifiedAbsentForInlineContract(t *testing.T) {
 }
 
 func TestOwnerVerifiedDoesNotChangeContractStatus(t *testing.T) {
-	statusOf := func(check bool) *pactov1alpha1.Pacto {
+	statusOf := func(check bool) *pactov1.Pacto {
 		f := newOwnerFixture(t)
 		if !check {
 			f.r.Owners = nil
@@ -489,7 +489,7 @@ func TestOwnerVerifiedDoesNotChangeContractStatus(t *testing.T) {
 	}
 	with, without := statusOf(true), statusOf(false)
 	if with.Status.ContractStatus != without.Status.ContractStatus || with.Status.ContractStatus == "" ||
-		meta.FindStatusCondition(with.Status.Conditions, pactov1alpha1.ConditionContractValid).Status != metav1.ConditionTrue {
+		meta.FindStatusCondition(with.Status.Conditions, pactov1.ConditionContractValid).Status != metav1.ConditionTrue {
 		t.Fatalf("contract status %q with the check, %q without", with.Status.ContractStatus, without.Status.ContractStatus)
 	}
 }
@@ -512,7 +512,7 @@ func TestOwnerVerifiedAbsentWhenNoSignatureVerifies(t *testing.T) {
 		t.Fatalf("a signature nobody verifies is an unsigned push: %+v %+v", ownerCondition(p), p.Status.Contract)
 	}
 	p = f.run(f.publish(teamBilling, declarationRecord(), foreign))
-	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1alpha1.ReasonOwnerSignerUnverified)
+	wantOwnerVerified(t, p, metav1.ConditionUnknown, pactov1.ReasonOwnerSignerUnverified)
 	if statusOwnerTeam(p) != "" {
 		t.Fatalf("an unverified declaration keeps its owner: %+v", p.Status.Contract)
 	}

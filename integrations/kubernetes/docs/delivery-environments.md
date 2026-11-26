@@ -103,6 +103,40 @@ for a person, and any other starts at `observe`. Pacto never touches a
 hand-written Stage, whatever its labels say: it acts only on the objects its
 private state records it created.
 
+## Values per environment
+
+A Stage's `spec.environment` is a DNS label, such as `production`, fixed at
+creation: an update that changes it is refused with "environment is fixed at
+creation; create a new Stage". An existing Stage keeps its value. The
+environment selects the values the applier may apply from the one deploy
+digest every Stage runs:
+
+| Applier | The selection Pacto accepts |
+|---|---|
+| Argo CD Application | `spec.source.helm.valueFiles: [values-<environment>.yaml]`, with nothing else under `helm` |
+| Flux Kustomization | `spec.path` ending in `overlays/<environment>` |
+
+The promoter records what the applier selects in `status.applier.values` as
+observed, accepted or not, and a failed read leaves `status.applier` as it was.
+Pacto never writes or renders the selection. Any other selection, such as two
+value files or a Kustomization that builds `overlays/prod` for
+`spec.environment: production`, sets `Mediated` `False` with
+`OtherEnvironmentValues`. Rename the value file or overlay, or create a Stage
+with the matching environment.
+
+A promote waits for a person when:
+
+- the selected file is missing from the digest;
+- a HelmRelease's chart carries `values-<environment>.yaml`: a HelmRelease
+  cannot select a file inside an OCI chart;
+- the applied values differ from the contract's
+  [environment file](../../contract-reference/environments.md#values-per-environment),
+  or the environment declares no file while the applier applies one.
+
+A promote stops, and no approval clears it, when the environment's values fail
+with one of the four
+[offering parameter codes](../../contract-reference/environments.md#offering-parameters).
+
 ## IDP mode
 
 Under `profile: idp` with Flux (`idp.flux.install`), a service no applier runs

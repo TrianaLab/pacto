@@ -475,7 +475,7 @@ done
 # NAME), re-checked every 30s.
 pacto() {
   kubectl -n "$APP" apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $1}
 spec:
@@ -632,7 +632,7 @@ expect_nro 5 -uid "$(pod_uid deaf-caller)" -no-peer "$BACKEND_IP:80"
 
 echo "== static validation: an invalid contract is Invalid, not a runtime verdict =="
 kubectl -n "$APP" apply -f - >/dev/null <<'YAML'
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: invalid}
 spec:
@@ -752,7 +752,7 @@ as_token() {
 kind: Lease
 metadata: {name: $3, namespace: $AGENT_NS}
 spec: {holderIdentity: $3}" ;;
-    nro) obj="apiVersion: pacto.trianalab.io/v1alpha1
+    nro) obj="apiVersion: pacto.trianalab.io/v1
 kind: NodeRuntimeObservation
 metadata: {name: $3, namespace: $AGENT_NS}" ;;
   esac

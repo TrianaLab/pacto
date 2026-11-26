@@ -37,6 +37,7 @@ func (e *snapEnv) readOwnerPolicy(t *testing.T, trust string) (*delivery.OwnerPo
 }
 
 func TestOwnerPolicyAgreeingClusters(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, policySnapshot(snapA, snapNow, approvers("admin")))
 	e.push(t, e.key, snapB, policySnapshot(snapB, snapNow, approvers("admin")))
@@ -47,6 +48,7 @@ func TestOwnerPolicyAgreeingClusters(t *testing.T) {
 }
 
 func TestOwnerPolicyDisagreementIsUnverified(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, policySnapshot(snapA, snapNow, approvers("admin")))
 	e.push(t, e.key, snapB, policySnapshot(snapB, snapNow, approvers("admin", "dev")))
@@ -56,6 +58,7 @@ func TestOwnerPolicyDisagreementIsUnverified(t *testing.T) {
 }
 
 func TestOwnerPolicyStaleSnapshotUnused(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, policySnapshot(snapA, snapNow.Add(-16*time.Minute), approvers("admin")))
 	if p, why := e.readOwnerPolicy(t, trustFile(t, e.scoped("rec", snapA))); p != nil || !strings.HasPrefix(why, "stale:") {
@@ -64,6 +67,7 @@ func TestOwnerPolicyStaleSnapshotUnused(t *testing.T) {
 }
 
 func TestOwnerPolicyUnscopedKeyUnused(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, policySnapshot(snapA, snapNow, approvers("admin")))
 	bare := filepath.Join(t.TempDir(), "recorder.pub.pem")
@@ -74,6 +78,7 @@ func TestOwnerPolicyUnscopedKeyUnused(t *testing.T) {
 }
 
 func TestOwnerPolicyNoTrustIsUnverified(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, policySnapshot(snapA, snapNow, approvers("admin")))
 	if p, why := e.readOwnerPolicy(t, ""); p != nil || !strings.HasPrefix(why, "trust missing") {
@@ -85,6 +90,7 @@ func TestOwnerPolicyNoTrustIsUnverified(t *testing.T) {
 }
 
 func TestOwnerPolicyNoSectionIsUnverified(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, policySnapshot(snapA, snapNow, nil))
 	if p, why := e.readOwnerPolicy(t, trustFile(t, e.scoped("rec", snapA))); p != nil || !strings.Contains(why, "carries no owner policy") {
@@ -93,6 +99,7 @@ func TestOwnerPolicyNoSectionIsUnverified(t *testing.T) {
 }
 
 func TestOwnerPolicySnapshotUnusable(t *testing.T) {
+	t.Parallel()
 	trustOf := func(t *testing.T, e *snapEnv) string { return trustFile(t, e.scoped("rec", snapA, snapB)) }
 	for name, c := range map[string]struct {
 		setup func(t *testing.T, e *snapEnv)
@@ -132,6 +139,7 @@ func TestOwnerPolicySnapshotUnusable(t *testing.T) {
 }
 
 func TestOwnerPolicyFromPath(t *testing.T) {
+	t.Parallel()
 	p := filepath.Join(t.TempDir(), "policy.json")
 	_ = os.WriteFile(p, []byte(`{"defaultApprovers":[{"name":"admins","issuer":"`+personIssuer+`","subject":"^a@acme\\.com$"}]}`), 0o600)
 	svc := &Service{OwnerPolicyPath: p}
@@ -145,6 +153,7 @@ func TestOwnerPolicyFromPath(t *testing.T) {
 }
 
 func TestOwnerPolicyTooManyClusters(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	desc := e.push(t, e.key, snapA, policySnapshot(snapA, snapNow, approvers("admin")))
 	repo, _ := ocireferrer.Open(e.repo, ocireferrer.Options{})

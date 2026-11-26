@@ -115,7 +115,14 @@ function installDelivery(persona: Persona): void {
         shadow: [{ candidate: D2, predicted: 'Held', owners: ['team-checkout'], observedAt: '2026-10-21T09:00:00Z', verification: 'Verified' },
           { candidate: D1, predicted: 'Proceeds', observedAt: '2026-10-20T09:00:00Z', verification: 'Verified' }] }],
         // The server lists the environments the way changes travel, as environmentsListed does.
-        environmentNames: ['test', 'prod'], environmentTiers: { test: 'test', prod: 'prod' } });
+        environmentNames: ['test', 'prod'], environmentTiers: { test: 'test', prod: 'prod' },
+        // A hub's member plan of payments in prod (514-S6): eu-prod holds the requested
+        // promote for a person there, and the confirming command for a new digest.
+        members: [{ service: { name: 'payments' }, environment: 'prod', digest: D2, completeness: 'complete', asOf: now(), hidden: 0,
+          placement: { clusters: [{ uid: '9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34', name: 'eu-prod', evidence: 'takes requests for production' }], source: 'unconfirmed' },
+          members: [{ uid: '9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34', name: 'eu-prod', state: 'held', digest: D1, reason: 'the production Stage holds every promote for a person',
+            next: `pacto delivery approve --intent ${intentRef} --registry registry.example/acme`, operation: 'prod/payments-req-0123456789', asOf: now() }],
+          next: `pacto delivery propose --service payments --environment prod --to ${D2} --registry registry.example/acme` }] });
     }
     if (route === '/api/delivery/autonomy') {
       return json(200, { ...listing, contracted: { services: 4, uncontractedCallers: 1 }, promotionsWithoutPerson: { count: 3, of: 5, untyped: 0 },
@@ -613,6 +620,18 @@ test.describe('Delivery views', () => {
     await expect(panel).toContainText('Only team-checkout may answer it.');
     await page.keyboard.press('Escape');
     await expect(panel).toHaveCount(0);
+  });
+
+  test('member placement hands off the confirm command', async ({ page }) => {
+    await as(page, 'carol');
+    await page.goto('/#/delivery/environments?service=payments');
+    const block = page.getByTestId('member-placement');
+    // A held member opens the block and shows the command a person there approves with.
+    await expect(block.getByTestId('member-detail')).toContainText('approve --intent', { timeout: T });
+    await block.getByRole('button', { name: 'Confirm placement' }).click();
+    await expect(block.locator('.mp-panel')).toContainText(`pacto delivery propose --service payments --environment prod --to ${'sha256:' + '2'.repeat(64)}`);
+    await expect(block.locator('.mp-panel')).toContainText('Confirming signs one request per member as you');
+    await audit(page, 'environments of payments with a held member');
   });
 
   test('each Stage names its applier, and one another manager owns warns in words', async ({ page }) => {

@@ -144,6 +144,22 @@ tests:
           path: spec.template.spec.containers[0].args
           content: --ladder-repository=ghcr.io/acme/pacto-streams-approvals
 
+  - it: the promoter reads peer members from the registry's pacto-targets
+    template: templates/delivery/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --targets-repository=ghcr.io/acme/pacto-targets
+
+  - it: no registry reads no peer members
+    template: templates/delivery/deployment.yaml
+    asserts:
+      - notContains:
+          path: spec.template.spec.containers[0].args
+          content: --targets-repository=/pacto-targets
+
   - it: an explicit approvals repository is where the ladder is read
     template: templates/delivery/deployment.yaml
     set:

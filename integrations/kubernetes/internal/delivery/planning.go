@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -133,6 +133,14 @@ func (p planSources) Pactos(ctx context.Context) ([]delivery.PactoView, error) {
 
 func (p planSources) Kustomizations(ctx context.Context) ([]delivery.KustomizationView, error) {
 	return p.c.kustomizations(ctx)
+}
+
+// Members reads the clusters that joined this one, or none.
+func (p planSources) Members(ctx context.Context, environment string, known map[string]bool) delivery.Members {
+	if p.c.Members == nil {
+		return delivery.Members{}
+	}
+	return p.c.Members(ctx, environment, known)
 }
 
 func (p planSources) Describe(ctx context.Context, stage delivery.StageObject, digest string) delivery.Revision {

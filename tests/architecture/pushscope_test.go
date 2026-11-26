@@ -15,9 +15,9 @@ import (
 // scopeExempt are the cluster-side repository opens that may leave Scope
 // unset, keyed "<file>:<func>", each with the reason.
 var scopeExempt = map[string]string{
-	"integrations/kubernetes/cmd/delivery/main.go:upstreamReader": "reads another cluster's signed records and never writes",
-	"integrations/kubernetes/cmd/delivery/main.go:publishers":     "the registry watch reads candidate signatures and never writes",
-	"integrations/kubernetes/cmd/main.go:ownerCheck":              "the owner check reads owner history and publisher policy signatures and never writes",
+	"integrations/kubernetes/cmd/delivery/main.go:readOnlyOptions": "reads other clusters' signed records, join records and snapshots and never writes",
+	"integrations/kubernetes/cmd/delivery/main.go:publishers":      "the registry watch reads candidate signatures and never writes",
+	"integrations/kubernetes/cmd/main.go:ownerCheck":               "the owner check reads owner history and publisher policy signatures and never writes",
 }
 
 // TestEveryClusterSideOpenSetsAScope keeps every cluster-side registry writer

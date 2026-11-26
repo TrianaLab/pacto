@@ -1,6 +1,6 @@
 /** The Declare panel's pure words and links (513-S6). */
 import { describe, it, expect } from 'vitest';
-import { rangeRows, draftLine, draftMark, draftAsker, signUrl, signReturn, declareTarget, moved, claimId, claimFieldError } from './declare.ts';
+import { rangeRows, draftLine, draftMark, draftAsker, signUrl, signReturn, acceptSignUrl, isTemplateKey, declareTarget, moved, claimId, claimFieldError, offeringFieldError, openPaths } from './declare.ts';
 
 const plan = { version: '0.1.0', deploy: 'none', ranges: [
   { dependency: 'ledger', compatibility: 'unknown', proposed: '^2.3.0', observed: '2.3.1' },
@@ -45,6 +45,17 @@ describe('signUrl', () => {
     const ret = new URLSearchParams(u.split('?')[1]).get('return');
     expect(ret).toBe('/#/fleet/services/default%2Fk8s%3Ashop%2FDeployment%2Fcart?declare=1&signed=sha256%3Aabc');
     expect(u).not.toContain('accept');
+  });
+
+  it('comes back from a signing login for an inferred golden path to the Golden paths list', () => {
+    const key = 'template:default/springboot-service';
+    expect(isTemplateKey(key)).toBe(true);
+    expect(isTemplateKey('default/k8s:shop/Deployment/cart')).toBe(false);
+    const want = '/#/fleet/golden-paths?declare=template%3Adefault%2Fspringboot-service&signed=sha256%3Aabc';
+    for (const u of [signUrl('t', key, 'sha256:abc'), acceptSignUrl('t', key, 'sha256:abc')]) {
+      expect(new URLSearchParams(u.split('?')[1]).get('return')).toBe(want);
+    }
+    expect(new URLSearchParams(acceptSignUrl('t', 'default/cart', 'sha256:abc').split('?')[1]).get('return')).toBe('/#/fleet/services/default%2Fcart?signed=sha256%3Aabc');
   });
 });
 
@@ -95,5 +106,27 @@ describe('claims', () => {
     expect(claimFieldError('team-platform', 'a'.repeat(64)).field).toBe('name');
     expect(claimFieldError('org/team-platform', 'payments-stripe')).toEqual({ field: '', message: '' });
     expect(claimFieldError('team-platform', '').message).toBe('');
+    expect(claimFieldError('team-platform', '', 'Postgres SQL')).toEqual({ field: 'offering', message: expect.stringMatching(/^An offering uses/) });
+    expect(claimFieldError('team-platform', '', 'a'.repeat(64)).field).toBe('offering');
+    expect(claimFieldError('team-platform', '', 'postgresql')).toEqual({ field: '', message: '' });
+  });
+});
+
+describe('offerings', () => {
+  it('requires a release version and checks an owner only when one is given', () => {
+    expect(offeringFieldError('', '')).toEqual({ field: 'version', message: 'Set the version the declared offering is published at' });
+    expect(offeringFieldError('1.0', '').message).toMatch(/^A version is MAJOR.MINOR.PATCH/);
+    expect(offeringFieldError('1.0.0-rc.1', '').field).toBe('version');
+    expect(offeringFieldError('1.0.0', 'team storage')).toEqual({ field: 'owner', message: expect.stringMatching(/^A team uses/) });
+    expect(offeringFieldError('1.0.0', 'x'.repeat(254)).field).toBe('owner');
+    expect(offeringFieldError('1.0.0', '')).toEqual({ field: '', message: '' });
+    expect(offeringFieldError('10.2.33', 'team-storage')).toEqual({ field: '', message: '' });
+  });
+  it('lists each open path of an OfferingSchemaOpen refusal and nothing for another one', () => {
+    const message = "the offering's parameters are not a closed space, open at provisioning: schema.properties.tags, provisioning: schema.properties.class: close each path in a folder (additionalProperties: false, a type, a class enum) and accept it with --dir";
+    expect(openPaths({ code: 'OfferingSchemaOpen', message })).toEqual(['provisioning: schema.properties.tags', 'provisioning: schema.properties.class']);
+    expect(openPaths({ code: 'OfferingSchemaOpen', message: 'something else' })).toEqual([]);
+    expect(openPaths({ code: 'VersionRequired', message })).toEqual([]);
+    expect(openPaths(null)).toEqual([]);
   });
 });

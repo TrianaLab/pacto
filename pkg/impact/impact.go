@@ -179,6 +179,7 @@ type AffectedConsumer struct {
 	Confidence           Confidence         `json:"confidence"`
 	Status               string             `json:"status,omitempty"`
 	Targets              []string           `json:"targets,omitempty"`
+	Clusters             []string           `json:"clusters,omitempty" doc:"The ids of the clusters this consumer's targets run in; names and status are in the answer's clusters. Absent with one cluster"`
 	// Uncontracted marks a runtime caller no contract describes: Service is its
 	// raw observed identity, and it has no range a change could be checked against.
 	Uncontracted bool `json:"uncontracted,omitempty"`
@@ -264,7 +265,13 @@ type Result struct {
 	Owners             []string           `json:"owners,omitempty" doc:"The canonical owner keys of the affected consumers"`
 	ChangedOwnerKey    string             `json:"changedOwnerKey,omitempty" doc:"The canonical owner key of the changed service"`
 	Completeness       fleet.Completeness `json:"completeness"`
-	Limitations        []fleet.Limitation `json:"limitations,omitempty"`
+	// Clusters and UnreadClusters say which clusters the answer read and how
+	// many publish to this hub without being members.
+	Clusters       []fleet.ClusterSummary `json:"clusters,omitempty" doc:"The clusters the answer read, with their status and age. Absent with one cluster"`
+	UnreadClusters int                    `json:"unreadClusters,omitempty" doc:"How many clusters publish to this hub and are not members, so consumers there are unknown: a BREAKING change stays unverified. Never names a cluster"`
+	// ClustersPastBound counts the clusters read past the bound on Clusters.
+	ClustersPastBound int                `json:"clustersTruncated,omitempty" doc:"How many clusters the answer read that clusters leaves out: it lists at most fleet.MaxMetaClusters"`
+	Limitations       []fleet.Limitation `json:"limitations,omitempty"`
 	// LimitationsTruncated reports that the snapshot and analysis produced more
 	// limitations than the answer carries.
 	LimitationsTruncated bool `json:"limitationsTruncated,omitempty"`
@@ -487,9 +494,8 @@ func (r *Result) gate() (string, string) {
 	if why := r.nameInferred(); why != "" {
 		return GateUnverified, "the change is BREAKING, but " + why
 	}
-	if r.Completeness != fleet.CompletenessComplete {
-		return GateUnverified, "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break" + r.unmetNote() + ". " +
-			"Fix the sources named in limitations and run the analysis again"
+	if why := r.unseenConsumers(); why != "" {
+		return GateUnverified, why
 	}
 	inferred, accepted := r.inferredOnlyConsumers(), r.acceptedConsumers()
 	if known := len(r.Consumers) - inferred - len(accepted); known > 0 {
@@ -508,6 +514,20 @@ func (r *Result) gate() (string, string) {
 		return GateClear, "the change is BREAKING and every consumer accepted it: " + strings.Join(accepted, ", ")
 	}
 	return GateClear, "the change is BREAKING, but no service in the complete fleet snapshot depends on " + r.Service
+}
+
+// unseenConsumers says why a BREAKING change may break consumers the answer
+// cannot see: it is partial, or clusters that are not members publish to this
+// hub. "" when neither holds.
+func (r *Result) unseenConsumers() string {
+	if r.Completeness != fleet.CompletenessComplete {
+		return "the change is BREAKING and the answer is partial, so consumers Pacto cannot see may break" + r.unmetNote() + ". " +
+			"Fix the sources named in limitations and run the analysis again"
+	}
+	if r.UnreadClusters > 0 {
+		return "the change is BREAKING and " + unreadSentence(r.UnreadClusters)
+	}
+	return ""
 }
 
 // inferredOnlyConsumers counts the consumers only an inferred record names:
@@ -941,6 +961,7 @@ func analyze(ctx context.Context, old, new *contract.Contract, oldFS, newFS fs.F
 		Sources:          meta.Sources,
 		SourcesTruncated: meta.SourcesTruncated,
 	}
+	defer res.attributeClusters(snap, q, meta, targetClusters(snap))
 	// Breaking and potentially-breaking changes are kept SEPARATE: a
 	// POTENTIAL_BREAKING change is not a confirmed break and must not be presented
 	// as one.

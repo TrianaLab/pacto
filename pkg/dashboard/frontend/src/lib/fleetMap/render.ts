@@ -122,7 +122,7 @@ export const NODE_DASH = { inferred: [2, 2], expectedOnly: [4, 2], insufficient:
 export const SEVERITY_GLYPH = { error: '✕', warning: '▲', info: 'i' } as const;
 
 /** One legend entry and the cue that carries it beside colour: a shape, a glyph or a dash. */
-export interface LegendEntry { key: string; label: string; shape: 'dot' | 'ring' | 'ring2' | 'line'; glyph?: string; dash?: readonly number[]; tone: keyof Palette }
+export interface LegendEntry { key: string; label: string; shape: 'dot' | 'ring' | 'ring2' | 'line' | 'badge'; glyph?: string; dash?: readonly number[]; tone: keyof Palette }
 
 /** The map's legend, every state it draws. No two entries differ by colour alone. */
 export const LEGEND: readonly LegendEntry[] = [
@@ -133,6 +133,7 @@ export const LEGEND: readonly LegendEntry[] = [
   { key: 'inferred', label: 'Inferred (runs without a contract)', shape: 'ring', dash: NODE_DASH.inferred, tone: 'neutral' },
   { key: 'insufficient', label: 'Insufficient evidence', shape: 'ring', dash: NODE_DASH.insufficient, tone: 'neutral' },
   { key: 'external', label: 'External system', shape: 'ring', tone: 'text2' },
+  { key: 'outside-contract', label: 'Resources outside contract', shape: 'badge', glyph: '#', tone: 'text2' },
   { key: 'matched', label: 'Matched', shape: 'line', dash: EDGE_DASH.matched, tone: 'text3' },
   { key: 'expected-not-observed', label: 'Expected, not observed', shape: 'line', dash: EDGE_DASH.expectedOnly, tone: 'info' },
   { key: 'observed-not-expected', label: 'Observed, not expected', shape: 'line', dash: EDGE_DASH.observedOnly, tone: 'warn' },
@@ -225,6 +226,9 @@ export function render(ctx: CanvasRenderingContext2D, s: Scene): RenderResult {
     const [sx, sy] = toScreen(s.view, p.x, p.y), r0 = rpx + (isProblem(p.node) ? 3 : 1);
     occ.add([sx - r0, sy - r0, sx + r0, sy + r0]);
   }
+  // An external system with managed resources no offering produced (517-S7) gets a
+  // small count badge at its corner, before names take the room around it.
+  if (a2 > 0) for (const p of shown) if (p.vis === 1 && p.node.external && (p.node.outsideContract ?? 0) > 0) outsideBadge(ctx, s, p, rpx, a2, occ, halo);
   if (a2 > 0) {
     let n = 0;
     for (const p of shown.filter((q) => q.vis === 1 && !carded.has(q)).sort(prio)) {
@@ -583,6 +587,23 @@ function pill(ctx: CanvasRenderingContext2D, s: Scene, x: number, y: number, n: 
   ctx.fillStyle = P.bg; ctx.fill(); ctx.lineWidth = 1.25; ctx.strokeStyle = col; ctx.stroke();
   labels(txt, x + w / 2, y + 0.5, MIN_FONT, font, col, alpha, 'center');
   return w;
+}
+
+/** outsideBadge draws a node's count of resources outside the contract at its top-right
+ *  corner, in the neutral outline of the attention pills: no new colour, no ring change. */
+function outsideBadge(ctx: CanvasRenderingContext2D, s: Scene, p: PlacedNode, rpx: number, alpha: number, occ: Occ, labels: Halo) {
+  const P = s.palette;
+  const [sx, sy] = toScreen(s.view, p.x, p.y);
+  const txt = compact(p.node.outsideContract ?? 0), font = `600 ${MIN_FONT}px ${P.sans}`;
+  const w = Math.max(18, textW(ctx, txt, font) + 8), h = 16;
+  // Just clear of the space the dot claims (rpx + 1), at its top-right corner.
+  const x = sx + rpx + 2, y = sy - rpx - h / 2;
+  // ponytail: a badge with no free corner is omitted like a name; the selection panel and the group tooltip still count it.
+  if (!occ.tryAdd([x - 1, y - h / 2 - 1, x + w + 1, y + h / 2 + 1])) return;
+  ctx.globalAlpha = alpha;
+  ctx.beginPath(); ctx.roundRect(x, y - h / 2, w, h, h / 2);
+  ctx.fillStyle = P.bg; ctx.fill(); ctx.lineWidth = 1; ctx.strokeStyle = P.text2; ctx.setLineDash([]); ctx.stroke();
+  labels(txt, x + w / 2, y + 0.5, MIN_FONT, font, P.text2, alpha, 'center');
 }
 
 function groupLabel(ctx: CanvasRenderingContext2D, s: Scene, gr: MapGroup, al0: number, occ: Occ, halo: Halo, dense: boolean) {

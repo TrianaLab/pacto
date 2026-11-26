@@ -16,6 +16,7 @@ import (
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
+	"github.com/trianalab/pacto/v4/pkg/impact"
 )
 
 // demoFleet builds the browser demo's fleet from the same bundles the wasm binary embeds.
@@ -127,7 +128,8 @@ func TestDemoHubAndMembersKeepHrefs(t *testing.T) {
 // TestDemoClusterListMatchesSources: the join list's approved members are the
 // fleet's member clusters by name, each read through a source signed by its
 // member key; the pending cluster has no source and no target; the hub's
-// targets carry the hub; members add no limitation.
+// targets carry the hub; members add no limitation and the pending cluster
+// adds only CLUSTERS_UNREAD.
 func TestDemoClusterListMatchesSources(t *testing.T) {
 	snap := demoFleet(t)
 	clusters := map[string]string{}
@@ -136,8 +138,11 @@ func TestDemoClusterListMatchesSources(t *testing.T) {
 	}
 	checkDemoJoinList(t, demoClusterJoins(), clusters)
 	checkDemoMembersInFleet(t, snap)
-	// Pinned from feat/452-adoption-w1, before any source reported a cluster.
-	want := []string{"OWNER_CONFLICT fleet", "SOURCE_PARTIAL registry-mirror", "SOURCE_PARTIAL registry-mirror"}
+	// Pinned from feat/452-adoption-w1, before any source reported a cluster,
+	// plus the pending ap-dev counted as an unread cluster (514-S7); the
+	// catalog mismatch is newsletter-service's immutable record
+	// (TestDemoNewsletterCatalogMismatch).
+	want := []string{"CLUSTERS_UNREAD " + delivery.UnreadClustersSourceID, "EXTERNAL_CATALOG_MISMATCH local", "OWNER_CONFLICT fleet", "SOURCE_PARTIAL registry-mirror", "SOURCE_PARTIAL registry-mirror"}
 	var got []string
 	for _, lim := range snap.Limitations {
 		got = append(got, lim.Code+" "+lim.Source)
@@ -199,5 +204,100 @@ func checkDemoMembersInFleet(t *testing.T, snap *fleet.FleetSnapshot) {
 		if tg.Cluster != demoClusterID && tg.Scope != "eu-payments" && tg.Scope != "us-ledger" {
 			t.Errorf("%s: a member target in a namespace the hub uses", tg.Key)
 		}
+	}
+}
+
+// TestDemoCandidatesMatchByUID: the demo hub's three candidates are read
+// through MatchCandidates: eu-prod's Argo CD Secret states eu-prod's UID and
+// matches it, adding prod to its inventory environments with the label named
+// and leaving what eu-prod signed alone; staging-west states no UID and
+// ap-dev-pool, a Cluster API cluster, neither; nothing else gains one.
+func TestDemoCandidatesMatchByUID(t *testing.T) {
+	l := demoClusterJoins()
+	var got []string
+	for _, c := range l.Candidates {
+		got = append(got, c.Source+" "+c.Name+" "+c.Match)
+	}
+	want := []string{"argocd eu-prod matched", "argocd staging-west unmatched", "capi ap-dev-pool unmatched"}
+	if !slices.Equal(got, want) || l.CandidatesCompleteness != fleet.CompletenessComplete || len(l.Limitations) != 0 {
+		t.Fatalf("candidates = %v (%s, %v), want %v", got, l.CandidatesCompleteness, l.Limitations, want)
+	}
+	if m := l.Candidates[0].Member; m == nil || m.Name != "eu-prod" || l.Candidates[1].Reason != "the candidate states no cluster UID" {
+		t.Errorf("eu-prod member = %+v, staging-west reason %q", m, l.Candidates[1].Reason)
+	}
+	for _, c := range l.Clusters {
+		signed := delivery.AdvertisedEnvironments(nil, c.Name, c.NameSource)
+		if !slices.Equal(c.Environments, signed) {
+			t.Errorf("%s: environments %v, want what it signed %v", c.Name, c.Environments, signed)
+		}
+		var inv []delivery.InventoryEnvironment
+		if c.Name == "eu-prod" {
+			inv = []delivery.InventoryEnvironment{{Name: "prod", Source: "label env=prod on Argo CD cluster Secret argocd/eu-prod", Candidate: "argocd:argocd/eu-prod"}}
+		}
+		if !slices.Equal(c.InventoryEnvironments, inv) {
+			t.Errorf("%s: inventory environments %+v, want %+v", c.Name, c.InventoryEnvironments, inv)
+		}
+	}
+}
+
+// TestDemoInstallDownload: the dashboard's download hands out the Argo CD
+// ApplicationSet with the demo registry and no hub URL, warning that
+// eu-prod already runs Pacto; Flux has no candidate in the demo and says so.
+func TestDemoInstallDownload(t *testing.T) {
+	h := demoHandler(dashboard.Options{ClusterJoins: func(context.Context) (delivery.ClusterJoinList, error) { return demoClusterJoins(), nil },
+		ClusterInstall: demoClusterInstall})
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/fleet/clusters/install?from=argocd", nil))
+	body := rec.Body.String()
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Disposition") != `attachment; filename="pacto-members-argocd.yaml"` {
+		t.Fatalf("argocd: %d %v %s", rec.Code, rec.Header(), body)
+	}
+	for _, s := range []string{"# warning: Argo CD cluster Secret argocd/eu-prod", "kind: ApplicationSet\n", "registry: demo.pacto.local\n", "targetRevision: " + demoChartVersion} {
+		if !strings.Contains(body, s) {
+			t.Errorf("argocd install lacks %q:\n%s", s, body)
+		}
+	}
+	if strings.Contains(body, "hub:") {
+		t.Errorf("argocd install sets a hub URL:\n%s", body)
+	}
+	rec = httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/fleet/clusters/install?from=flux", nil))
+	if rec.Code != http.StatusUnprocessableEntity {
+		t.Errorf("flux: %d %s", rec.Code, rec.Body.String())
+	}
+}
+
+// demoEUProdID is the uid of the demo's eu-prod member.
+const demoEUProdID = "9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34"
+
+// TestDemoMemberConsumerBlocksBreaking: api-gateway also runs in eu-prod,
+// and its range refuses payments-service 2.0.1, so the change is blocked and
+// the consumer names eu-prod among the clusters it runs in.
+func TestDemoMemberConsumerBlocksBreaking(t *testing.T) {
+	snap := demoFleet(t)
+	oldC, oldFS := readBundle(t, filepath.Join("bundles", "payments-service", "v1.2.1"))
+	newC, newFS := readBundle(t, filepath.Join("bundles", "payments-service", "v2.0.1"))
+	res := impact.Analyze(context.Background(), oldC, newC, oldFS, newFS, snap, impact.Options{})
+	if res.Classification != "BREAKING" || res.Gate != impact.GateBlocked {
+		t.Fatalf("classification %s gate %s: %s", res.Classification, res.Gate, res.GateReason)
+	}
+	i := slices.IndexFunc(res.Consumers, func(c impact.AffectedConsumer) bool { return c.Service == "api-gateway" })
+	if i < 0 || res.Consumers[i].CompatibilityVerdict != impact.CompatibilityIncompatible || !slices.Contains(res.Consumers[i].Clusters, demoEUProdID) {
+		t.Fatalf("api-gateway consumer %+v", res.Consumers)
+	}
+	if res.UnreadClusters != 1 {
+		t.Errorf("unread clusters %d, want ap-dev", res.UnreadClusters)
+	}
+}
+
+// TestDemoUnreadClusterCountsApDev: the pending ap-dev is counted for gates
+// and never listed as a source.
+func TestDemoUnreadClusterCountsApDev(t *testing.T) {
+	snap := demoFleet(t)
+	if snap.UnreadClusters != 1 {
+		t.Errorf("unread clusters %d, want 1", snap.UnreadClusters)
+	}
+	if len(snap.Sources) != 18 {
+		t.Errorf("sources %d, want 18: the carrier is never listed", len(snap.Sources))
 	}
 }

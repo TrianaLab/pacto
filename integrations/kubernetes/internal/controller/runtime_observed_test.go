@@ -23,9 +23,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
@@ -42,19 +42,19 @@ func TestReconcile_RuntimeObservedReflectsCollectionFailures(t *testing.T) {
 		{"the workload read fails", true, metav1.ConditionFalse},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			pacto := &pactov1alpha1.Pacto{
+			pacto := &pactov1.Pacto{
 				ObjectMeta: metav1.ObjectMeta{Name: "collect", Namespace: "default", UID: "u"},
-				Spec: pactov1alpha1.PactoSpec{
-					ContractRef: pactov1alpha1.ContractRef{Inline: validContract},
-					Target: pactov1alpha1.TargetRef{
+				Spec: pactov1.PactoSpec{
+					ContractRef: pactov1.ContractRef{Inline: validContract},
+					Target: pactov1.TargetRef{
 						ServiceName: "svc",
-						WorkloadRef: &pactov1alpha1.WorkloadRef{Name: "app", Kind: "Deployment"},
+						WorkloadRef: &pactov1.WorkloadRef{Name: "app", Kind: "Deployment"},
 					},
 				},
 			}
 			s := newSchemeWithApps()
 			cl := fake.NewClientBuilder().WithScheme(s).
-				WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{}).
+				WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{}).
 				WithObjects(pacto, &corev1.Service{ObjectMeta: metav1.ObjectMeta{Name: "svc", Namespace: "default"}}).
 				WithInterceptorFuncs(interceptor.Funcs{
 					Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
@@ -79,12 +79,12 @@ func TestReconcile_RuntimeObservedReflectsCollectionFailures(t *testing.T) {
 				t.Fatalf("unexpected error: %v", err)
 			}
 			got := getPacto(t, r, "collect", "default")
-			cond := meta.FindStatusCondition(got.Status.Conditions, pactov1alpha1.ConditionRuntimeObserved)
+			cond := meta.FindStatusCondition(got.Status.Conditions, pactov1.ConditionRuntimeObserved)
 			if cond == nil || cond.Status != tc.wantStatus {
 				t.Fatalf("RuntimeObserved = %+v, want %s", cond, tc.wantStatus)
 			}
 			if tc.failGet {
-				if cond.Reason != pactov1alpha1.ReasonObservationFailed || !strings.Contains(cond.Message, "workload: failed to get Deployment app") {
+				if cond.Reason != pactov1.ReasonObservationFailed || !strings.Contains(cond.Message, "workload: failed to get Deployment app") {
 					t.Errorf("condition = %s %q, want the workload failure", cond.Reason, cond.Message)
 				}
 				if got.Status.Resources == nil || got.Status.Resources.Workload == nil || got.Status.Resources.Workload.Exists {
@@ -100,8 +100,8 @@ func TestReconcile_RuntimeObservedReflectsCollectionFailures(t *testing.T) {
 func TestObserveBackCompat_NoTargetLeavesResourcesUnset(t *testing.T) {
 	r := &PactoReconciler{}
 	cl := fake.NewClientBuilder().WithScheme(newSchemeWithApps()).Build()
-	pacto := &pactov1alpha1.Pacto{Spec: pactov1alpha1.PactoSpec{Target: pactov1alpha1.TargetRef{
-		WorkloadRef: &pactov1alpha1.WorkloadRef{Kind: "Deployment"},
+	pacto := &pactov1.Pacto{Spec: pactov1.PactoSpec{Target: pactov1.TargetRef{
+		WorkloadRef: &pactov1.WorkloadRef{Kind: "Deployment"},
 	}}}
 	if err := r.observeBackCompat(context.Background(), observer.New(cl), pacto); err != nil {
 		t.Fatalf("unexpected error: %v", err)

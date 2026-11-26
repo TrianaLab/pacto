@@ -38,6 +38,11 @@ rules:
   - apiGroups: [pacto.trianalab.io]
     resources: [noderuntimeobservations]
     verbs: [delete, get, list, watch]
+  # The storage migration rewrites each observation stored as v1alpha1 as v1
+  # through the status subresource, with its content unchanged.
+  - apiGroups: [pacto.trianalab.io]
+    resources: [noderuntimeobservations/status]
+    verbs: [patch]
   # Interface exposure: an Ingress or Gateway API HTTPRoute that routes to the port.
   - apiGroups: [networking.k8s.io]
     resources: [ingresses]
@@ -62,6 +67,9 @@ rules:
     resources: [ciliumnetworkpolicies, ciliumclusterwidenetworkpolicies]
     verbs: [list]
   {{- end }}
+  {{- /* Managed resources of the catalog kinds whose group the cluster serves at install or upgrade. */}}
+  {{- /* List only; helm upgrade grants a group served later. */}}
+  {{- with include "pacto-operator.managedRules" . }}{{ . | nindent 2 }}{{- end }}
   # daemonsets: the dashboard ClusterRole the operator applies lists them, and Kubernetes lets it grant only what it holds.
   - apiGroups: [apps]
     resources: [deployments, replicasets, statefulsets, daemonsets]
@@ -99,6 +107,17 @@ rules:
   - apiGroups: [pacto.trianalab.io]
     resources: [pactorevisions/status]
     verbs: [get, patch, update]
+  # Storage migration: at start the operator reads its own CRDs by name and,
+  # once every object is rewritten as v1, drops v1alpha1 from their
+  # status.storedVersions. No list and no write to a CRD spec.
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions]
+    verbs: [get]
+    resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
+  - apiGroups: [apiextensions.k8s.io]
+    resources: [customresourcedefinitions/status]
+    verbs: [patch]
+    resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
   # Dashboard teardown, cluster-scoped half: ALWAYS granted, so an operator
   # upgraded from enabled -> disabled can still remove the ClusterRole and
   # binding it created. get + delete by name only, read through the uncached API
@@ -127,6 +146,14 @@ rules:
   - apiGroups: [""]
     resources: [nodes]
     verbs: [list]
+  {{- if dig "offerings" "enabled" true (.Values.crossplane | default dict) }}
+  # Inferred offerings: each Crossplane XRD and the Compositions that select it
+  # are read, never written, and pushed as an inferred offering under the
+  # registry. Without Crossplane or a registry nothing is read.
+  - apiGroups: [apiextensions.crossplane.io]
+    resources: [compositeresourcedefinitions, compositions]
+    verbs: [get, list, watch]
+  {{- end }}
   {{- if include "pacto-operator.kernelEvidence" . }}
   # The node agent's heartbeat: one Lease per node, read through the cache in
   # the kernel evidence namespace only (the cache never starts a cluster-wide
@@ -183,6 +210,27 @@ rules:
   - apiGroups: [authorization.k8s.io]
     resources: [subjectaccessreviews]
     verbs: [create]
+  {{- end }}
+  {{- if dig "enabled" false (.Values.clusterInventory | default dict) }}
+  # Cluster inventory (clusterInventory.enabled, a person's choice): detection
+  # lists the clusters each inventory knows, as metadata, uncached and with no
+  # watch, and only where the cluster serves the API. Rendered whenever the
+  # ClusterRole is, controller.watchNamespaces included.
+  {{- if or (include "pacto-operator.apiServed" (list $ "cluster.x-k8s.io/v1beta2")) (include "pacto-operator.apiServed" (list $ "cluster.x-k8s.io/v1beta1")) }}
+  - apiGroups: [cluster.x-k8s.io]
+    resources: [clusters]
+    verbs: [list]
+  {{- end }}
+  {{- if include "pacto-operator.apiServed" (list $ "cluster.open-cluster-management.io/v1") }}
+  - apiGroups: [cluster.open-cluster-management.io]
+    resources: [managedclusters]
+    verbs: [list]
+  {{- end }}
+  {{- if include "pacto-operator.apiServed" (list $ "management.cattle.io/v3") }}
+  - apiGroups: [management.cattle.io]
+    resources: [clusters]
+    verbs: [list]
+  {{- end }}
   {{- end }}
   {{- if .Values.nodeAgent.enabled }}
   # Node agent, cluster-scoped half. Nodes get is the orphan prune: the objects

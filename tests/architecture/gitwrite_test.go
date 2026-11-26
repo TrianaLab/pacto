@@ -34,13 +34,13 @@ var gitHostClientAllowed = map[string]string{}
 // process that would need standing Git write access: the operator and the
 // dashboard and remote MCP servers (mcp_declare.go holds the HTTP
 // pacto_declare beside the stdio one, whose pull request lives in
-// mcp_declare_pr.go).
+// mcp_declare_pr.go; mcp_create_service.go holds pacto_create_service).
 func isServerPath(rel string) bool {
 	base := filepath.Base(rel)
 	return strings.HasPrefix(rel, "integrations/kubernetes/cmd/") ||
 		strings.HasPrefix(rel, "integrations/kubernetes/internal/") ||
 		strings.HasPrefix(rel, "pkg/dashboard/") ||
-		rel == "internal/cli/mcp_remote.go" || rel == "internal/cli/mcp_declare.go" ||
+		rel == "internal/cli/mcp_remote.go" || rel == "internal/cli/mcp_declare.go" || rel == "internal/cli/mcp_create_service.go" ||
 		(filepath.Dir(rel) == "internal/cli" && strings.HasPrefix(base, "dashboard"))
 }
 
@@ -154,6 +154,8 @@ func TestGitWriteScannerFlags(t *testing.T) {
 			"package main\nimport _ \"github.com/go-git/go-git/v5\"\n", true},
 		{"go-github in the remote MCP server", "internal/cli/mcp_remote.go",
 			"package cli\nimport _ \"github.com/google/go-github/v70/github\"\n", true},
+		{"git push in pacto_create_service", "internal/cli/mcp_create_service.go",
+			"package cli\nimport \"os/exec\"\nfunc f() { _ = exec.Command(\"git\", \"push\") }\n", true},
 		{"GitLab client-go in a dashboard command", "internal/cli/dashboard_delivery.go",
 			"package cli\nimport _ \"gitlab.com/gitlab-org/api/client-go\"\n", true},
 		{"Gitea SDK in the dashboard", "pkg/dashboard/x.go",

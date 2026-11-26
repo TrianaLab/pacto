@@ -80,7 +80,8 @@ entries:
     class: managed-cloud
     hosts: ["*.rds.amazonaws.com"]
     terraform: ["aws_db_instance:identifier"]
-    crossplane: [rds.aws.upbound.io/Instance]
+    crossplane: [rds.aws.upbound.io/Instance, rds.services.k8s.aws/DBInstance]
+    inventory: ["rds:db"]
 ```
 
 | Field | Required | Rule |
@@ -93,17 +94,18 @@ entries:
 | `entries[].hosts` | No | Lower-case DNS names with an optional leading `*.` |
 | `entries[].sdkModules` | No | Client libraries: a bare Go module path without its `/vN` suffix, `npm:<package>`, `pypi:<normalized name>` (lower case, runs of `-`, `_` and `.` as one `-`) or `maven:<groupId>:<artifactId>` |
 | `entries[].terraform` | No | `managed-cloud` only. A lower-case resource type, optionally with the attribute that holds the resource id: `aws_sqs_queue` or `aws_db_instance:identifier`. An id attribute named like a password, secret, token, key, credential, private key or DSN is refused |
-| `entries[].crossplane` | No | `managed-cloud` only. `<api group>/<Kind>` of a managed resource, or of a claim or composite resource of your own XRD |
+| `entries[].crossplane` | No | `managed-cloud` only. `<api group>/<Kind>` of a managed resource of Crossplane, ACK, Config Connector or ASO, or of a claim or composite resource of your own XRD. The default catalog's rows are the only kinds the operator's chart grants `list` on to read [managed resources](inferred-contracts.md#managed-resources); a kind an organization catalog adds classifies what other sources report and is never listed |
+| `entries[].inventory` | No | `managed-cloud` only. A cloud inventory resource type: an AWS Resource Explorer type such as `rds:db`, a Google Cloud Asset Inventory type such as `sqladmin.googleapis.com/Instance` (case kept) or an Azure Resource Graph type such as `microsoft.dbforpostgresql/flexibleservers`. AWS and Azure types are lower case; at most 200 bytes. A catalog that sets it needs this release or later |
 | `entries[].keyPatterns` | No | Environment and secret key names: `A-Z`, `0-9` and `_`, with at most one trailing `*` |
 | `entries[].otel` | No | `dbSystem`, `messagingSystem` and `rpcSystem` lists of OpenTelemetry system values |
 | `entries[].openapi` | No | The vendor's published OpenAPI document, pinned by digest: `<oci:// or https:// reference>@sha256:<64 lower-case hex>`, at most 512 bytes. An `https://` reference needs a host and carries no credentials, query or fragment; an `oci://` one is `repository@digest`. See [the OpenAPI link](#the-openapi-link) |
 
-An alias, host, key pattern, SDK module, Terraform resource type or
-Crossplane kind claimed by two entries of one file is an error, and the error
+An alias, host, key pattern, SDK module, Terraform resource type,
+Crossplane kind or inventory type claimed by two entries of one file is an error, and the error
 names the entry.
 A file holds at most 2000 entries and 1 MiB. Pacto joins declared dependencies
-by `aliases`. `hosts`, `keyPatterns`, `sdkModules`, `terraform`, `crossplane`
-and `otel` classify what `pacto init`, the operator and trace sources
+by `aliases`. `hosts`, `keyPatterns`, `sdkModules`, `terraform`, `crossplane`,
+`inventory` and `otel` classify what `pacto init`, the operator and trace sources
 recognize, as [Matching](#matching) describes.
 
 ### The OpenAPI link
@@ -193,8 +195,8 @@ external:
 Every Pacto binary embeds a default catalog of well-known vendors (Stripe,
 Twilio, SendGrid, Anthropic, OpenAI, GitHub, Slack, PagerDuty, Datadog, Auth0,
 Algolia and Mailgun) and the AWS, Google Cloud and Azure managed services.
-Each host, SDK module, Terraform resource type and Crossplane kind cites the
-vendor documentation it comes from.
+Each host, SDK module, Terraform resource type, Crossplane kind and inventory
+type cites the vendor documentation it comes from.
 
 Each core release publishes the same bytes as an OCI artifact at
 `ghcr.io/trianalab/pacto/external-catalog:<core version>` and signs it with
@@ -220,8 +222,8 @@ classifies.
 
 An organization catalog adds entries and overrides default ones. An entry with
 the identity of a default entry replaces it, and an alias, host, key pattern, SDK
-module, Terraform resource type or Crossplane kind the organization claims is
-taken from any default entry that also claims it.
+module, Terraform resource type, Crossplane kind or inventory type the
+organization claims is taken from any default entry that also claims it.
 
 Give it by digest:
 

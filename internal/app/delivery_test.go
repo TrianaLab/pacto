@@ -95,24 +95,39 @@ func obj(apiVersion, kind, ns, name string, fields map[string]any) *unstructured
 	return u
 }
 
+// The delivery resources at v1, the version a client addresses by default.
+var (
+	gvrStages     = schema.GroupVersionResource{Group: DeliveryGroup, Version: "v1", Resource: "stages"}
+	gvrOperations = schema.GroupVersionResource{Group: DeliveryGroup, Version: "v1", Resource: "operations"}
+	gvrApprovals  = schema.GroupVersionResource{Group: DeliveryGroup, Version: "v1", Resource: "approvals"}
+)
+
 func deliveryFixture(t *testing.T, user string, groups []string, extra map[string]any, objs ...runtime.Object) (*Delivery, *dynamicfake.FakeDynamicClient, *fakeDeliveryRegistry) {
 	t.Helper()
-	stage := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "payments-prod", map[string]any{
+	return deliveryFixtureAt(t, "v1", user, groups, extra, objs...)
+}
+
+// deliveryFixtureAt is deliveryFixture on a cluster that serves the Pacto
+// and delivery groups at version only.
+func deliveryFixtureAt(t *testing.T, version, user string, groups []string, extra map[string]any, objs ...runtime.Object) (*Delivery, *dynamicfake.FakeDynamicClient, *fakeDeliveryRegistry) {
+	t.Helper()
+	at := func(r schema.GroupVersionResource) schema.GroupVersionResource { r.Version = version; return r }
+	stage := obj(DeliveryGroup+"/"+version, "Stage", "prod", "payments-prod", map[string]any{
 		"spec": map[string]any{"service": map[string]any{"name": "payments"}, "environment": "prod", "applyRef": map[string]any{"name": "payments"},
 			"candidates": map[string]any{"upstreamStage": map[string]any{"name": "payments-test", "namespace": "test"}}},
 		"status": map[string]any{"level": "autonomous", "pointer": dlA, "verified": []any{dlA}},
 	})
 	// The upstream Stage offers B (it passed pacto.published there and
 	// verified), so B passes the published gate here.
-	upstream := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "test", "payments-test", map[string]any{
+	upstream := obj(DeliveryGroup+"/"+version, "Stage", "test", "payments-test", map[string]any{
 		"status": map[string]any{"verified": []any{dlB}, "offered": []any{dlB}},
 	})
 	repo := obj("source.toolkit.fluxcd.io/v1", "OCIRepository", "prod", "payments", map[string]any{
 		"spec": map[string]any{"url": "oci://reg.example/apps/payments", "insecure": true},
 	})
 	all := append([]runtime.Object{stage, upstream, repo}, objs...)
-	lists := map[schema.GroupVersionResource]string{gvrStages: "StageList", gvrOperations: "OperationList", gvrApprovals: "ApprovalList",
-		k8sclient.PactosGVR: "PactoList", gvrOCIRepository: "OCIRepositoryList", gvrKustomization: "KustomizationList", gvrNamespaces: "NamespaceList"}
+	lists := map[schema.GroupVersionResource]string{at(gvrStages): "StageList", at(gvrOperations): "OperationList", at(gvrApprovals): "ApprovalList",
+		at(k8sclient.PactosGVR): "PactoList", gvrOCIRepository: "OCIRepositoryList", gvrKustomization: "KustomizationList", gvrNamespaces: "NamespaceList"}
 	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists, all...)
 	// The caller may update every workload unless a test says otherwise.
 	c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
@@ -144,8 +159,38 @@ func deliveryFixture(t *testing.T, user string, groups []string, extra map[strin
 		reg.hosts = hosts
 		return reg
 	},
-		Policy: delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}}, Now: func() time.Time { return time.Unix(1_800_000_000, 0) }}
+		Policy: delivery.ClassPolicy{AgentGroups: []string{"pacto:agents"}}, Now: func() time.Time { return time.Unix(1_800_000_000, 0) },
+		Versions: map[string]string{DeliveryGroup: version, k8sclient.PactoGroup: version}}
 	return d, c, reg
+}
+
+// TestDeliveryAddressesTheServedVersion: on a chart-6 cluster, which serves
+// both groups at v1alpha1 only, a client given that version reads the Stages
+// and the Pactos and creates its Operation there.
+func TestDeliveryAddressesTheServedVersion(t *testing.T) {
+	d, c, _ := deliveryFixtureAt(t, "v1alpha1", "alice", nil, nil)
+	// The CLI resolves the version on first use rather than at construction.
+	versions := d.Versions
+	d.Versions, d.ServedVersions = nil, func() map[string]string { return versions }
+	ctx := context.Background()
+	if stages, err := d.Stages(ctx, ""); err != nil || len(stages) != 2 {
+		t.Fatalf("stages %+v: %v", stages, err)
+	}
+	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", Name: "p1"}
+	plan, _, err := d.Plan(ctx, req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.IntentDigest = plan.IntentDigest
+	if _, _, err := d.Propose(ctx, req); err != nil {
+		t.Fatal(err)
+	}
+	old := gvrOperations
+	old.Version = "v1alpha1"
+	op, err := c.Resource(old).Namespace("prod").Get(ctx, "p1", metav1.GetOptions{})
+	if err != nil || op.GetAPIVersion() != DeliveryGroup+"/v1alpha1" {
+		t.Fatalf("operation %v: %v", op, err)
+	}
 }
 
 // wantErrContaining fails unless err says want.
@@ -157,6 +202,7 @@ func wantErrContaining(t *testing.T, err error, want string) {
 }
 
 func TestDeliveryPlanAndPropose(t *testing.T) {
+	t.Parallel()
 	d, _, reg := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
@@ -176,6 +222,7 @@ func TestDeliveryPlanAndPropose(t *testing.T) {
 }
 
 func TestProposeStaleOnChangedCause(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, OnBehalfOf: "alice"}
@@ -192,6 +239,7 @@ func TestProposeStaleOnChangedCause(t *testing.T) {
 }
 
 func TestDeliveryProposeGetCancel(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, Reason: "ship", OnBehalfOf: "alice"}
@@ -224,7 +272,7 @@ func TestDeliveryProposeGetCancel(t *testing.T) {
 // generateName of the last operation created.
 func proposeFixture(t *testing.T) (*Delivery, *string) {
 	t.Helper()
-	cited := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p0", map[string]any{
+	cited := obj("delivery.pacto.trianalab.io/v1", "Operation", "prod", "p0", map[string]any{
 		"status": map[string]any{"pointer": map[string]any{"before": dlB, "after": dlA}},
 	})
 	d, c, _ := deliveryFixture(t, "alice", nil, nil, cited)
@@ -239,6 +287,7 @@ func proposeFixture(t *testing.T) (*Delivery, *string) {
 }
 
 func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
+	t.Parallel()
 	d, gen := proposeFixture(t)
 	op, plan, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeRollback, Undoes: "p0"})
 	if err != nil {
@@ -254,6 +303,7 @@ func TestDeliveryProposeGeneratesNameAndRollback(t *testing.T) {
 }
 
 func TestDeliveryProposeFreeze(t *testing.T) {
+	t.Parallel()
 	d, _ := proposeFixture(t)
 	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeUnfreeze})
 	if err != nil || op.Spec.Facet != delivery.FacetFreeze {
@@ -274,6 +324,7 @@ func TestDeliveryProposeFreeze(t *testing.T) {
 }
 
 func TestDeliveryProposeLevel(t *testing.T) {
+	t.Parallel()
 	d, _ := proposeFixture(t)
 	op, _, err := d.Propose(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", Type: delivery.TypeAutonomy, To: "advise"})
 	if err != nil || op.Spec.Facet != delivery.FacetLevel || op.Spec.Params.To != "advise" || op.Spec.Params.From != string(delivery.LevelAutonomous) {
@@ -286,6 +337,7 @@ func TestDeliveryProposeLevel(t *testing.T) {
 }
 
 func TestDeliveryRefusals(t *testing.T) {
+	t.Parallel()
 	d, _, reg := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	base := delivery.Request{Namespace: "prod", Stage: "payments-prod"}
@@ -329,16 +381,17 @@ func TestDeliveryRefusals(t *testing.T) {
 // and the plan names the verified version of that consumer to ship first,
 // read through the consumer's own apply OCIRepository.
 func TestDeliveryPlanSaysWhatMovesFirst(t *testing.T) {
-	orders := obj("pacto.trianalab.io/v1alpha1", "Pacto", "prod", "orders", map[string]any{"status": map[string]any{
+	t.Parallel()
+	orders := obj("pacto.trianalab.io/v1", "Pacto", "prod", "orders", map[string]any{"status": map[string]any{
 		"contractStatus": "Compliant",
 		"contract":       map[string]any{"serviceName": "orders", "version": "1.8.0", "resolvedRef": "oci://reg/pactos/orders@" + dlC},
 		"dependencies":   []any{map[string]any{"name": "payments", "ref": "oci://reg/pactos/payments", "compatibility": "~1.0.0"}},
 	}})
-	ordersStage := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "prod", "orders", map[string]any{
+	ordersStage := obj("delivery.pacto.trianalab.io/v1", "Stage", "prod", "orders", map[string]any{
 		"spec": map[string]any{"service": map[string]any{"name": "orders"}, "environment": "prod", "applyRef": map[string]any{"name": "orders"},
 			"candidates": map[string]any{"upstreamStage": map[string]any{"name": "orders", "namespace": "test"}}},
 	})
-	ordersTest := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "test", "orders", map[string]any{
+	ordersTest := obj("delivery.pacto.trianalab.io/v1", "Stage", "test", "orders", map[string]any{
 		"spec":   map[string]any{"service": map[string]any{"name": "orders"}, "environment": "test", "applyRef": map[string]any{"name": "orders"}},
 		"status": map[string]any{"verified": []any{dlE}, "offered": []any{dlE}},
 	})
@@ -363,7 +416,8 @@ func TestDeliveryPlanSaysWhatMovesFirst(t *testing.T) {
 // where it runs: a Kustomization applying a test Stage's version into its
 // namespace. With the Kustomizations unreadable it counts again.
 func TestDeliveryPlanPlacesConsumersByWhereTheyRun(t *testing.T) {
-	orders := obj("pacto.trianalab.io/v1alpha1", "Pacto", "orders-test", "orders", map[string]any{"status": map[string]any{
+	t.Parallel()
+	orders := obj("pacto.trianalab.io/v1", "Pacto", "orders-test", "orders", map[string]any{"status": map[string]any{
 		"contractStatus": "Compliant",
 		"contract":       map[string]any{"serviceName": "orders", "version": "1.8.0", "resolvedRef": "oci://reg/pactos/orders@" + dlC},
 		"dependencies":   []any{map[string]any{"name": "payments", "ref": "oci://reg/pactos/payments", "compatibility": "~1.0.0"}},
@@ -380,7 +434,7 @@ func TestDeliveryPlanPlacesConsumersByWhereTheyRun(t *testing.T) {
 	if _, err := c.Resource(gvrKustomization).Namespace("test").Create(ctx, k, metav1.CreateOptions{}); err != nil {
 		t.Fatal(err)
 	}
-	test := obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", "test", "payments-t", map[string]any{
+	test := obj("delivery.pacto.trianalab.io/v1", "Stage", "test", "payments-t", map[string]any{
 		"spec": map[string]any{"service": map[string]any{"name": "payments"}, "environment": "test", "applyRef": map[string]any{"name": "payments"}},
 	})
 	if _, err := c.Resource(gvrStages).Namespace("test").Create(ctx, test, metav1.CreateOptions{}); err != nil {
@@ -398,6 +452,7 @@ func TestDeliveryPlanPlacesConsumersByWhereTheyRun(t *testing.T) {
 }
 
 func TestDeliveryUnreadableClusterState(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	c.PrependReactor("get", "ocirepositories", func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -433,6 +488,7 @@ func TestDeliveryUnreadableClusterState(t *testing.T) {
 }
 
 func TestDeliverySecureRegistry(t *testing.T) {
+	t.Parallel()
 	d, c, reg := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	ri := c.Resource(gvrOCIRepository).Namespace("prod")
@@ -447,7 +503,8 @@ func TestDeliverySecureRegistry(t *testing.T) {
 }
 
 func TestDeliveryWhoAmIAndApprove(t *testing.T) {
-	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
+	t.Parallel()
+	op := obj("delivery.pacto.trianalab.io/v1", "Operation", "prod", "p1", map[string]any{
 		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments-prod", "actor": map[string]any{"user": "bot"}},
 		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
 	})
@@ -479,7 +536,8 @@ func TestDeliveryWhoAmIAndApprove(t *testing.T) {
 // login the cluster cannot date decides and the Approval carries no
 // authTime; a Stage it cannot read refuses the decision.
 func TestDeliveryApproveReadsTheStage(t *testing.T) {
-	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
+	t.Parallel()
+	op := obj("delivery.pacto.trianalab.io/v1", "Operation", "prod", "p1", map[string]any{
 		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments-prod", "actor": map[string]any{"user": "bot"}},
 		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
 	})
@@ -515,6 +573,7 @@ func TestDeliveryApproveReadsTheStage(t *testing.T) {
 // policy the chart's delivery section publishes, and a client without it falls back to
 // the one it was given.
 func TestDeliveryReadsThePublishedPolicy(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	cm := obj("v1", "ConfigMap", "pacto-delivery", delivery.PolicyConfigMap, map[string]any{
 		"data": map[string]any{delivery.PolicyKey: `{"agentGroups":["acme:bots"],"teamGroupPrefix":"acme:","requireOwnerTeam":true,"gateProviders":{"evals":"eval"}}`},
@@ -540,7 +599,8 @@ func TestDeliveryReadsThePublishedPolicy(t *testing.T) {
 }
 
 func TestDeliveryApproveRefusals(t *testing.T) {
-	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "p1", map[string]any{
+	t.Parallel()
+	op := obj("delivery.pacto.trianalab.io/v1", "Operation", "prod", "p1", map[string]any{
 		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments-prod", "actor": map[string]any{"user": "bot"}},
 		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
 	})
@@ -602,6 +662,7 @@ func TestDeliveryApproveRefusals(t *testing.T) {
 // the published gate admits; one in the Stage's own namespace when it names no
 // namespace, and refused when it cannot be read.
 func TestDeliveryUpstreamStage(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	stage, err := d.Stage(ctx, "prod", "payments-prod")
@@ -645,7 +706,8 @@ func upstreamOf(ctx context.Context, d *Delivery, stage *delivery.StageObject) (
 }
 
 func TestDeliveryLists(t *testing.T) {
-	d, c, _ := deliveryFixture(t, "alice", nil, nil, obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "prod", "op1", nil))
+	t.Parallel()
+	d, c, _ := deliveryFixture(t, "alice", nil, nil, obj("delivery.pacto.trianalab.io/v1", "Operation", "prod", "op1", nil))
 	ctx := context.Background()
 	all, err := d.Stages(ctx, "")
 	if err != nil || len(all) != 2 {
@@ -663,6 +725,7 @@ func TestDeliveryLists(t *testing.T) {
 }
 
 func TestDeliveryDescribe(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	prod, _ := d.Stages(ctx, "prod")
@@ -677,6 +740,7 @@ func TestDeliveryDescribe(t *testing.T) {
 }
 
 func TestDeliveryCanByNamespace(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "carol", []string{"team-orders"}, nil)
 	var asked map[string]any
 	c.PrependReactor("create", "selfsubjectaccessreviews", func(a k8stesting.Action) (bool, runtime.Object, error) {
@@ -705,6 +769,7 @@ func TestDeliveryCanByNamespace(t *testing.T) {
 // TestDeliveryCan: the caller's own SelfSubjectAccessReview, asked about the
 // delivery group, answers; a failed review is an error, never a yes.
 func TestDeliveryCan(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	var asked map[string]any
@@ -734,6 +799,7 @@ func TestDeliveryCan(t *testing.T) {
 // version; an upstream that fails to read stops it, and a version cannot be
 // matched while a candidate's artifact cannot be read.
 func TestDeliveryCandidates(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "alice", nil, nil)
 	ctx := context.Background()
 	got, err := d.Candidates(ctx, "prod", "payments-prod")
@@ -767,6 +833,7 @@ func TestDeliveryCandidates(t *testing.T) {
 // A propose whose intent digest differs only by the reason it adds names the
 // reason; any other difference lists what the digest binds.
 func TestDeliveryPlanStaleNamesWhatDiffers(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "system:serviceaccount:agents:bot", []string{"system:authenticated"}, nil)
 	ctx := context.Background()
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, OnBehalfOf: "alice"}
@@ -788,6 +855,7 @@ func TestDeliveryPlanStaleNamesWhatDiffers(t *testing.T) {
 // TestWhoAmIPolicyNotFoundHint: a policy that could not be read is carried
 // on the caller, and a missing one says which flag points at it.
 func TestWhoAmIPolicyNotFoundHint(t *testing.T) {
+	t.Parallel()
 	ctx := context.Background()
 	hint := "; the ConfigMap pacto-delivery-identities is not in pacto-delivery: pass --delivery-namespace with the namespace the chart's delivery.namespace names"
 	d, _, _ := deliveryFixture(t, "carol", nil, nil)
@@ -808,6 +876,7 @@ func TestWhoAmIPolicyNotFoundHint(t *testing.T) {
 }
 
 func TestSpecCopiesCorrelationID(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "alice", []string{"system:authenticated"}, nil)
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, CorrelationID: "CHG-2041"}
 	_, spec, err := d.Plan(context.Background(), req)
@@ -822,6 +891,7 @@ func TestSpecCopiesCorrelationID(t *testing.T) {
 }
 
 func TestSpecRefusesLongCorrelationID(t *testing.T) {
+	t.Parallel()
 	d, _, _ := deliveryFixture(t, "alice", []string{"system:authenticated"}, nil)
 	req := delivery.Request{Namespace: "prod", Stage: "payments-prod", To: dlB, CorrelationID: strings.Repeat("x", 129)}
 	_, _, err := d.Plan(context.Background(), req)
@@ -832,6 +902,7 @@ func TestSpecRefusesLongCorrelationID(t *testing.T) {
 // repository the Stage's applier fetches, as the promoter does, so a plan on
 // an Argo CD or HelmRelease Stage reads the same artifacts.
 func TestDeliveryApplyRepoFollowsTheApplier(t *testing.T) {
+	t.Parallel()
 	app := obj("argoproj.io/v1alpha1", "Application", "prod", "payments-app", map[string]any{
 		"spec": map[string]any{"source": map[string]any{"repoURL": "oci://reg.example/apps/payments-argo"}},
 	})

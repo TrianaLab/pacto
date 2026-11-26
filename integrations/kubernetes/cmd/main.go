@@ -32,8 +32,11 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	utilruntime "k8s.io/apimachinery/pkg/util/runtime"
+	"k8s.io/apimachinery/pkg/util/validation"
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
+	"k8s.io/client-go/discovery"
 	"k8s.io/client-go/dynamic"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	corev1client "k8s.io/client-go/kubernetes/typed/core/v1"
@@ -45,27 +48,34 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/metrics/filters"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/dashboard"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/delivery"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/detection"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/evidence"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/inferredpublish"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/installkey"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/linker"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/member"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/scope"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/targetsnapshot"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/controller"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/dashboard"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/delivery"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/detection"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/evidence"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/inferredpublish"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/installkey"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/linker"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/member"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/nodeagent"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/offeringpublish"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/scope"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/storagemigrate"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/targetsnapshot"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
+	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
+	"github.com/trianalab/pacto/v4/pkg/managedres"
+	"github.com/trianalab/pacto/v4/pkg/managedres/cloud"
 	"github.com/trianalab/pacto/v4/pkg/oci"
+	"github.com/trianalab/pacto/v4/pkg/ocireferrer"
 	"github.com/trianalab/pacto/v4/pkg/publish"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 	// +kubebuilder:scaffold:imports
@@ -91,7 +101,8 @@ var (
 func init() {
 	utilruntime.Must(clientgoscheme.AddToScheme(scheme))
 
-	utilruntime.Must(pactov1alpha1.AddToScheme(scheme))
+	utilruntime.Must(pactov1.AddToScheme(scheme))
+	utilruntime.Must(dv1.AddToScheme(scheme))
 	// +kubebuilder:scaffold:scheme
 }
 
@@ -146,6 +157,9 @@ type options struct {
 	kernelEvidenceStaleness           time.Duration
 	egressGatewayLogs                 string
 	callerIgnoreNamespaces            []string
+	terraformStates                   []string
+	cloudInventory                    string
+	workloadIdentity                  string
 
 	enableNodeAgent          bool
 	nodeAgentNamespace       string
@@ -158,8 +172,20 @@ type options struct {
 	profile              string
 	hubURL               string
 	hubCAFile            string
+	inventory            detection.InventoryConfig
+	chartVersion         string
+	crossplaneOfferings  bool
 	registryPullSecret   string
 	registryPushPrefixes []string
+
+	memberRequests          bool
+	memberAllowServices     string
+	memberAllowNamespaces   string
+	memberAllowEnvironments string
+	deliveryPolicyConfigMap string
+	recordedTTL             time.Duration
+	recorderTrustFile       string
+	memberStreamsRepository string
 
 	ownerPolicy        string
 	trustedRoot        string
@@ -410,6 +436,34 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 			}
 			return fmt.Errorf("want auto, on or off, got %q", v)
 		})
+	fs.Func("terraform-state",
+		"A remote Terraform or OpenTofu state to read managed resources from (repeatable), written "+
+			"s3://<bucket>/<key>?region=<region>, gs://<bucket>/<object> or azurerm://<account>/<container>/<key>. "+
+			"Read through the operator's workload identity; only resource types, ids, regions and engines are kept.",
+		func(v string) error {
+			loc, err := managedres.ParseLocation(v)
+			if err == nil {
+				o.terraformStates = append(o.terraformStates, loc.String())
+			}
+			return err
+		})
+	o.cloudInventory = "off"
+	fs.Func("cloud-inventory",
+		"The cloud whose inventory to read managed resources from, written `=cloud`: aws (Resource Explorer), "+
+			"gcp (Cloud Asset Inventory), azure (Resource Graph) or off. Read only through the operator's workload "+
+			"identity for that cloud. off by default.",
+		func(v string) error {
+			switch v {
+			case "off", cloud.CloudAWS, cloud.CloudGCP, cloud.CloudAzure:
+				o.cloudInventory = v
+				return nil
+			}
+			return fmt.Errorf("want aws, gcp, azure or off, got %q", v)
+		})
+	fs.StringVar(&o.workloadIdentity, "workload-identity", "",
+		"The workload identity bound to the operator ServiceAccount, written <cloud>=<value>, the value being a role "+
+			"ARN, a service account email or a client id; the chart renders it from serviceAccount.annotations. Empty "+
+			"reads the identity webhooks' environment.")
 	fs.Func("caller-coverage-ignore-namespace",
 		"Namespace whose host-network pods are taken not to call workloads, so they leave a Service's caller "+
 			"coverage complete (repeatable). kube-system and the other cluster namespaces and the node agent's "+
@@ -446,6 +500,51 @@ func bindFlags(fs *flag.FlagSet, o *options) {
 		"The hub's https:// or wss:// URL. Setting it makes this joined cluster a member: the elected leader dials "+
 			"the hub, proves the installation key and answers the hub's per-person reviews with this cluster's own "+
 			"SubjectAccessReview. Nothing listens for the hub; needs --registry.")
+	fs.BoolVar(&o.inventory.Enabled, "cluster-inventory", false,
+		"List the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher know into the detected ConfigMap, "+
+			"as metadata only; nothing joins on its own.")
+	fs.Func("cluster-inventory-namespaces",
+		"Comma-separated namespaces the chart grants Secret list in: the operator reads Argo CD cluster Secrets and "+
+			"Flux kubeconfig Secrets there, metadata only, and nowhere else.",
+		func(v string) error {
+			for ns := range strings.SplitSeq(v, ",") {
+				if errs := validation.IsDNS1123Label(ns); len(errs) > 0 {
+					return fmt.Errorf("%q is not a namespace name: %s", ns, strings.Join(errs, "; "))
+				}
+				o.inventory.SecretNamespaces = append(o.inventory.SecretNamespaces, ns)
+			}
+			return nil
+		})
+	fs.StringVar(&o.chartVersion, "chart-version", "",
+		"The chart version this operator was installed with, advertised in the detected ConfigMap so a generated "+
+			"member install pins the same chart.")
+	fs.BoolVar(&o.crossplaneOfferings, "crossplane-offerings", true,
+		"Push each Crossplane XRD as an inferred offering to <registry>/pacto-inferred/crossplane-<clusterID>/services. "+
+			"Needs --registry and a cluster-wide operator; the operator only reads XRDs and Compositions.")
+	fs.BoolVar(&o.memberRequests, "member-requests", false,
+		"Take member requests: the elected leader reads this cluster's request stream in <registry>/pacto-targets and "+
+			"raises one promote, as an agent on the person's behalf, for each request a person signed that this cluster's "+
+			"approver signers verify, its RBAC allows and its allowlist takes. "+
+			"Needs --registry and --delivery-policy-configmap.")
+	fs.StringVar(&o.memberAllowServices, "member-allow-services", "",
+		"Comma-separated service name patterns member requests are taken for; empty takes every service.")
+	fs.StringVar(&o.memberAllowNamespaces, "member-allow-namespaces", "",
+		"Comma-separated namespaces member requests are taken for, among the watched ones; "+
+			"empty takes every watched namespace.")
+	fs.StringVar(&o.memberAllowEnvironments, "member-allow-environments", "",
+		"Comma-separated environments member requests are taken for, among those the cluster name hosts; "+
+			"empty takes them all.")
+	fs.StringVar(&o.deliveryPolicyConfigMap, "delivery-policy-configmap", "",
+		"namespace/name of the ConfigMap holding the delivery identity policy (policy.json), whose approver "+
+			"signers verify member requests.")
+	fs.DurationVar(&o.recordedTTL, "recorded-ttl", 0,
+		"How long the delivery recorder keeps a concluded Operation: no member request outlives it. 0 adds no bound.")
+	fs.StringVar(&o.recorderTrustFile, "recorder-trust-file", "",
+		"File holding a one-key trust config: the key the delivery recorder signs Stage records with, named in the "+
+			"join block so other members can follow them. A file that does not parse stops the operator.")
+	fs.StringVar(&o.memberStreamsRepository, "member-streams-repository", "",
+		"The delivery recorder's streams repository: the join block names it and lists the Stages that record a "+
+			"stream. Empty lists no Stage.")
 	fs.StringVar(&o.hubCAFile, "hub-ca-file", "",
 		"File holding the PEM CAs the hub's certificate may chain to, beside the system pool.")
 	fs.StringVar(&o.registryPullSecret, "registry-pull-secret", "",
@@ -605,6 +704,7 @@ func main() {
 		setupLog.Error(err, "Failed to add revision mirror")
 		os.Exit(1)
 	}
+	addStorageMigration(mgr, o.namespaces)
 	// +kubebuilder:scaffold:builder
 
 	if err := addComponents(mgr, &o, operatorNamespace, publishKeychain, keychain, pactoReconciler); err != nil {
@@ -773,7 +873,12 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	if err != nil {
 		return err
 	}
-	inst, err := addPublishers(mgr, o, namespace, ident, evidenceSourceURL, kc, loaderKC, rec)
+	// Detection proposes what the cluster provides in one ConfigMap; it never
+	// changes an argument, a rule or a feature. The managed dashboard mounts it
+	// as a file. It is built before the publishers, so the inferred publisher
+	// reads its last Result in process.
+	d := newDetector(mgr, o, namespace, ident)
+	inst, offerings, err := addPublishers(mgr, o, namespace, ident, evidenceSourceURL, kc, loaderKC, rec)
 	if err != nil {
 		return err
 	}
@@ -808,15 +913,11 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 		Registry:              o.dashboardDeclare.Registry,
 		DeclareRegistrySecret: o.dashboardDeclare.DeclareRegistrySecret,
 	}
-	// Detection proposes what the cluster provides in one ConfigMap; it never
-	// changes an argument, a rule or a feature. The managed dashboard mounts it
-	// as a file.
-	if d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
-		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
-		inst, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
-			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr)}); d != nil {
-		d.Wake = pushed
+	if d != nil {
+		d.Installation = inst
+		d.Wake, d.Offerings = pushed, offerings
 		d.Pieces = idpPieces(inst, gate, o.enableEvidence, recorder)
+		d.Inventory = o.inventory
 		if err := mgr.Add(d); err != nil {
 			return fmt.Errorf("failed to add detection: %w", err)
 		}
@@ -873,6 +974,21 @@ func addComponents(mgr ctrl.Manager, o *options, namespace string, kc, loaderKC 
 	}
 
 	return addNodeAgent(mgr, o, namespace)
+}
+
+// newDetector is the operator's detector, nil without OPERATOR_DEPLOYMENT_NAME. It sets lastDetected to the
+// detector's Last; its Installation is set once the publishers have built it.
+func newDetector(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity) *detection.Detector {
+	d := detection.ForOperator(os.Getenv("OPERATOR_DEPLOYMENT_NAME"), namespace, o.namespaces,
+		o.nodeAgentNamespace, ident, mgr.GetAPIReader(), mgr.GetClient(), detection.ServedFor(mgr.GetConfig()),
+		nil, lastPush.Load, detection.Readers{GatewayLogs: o.egressGatewayLogs, KernelEvidence: o.enableKernelEvidence,
+			ServiceEntries: servesServiceEntries(mgr), CiliumPolicies: servesCiliumPolicies(mgr),
+			Managed: detection.ManagedFor(mgr.GetConfig()), TerraformStates: o.terraformStates,
+			CloudInventory: o.cloudInventory, WorkloadIdentity: o.workloadIdentity})
+	if d != nil {
+		lastDetected = d.Last
+	}
+	return d
 }
 
 // idpPieces are the profile idp rows detection writes (the Evidence Server and the recorder), nil outside idp.
@@ -965,24 +1081,71 @@ func dashboardIndex(mode string, inst *detect.Installation) string {
 
 // addPublishers runs the linker, the target snapshot publisher and, with --hub-url, the member link (both
 // signing with the one installation key). It returns the installation block detection advertises on every
-// install; only its registry fields need --registry.
+// install, whose registry fields need --registry, and the inferred-offering publisher's advertisement, nil
+// when that publisher does not run.
 func addPublishers(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
 	evidenceURL func() string, kc, loaderKC authn.Keychain,
-	rec *controller.PactoReconciler) (*detect.Installation, error) {
+	rec *controller.PactoReconciler) (*detect.Installation, func() *detect.OfferingsAd, error) {
 	linked, err := addLinker(mgr, o, namespace, ident.ID, kc, loaderKC, rec)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	profiles, err := detection.ParseProfile(o.profile)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	inst := &detect.Installation{Profile: profiles}
-	key, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked)
+	inst := &detect.Installation{Profile: profiles, ChartVersion: o.chartVersion, Member: o.hubURL != ""}
+	// The publisher starts after setup, so it reads intake as addIntake left it: nil while requests are off.
+	var intake *member.Intake
+	key, offerings, err := addTargetSnapshot(mgr, o, namespace, ident, evidenceURL, kc, inst, linked,
+		func() *core.JoinRequests { return intake.JoinRequests() })
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	return inst, addMember(mgr, o, ident, key)
+	if intake, err = addIntake(mgr, o, ident, key, kc); err != nil {
+		return nil, nil, err
+	}
+	return inst, offerings, addMember(mgr, o, ident, key)
+}
+
+// addIntake takes member requests when --member-requests is set: it opens <registry>/pacto-targets through
+// the push scope and signs its outcomes with the installation key the hub already trusts. It returns the
+// intake, nil while requests are off.
+func addIntake(mgr ctrl.Manager, o *options, ident kubecluster.Identity, key ed25519.PrivateKey,
+	kc authn.Keychain) (*member.Intake, error) {
+	if !o.memberRequests {
+		return nil, nil
+	}
+	if key == nil {
+		return nil, errors.New("--member-requests needs --registry: " +
+			"requests and their outcomes sit in <registry>/pacto-targets")
+	}
+	ns, name, ok := strings.Cut(o.deliveryPolicyConfigMap, "/")
+	if !ok {
+		return nil, errors.New("--member-requests needs --delivery-policy-configmap as namespace/name")
+	}
+	repo, err := ocireferrer.Open(oci.InstallationRepository(o.registry, oci.TargetsRepository), ocireferrer.Options{
+		Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Scope: oci.NewPushScope(o.registry)})
+	if err != nil {
+		return nil, fmt.Errorf("the member request repository: %w", err)
+	}
+	kp, _ := signing.FromPrivateKey(key) // a full-size Ed25519 key always loads
+	setupLog.Info("Member requests are on", "cluster", ident.ID)
+	in := &member.Intake{Reader: mgr.GetAPIReader(), Writer: mgr.GetClient(), Records: &deliveryrecord.Reader{},
+		Repo: repo, Signer: signing.Keyed(kp, ""), Key: key,
+		ClusterID: ident.ID, ClusterName: ident.Name, NameSource: ident.NameSource,
+		WhoAmI: member.SelfActor(mgr.GetClient()), Review: member.MayPropose(mgr.GetClient()),
+		Policy: member.ClassPolicyFrom(mgr.GetAPIReader(), types.NamespacedName{Namespace: ns, Name: name}),
+		Allow: core.RequestAllowlist{Services: commaList(o.memberAllowServices),
+			Namespaces: commaList(o.memberAllowNamespaces), Environments: commaList(o.memberAllowEnvironments)},
+		Observed: o.namespaces, RecordedTTL: o.recordedTTL, Now: time.Now, Interval: 30 * time.Second,
+		Log: ctrl.Log.WithName("member-requests")}
+	return in, mgr.Add(in)
+}
+
+// commaList splits a comma-separated flag value, dropping empty items.
+func commaList(v string) []string {
+	return slices.DeleteFunc(strings.Split(v, ","), func(s string) bool { return strings.TrimSpace(s) == "" })
 }
 
 // addMember makes this cluster a member when --hub-url is set: the elected leader dials the hub and answers
@@ -1032,6 +1195,9 @@ func addLinker(mgr ctrl.Manager, o *options, namespace, clusterID string, kc, lo
 var (
 	lastPush atomic.Pointer[detect.PushResult]
 	pushed   = make(chan struct{}, 1)
+	// lastDetected is the detector's last Result (Detector.Last), which the
+	// inferred publisher reads in process; nil when detection is off.
+	lastDetected func() *detect.Result
 )
 
 // recordPush stores a publish attempt and wakes detection without ever blocking the publisher.
@@ -1054,24 +1220,30 @@ var firstPush, closeFirstPush = func() (<-chan struct{}, func()) {
 // key, then publishes <registry>/pacto-targets:cluster-<uid> and the inferred contracts under
 // <registry>/pacto-inferred on the elected leader. It fills the registry fields of inst, the installation
 // detection advertises, and leaves them empty without --registry. It returns the installation key, nil
-// without --registry. A member (--hub-url) publishes no inferred contracts: its hub does, from the merged
-// snapshot. Any missing piece stops the operator at start with its reason.
+// without --registry, and the inferred-offering publisher's advertisement, nil when it does not run. A member
+// (--hub-url) publishes no inferred contracts: its hub does, from the merged snapshot. Any missing piece stops
+// the operator at start with its reason.
 func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kubecluster.Identity,
 	evidenceURL func() string, kc authn.Keychain, inst *detect.Installation,
-	linked func() core.LinkedTargets) (ed25519.PrivateKey, error) {
+	linked func() core.LinkedTargets, requests func() *core.JoinRequests,
+) (ed25519.PrivateKey, func() *detect.OfferingsAd, error) {
 	if o.registry == "" {
 		setupLog.Info("Target snapshot and inferred contracts are off: set the registry value")
-		return nil, nil
+		return nil, nil, nil
 	}
 	deploy := os.Getenv("OPERATOR_DEPLOYMENT_NAME")
 	if deploy == "" {
-		return nil, fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
+		return nil, nil, fmt.Errorf("--registry needs OPERATOR_DEPLOYMENT_NAME: " +
 			"the installation key Secret is named after the operator Deployment")
 	}
 	key, err := installkey.Ensure(context.Background(), mgr.GetAPIReader(), mgr.GetClient(), namespace,
 		installkey.SecretName(deploy))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	recorderKey, err := readRecorderKey(o.recorderTrustFile)
+	if err != nil {
+		return nil, nil, err
 	}
 	pub, err := targetsnapshot.ForOperator(targetsnapshot.Config{Registry: o.registry, ClusterID: ident.ID,
 		ClusterName: ident.Name, ClusterNameSource: ident.NameSource,
@@ -1079,12 +1251,16 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kub
 		Watched: o.namespaces, Key: key, Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(),
 		OnPush:      func(r detect.PushResult) { recordPush(r); closeFirstPush() },
 		OwnerPolicy: readOwnerPolicy(o.ownerPolicy),
-		Linked:      linked})
+		Linked:      linked, Requests: requests, RecorderKey: recorderKey, StreamsRepository: o.memberStreamsRepository})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	if err := addInferred(mgr, o, key, kc); err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	offerings, err := addOfferings(mgr, o, ident.ID, key, kc)
+	if err != nil {
+		return nil, nil, err
 	}
 	inst.Registry = o.registry
 	inst.Targets = oci.InstallationRepository(o.registry, oci.TargetsRepository)
@@ -1094,7 +1270,30 @@ func addTargetSnapshot(mgr ctrl.Manager, o *options, namespace string, ident kub
 	inst.SnapshotKey, inst.SnapshotKeyID = installkey.PublicKeyBase64(key), signing.Hint(key.Public())
 	setupLog.Info("Target snapshot is on", "repository", inst.Targets,
 		"snapshotKeyID", inst.SnapshotKeyID, "snapshotKey", inst.SnapshotKey)
-	return key, mgr.Add(pub)
+	return key, offerings, mgr.Add(pub)
+}
+
+// addOfferings publishes each Crossplane XRD as an inferred offering under
+// <registry>/pacto-inferred/crossplane-<clusterID>/services, signed with the installation key, on the elected
+// leader. It runs on a cluster-wide operator with --crossplane-offerings, members included (each cluster
+// writes its own repository), and asks on every tick whether Crossplane is served. It returns the
+// publisher's advertisement, nil when it does not run.
+func addOfferings(mgr ctrl.Manager, o *options, clusterID string, key ed25519.PrivateKey,
+	kc authn.Keychain) (func() *detect.OfferingsAd, error) {
+	if !o.crossplaneOfferings {
+		return nil, nil
+	}
+	dyn, err := dynamic.NewForConfig(mgr.GetConfig())
+	if err != nil {
+		return nil, err
+	}
+	p, err := offeringpublish.ForOperator(offeringpublish.Config{Registry: o.registry, ClusterID: clusterID, Key: key,
+		Keychain: kc, Insecure: oci.EnvInsecureRegistries(), Dynamic: dyn, Served: detection.ServedFor(mgr.GetConfig()),
+		Watched: o.namespaces, Pacto: version})
+	if err != nil || p == nil {
+		return nil, err
+	}
+	return p.Advertisement, mgr.Add(p)
 }
 
 // addInferred publishes the inferred contracts of the externals the Pactos name, signed with the installation
@@ -1105,11 +1304,35 @@ func addInferred(mgr ctrl.Manager, o *options, key ed25519.PrivateKey, kc authn.
 		return nil
 	}
 	inferred, err := inferredpublish.ForOperator(inferredpublish.Config{Registry: o.registry, Key: key, Keychain: kc,
-		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Watched: o.namespaces, Pacto: version})
+		Insecure: oci.EnvInsecureRegistries(), Reader: mgr.GetAPIReader(), Watched: o.namespaces, Pacto: version,
+		Detected: lastDetected})
 	if err != nil {
 		return err
 	}
 	return mgr.Add(inferred)
+}
+
+// readRecorderKey reads the recorder's one-key trust config once at start (--recorder-trust-file, the chart's
+// pin signer): the join block names that key and a reader scopes it to the listed streams, so its own streams
+// are dropped. Empty names none; a file that does not read, parse or hold exactly one key stops the operator.
+func readRecorderKey(path string) (*core.TrustedKey, error) {
+	if path == "" {
+		return nil, nil
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("--recorder-trust-file: %w", err)
+	}
+	t, err := core.ParseTrust(raw)
+	if err != nil {
+		return nil, fmt.Errorf("--recorder-trust-file: %w", err)
+	}
+	if len(t.Keys) != 1 {
+		return nil, fmt.Errorf("--recorder-trust-file: %d keys, want the recorder's one", len(t.Keys))
+	}
+	k := t.Keys[0]
+	k.Streams = nil
+	return &k, nil
 }
 
 // readOwnerPolicy reads the mounted owner policy once at start: the ConfigMap
@@ -1232,4 +1455,21 @@ func readClusterIdentity(mgr ctrl.Manager) kubecluster.Identity {
 	}
 	setupLog.Info("the cluster id could not be read; Evidence Server reports carry no cluster", "error", err)
 	return kubecluster.Identity{}
+}
+
+// addStorageMigration rewrites every pacto.trianalab.io object stored as
+// v1alpha1 as v1, then drops v1alpha1 from the CRDs' storedVersions. A scoped
+// operator cannot list other namespaces, so it leaves that to the documented
+// kubectl procedure.
+func addStorageMigration(mgr ctrl.Manager, namespaces []string) {
+	if len(namespaces) > 0 {
+		setupLog.Info("storage migration: skipped, the operator watches only some namespaces; see the installation guide")
+		return
+	}
+	if err := mgr.Add(&storagemigrate.Migrator{Client: dynamic.NewForConfigOrDie(mgr.GetConfig()),
+		Discovery: discovery.NewDiscoveryClientForConfigOrDie(mgr.GetConfig()), Targets: storagemigrate.PactoTargets(),
+		From: "v1alpha1", To: "v1", Log: ctrl.Log.WithName("storage-migration")}); err != nil {
+		setupLog.Error(err, "Failed to add the storage migration")
+		os.Exit(1)
+	}
 }

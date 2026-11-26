@@ -17,8 +17,8 @@ import (
 	metav1ac "k8s.io/client-go/applyconfigurations/meta/v1"
 	rbacv1ac "k8s.io/client-go/applyconfigurations/rbac/v1"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 )
 
 // agentVerbs is everything the agent's Role grants on its observation:
@@ -73,7 +73,7 @@ func roleAC(cfg Config) *rbacv1ac.RoleApplyConfiguration {
 		WithLabels(Labels()).
 		WithRules(
 			rbacv1ac.PolicyRule().
-				WithAPIGroups(pactov1alpha1.GroupVersion.Group).
+				WithAPIGroups(pactov1.GroupVersion.Group).
 				WithResources("noderuntimeobservations", "noderuntimeobservations/status").
 				WithVerbs(agentVerbs...),
 			rbacv1ac.PolicyRule().

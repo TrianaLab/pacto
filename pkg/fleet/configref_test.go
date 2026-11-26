@@ -130,3 +130,20 @@ func TestSnapshotResolver(t *testing.T) {
 		t.Errorf("doc conflict: %v", err)
 	}
 }
+
+// TestFleetRevisionCarriesParameterCode: the fleet build checks a consumer's
+// environment values against a tiered offering it resolves from the
+// snapshot and records the parameter code, at the path pacto validate names.
+func TestFleetRevisionCarriesParameterCode(t *testing.T) {
+	y := "pactoVersion: \"2.5\"\nservice: {name: pg, version: 1.0.0, offering: postgresql, owner: {team: team-data}}\nconfigurations:\n  - {name: db, required: false, schema: db.json}\n"
+	pg := RawRevision{Bundle: &contract.Bundle{Contract: mustParse(t, y), RawYAML: []byte(y),
+		FS: fstest.MapFS{"db.json": {Data: []byte(`{"type":"object","properties":{"size":{"enum":["small","large"],"x-pacto-tier":"tunable"},"storageGB":{"type":"integer"}}}`)}}},
+		Digest: refDigest("pg")}
+	rev := revisionOf(t, refSnap(t, pg, refOrders(t, "oci://r/pg@"+refDigest("pg"), "small", "db: {storageGB: 100}\n")), "orders")
+	for _, f := range rev.Validation {
+		if f.Code == "TierNotTunable" && f.ContractPath == "environments[0].file" && strings.HasPrefix(f.Message, "environment prod: db.storageGB is contract-tier in offering pg 1.0.0") {
+			return
+		}
+	}
+	t.Fatalf("findings:\n%s", findingMessages(rev))
+}

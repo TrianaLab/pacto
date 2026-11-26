@@ -42,6 +42,7 @@
       </svelte:element>
       <p class="ff-value" class:ff-unknown={x.t.unknown} data-testid="figure-{x.key}-value">{x.t.value}{#if x.t.note}<small>{x.t.note}</small>{/if}</p>
       {#if x.t.sub}<p class="ff-sub" data-testid="figure-{x.key}-sub">{x.t.sub}</p>{/if}
+      {#if x.t.resources}<p class="ff-sub" data-testid="figure-{x.key}-resources">{x.t.resources}</p>{/if}
       {#if drawn(x.spark)}
         <div class="ff-fig" data-testid="figure-{x.key}-trend">
           <LineChart compact {buckets} series={[{ key: x.key, label: x.title, color: 'var(--c-accent)', values: x.spark }]} label={`${x.title} per week, ${buckets.length} weeks`} />

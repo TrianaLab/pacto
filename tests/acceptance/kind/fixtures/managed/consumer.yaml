@@ -1,0 +1,21 @@
+# orders reads its database URL from the offering claim's connection Secret.
+# Pacto reads the Secret name in the pod spec, never the Secret, and this
+# scenario never creates it: the reference is optional so the pod runs.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  namespace: shop
+  name: orders
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: orders}}
+  template:
+    metadata: {labels: {app: orders}}
+    spec:
+      containers:
+        - name: app
+          image: registry.k8s.io/pause:3.9
+          imagePullPolicy: Never
+          env:
+            - name: DATABASE_URL
+              valueFrom: {secretKeyRef: {name: orders-db-conn, key: url, optional: true}}

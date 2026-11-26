@@ -88,9 +88,12 @@ var sharedGVRs = map[schema.GroupVersionResource][]string{
 	sharedOps:    {"spec.stage", "status.outcome"},
 }
 
+// sharedStages and sharedOps key the cache at v1; the informers watch the
+// version the cluster serves, and every version of a resource reads the
+// same cache (the schemas are identical).
 var (
-	sharedStages = schema.GroupVersionResource{Group: deliveryGroup, Version: "v1alpha1", Resource: "stages"}
-	sharedOps    = schema.GroupVersionResource{Group: deliveryGroup, Version: "v1alpha1", Resource: "operations"}
+	sharedStages = schema.GroupVersionResource{Group: deliveryGroup, Version: "v1", Resource: "stages"}
+	sharedOps    = schema.GroupVersionResource{Group: deliveryGroup, Version: "v1", Resource: "operations"}
 )
 
 // stageIndex indexes Operations by namespace/spec.stage: a Stage's history
@@ -117,8 +120,9 @@ var sarGVR = schema.GroupVersionResource{Group: "authorization.k8s.io", Version:
 var ssarGVR = schema.GroupVersionResource{Group: "authorization.k8s.io", Version: "v1", Resource: "selfsubjectaccessreviews"}
 var ssrGVR = schema.GroupVersionResource{Group: "authentication.k8s.io", Version: "v1", Resource: "selfsubjectreviews"}
 
-// newSharedReads starts watching the delivery objects with sa until ctx ends.
-func newSharedReads(ctx context.Context, sa dynamic.Interface, wrote func(string) bool) *sharedReads {
+// newSharedReads starts watching the delivery objects with sa, at version
+// ("" for v1), until ctx ends.
+func newSharedReads(ctx context.Context, sa dynamic.Interface, version string, wrote func(string) bool) *sharedReads {
 	s := &sharedReads{informers: map[schema.GroupVersionResource]cache.SharedIndexInformer{}, sa: sa, wrote: wrote,
 		ttl: sharedTTL, now: time.Now, subjects: map[string]subjectVerdict{}, answers: map[string]verdict{}}
 	for gvr := range sharedGVRs {
@@ -130,7 +134,9 @@ func newSharedReads(ctx context.Context, sa dynamic.Interface, wrote func(string
 				return []string{u.GetNamespace() + "/" + stage}, nil
 			}
 		}
-		inf := dynamicinformer.NewFilteredDynamicInformer(sa, gvr, metav1.NamespaceAll, 0, indexers, nil).Informer()
+		served := gvr
+		served.Version = cmp.Or(version, gvr.Version)
+		inf := dynamicinformer.NewFilteredDynamicInformer(sa, served, metav1.NamespaceAll, 0, indexers, nil).Informer()
 		// Nobody reads who last wrote which field; on 10,000 Operations it is most of the memory.
 		_ = inf.SetTransform(func(o any) (any, error) {
 			if m, ok := o.(metav1.Object); ok {
@@ -252,10 +258,12 @@ func (c sharedClient) Resource(gvr schema.GroupVersionResource) dynamic.Namespac
 	case ssarGVR:
 		return selfAccess{NamespaceableResourceInterface: own, c: c}
 	}
-	if _, ok := sharedGVRs[gvr]; !ok {
+	key := gvr
+	key.Version = sharedStages.Version
+	if _, ok := sharedGVRs[key]; !ok {
 		return own
 	}
-	return sharedResource{NamespaceableResourceInterface: own, c: c, gvr: gvr}
+	return sharedResource{NamespaceableResourceInterface: own, c: c, gvr: key}
 }
 
 // selfReview answers "who am I" with the answer the permission checks

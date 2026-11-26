@@ -1,0 +1,62 @@
+# Inferred offerings (515-S4): the operator reads each Crossplane XRD and the
+# Compositions that select it, never writes them, and pushes one inferred
+# offering per XRD under <registry>/pacto-inferred/crossplane-<clusterID>/services.
+# On by default with one read-only ClusterRole rule; profile hardened renders no
+# ClusterRole, so it reads no XRD.
+suite: crossplane offerings
+templates:
+  - templates/deployment.yaml
+  - templates/clusterrole.yaml
+release:
+  name: pacto-operator
+  namespace: pacto-operator-system
+tests:
+  - it: the default renders no offerings flag
+    template: templates/deployment.yaml
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--crossplane-offerings
+
+  - it: crossplane.offerings.enabled=false renders --crossplane-offerings=false
+    template: templates/deployment.yaml
+    set:
+      registry: ghcr.io/acme
+      crossplane.offerings.enabled: false
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --crossplane-offerings=false
+
+  - it: the ClusterRole carries the read-only XRD rule by default
+    template: templates/clusterrole.yaml
+    set:
+      registry: ghcr.io/acme
+    asserts:
+      - contains:
+          path: rules
+          content:
+            apiGroups: [apiextensions.crossplane.io]
+            resources: [compositeresourcedefinitions, compositions]
+            verbs: [get, list, watch]
+
+  - it: crossplane.offerings.enabled=false renders no XRD rule
+    template: templates/clusterrole.yaml
+    set:
+      crossplane.offerings.enabled: false
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [apiextensions.crossplane.io]
+          any: true
+
+  - it: profile hardened renders no ClusterRole and so no XRD rule
+    template: templates/clusterrole.yaml
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments]
+      registry: ghcr.io/acme
+    asserts:
+      - hasDocuments:
+          count: 0

@@ -86,6 +86,44 @@
   const claimOwner = $derived(claim?.owner ? (claim.ownerKey?.startsWith('dri:') ? { dri: claim.owner } : { team: claim.owner }) : null);
   const claimer = $derived(claim?.service ? serviceKeyName(claim.service) : '');
   const consumerUse = (c) => (c.provenance === 'observed' ? 'observed only' : c.provenance === 'inferred' ? 'inferred only' : c.required ? 'required' : 'optional');
+  // The managed resources sources read for it (517-S7), grouped by reader: a cluster
+  // object, a Terraform state entry or a cloud inventory item, each inferred. Through an
+  // offering only when a verified, current provisioning record of the offering's provider
+  // names it; every other one is outside the contract. The cluster is named by its
+  // display name, never its uid. The answer carries at most 20; the rest are counted.
+  const resources = $derived(rec.resources ?? []);
+  const resourcesTotal = $derived(rec.resourcesTotal ?? resources.length);
+  const hiddenResources = $derived(rec.hiddenResources ?? 0);
+  const outsideShown = $derived(resources.filter((r) => r.contract !== 'offering').length);
+  const READER = {
+    crossplane: ['Crossplane', 'a Crossplane object'], ack: ['ACK', 'an ACK object'], 'config-connector': ['Config Connector', 'a Config Connector object'],
+    aso: ['ASO', 'an ASO object'], terraform: ['Terraform', 'Terraform state'], 'aws-resource-explorer': ['Cloud inventory', 'AWS Resource Explorer'],
+    'gcp-cloud-asset': ['Cloud inventory', 'GCP Cloud Asset Inventory'], 'azure-resource-graph': ['Cloud inventory', 'Azure Resource Graph'],
+  };
+  const resourceGroups = $derived.by(() => {
+    const by = new Map();
+    for (const r of resources) {
+      const g = READER[r.source]?.[0] ?? r.source;
+      by.set(g, [...(by.get(g) ?? []), r]);
+    }
+    return [...by];
+  });
+  // The kind of a cluster object, the Terraform type or the inventory type, without its API group.
+  const kindOf = (t) => (t ?? '').split('/').pop();
+  const resourceTip = (r) => [
+    `Inferred from ${READER[r.source]?.[1] ?? r.source}${r.location ? ` ${r.location}` : ''}`,
+    r.type ? `type ${r.type}` : '', r.namespace ? `namespace ${r.namespace}` : '', r.claim ? `claim ${r.claim}` : '',
+    r.missing?.length ? `not read: ${r.missing.join(', ')}` : '',
+    r.observedAt ? `read ${formatRelative(r.observedAt)}` : 'read at an unknown time',
+    r.contract === 'offering' && r.evidence ? `provisioning record ${r.evidence}` : '',
+  ].filter(Boolean).join('; ');
+  let offeringFocus = $state('');
+  let focusN = 0;
+  // Both paths open the claim panel with its Offering field focused: one names an offering of the fleet, the other a new one.
+  function claimWith(mode) {
+    claimToggled = true;
+    offeringFocus = `${mode}#${++focusN}`;
+  }
 </script>
 
 <div class="external-entity">
@@ -110,13 +148,13 @@
           <p class="t-body-2" data-testid="external-owner-unclaimed">Unclaimed <ProvenanceMark label="Who it is routed to" text={ROUTING} /></p>
         {/if}
         {#if claimable}
-          <button type="button" class="btn btn-sm xe-claim" aria-expanded={claimOpen} aria-controls="xe-claim-panel" onclick={() => (claimToggled = !claimOpen)} data-testid="external-claim">Claim</button>
+          <button type="button" class="btn btn-sm xe-claim" aria-expanded={claimOpen} aria-controls="xe-claim-panel" onclick={() => { offeringFocus = ''; claimToggled = !claimOpen; }} data-testid="external-claim">Claim</button>
         {/if}
       </div>
       {#if claimable && claimOpen}
         <!-- Keyed on the signing login's intent: a host that signs in itself (the WASM demo)
              comes back to this page without reloading it, and the panel plans again. -->
-        <div id="xe-claim-panel">{#key declareQuery.signed}<DeclarePanel serviceKey={`external:${rec.key}`} open signed={declareQuery.signed ?? ''} claimedName={claim ? claimer : ''} />{/key}</div>
+        <div id="xe-claim-panel">{#key declareQuery.signed}<DeclarePanel serviceKey={`external:${rec.key}`} open signed={declareQuery.signed ?? ''} claimedName={claim ? claimer : ''} {offeringFocus} />{/key}</div>
       {/if}
     </section>
   {/if}
@@ -143,6 +181,45 @@
       </div>
     {/if}
   </section>
+
+  {#if resources.length || hiddenResources}
+    <section class="xe-section" id="sec-resources" data-toc="Resources" aria-labelledby="xe-resources-h">
+      <h2 id="xe-resources-h" class="t-section-title">Resources</h2>
+      <!-- Every resource hidden: say how many, never "0 read ... 7 more". -->
+      <p class="t-meta xe-caption" data-testid="external-resources-caption">{#if resources.length}{plural(resourcesTotal, 'managed resource', 'managed resources')} read for it; {formatCount(outsideShown)}{resources.length < resourcesTotal ? ` of the first ${formatCount(resources.length)}` : ''} outside the contract.{#if hiddenResources}{' '}<span data-testid="external-resources-hidden">{plural(hiddenResources, 'more resource', 'more resources')} you cannot see.</span>{/if}{:else}<span data-testid="external-resources-hidden">{plural(hiddenResources, 'managed resource', 'managed resources')} read for it, none of which you can see.</span>{/if}</p>
+      {#each resourceGroups as [group, list] (group)}
+        <div class="xe-res-group" data-testid="external-resource-group">
+          <h3 class="t-label">{group}</h3>
+          <ul class="xe-res-list">
+            {#each list as r, i (`${r.cluster ?? ''}/${r.type}/${r.namespace ?? ''}/${r.name}/${i}`)}
+              {@const outside = r.contract !== 'offering'}
+              <li class="xe-res" class:xe-res-out={outside} data-testid="external-resource">
+                <p class="xe-res-name"><bdi title={r.name}>{r.name}</bdi> <ProvenanceMark label={`Inferred: ${r.name}`} text={resourceTip(r)} /></p>
+                <p class="t-meta xe-wrap"><span title={r.type}>{kindOf(r.type)}</span>{#if r.clusterName} · <bdi title={r.clusterName}>{r.clusterName}</bdi>{/if}</p>
+                {#if r.engine}
+                  <p class="xe-wrap" data-testid="external-resource-engine"><bdi>{r.engine}</bdi></p>
+                {:else if r.engineRequested}
+                  <p class="t-meta xe-wrap" data-testid="external-resource-engine">requested <bdi>{r.engineRequested}</bdi></p>
+                {/if}
+                {#if outside}
+                  <p class="t-meta" data-testid="external-resource-contract">Outside contract</p>
+                {:else}
+                  <p class="xe-wrap" data-testid="external-resource-contract">{#if r.offering}Through offering <a href={fleetEntityUrl('offering', r.offering.key)}><bdi>{r.offering.label || r.offering.key}</bdi></a>{:else}Through an offering you cannot see{/if}</p>
+                {/if}
+                {#if outside && claimable}
+                  <div class="xe-res-actions">
+                    <button type="button" class="btn btn-sm" aria-controls={claimOpen ? 'xe-claim-panel' : undefined} onclick={() => claimWith('join')} data-testid="resource-claim-join">Claim into an offering</button>
+                    <button type="button" class="btn btn-sm" aria-controls={claimOpen ? 'xe-claim-panel' : undefined} onclick={() => claimWith('propose')} data-testid="resource-claim-propose">Propose an offering</button>
+                  </div>
+                {/if}
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/each}
+      {#if resources.length < resourcesTotal}<p class="t-meta" data-testid="external-resources-more">and {formatCount(resourcesTotal - resources.length)} more</p>{/if}
+    </section>
+  {/if}
 
   {#if provider}
     <details class="xe-inferred disclosure" id="sec-inferred-contract" data-toc="Inferred contract" data-testid="external-inferred-contract">
@@ -207,6 +284,17 @@
   .xe-inferred-panel { display: flex; flex-direction: column; gap: var(--sp-2); margin-top: var(--sp-3); }
   .xe-inferred-panel p, .xe-inferred-panel h3 { margin: 0; }
   .xe-surface { margin: 0 0 var(--sp-2); padding-left: var(--sp-4); }
+  .xe-res-group { display: flex; flex-direction: column; gap: var(--sp-1); min-inline-size: 0; }
+  .xe-res-group h3 { margin: 0; }
+  /* Cards fill the row: as many 18rem columns as fit, one on a narrow screen (SPEC 24). */
+  .xe-res-list { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); gap: var(--sp-2); }
+  .xe-res { display: flex; flex-direction: column; gap: 2px; min-inline-size: 0; padding: var(--sp-2) var(--sp-3); border: 1px solid var(--c-border); border-radius: var(--radius-md); background: var(--c-surface); }
+  .xe-res p { margin: 0; }
+  .xe-res-name { display: flex; align-items: baseline; gap: var(--sp-1); font-weight: 600; min-inline-size: 0; }
+  .xe-res-name bdi { min-inline-size: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .xe-res-actions { display: flex; flex-wrap: wrap; gap: var(--sp-1); margin-block-start: var(--sp-1); }
+  .xe-res-actions .btn { overflow-wrap: anywhere; max-inline-size: 100%; }
+  @media (pointer: coarse) { .xe-res-actions .btn { min-block-size: 44px; } }
   .xe-digest { font-family: var(--font-mono); font-size: 0.95em; }
   .xe-frame { container: xetable / inline-size; }
   @container xetable (max-width: 36rem) {

@@ -196,7 +196,7 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		enum, _ := prop["enum"].([]any)
 		def, hasDef := prop["default"]
 		mark := ""
-		if holdsWriteOnly(prop) {
+		if schemax.HoldsWriteOnly(prop) {
 			enum, def, hasDef, mark = nil, nil, false, ", sensitive"
 		}
 		value, ok := skeletonValue(prop, typ, enum, def, hasDef)
@@ -225,26 +225,6 @@ func valuesSkeleton(schema []byte, path string) (values map[string]any, missing 
 		head = "    values: {}\n"
 	}
 	return values, missing, head + lines.String()
-}
-
-// holdsWriteOnly reports whether node, or any schema node under it, is
-// writeOnly.
-// ponytail: a $ref is not followed, so a writeOnly definition it names stays unseen; resolve local refs when a consume schema uses them.
-func holdsWriteOnly(node any) bool {
-	switch t := node.(type) {
-	case map[string]any:
-		if t["writeOnly"] == true {
-			return true
-		}
-		for _, v := range t {
-			if holdsWriteOnly(v) {
-				return true
-			}
-		}
-	case []any:
-		return slices.ContainsFunc(t, holdsWriteOnly)
-	}
-	return false
 }
 
 // skeletonValue is the first candidate value prop accepts: def, the first enum

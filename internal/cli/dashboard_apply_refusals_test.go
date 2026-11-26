@@ -62,7 +62,7 @@ func applyRefusalsFixture(t *testing.T) (*dashboardIdentity, ed25519.PublicKey, 
 	next := id.newClient
 	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
 		c, err := next(cfg)
-		_, _ = c.Resource(gvrStagesTest).Namespace("prod").Create(ctx, u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "b-payments", map[string]any{
+		_, _ = c.Resource(gvrStagesTest).Namespace("prod").Create(ctx, u("delivery.pacto.trianalab.io/v1", "Stage", "b-payments", map[string]any{
 			"spec":   map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"}},
 			"status": map[string]any{"stream": map[string]any{"id": "payments-prod", "anchor": deliveryrecord.AnchorRef(streams, "payments-prod")}},
 		}), metav1.CreateOptions{})
@@ -178,7 +178,7 @@ func TestPublishRefusalsReadsEveryDomainOfAService(t *testing.T) {
 	next := id.newClient
 	id.newClient = func(cfg *rest.Config) (dynamic.Interface, error) {
 		c, err := next(cfg)
-		_, _ = c.Resource(gvrStagesTest).Namespace("prod").Create(ctx, u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "c-payments", map[string]any{
+		_, _ = c.Resource(gvrStagesTest).Namespace("prod").Create(ctx, u("delivery.pacto.trianalab.io/v1", "Stage", "c-payments", map[string]any{
 			"spec":   map[string]any{"service": map[string]any{"name": "payments", "domain": "billing"}, "applyRef": map[string]any{"name": "payments"}},
 			"status": map[string]any{"stream": map[string]any{"id": "payments-billing", "anchor": deliveryrecord.AnchorRef(streams, "payments-billing")}},
 		}), metav1.CreateOptions{})

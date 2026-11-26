@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"

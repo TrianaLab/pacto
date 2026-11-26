@@ -631,7 +631,7 @@ checkout_version() {
   [ "$svc" = payments ] && bind=", serviceName: payments, interfaceBindings: [{interface: http, servicePort: 8080}]"
   [ "$svc" = pay-agent ] && bind=", serviceName: pay-agent, interfaceBindings: [{interface: tools, servicePort: 8080}]"
   cat > "$dir/deploy/pacto-resource.yaml" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $svc}
 spec:
@@ -697,7 +697,7 @@ spec:
   {interval: 10m, sourceRef: {kind: OCIRepository, name: $svc}, path: ./, prune: true, targetNamespace: $env, timeout: 3m,
    healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: $svc, namespace: $env}]}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: $svc, namespace: $env}
 spec:
@@ -1146,11 +1146,11 @@ accept_unknown_as() {
   digest="$(kubectl -n "$3" get operation "$4" -o jsonpath='{.spec.intentDigest}')"
   groups="$(KUBECONFIG="$kc" kubectl auth whoami -o json | jq -c '.status.userInfo.groups')"
   KUBECONFIG="$kc" kubectl -n "$3" create -f - >/dev/null <<YAML || fail "$1 could not accept the unknown on $3/$4"
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Approval
 metadata:
   generateName: $4-
-  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1alpha1, kind: Operation, name: "$4", uid: "$uid"}]
+  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1, kind: Operation, name: "$4", uid: "$uid"}]
 spec: {operation: "$4", operationUID: "$uid", intentDigest: "$digest", decision: accept-unknown, note: "$5", by: "$1", authTime: "$at", groups: $groups}
 YAML
 }
@@ -1476,7 +1476,7 @@ spec:
   destination: {server: https://kubernetes.default.svc, namespace: prod}
   syncPolicy: {automated: {}}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments, namespace: prod}
 spec:
@@ -1573,7 +1573,7 @@ spec:
   source: {repoURL: "oci://${REG_HOST}/story/deploy/payments", path: .}
   destination: {server: https://kubernetes.default.svc, namespace: prod-eu}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments-eu, namespace: prod}
 spec:

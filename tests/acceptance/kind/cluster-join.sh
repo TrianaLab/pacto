@@ -25,15 +25,21 @@
 #      name, name source, environments and the key id the member's detected
 #      ConfigMap advertises (snapshotKeyID), in `pacto cluster list` and in the
 #      hub dashboard's /api/fleet/clusters through the pull-only Secret;
-#   2. a pending member is no source: `pacto fleet` lists none of its targets;
+#   2. a pending member is no source: `pacto fleet` lists none of its targets,
+#      and the hub's `pacto impact` of a breaking payments answers as before the
+#      member published a consumer of it, with no unread cluster counted (no
+#      person approved a member yet, so the hub is no hub);
 #   3. a snapshot signed by another key than the one checked gets nothing
 #      signed (ClusterKeyMismatch);
 #   4. alice, granted approve on clusterjoins as a user, approves it: the list
 #      reads approved by oidc:alice@acme.test and `pacto fleet` lists the
-#      member's targets under 4-part keys;
+#      member's targets under 4-part keys, and the hub's `pacto impact` is
+#      blocked by checkout, which runs only in the member and names it with
+#      the member's display name;
 #   5. a record by bob, who has no grant, is not counted;
 #   6. a new installation key reads pending with "the key changed";
-#   7. alice's removal reads removed and the member's targets are gone.
+#   7. alice's removal reads removed and the member's targets are gone: the
+#      hub's `pacto impact` neither reads nor counts the member.
 # shellcheck disable=SC2016  # the jq filters name jq variables such as $k
 set -euo pipefail
 # shellcheck source=tests/acceptance/kind/lib.sh
@@ -175,7 +181,7 @@ helm install pacto-operator "$PACTO_CHART" -n "$NS" --kube-context "$CTX_M" "${S
   --wait --timeout 180s >/dev/null
 kubectl --context "$CTX_M" create ns "$APP_NS" --dry-run=client -o yaml | kubectl --context "$CTX_M" apply -f - >/dev/null
 kubectl --context "$CTX_M" apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: ledger
@@ -236,6 +242,32 @@ DASH_PF=
 pass "the hub dashboard lists $M_UID pending through dashboard.ociSecrets (puller)"
 
 section "SCENARIO 2: a pending member is no source"
+contract_dir() { # NAME VERSION WORKLOAD [DEPENDENCY_LINES] — prints a folder holding the contract
+  local d; d="$(mktemp -d "$WORK/contract.XXXXXX")"
+  cat > "$d/pacto.yaml" <<YAML
+pactoVersion: '2.0'
+service:
+  name: $1
+  version: $2
+  owner: {team: team-$1, dri: d, contacts: [{type: email, value: a@e.com, purpose: escalation}]}
+workload: $3
+state: {type: stateless, persistence: {scope: local, durability: ephemeral}, dataCriticality: low}
+${4:-}
+YAML
+  echo "$d"
+}
+# payments 1.0.0 -> 2.0.0 also changes the workload, so it is BREAKING; checkout
+# accepts ^1.0.0 only. Both stay local folders: the hub reads their consumers
+# from its own Pactos and its members' snapshots, never from an index.
+PAY_OLD="$(contract_dir payments 1.0.0 service)"
+PAY_NEW="$(contract_dir payments 2.0.0 job)"
+hub_impact() { # prints the hub's `pacto impact` of payments 1.0.0 -> 2.0.0 as JSON; the gate sets the exit code
+  (cd "$WORK" && DOCKER_CONFIG="$PULL_CFG" "$BIN" impact "$PAY_OLD" "$PAY_NEW" --local "" --k8s --detected "k8s:$NS/$DETECTED" \
+    --output-format json) || true
+}
+impact_is() { # JQ_FILTER — the hub's impact answer matches it ($u is the member's uid, $n its display name)
+  hub_impact | jq -e --arg u "$M_UID" --arg n "${M_NAME:-}" "$1" >/dev/null 2>&1
+}
 member_targets() { # prints how many targets of the member the hub's fleet lists
   (cd "$WORK" && DOCKER_CONFIG="$PULL_CFG" "$BIN" fleet entities --kind target --k8s --detected "k8s:$NS/$DETECTED" --output-format json) |
     jq --arg u "$M_UID/" '[.entities[]? | select(.key | startswith($u))] | length'
@@ -243,6 +275,37 @@ member_targets() { # prints how many targets of the member the hub's fleet lists
 n="$(member_targets)"
 [ "$n" = 0 ] || fail "pacto fleet lists $n targets of the pending member"
 pass "pacto fleet lists no target of the pending member"
+
+impact_is 'has("gate")' || { hub_impact >&2; fail "the hub's pacto impact gave no answer"; }
+G0="$(hub_impact | jq -r .gate)"
+kubectl --context "$CTX_M" apply -f - >/dev/null <<YAML
+apiVersion: pacto.trianalab.io/v1
+kind: Pacto
+metadata:
+  name: checkout
+  namespace: $APP_NS
+  labels: {delivery.pacto.trianalab.io/environment: production}
+spec:
+  checkIntervalSeconds: 30
+  contractRef:
+    inline: |
+      pactoVersion: '2.0'
+      service: {name: checkout, version: 1.0.0, owner: {team: shop, dri: d, contacts: [{type: email, value: a@e.com, purpose: escalation}]}}
+      workload: service
+      state: {type: stateless, persistence: {scope: local, durability: ephemeral}, dataCriticality: low}
+      dependencies: [{name: payments, ref: "oci://$REG/acme/payments", required: true, compatibility: "^1.0.0"}]
+  target: {workloadRef: {name: checkout, kind: Deployment}}
+YAML
+checkout_reconciled() { kubectl --context "$CTX_M" -n "$APP_NS" get pacto checkout -o jsonpath='{.status.dependencies[0].name}' 2>/dev/null | grep -qx payments; }
+eventually 40 checkout_reconciled || fail "the member never reconciled checkout's dependency on payments"
+republish
+# The hub reads nothing the pending member published and, with no member ever
+# approved, counts no unread cluster: the answer is the one before checkout.
+impact_is '(has("unreadClusters") | not) and (any(.clusters[]?; .id == $u) | not)' || {
+  hub_impact >&2; fail "the hub's pacto impact reads or counts the pending member"
+}
+[ "$(hub_impact | jq -r .gate)" = "$G0" ] || { hub_impact >&2; fail "a pending member's consumer moved the hub's impact gate from $G0"; }
+pass "the hub's pacto impact of payments 2.0.0 stays $G0 with checkout pending in the member, and counts no unread cluster"
 
 # sign STEP ARGS... — joinsign as one person with its own Sigstore, then add
 # its signer (its issuer and root) to the hub's delivery.identities.signers.
@@ -293,6 +356,15 @@ pass "pacto cluster list: $M_UID approved by oidc:alice@acme.test"
 has_targets() { [ "$(member_targets)" -gt 0 ]; }
 eventually 110 has_targets || fail "pacto fleet lists no target of the approved member"
 pass "pacto fleet lists $(member_targets) target(s) of $M_UID under 4-part keys"
+M_NAME="$(member_row | jq -r .name)"
+# checkout runs only in the member, so its refusal of payments 2.0.0 blocks
+# the hub's release, attributed to the member by uid and named by display name.
+eventually 40 impact_is '.gate == "blocked" and
+    any(.consumers[]; .service == "checkout" and .clusters[0] == $u) and
+    any(.clusters[]; .id == $u and .name == $n)' || {
+  hub_impact >&2; fail "the hub's pacto impact is not blocked by checkout in $M_NAME ($M_UID)"
+}
+pass "the hub's pacto impact of payments 2.0.0 is blocked by checkout, which runs in member $M_NAME"
 
 section "SCENARIO 5: a record by bob, who may not approve, is not counted"
 sign bob -approver oidc:bob@acme.test -email bob@acme.test -key "sha256:$K1" -public-key "$P1" || fail "joinsign could not write bob's record"
@@ -316,6 +388,10 @@ sign remove $(alice) -remove -key "sha256:$K3" -public-key "$P3" || fail "joinsi
 eventually 40 row_is '.state == "removed"' || { member_row >&2; fail "$M_UID does not read removed"; }
 [ "$(member_targets)" = 0 ] || fail "pacto fleet still lists targets of the removed member"
 pass "$M_UID reads removed and pacto fleet lists none of its targets"
+impact_is '(any(.clusters[]?; .id == $u) | not) and (has("unreadClusters") | not)' || {
+  hub_impact >&2; fail "the hub's pacto impact still reads or counts the removed member"
+}
+pass "the hub's pacto impact neither reads nor counts the removed member"
 
 echo
 echo "CLUSTER-JOIN E2E PASS"

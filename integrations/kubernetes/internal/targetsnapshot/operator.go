@@ -65,6 +65,15 @@ type Config struct {
 	OwnerPolicy *core.OwnerPolicy
 	// Linked is the linker's last result; nil carries no linked targets.
 	Linked func() core.LinkedTargets
+	// Requests is what the join block says about member requests; nil says
+	// nothing.
+	Requests func() *core.JoinRequests
+	// RecorderKey is the delivery recorder's key (--recorder-trust-file);
+	// nil names none in the join block.
+	RecorderKey *core.TrustedKey
+	// StreamsRepository is the recorder's streams repository
+	// (--member-streams-repository); empty lists no Stage.
+	StreamsRepository string
 }
 
 // ForOperator is the operator's snapshot publisher, or nil when no registry is
@@ -93,7 +102,8 @@ func ForOperator(cfg Config) (manager.Runnable, error) {
 		// The publisher claim, inlined: the operator never links the delivery packages.
 		Publisher:  "system:serviceaccount:" + cfg.Namespace + ":" + cfg.ServiceAccount,
 		Namespaces: cfg.Watched, OnPush: cfg.OnPush, Mode: targetsMode(referrersProbe(repo, cfg.ClusterID)),
-		EvidenceURL: cfg.EvidenceURL, OwnerPolicy: cfg.OwnerPolicy, Linked: cfg.Linked, HTTP: &http.Client{Timeout: 10 * time.Second},
+		EvidenceURL: cfg.EvidenceURL, OwnerPolicy: cfg.OwnerPolicy, Linked: cfg.Linked, Requests: cfg.Requests,
+		RecorderKey: cfg.RecorderKey, StreamsRepository: cfg.StreamsRepository, HTTP: &http.Client{Timeout: 10 * time.Second},
 		Now: time.Now, Interval: core.TargetSnapshotInterval, Log: log}, nil
 }
 

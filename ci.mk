@@ -14,7 +14,7 @@ REPOWISE_VERSION ?= 0.36.0
        test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
        test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
        test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-delivery-environments test-acceptance-kind-delivery-demo test-acceptance-kind-least-privilege \
-       test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
+       test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-cluster-install test-acceptance-kind-member-review test-acceptance-kind-managed-resources test-acceptance-kind-delivery-member ci-oci ci-gates docs-generate docs-check docs-lint docs-build-strict artifact-drift release-dry-run \
        verify-k8s-standalone ci-test ci-ui ui-build ci-ui-drift ci-fmt ci-vet ci-cyclo ci-lint ci-arch ci-docs \
        gen-openapi gen-config-schema gen-sbom gen-bundle mermaid-check gen-demo-transcripts
 
@@ -51,7 +51,11 @@ ci-static-engine: ci-fmt ci-vet ci-cyclo ci-lint check-section ci-docs ci-ui-dri
 # The Compose demo acceptance is NOT here: it needs a Docker daemon and an image
 # build, and ci-engine is the leg a contributor runs on a laptop with nothing
 # installed. It has its own job, ci-e2e-compose.
+ifeq ($(ENGINE_SHARD),app)
+ci-engine: ci-test
+else
 ci-engine: ci-test test-integration test-acceptance-local test-fleet-budgets
+endif
 
 # The distributed Compose demo, end to end from a registry: push the artifact,
 # pull it BY DIGEST into an empty directory outside the checkout, start it there
@@ -134,7 +138,8 @@ test-acceptance-kind: test-acceptance-kind-dashboard test-acceptance-kind-upgrad
 	test-acceptance-kind-evidence test-acceptance-kind-operational-graph test-acceptance-kind-observation \
 	test-acceptance-kind-gitops-flux test-acceptance-kind-gitops-argocd test-acceptance-kind-gitops-argocd-sync test-acceptance-kind-linked-workloads test-acceptance-kind-gitops-kargo test-acceptance-kind-runtime-conformance \
 	test-acceptance-kind-delivery test-acceptance-kind-delivery-argocd test-acceptance-kind-delivery-idp-flux test-acceptance-kind-delivery-environments test-acceptance-kind-least-privilege \
-	test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-member-review
+	test-acceptance-kind-profiles test-acceptance-kind-idp test-acceptance-kind-multi-cluster test-acceptance-kind-cluster-join test-acceptance-kind-cluster-install test-acceptance-kind-member-review \
+	test-acceptance-kind-managed-resources test-acceptance-kind-delivery-member
 
 test-acceptance-kind-dashboard:
 	bash tests/acceptance/kind/dashboard-modes.sh
@@ -163,6 +168,15 @@ test-acceptance-kind-profiles:
 test-acceptance-kind-idp:
 	bash tests/acceptance/kind/idp.sh
 
+# Managed resources on a real API server: helm grants list on the catalog's
+# managed kinds and an XRD's claim and composite plurals only when it runs after
+# their CRDs appear, the operator reads two Crossplane claims and their RDS
+# Instances, the published consumer joins through its connection Secret name, a
+# signed provisioning record puts one resource through an offering and the
+# hand-applied claim reads outside the contract.
+test-acceptance-kind-managed-resources:
+	bash tests/acceptance/kind/managed-resources.sh
+
 # Multi-cluster reads on two real API servers: one dashboard started with
 # --context on the runner reads two kind clusters (an alias context of the
 # first is read once), signs people in against the first context, and a
@@ -180,6 +194,17 @@ test-acceptance-kind-multi-cluster:
 test-acceptance-kind-cluster-join:
 	bash tests/acceptance/kind/cluster-join.sh
 
+# Find candidate clusters and install a member through Argo CD and Flux on two
+# kind clusters and a zot: the hub's inventory lists the member unmatched
+# (hidden from a dashboard reader who may not approve), the generated
+# ApplicationSet applied unchanged installs Pacto on the member and never on
+# the hub, a stated UID reads same-uid while pending and matched once approved
+# with prod as an inventory environment, deleting the ApplicationSet orphans,
+# and the pushed Flux bootstrap pins its digest so a re-pointed tag changes
+# nothing.
+test-acceptance-kind-cluster-install:
+	bash tests/acceptance/kind/cluster-install.sh
+
 # Review people in a member cluster through its outbound channel on two kind
 # clusters, Keycloak (issuer A, token exchange) and Dex (issuer B): the member
 # dials the hub through a TLS ingress with nothing inbound (a default-deny
@@ -189,6 +214,17 @@ test-acceptance-kind-cluster-join:
 # token is logged and the member may not impersonate.
 test-acceptance-kind-member-review:
 	bash tests/acceptance/kind/member-review.sh
+
+# Deliver to a remote cluster through its member on two kind clusters and an
+# authenticated zot: a person's signed request on the member's request stream
+# raises a held promote as the member's operator on that person's behalf, a
+# person approves it from the hub's intent record and it ships through the
+# member's Flux with the hub down; a forged version is rejected by
+# pacto.published and listed as a member refusal; requests outside the
+# allowlist, without a grant or from an unlisted issuer are refused or never
+# answered; the apply survives the member's Pacto stopping and the registry going.
+test-acceptance-kind-delivery-member:
+	bash tests/acceptance/kind/delivery-member.sh
 
 # Operator-managed OFFLINE observation packaging: a declared Helm observation
 # source becomes a read-only mount whose stable Data Source identity and observed
@@ -466,8 +502,8 @@ release-dry-run:
 	bash release/orchestrator/dry-run.sh
 
 # External-consumer proof for the Kubernetes integration Go module: a throwaway
-# module `go get`s github.com/trianalab/pacto/integrations/kubernetes/v6@v6.0.0 and
-# builds it with GOWORK=off and no replace, proving the /v6 semantic-import path is
+# module `go get`s github.com/trianalab/pacto/integrations/kubernetes/v7@v7.0.0 and
+# builds it with GOWORK=off and no replace, proving the /v7 semantic-import path is
 # valid Go and consumable by outside users. Local staging tags only, no publish.
 # Also invoked by release/orchestrator/dry-run.sh after the core verify-standalone.
 verify-k8s-standalone:
@@ -477,10 +513,24 @@ verify-k8s-standalone:
 # it loads a program into the kernel, so it is covered by `make test-ebpf` (a
 # privileged container) and the kind e2e shards, not by unit tests.
 # COVER_PKGS is the package set behind the 100% gate; `make coverage` reuses it.
-COVER_PKGS = $$(go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /cmd/genexternalcatalog | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf)
+COVER_LIST = go list ./... | grep -v /tests/ | grep -v /testutil | grep -v /cmd/gendocs | grep -v /cmd/genbundle | grep -v /cmd/genexternalcatalog | grep -v /examples/ | grep -v /internal/runtimewatch/ebpf
+COVER_PKGS = $$($(COVER_LIST))
+
+# ENGINE_SHARD splits ci-engine over two CI runners (the ci-engine matrix in
+# ci.yml). `app` runs internal/app's unit tests alone: one package and the
+# longest by far (about 15 minutes under -race while its tests ran serially). `rest` runs every
+# other package plus the remaining legs. Profiles are per package (no -coverpkg),
+# so each shard holding its own profile at 100% is the same gate as the whole run.
+# Unset runs everything, as on a laptop.
+ENGINE_SHARD ?=
+ifneq ($(filter-out app rest,$(ENGINE_SHARD)),)
+$(error ENGINE_SHARD=$(ENGINE_SHARD): want app, rest or unset)
+endif
+ENGINE_PKGS = $$($(COVER_LIST)$(if $(filter app,$(ENGINE_SHARD)), | grep '/internal/app$$')$(if $(filter rest,$(ENGINE_SHARD)), | grep -v '/internal/app$$'))
+
 ci-test:
 	@echo "==> Running unit tests with race detector and coverage..."
-	@go test -race -timeout 20m $(COVER_PKGS) -coverprofile=coverage.out
+	@go test -race -timeout 20m $(ENGINE_PKGS) -coverprofile=coverage.out
 	@total=$$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $$NF}'); \
 	if [ "$$total" != "100.0%" ]; then \
 		echo "FAIL: total coverage is $$total, expected 100.0%"; \
@@ -488,10 +538,12 @@ ci-test:
 		exit 1; \
 	fi
 	@echo "    total coverage: 100.0%"
+ifneq ($(ENGINE_SHARD),app)
 	@echo "==> Running example tests (no coverage gate)..."
 	@go test -race ./examples/...
 	@echo "==> Validating demo contracts (offline, full validator over the closure)..."
 	@$(MAKE) -C examples/demo validate
+endif
 
 # NPM_CI is the frontend install every CI leg uses, with npm's own fetch retries
 # (the npm side of what release/scripts/retry.sh does for Go).

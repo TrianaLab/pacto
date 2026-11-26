@@ -1,0 +1,15 @@
+# A tiered offering outside the published demo bundles: its configuration
+# schema marks what a consuming environment may tune (x-pacto-tier: tunable).
+# storageGB declares no tier, so it is contract and set once.
+pactoVersion: "2.5"
+service:
+  name: postgresql
+  version: 16.2.0
+  offering: postgresql
+  owner:
+    team: infra-data
+configurations:
+  - name: provisioning
+    schema: configuration/provisioning.schema.json
+    required: true
+workload: service

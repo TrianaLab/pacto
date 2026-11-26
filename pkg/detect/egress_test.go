@@ -148,7 +148,7 @@ func TestDetectEntriesFitMaxEntries(t *testing.T) {
 	if len(rowNames) > MaxEntries {
 		t.Fatalf("%d detectable kinds, more than MaxEntries %d: %v", len(rowNames), MaxEntries, rowNames)
 	}
-	for _, kind := range append(slices.Clone(EgressKinds), "crossplane", "evidence", "recorder") {
+	for _, kind := range append(slices.Concat(EgressKinds, ManagedKinds), "crossplane", "evidence", "recorder", "cluster-inventory") {
 		if _, ok := rowNames[kind]; !ok {
 			t.Errorf("kind %s has no row name", kind)
 		}

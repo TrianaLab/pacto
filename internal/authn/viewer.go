@@ -125,6 +125,12 @@ type ResourceAttributes struct {
 // to count. No CRD serves it: only RBAC names it.
 var ClusterJoinResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "clusterjoins", Verb: "approve"}
 
+// ServiceCreateResource is the virtual resource a person must be allowed to
+// create, in the target namespace and named by the service, to create a
+// service from a golden path. No CRD serves it: only RBAC names it, so a
+// grant can narrow it with resourceNames.
+var ServiceCreateResource = ResourceAttributes{Group: "pacto.trianalab.io", Resource: "services", Verb: "create"}
+
 // EnvironmentLadderResource is the virtual resource a person must be allowed
 // to approve, in the cluster, for their confirmation of its installation
 // ladder to count. No CRD serves it: only RBAC names it.
@@ -132,6 +138,14 @@ var EnvironmentLadderResource = ResourceAttributes{Group: "delivery.pacto.triana
 
 // PactoResource is the resource every fleet answer is reviewed against.
 var PactoResource = reviewable("Pacto")
+
+// StageResource and OperationResource are the delivery objects a person must
+// be allowed to list (or get, for one object) to read them in a cluster
+// other than the dashboard's own.
+var (
+	StageResource     = ResourceAttributes{Group: "delivery.pacto.trianalab.io", Resource: "stages"}
+	OperationResource = ResourceAttributes{Group: "delivery.pacto.trianalab.io", Resource: "operations"}
+)
 
 // workloadResources maps the workload kind of an inferred service to the
 // resource a person must be allowed to list to see it.
@@ -720,14 +734,78 @@ func (v *Viewer) MayUpdateWorkload(ctx context.Context, p Person, cluster, names
 	if !ok {
 		return false, nil
 	}
+	res.Verb, res.Name = "update", name
+	return v.MayUpdate(ctx, p, cluster, namespace, res)
+}
+
+// MayList asks the reviewer of cluster (the only one when cluster is empty)
+// whether p may verb res (res.Name only, when set) in namespace, as MayUpdate
+// does: kept a minute per cluster, person, resource, verb and namespace; a
+// failure is not kept.
+func (v *Viewer) MayList(ctx context.Context, p Person, cluster, namespace string, res ResourceAttributes, verb string) (bool, error) {
+	res.Verb = verb
+	return v.MayUpdate(ctx, p, cluster, namespace, res)
+}
+
+// MayUpdate asks the reviewer of cluster (the only one when cluster is
+// empty) whether p may do res (its verb and name) in namespace, "" for a
+// cluster-scoped object. A cluster nobody reviews p in, and a member cluster,
+// which answers only list over its fixed kinds, are ErrClusterNotReviewable.
+func (v *Viewer) MayUpdate(ctx context.Context, p Person, cluster, namespace string, res ResourceAttributes) (bool, error) {
 	m := v.reviews(ctx)
 	key, ok := v.router(ctx, m, p)(cluster)
 	if !ok {
 		return false, ErrClusterNotReviewable
 	}
-	res.Verb, res.Name = "update", name
-	who := reviewer(p)
-	return v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, who, namespace, res)
+	allowed, err := v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, reviewer(p), namespace, res)
+	if errors.Is(err, errMemberListOnly) {
+		return false, ErrClusterNotReviewable
+	}
+	return allowed, err
+}
+
+// MayCreateService asks the reviewer of cluster (the only one when cluster
+// is empty) whether p may create the service name in namespace
+// (ServiceCreateResource named by the service). A cluster nobody reviews p
+// in is ErrClusterNotReviewable.
+func (v *Viewer) MayCreateService(ctx context.Context, p Person, cluster, namespace, name string) (bool, error) {
+	res := ServiceCreateResource
+	res.Name = name
+	return v.MayUpdate(ctx, p, cluster, namespace, res)
+}
+
+// MayUpdatePactos asks the reviewer of the sign-in cluster, the one Pacto is
+// installed in (the only one when nothing names it), whether p may update
+// pactos in namespace; ErrClusterNotReviewable when no reviewer decides it.
+func (v *Viewer) MayUpdatePactos(ctx context.Context, p Person, namespace string) (bool, error) {
+	m := v.reviews(ctx)
+	key, ok := v.homeKey(ctx, m)
+	if _, has := m[key]; !ok || !has {
+		return false, ErrClusterNotReviewable
+	}
+	res := PactoResource
+	res.Verb = "update"
+	return v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, reviewer(p), namespace, res)
+}
+
+// Reviewable reports whether a reviewer decides cluster's items for p: a
+// member with no live channel has none, so a signed-in reader never sees it.
+func (v *Viewer) Reviewable(ctx context.Context, p Person, cluster string) bool {
+	_, ok := v.router(ctx, v.reviews(ctx), p)(cluster)
+	return ok
+}
+
+// Sees asks the reviewer of cluster whether p may read namespace there, the
+// pair test Query restricts items by (list Pactos in it); false when no
+// reviewer decides cluster for p or the review fails.
+func (v *Viewer) Sees(ctx context.Context, p Person, cluster, namespace string) bool {
+	m := v.reviews(ctx)
+	key, ok := v.router(ctx, m, p)(cluster)
+	if !ok {
+		return false
+	}
+	allowed, err := v.ask(ctx, &clusterWork{key: key, review: m[key]}, p, reviewer(p), namespace, PactoResource)
+	return err == nil && allowed
 }
 
 // ask is one cached review in w's cluster. Failures are not cached.

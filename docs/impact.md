@@ -69,6 +69,7 @@ For each dependent the analysis records:
 | **provenance** | Where the edge came from: `declared`, `observed`, `declared+observed` or `inferred`. |
 | **confidence** | How strongly the evidence supports the claim (see below). |
 | **status / targets** | The consumer's aggregate status and the operational targets it runs in. |
+| **clusters** | The ids of the clusters the consumer's targets run in, when the answer reads more than one cluster. Names, status and age are in the answer's `clusters`. A stale or unreachable cluster turns a `compatible` verdict into `unknown`. The answer's `unreadClusters` counts the clusters that publish to this hub and are not members, never naming one. See [Multi-cluster](multi-cluster.md#consumers-and-delivery-across-clusters). |
 | **unmet** | Each [guarantee](contract-reference/dependencies-and-state.md#required-guarantees) the consumer requires that the new version does not meet, with both values. |
 | **evidence** | The facts behind the consumer and their age, newest first: its targets, observed calls, unreachable findings, the file its inferred record read the dependency from and, for a removal, the provider's declared lifecycle. Stale evidence is marked. |
 | **effect** | In an [event answer](impact-what-if.md), what the event does to the consumer: `breaks`, `may-degrade` or `unknown`. |
@@ -140,6 +141,24 @@ contracts in those folders. A `BREAKING` change that none of them depends on
 ends `clear` and exits `0`, so `No affected consumers.` covers only those
 folders.
 
+- An answer over more than one cluster, such as on a hub with `--k8s`, adds
+  the clusters it read and where each consumer runs:
+
+```console
+$ pacto impact oci://ghcr.io/acme/payments:2.0.0 ./payments --k8s --detected k8s:pacto-system/pacto-operator-detected
+...
+Clusters read: eu-prod (complete), us-prod (stale 14m); 1 cluster is not a member yet
+Affected consumers (2):
+  checkout                     direct     confidence=contractual  compat=incompatible owner=shop
+    path: checkout > payments  provenance: declared  via: dependency
+    clusters: eu-prod
+  ledger                       direct     confidence=contractual  compat=unknown      owner=ledger
+    path: ledger > payments  provenance: declared  via: dependency
+    clusters: us-prod (stale 14m)
+    note: cluster us-prod last published 14m ago, so Pacto cannot tell which revision of ledger runs there now
+Release gate: blocked
+```
+
 ### Release gate and exit status
 
 Every answer ends in a release gate, `gate`, with the reason in `gateReason`.
@@ -148,7 +167,7 @@ The CLI exits on it, and the MCP tool returns it:
 | `gate` | Exit | When |
 |--------|------|------|
 | `blocked` | `1` | The change is `BREAKING` and reaches a consumer that does not accept the new version, or has an `unmet` guarantee, and is *active*. Or a policy referrer that fails the new policy is active, whatever the classification. Or a [`--policy`](ci.md#accept-proposed-ranges) set to `fail` meets an unknown range or an uncontracted caller. |
-| `unverified` | `2` | Nothing is shown to block the change, but the answer cannot clear it: a `BREAKING` change whose answer is partial or whose consumers none is shown to be safe, or a policy referrer that fails the new policy and runs nowhere known, could not be checked or could not be resolved. |
+| `unverified` | `2` | Nothing is shown to block the change, but the answer cannot clear it: a `BREAKING` change whose answer is partial, whose consumers none is shown to be safe or with clusters that are not members of this hub (`CLUSTERS_UNREAD`), or a policy referrer that fails the new policy and runs nowhere known, could not be checked or could not be resolved. |
 | `clear` | `0` | The change is not `BREAKING` and every policy referrer was checked and passes the new policy, or the snapshot is complete and no service depends on the changed one, or every consumer [accepted the announced break](impact-consumers.md#announced-breaks) (`BREAKING_ACCEPTED`). |
 
 A command that could not run also exits `1`, with nothing on stdout.

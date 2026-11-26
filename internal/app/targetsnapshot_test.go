@@ -9,7 +9,6 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -57,12 +56,10 @@ type snapEnv struct {
 
 func newSnapEnv(t *testing.T) *snapEnv {
 	t.Helper()
-	t.Setenv(TrustEnv, "")
 	e := &snapEnv{}
 	e.fail.Store("")
 	inner := testutil.NewReferrersRegistry(testutil.ReferrersOptions{})
-	freshProbes(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		e.reqs.Add(1)
 		if code := e.status.Load(); code != 0 {
 			http.Error(w, "answered", int(code))
@@ -200,6 +197,7 @@ func wantUnused(t *testing.T, snap *fleet.FleetSnapshot, id, code string) {
 }
 
 func TestTargetSnapshotSourcesReadEveryCluster(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	e.push(t, e.key, snapB, ledgerSnapshot(snapB, snapNow))
@@ -228,6 +226,7 @@ func TestTargetSnapshotSourcesReadEveryCluster(t *testing.T) {
 // TestTargetSnapshotTwoClustersHideDeclaredWorkloads: in each cluster the
 // Deployment a Pacto targets is not inferred; the other one is.
 func TestTargetSnapshotTwoClustersHideDeclaredWorkloads(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	e.push(t, e.key, snapB, ledgerSnapshot(snapB, snapNow))
@@ -247,6 +246,7 @@ func TestTargetSnapshotTwoClustersHideDeclaredWorkloads(t *testing.T) {
 // TestTargetSnapshotInferredDeclarationVerified: an available scoped snapshot
 // verifies the declaration of its workloads; an unverified one does not.
 func TestTargetSnapshotInferredDeclarationVerified(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	snap := readSnap(t, &Service{}, snapOpts(trustFile(t, e.scoped("rec", snapA)), "oci://"+e.repo))
@@ -260,6 +260,7 @@ func TestTargetSnapshotInferredDeclarationVerified(t *testing.T) {
 }
 
 func TestTargetSnapshotUnscopedKeyIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	bare := filepath.Join(t.TempDir(), "recorder.pub.pem")
@@ -275,6 +276,7 @@ func TestTargetSnapshotUnscopedKeyIsPartial(t *testing.T) {
 }
 
 func TestTargetSnapshotSignerIsTrustKeyNotClaim(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	id := "targets-" + snapA
@@ -289,6 +291,7 @@ func TestTargetSnapshotSignerIsTrustKeyNotClaim(t *testing.T) {
 }
 
 func TestTargetSnapshotPinnedClusterMissingIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	snap := readSnap(t, &Service{}, snapOpts(trustFile(t, e.scoped("rec", snapA, snapB)),
@@ -300,6 +303,7 @@ func TestTargetSnapshotPinnedClusterMissingIsPartial(t *testing.T) {
 }
 
 func TestTargetSnapshotUnverifiedIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	snap := readSnap(t, &Service{}, snapOpts("", "oci://"+e.repo))
@@ -321,6 +325,7 @@ func TestTargetSnapshotUnverifiedIsPartial(t *testing.T) {
 // the snapshot partial keeps every section partial, even when each section
 // claims complete and the snapshot carries no limitation text.
 func TestTargetSnapshotPartialTopOverCompleteSections(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	s := ledgerSnapshot(snapA, snapNow)
 	s.Completeness = fleet.CompletenessPartial
@@ -344,6 +349,7 @@ func TestTargetSnapshotPartialTopOverCompleteSections(t *testing.T) {
 // tag whose cluster ends like a section suffix next to the real cluster,
 // read as sources of their own, never a duplicate id that fails the build.
 func TestTargetSnapshotSourceIDsStayUnique(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	_, other, _ := ed25519.GenerateKey(rand.Reader)
@@ -367,6 +373,7 @@ func TestTargetSnapshotSourceIDsStayUnique(t *testing.T) {
 }
 
 func TestTargetSnapshotBadSignatureUnused(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	_, other, _ := ed25519.GenerateKey(rand.Reader)
 	e.push(t, other, snapA, ledgerSnapshot(snapA, snapNow))
@@ -377,6 +384,7 @@ func TestTargetSnapshotBadSignatureUnused(t *testing.T) {
 // TestTargetSnapshotClusterMismatchUnused: cluster A's snapshot under the tag
 // of cluster B is refused, even signed by a key scoped to both.
 func TestTargetSnapshotClusterMismatchUnused(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapB, ledgerSnapshot(snapA, snapNow))
 	snap := readSnap(t, &Service{}, snapOpts(trustFile(t, e.scoped("rec", snapA, snapB)), "oci://"+e.repo))
@@ -384,6 +392,7 @@ func TestTargetSnapshotClusterMismatchUnused(t *testing.T) {
 }
 
 func TestTargetSnapshotStaleIsStale(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	asOf := snapNow.Add(-16 * time.Minute)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, asOf))
@@ -400,6 +409,7 @@ func TestTargetSnapshotStaleIsStale(t *testing.T) {
 // TestTargetSnapshotReplayedOldIsStale: the tag re-pointed to an older signed
 // snapshot reads stale.
 func TestTargetSnapshotReplayedOldIsStale(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	old := e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow.Add(-time.Hour)))
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
@@ -416,6 +426,7 @@ func TestTargetSnapshotReplayedOldIsStale(t *testing.T) {
 // TestTargetSnapshotDigestPinUnverifiable: a snapshot pinned by digest that
 // does not verify is unused, under no cluster.
 func TestTargetSnapshotDigestPinUnverifiable(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	_, other, _ := ed25519.GenerateKey(rand.Reader)
 	desc := e.push(t, other, snapA, ledgerSnapshot(snapA, snapNow))
@@ -428,6 +439,7 @@ func TestTargetSnapshotDigestPinUnverifiable(t *testing.T) {
 }
 
 func TestSnapshotSignerKeyless(t *testing.T) {
+	t.Parallel()
 	v := delivery.TargetSnapshotVerdict{Verified: true, Key: delivery.TrustedKey{Identity: "ci@acme", Issuer: "https://issuer"}}
 	if got := snapshotSigner(v); got != "ci@acme" {
 		t.Fatal(got)
@@ -435,6 +447,7 @@ func TestSnapshotSignerKeyless(t *testing.T) {
 }
 
 func TestTargetSnapshotFutureAsOfInvalid(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow.Add(5*time.Minute)))
 	snap := readSnap(t, &Service{}, snapOpts(trustFile(t, e.scoped("rec", snapA)), "oci://"+e.repo))
@@ -444,6 +457,7 @@ func TestTargetSnapshotFutureAsOfInvalid(t *testing.T) {
 // TestTargetSnapshotBoundIsPartial: more cluster tags than a read takes leave
 // a partial bound source; a snapshot too large is an unused one.
 func TestTargetSnapshotBoundIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	repo, _ := ocireferrer.Open(e.repo, ocireferrer.Options{})
 	raw := []byte(fmt.Sprintf(`{"schemaVersion":2,"mediaType":%q,"artifactType":%q,"config":{"mediaType":%q,"digest":"sha256:%064d","size":2},`+
@@ -466,6 +480,7 @@ func TestTargetSnapshotBoundIsPartial(t *testing.T) {
 }
 
 func TestTargetSnapshotPinsDigest(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	desc := e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	trust := trustFile(t, e.scoped("rec", snapA))
@@ -488,6 +503,7 @@ func TestTargetSnapshotPinsDigest(t *testing.T) {
 }
 
 func TestTargetSnapshotCacheByDigest(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	svc := &Service{}
@@ -511,6 +527,7 @@ func TestTargetSnapshotCacheByDigest(t *testing.T) {
 // a trust config that holds its key, reads unverified with none and is not
 // used once the key is gone.
 func TestTargetSnapshotCacheReverifiesPerTrust(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	svc := &Service{}
@@ -529,6 +546,7 @@ func TestTargetSnapshotCacheReverifiesPerTrust(t *testing.T) {
 }
 
 func TestTargetSnapshotCacheHitTurnsStale(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	svc := &Service{}
@@ -543,6 +561,7 @@ func TestTargetSnapshotCacheHitTurnsStale(t *testing.T) {
 }
 
 func TestTargetSnapshotTimeout(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	e.hang.Store(true)
@@ -552,6 +571,7 @@ func TestTargetSnapshotTimeout(t *testing.T) {
 }
 
 func TestTargetSnapshotPublisherLimitationsCarry(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	s := ledgerSnapshot(snapA, snapNow)
 	s.Completeness = fleet.CompletenessPartial
@@ -574,6 +594,7 @@ func TestTargetSnapshotPublisherLimitationsCarry(t *testing.T) {
 // publisher's limitations reach a terminal unverified, so the reader drops
 // control and bidi characters from them.
 func TestTargetSnapshotPayloadTextHasNoControls(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	s := ledgerSnapshot(snapA, snapNow)
 	s.Completeness = fleet.CompletenessPartial
@@ -595,6 +616,7 @@ func TestTargetSnapshotPayloadTextHasNoControls(t *testing.T) {
 // TestTargetSnapshotMissingRepositoryFails: a repository that cannot be
 // listed, or a snapshot read that fails, is a failing source.
 func TestTargetSnapshotMissingRepositoryFails(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	snap := readSnap(t, &Service{}, snapOpts("", "oci://"+strings.TrimSuffix(e.repo, "pacto-targets")+"nothing"))
 	if st := stateOf(t, snap, "targets"); st.Status != fleet.SourceUnavailable || snap.Completeness == fleet.CompletenessComplete {
@@ -621,6 +643,7 @@ func TestTargetSnapshotMissingRepositoryFails(t *testing.T) {
 }
 
 func TestParseSnapshotRefs(t *testing.T) {
+	t.Parallel()
 	refs, err := parseSnapshotRefs([]string{"oci://reg:5000/acme/pacto-targets:cluster-a", "reg:5000/acme/pacto-targets@sha256:abc"})
 	if err != nil || len(refs) != 2 || refs[0] != (snapshotRef{"reg:5000/acme/pacto-targets", "cluster-a"}) || refs[1].reference != "sha256:abc" {
 		t.Fatalf("refs %+v, %v", refs, err)
@@ -639,7 +662,6 @@ func TestParseSnapshotRefs(t *testing.T) {
 }
 
 func TestDeliveryTrust(t *testing.T) {
-	t.Setenv(TrustEnv, "")
 	if trust, err := DeliveryTrust(""); trust != nil || err != nil {
 		t.Fatalf("no file = %v, %v", trust, err)
 	}
@@ -661,6 +683,7 @@ func TestDeliveryTrust(t *testing.T) {
 // TestFleetReadsTargetSnapshot: Fleet adds the snapshot sources when
 // TargetSnapshot is set and fails on a trust config that does not parse.
 func TestFleetReadsTargetSnapshot(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	svc := &Service{}
@@ -698,6 +721,7 @@ func operatorTrustKey(t *testing.T, key ed25519.PrivateKey, cluster string) deli
 // with its installation key verifies under a trust entry built from the
 // advertised key and scoped to <uid>/pacto-targets/snapshot.
 func TestImpactVerifiesOperatorSignedSnapshot(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	s := ledgerSnapshot(snapA, snapNow)
 	s.Publisher = "system:serviceaccount:pacto-system:pacto-operator"
@@ -713,6 +737,7 @@ func TestImpactVerifiesOperatorSignedSnapshot(t *testing.T) {
 // TestImpactOperatorSnapshotUnscopedKeyIsPartial: the same key with no
 // streams is not scoped to the cluster, so the snapshot reads partial.
 func TestImpactOperatorSnapshotUnscopedKeyIsPartial(t *testing.T) {
+	t.Parallel()
 	e := newSnapEnv(t)
 	e.push(t, e.key, snapA, ledgerSnapshot(snapA, snapNow))
 	snap := readSnap(t, &Service{}, snapOpts(trustFile(t, operatorTrustKey(t, e.key, "")), "oci://"+e.repo))

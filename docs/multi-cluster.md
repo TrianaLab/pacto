@@ -120,6 +120,59 @@ A cluster can also join a hub as a [member](glossary.md#member) through the
 registry alone, with no kubeconfig of it, and link out to the hub so that
 each member reviews signed-in people with its own RBAC. See
 [Member clusters](member-clusters.md).
+[Install members](install-members.md) installs the chart on every cluster
+your Argo CD or Flux already knows.
+
+## Consumers and delivery across clusters
+
+A hub's impact gate reads its own cluster and every approved member's signed
+snapshot. `pacto impact --k8s`, the MCP tool `pacto_impact`, Change analysis
+and a promote planned on the hub all read the same clusters. A consumer in
+another member that does not accept the change blocks it and names its
+owners. Data a member publishes can add attention and never clears a gate
+the hub alone would hold.
+
+A breaking change waits for a person while consumers in a cluster are
+unknown:
+
+- **A cluster that is not a member yet.** Once a person approved or removed a
+  member of this hub, each pending cluster that publishes to its targets
+  repository is counted in `unreadClusters`, with a `CLUSTERS_UNREAD`
+  limitation. The count never names a cluster. Before any approval, and for
+  clusters a person removed, nothing is counted.
+- **A stale or unreachable member.** A consumer with a target there turns a
+  `compatible` verdict into `unknown`, with a note that names the cluster and
+  how long ago it last published. An `incompatible` verdict stays.
+- **A join list Pacto could not read.** The answer stays partial.
+
+An event answer, such as `pacto impact --removed payments`, names where each
+consumer runs the same way. While clusters are not members yet, an event
+answer that finds no consumer waits for a person too.
+
+`pacto delivery plan` reads the hub's members too with `--detected`, which
+finds the registry as `pacto cluster list` does.
+
+### Cluster labels
+
+When an answer reads more than one cluster, `pacto impact` prints a
+`Clusters read:` line and a `clusters:` line under each consumer, and Change
+analysis names each target in the Runs on cell with its cluster, such as
+`eu-prod / checkout`. Labels use the cluster's display name. The UID appears
+only in JSON and tooltips.
+
+### Delivery views
+
+The inbox, Environments and History read delivery from every kubeconfig
+context the dashboard reads that you may see. On a hub, each approved member
+that no context reaches is read from the Stage records it signs, verified with
+its recorder key. A namespace there shows when the member's review lets you
+read its Pactos, and a record that does not verify is counted, never shown. A
+held change of a member is decided on the hub with
+`pacto delivery approve --intent`. Each row carries its cluster, and `listing.clusters` says how completely
+each cluster was read. A namespace you may not list is counted there, and a
+cluster you may not see is counted in `listing.hiddenClusters`, neither
+named. Rows from another cluster are read-only: acting on one is refused with
+`RemoteClusterReadOnly` and the command that acts in that cluster.
 
 ## Operation records
 

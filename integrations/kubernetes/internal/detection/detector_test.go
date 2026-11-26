@@ -210,7 +210,7 @@ func TestDetectorResultAllKinds(t *testing.T) {
 		t.Fatal(err)
 	}
 	cm, res := readResult(t, c)
-	if !res.AsOf.Equal(now) || res.Cluster != "cluster-uid" || res.ClusterName != "kind-pacto" || len(res.Entries) != 9 || cm.Labels[detect.ManagedByLabel] != detect.ManagedBy {
+	if !res.AsOf.Equal(now) || res.Cluster != "cluster-uid" || res.ClusterName != "kind-pacto" || len(res.Entries) != 10 || cm.Labels[detect.ManagedByLabel] != detect.ManagedBy {
 		t.Fatalf("result = %+v", res)
 	}
 	for kind, ok := range map[string]func(detect.Entry) bool{
@@ -435,6 +435,10 @@ func TestDetectorCapsPods(t *testing.T) {
 	}
 	if e := entry(t, res, "nodes"); !strings.Contains(e.Reason, "not confirmed on the node; sampled the first 5000 nodes") {
 		t.Errorf("nodes = %+v", e)
+	}
+	// The sampled pods leave some Secret refs unread: the refs read capped.
+	if !res.SecretRefsCapped() {
+		t.Errorf("secret refs %d of %d", len(res.SecretRefs), res.SecretRefsTotal)
 	}
 	if pages != 4 {
 		t.Errorf("pages = %d, want the reads to stop at the caps", pages)
@@ -976,5 +980,80 @@ func TestDetectorCrossplaneHintUnderIDP(t *testing.T) {
 	d.Installation = &detect.Installation{Profile: []string{"hardened", "idp"}}
 	if e := crossplaneEntry(t, d, c); e.Value != fleet.CrossplaneNoneFound || e.Hint != "" {
 		t.Fatalf("hardened crossplane = %+v", e)
+	}
+}
+
+func TestDetectorAdvertisesOfferings(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, clusterObjects()...)
+	d := newDetector(c, servedAll)
+	asOf := now.Add(-time.Minute)
+	repo := "ghcr.io/acme/pacto-inferred/crossplane-cluster-uid/services"
+	d.Installation, d.LastPush = &detect.Installation{Registry: "ghcr.io/acme"}, func() *detect.PushResult { return nil }
+	d.Offerings = func() *detect.OfferingsAd {
+		return &detect.OfferingsAd{Producer: "crossplane-cluster-uid", Repository: repo, Observed: []string{"xbucket"}, AsOf: &asOf,
+			Partial: "more than 200 XRDs, the rest unknown"}
+	}
+	_ = d.Sync(context.Background())
+	_, res := readResult(t, c)
+	o := res.Installation.Offerings
+	if o == nil || o.Producer != "crossplane-cluster-uid" || o.Repository != repo || !slices.Equal(o.Observed, []string{"xbucket"}) ||
+		!o.AsOf.Equal(asOf) || o.Partial != "more than 200 XRDs, the rest unknown" {
+		t.Fatalf("offerings = %+v", o)
+	}
+}
+
+func TestDetectorAdvertisesOfferingsWheneverPublisherExists(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, clusterObjects()...)
+	d := newDetector(c, servedAll)
+	repo := "ghcr.io/acme/pacto-inferred/crossplane-cluster-uid/services"
+	d.Installation, d.LastPush = &detect.Installation{Registry: "ghcr.io/acme"}, func() *detect.PushResult { return nil }
+	d.Offerings = func() *detect.OfferingsAd {
+		return &detect.OfferingsAd{Producer: "crossplane-cluster-uid", Repository: repo, Partial: "crossplane API not served"}
+	}
+	_ = d.Sync(context.Background())
+	_, res := readResult(t, c)
+	if o := res.Installation.Offerings; o == nil || o.Repository != repo || o.Partial != "crossplane API not served" || o.Observed != nil {
+		t.Fatalf("offerings = %+v", o)
+	}
+}
+
+func TestDetectorNoPublisherNoOfferings(t *testing.T) {
+	c := newClient(interceptor.Funcs{}, clusterObjects()...)
+	d := newDetector(c, servedAll)
+	d.Installation, d.LastPush = &detect.Installation{Registry: "ghcr.io/acme"}, func() *detect.PushResult { return nil }
+	_ = d.Sync(context.Background())
+	if _, res := readResult(t, c); res.Installation == nil || res.Installation.Offerings != nil {
+		t.Fatalf("installation = %+v", res.Installation)
+	}
+}
+
+// TestDetectorLastResult: Last is nil before the first run and the Result
+// of the last run after it, the same one the ConfigMap holds.
+func TestDetectorLastResult(t *testing.T) {
+	c := newClient(routesInterceptor(), clusterObjects()...)
+	d := newDetector(c, servedAll)
+	if d.Last() != nil {
+		t.Fatal("a detector that has not run has a result")
+	}
+	_ = d.Sync(context.Background())
+	_, written := readResult(t, c)
+	got := d.Last()
+	if got == nil || got.Cluster != "cluster-uid" || !got.AsOf.Equal(written.AsOf) || len(got.Entries) != len(written.Entries) {
+		t.Fatalf("Last = %+v, written %+v", got, written)
+	}
+}
+
+// TestDetectorPodListErrorLeavesSecretRefsUnknown: a pod list that fails
+// reads no Secret ref, and the refs read capped, never none.
+func TestDetectorPodListErrorLeavesSecretRefsUnknown(t *testing.T) {
+	c := newClient(interceptor.Funcs{List: func(ctx context.Context, c client.WithWatch, l client.ObjectList, opts ...client.ListOption) error {
+		if _, ok := l.(*corev1.PodList); ok {
+			return errors.New("dial tcp 10.0.0.1:443")
+		}
+		return c.List(ctx, l, opts...)
+	}}, operatorDeployment())
+	_ = newDetector(c, servedAll).Sync(context.Background())
+	if _, res := readResult(t, c); len(res.SecretRefs) != 0 || !res.SecretRefsCapped() {
+		t.Errorf("secret refs %d of %d", len(res.SecretRefs), res.SecretRefsTotal)
 	}
 }

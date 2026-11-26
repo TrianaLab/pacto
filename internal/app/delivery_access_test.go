@@ -34,6 +34,7 @@ func mayUpdate(c *dynamicfake.FakeDynamicClient, ok bool, err error, asked *[]ma
 }
 
 func TestWorkloadAccessUsesSelfReview(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "dana", nil, nil)
 	var asked []map[string]any
 	mayUpdate(c, true, nil, &asked)
@@ -56,6 +57,7 @@ func TestWorkloadAccessUsesSelfReview(t *testing.T) {
 // TestWorkloadAccessEvaluationErrorUnverified: a refusal the authorizers
 // could not evaluate is unknown, never a denial; an allow despite one stands.
 func TestWorkloadAccessEvaluationErrorUnverified(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "dana", nil, nil)
 	status := map[string]any{"allowed": false, "evaluationError": "webhook authorizer timed out"}
 	c.PrependReactor("create", "selfsubjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
@@ -72,7 +74,8 @@ func TestWorkloadAccessEvaluationErrorUnverified(t *testing.T) {
 }
 
 func TestApproveRefusalCopy(t *testing.T) {
-	op := obj("delivery.pacto.trianalab.io/v1alpha1", "Operation", "payments", "p1", map[string]any{
+	t.Parallel()
+	op := obj("delivery.pacto.trianalab.io/v1", "Operation", "payments", "p1", map[string]any{
 		"spec":   map[string]any{"intentDigest": "sha256:i", "stage": "payments", "actor": map[string]any{"user": "bot"}},
 		"status": map[string]any{"phase": "Held", "times": map[string]any{"held": "2027-01-15T07:00:00Z"}},
 	})
@@ -103,6 +106,7 @@ func TestApproveRefusalCopy(t *testing.T) {
 // TestStatusUnfreezeOfferNeedsAccess: a person's unfreeze offer and hint need
 // update rights on the workload.
 func TestStatusUnfreezeOfferNeedsAccess(t *testing.T) {
+	t.Parallel()
 	d, c := statusFixture(t)
 	ri := c.Resource(gvrStages).Namespace("prod")
 	u, _ := ri.Get(context.Background(), "payments-prod", metav1.GetOptions{})
@@ -148,6 +152,7 @@ func rulesReview(c *dynamicfake.FakeDynamicClient, status map[string]any, err er
 // TestWorkloadAccessByNamespaceAsksOncePerNamespace: one rules review answers
 // every workload in its namespace the way RBAC matches.
 func TestWorkloadAccessByNamespaceAsksOncePerNamespace(t *testing.T) {
+	t.Parallel()
 	d, c, _ := deliveryFixture(t, "dana", nil, nil)
 	var asked []map[string]any
 	mayUpdate(c, true, nil, &asked)
@@ -177,6 +182,7 @@ func TestWorkloadAccessByNamespaceAsksOncePerNamespace(t *testing.T) {
 // review that could not be evaluated, failed or came back empty leave each
 // workload to its own access review, and the rules are asked once anyway.
 func TestWorkloadAccessByNamespaceFallsBack(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		status map[string]any
 		err    error

@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"net/http"
+	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -13,7 +16,9 @@ import (
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 
 	"github.com/trianalab/pacto/v4/internal/app"
+	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/signing"
 )
 
@@ -199,7 +204,7 @@ func TestDeclareCommandJSON(t *testing.T) {
 			Refusal app.DeclareError `json:"refusal"`
 			Exit    exitDoc          `json:"exit"`
 		}
-		if err == nil || json.Unmarshal([]byte(out), &doc) != nil || doc.Refusal != *refused || doc.Exit.Code != 1 {
+		if err == nil || json.Unmarshal([]byte(out), &doc) != nil || !reflect.DeepEqual(doc.Refusal, *refused) || doc.Exit.Code != 1 {
 			t.Fatalf("%v: %v\n%s", args, err, out)
 		}
 	}
@@ -253,13 +258,94 @@ func TestDeclareCommandRefusesOtherSubjectKinds(t *testing.T) {
 	noKube(t)
 	var got app.DeclareRequest
 	d := declareDeps(t, &got, declarePlanFixture(), nil, nil)
-	for _, arg := range []string{"offering:postgres", "template:http-service"} {
-		if _, _, err := runRoot(t, d, nil, "declare", arg); err == nil || !strings.Contains(err.Error(), "offerings and templates are declared by a later release") {
+	for _, arg := range []string{"service:x", "workload:y"} {
+		if _, _, err := runRoot(t, d, nil, "declare", arg); err == nil || !strings.Contains(err.Error(), "a workload, an offering:<name> or a golden path (template:<namespace>/<name>)") {
 			t.Fatalf("%s: %v", arg, err)
 		}
 	}
 	if _, _, err := runRoot(t, d, nil, "declare", "k8s:billing/Deployment/invoices"); err != nil || got.Service != "billing/Deployment/invoices" {
 		t.Fatalf("%v %+v", err, got)
+	}
+}
+
+// templateCatalog is a catalog that holds springboot-service.
+func templateCatalog(t *testing.T) string {
+	t.Helper()
+	t.Setenv(backstageTokenEnv, "")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"items":[{"apiVersion":"scaffolder.backstage.io/v1beta3","kind":"Template",` +
+			`"metadata":{"name":"springboot-service","namespace":"default","title":"Spring Boot"}}],"pageInfo":{}}`))
+	}))
+	t.Cleanup(srv.Close)
+	return srv.URL
+}
+
+// TestDeclareCommandAcceptsTemplateSubject: the subject reaches the plan with
+// the template read from --backstage-url, and a kubeconfig that fails only
+// drops the signer policy read.
+func TestDeclareCommandAcceptsTemplateSubject(t *testing.T) {
+	noKube(t)
+	url := templateCatalog(t)
+	var got app.DeclareRequest
+	d := declareDeps(t, &got, declarePlanFixture(), nil, nil)
+	if _, _, err := runRoot(t, d, nil, "declare", "template:default/springboot-service", "--registry", "ghcr.io/acme/paths", "--backstage-url", url); err != nil {
+		t.Fatal(err)
+	}
+	if got.TemplateSubject != "template:default/springboot-service" || got.Service != "springboot-service" || got.BackstageURL != url ||
+		got.Template == nil || got.Template.Entity != got.TemplateSubject || got.Dynamic != nil {
+		t.Fatalf("%+v", got)
+	}
+	// Gone from the catalog: refused with the code and no plan.
+	got = app.DeclareRequest{}
+	_, _, err := runRoot(t, d, nil, "declare", "template:default/other", "--registry", "ghcr.io/acme/paths", "--backstage-url", url)
+	var de *app.DeclareError
+	if !errors.As(err, &de) || de.Code != "TemplateNotFound" || got.TemplateSubject != "" {
+		t.Fatalf("%v %+v", err, got)
+	}
+	// Without a registry nothing is read: the plan refuses it.
+	if _, _, err := runRoot(t, d, nil, "declare", "template:default/springboot-service"); err != nil || got.Template != nil || got.TemplateSubject == "" {
+		t.Fatalf("%v %+v", err, got)
+	}
+}
+
+func TestDeclareTemplateRefusesWorkloadFlags(t *testing.T) {
+	noKube(t)
+	var got app.DeclareRequest
+	d := declareDeps(t, &got, declarePlanFixture(), nil, nil)
+	for _, flags := range [][]string{{"--dir", "x"}, {"--namespace", "billing"}, {"--accept", "ledger"}, {"--max-items", "3"}, {"--call-window", "1h"},
+		{"--pr", "--yes"}, {"--repository", "https://github.com/acme/x"}, {"--folder", "x"}, {"--repo-map", "m.yaml"}, {"--git-host", "github"}} {
+		args := append([]string{"declare", "template:default/springboot-service", "--registry", "ghcr.io/acme"}, flags...)
+		if _, _, err := runRoot(t, d, nil, args...); err == nil || !strings.Contains(err.Error(), flags[0]+" names a workload") {
+			t.Fatalf("%v: %v", flags, err)
+		}
+	}
+	if _, _, err := runRoot(t, d, nil, "declare", "invoices", "--backstage-url", "https://catalog.acme.io"); err == nil ||
+		!strings.Contains(err.Error(), "--backstage-url reads a template:<namespace>/<name> subject") {
+		t.Fatal(err)
+	}
+	if got.Service != "" {
+		t.Fatalf("planned %+v", got)
+	}
+}
+
+// TestDeclareTemplateSubjectSameOnEverySurface: the CLI argument,
+// pacto_declare.service and the dashboard's body.serviceKey reach
+// DeclareRequest.TemplateSubject as typed, with the template's name as
+// Service.
+func TestDeclareTemplateSubjectSameOnEverySurface(t *testing.T) {
+	const subject = "template:default/springboot-service"
+	var cli app.DeclareRequest
+	err := declareSubject(&cli, subject)
+	mcp, mcpErr := mcpDeclarer{}.request(pactomcp.DeclareArgs{Service: subject})
+	h := newDeclareHost(t, true, false)
+	dash, dashErr := h.d.request(h.req(), springTemplate(true), nil, nil, dashboard.ClaimInput{}, nil)
+	for name, req := range map[string]app.DeclareRequest{"cli": cli, "mcp": mcp, "dashboard": dash} {
+		if req.TemplateSubject != subject || req.Service != "springboot-service" {
+			t.Errorf("%s: %+v", name, req)
+		}
+	}
+	if err != nil || mcpErr != nil || dashErr != nil || dash.Template == nil {
+		t.Fatalf("%v %v %v", err, mcpErr, dashErr)
 	}
 }
 

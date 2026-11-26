@@ -12,8 +12,8 @@
 
   // Keys shown elsewhere in the row, or as their own control. The runner's
   // signed answer is for auditors to check (pacto delivery record verify),
-  // not to read here.
-  const SHOWN = new Set(['query', 'errorQuery', 'runner', 'runnerBundle']);
+  // not to read here. The values file and its digest have their own line.
+  const SHOWN = new Set(['query', 'errorQuery', 'runner', 'runnerBundle', 'valuesFile', 'valuesDigest']);
 
   // A contract verdict cites each Pacto it judged as <pacto>.target, .contractStatus,
   // .evaluatedAt and .findings: listed per Pacto, linked to its target, never in the proof twice.
@@ -51,6 +51,9 @@
         {/if}
         {#if v.citation?.runner}
           <p class="vl-msg t-body-2" data-testid="verdict-runner">Run and signed by <strong>{v.citation.runner}</strong>{#if v.citation.runnerBundle}, whose signed answer the record keeps{/if}.</p>
+        {/if}
+        {#if v.gate === 'pacto.manifests' && v.citation?.valuesFile}
+          <p class="vl-msg t-body-2" data-testid="verdict-values">Applies <bdi title={v.citation.valuesFile}>{v.citation.valuesFile}</bdi> from this version{#if v.citation.valuesDigest}, digest <DigestText text={v.citation.valuesDigest} />{/if}.</p>
         {/if}
         {#if v.result === 'Unknown'}
           <p class="vl-unknown t-body-2" data-testid="verdict-unknown">{unknownHelp(v)} Until it can, a person accepts the unknown or rejects the change. <a href={UNKNOWN_DOCS} target="_blank" rel="noopener noreferrer">What Unknown means</a></p>
@@ -91,6 +94,8 @@
   .vl-item { background: var(--c-surface); border: 1px solid var(--c-border); border-radius: var(--radius-sm); padding: var(--sp-3); display: flex; flex-direction: column; gap: var(--sp-1); }
   .vl-head { display: flex; gap: var(--sp-2); align-items: center; flex-wrap: wrap; }
   .vl-msg, .vl-proof { margin: 0; }
+  /* A values path with no hyphen or space still wraps on a phone. */
+  .vl-msg { overflow-wrap: anywhere; }
   .vl-pactos { margin: 0; padding-left: var(--sp-5); overflow-wrap: anywhere; }
   .vl-pactos a { color: var(--c-accent); text-decoration: underline; }
   .vl-proof a { color: var(--c-accent); text-decoration: underline; }

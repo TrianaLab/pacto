@@ -38,7 +38,7 @@ func clusterSource(id, cluster string, rows ...fleet.Provider) fleet.Source {
 }
 
 func crdProvider() fleet.Provider {
-	return fleet.Provider{ID: fleet.ProviderPactoCRD, Name: "Pacto CRD", Evidence: "served (pacto.trianalab.io/v1alpha1)", UsedFor: []string{fleet.UseDeclaredTargets}}
+	return fleet.Provider{ID: fleet.ProviderPactoCRD, Name: "Pacto CRD", Evidence: "served (pacto.trianalab.io/v1)", UsedFor: []string{fleet.UseDeclaredTargets}}
 }
 
 func workloadsProvider() fleet.Provider {
@@ -62,7 +62,7 @@ func TestFleetProvidersText(t *testing.T) {
 	out, _ := providersText(t, providersQuery(t, clusterSource("k8s", "prod", crdProvider(), workloadsProvider())).Providers())
 	for _, want := range []string{
 		"PROVIDER", "EVIDENCE", "USED FOR",
-		"Pacto CRD", "served (pacto.trianalab.io/v1alpha1)", "declared targets",
+		"Pacto CRD", "served (pacto.trianalab.io/v1)", "declared targets",
 		"Kubernetes workloads", "412 Deployments, DaemonSets unreadable, 31 CronJobs", "inferred services (partial: DaemonSets are forbidden)",
 	} {
 		expect(t, strings.Contains(out, want), "providers text lacks %q:\n%s", want, out)
@@ -148,6 +148,9 @@ func TestFleetProvidersEgressDetectedRowCell(t *testing.T) {
 	row := detect.ProviderRows(detect.Result{AsOf: at, Entries: []detect.Entry{detect.IstioEgress(true, nil)}}, "detected", at)[0]
 	got := providerUsedFor(row)
 	expect(t, got == "reads calls leaving the cluster; nothing is turned on", "the istio-egress cell prints the sentence alone: %s", got)
+	managed := detect.ProviderRows(detect.Result{AsOf: at, Entries: []detect.Entry{{Kind: fleet.ProviderManagedResources, Completeness: detect.Complete}}}, "detected", at)[0]
+	got = providerUsedFor(managed)
+	expect(t, got == "reads managed cloud resources and the services that use them; nothing is turned on", "the managed-resources cell prints the sentence alone: %s", got)
 }
 
 func TestFleetProvidersListsEgressRows(t *testing.T) {

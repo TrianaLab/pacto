@@ -169,6 +169,41 @@ func DecideOwnerRight(service string, signer PublisherIdentity, current, propose
 	return r
 }
 
+// DecideFirstOwner decides whether signer may name proposed as the owner of
+// service, a service no version declares yet (a created one): DecideOwnerRight
+// has no current owner to take members from, so here the members of the
+// proposed owner have the right, and so does a default approver. A signer who
+// is no person never has it; with no verified policy (nil, policyFrom says
+// why) anyone else is unverified, never allowed; otherwise refused.
+func DecideFirstOwner(service string, signer PublisherIdentity, proposed OwnerClaim, policy *OwnerPolicy, policyFrom string, now time.Time) OwnerRight {
+	team := OwnerClaim{Owner: proposed.Owner, Provenance: ownerDeclared}
+	// Team membership is read from the verified owner policy alone, so
+	// without one no team member can be named as able to create.
+	listed := team
+	if policy == nil {
+		listed.Owner.Team = ""
+	}
+	r := OwnerRight{WorkloadAccess: WorkloadAccess{Resource: "services", Name: service, Source: AccessByRegistryPolicy, At: now.UTC().Format(time.RFC3339)},
+		MayAccept: mayAccept(listed, policy)}
+	switch {
+	case !ReadsAsDecision(signer.Class):
+		r.Code = OwnerSignerNotPerson
+	case isMember(signer, proposed.Owner, policy):
+		r.Allowed, r.Grant = true, "first-owner"
+	case policy != nil && approverRule(signer, policy) != "":
+		r.Allowed, r.Grant = true, "default-approver:"+approverRule(signer, policy)
+	case policy == nil:
+		r.Code, r.Unverified = OwnerPolicyUnverified, "no verified owner policy: "+policyFrom
+	default:
+		r.Code = OwnerSignerNotAllowed
+	}
+	r.Message = ownerRightMessage(r, signer, team, policy, policyFrom)
+	if r.Code == OwnerSignerNotAllowed {
+		r.Message = "a new service names an owner its creator belongs to: " + whoMay(team, policy) + " may create one owned by " + ownerLabel(proposed.Owner)
+	}
+	return r
+}
+
 // JudgeOwnerSigners decides the owner change a bundle makes from each of its
 // verified signers through DecideOwnerRight: the first allowed verdict wins,
 // else the most decisive refusal (a person outside the rule over a signer who

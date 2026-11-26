@@ -25,8 +25,10 @@
   import HelpTip from '../components/HelpTip.svelte';
   import ProvenanceMark from '../components/ProvenanceMark.svelte';
   import { cap } from '../lib/cap.svelte.ts';
+  import { clusterPrefix, clusterTitle } from '../lib/clusters.ts';
   import EnvFleetFigure from '../components/figure/EnvFleetFigure.svelte';
   import PromotionFigure from '../components/figure/PromotionFigure.svelte';
+  import MemberPlacement from '../components/MemberPlacement.svelte';
   import { ENV_STATES, servicePath, sourceProblem, MAX_PATH_MARKS } from '../lib/envFigure.ts';
 
   // Every service in every environment: the version it runs and whether that
@@ -58,6 +60,8 @@
 
   const answer = $derived(loader.answer(question, listQuestion));
   const data = $derived(answer.data);
+  // An answer read from several clusters names each Stage's cluster before it.
+  const pre = (r) => clusterPrefix(r.cluster, data?.clusters);
   const rows = $derived(data?.environments ?? []);
   // The server orders environments as the Stages declare their upstreams and
   // filters the rows; the columns follow the same environment and tier.
@@ -180,17 +184,18 @@
 {/snippet}
 
 {#snippet stack(svc, env)}
-    {#each cell(svc, env) as r (r.namespace + '/' + r.stage)}
+    {#each cell(svc, env) as r (`${r.cluster ?? ''}/${r.namespace}/${r.stage}`)}
       {@const applier = applierLine(r.applier, serverNow(data?.asOf), r.ready)}
       {@const tip = placementTip(r)}
       <div class="ev-cell" data-testid="env-cell" data-stage={`${r.namespace}/${r.stage}`}>
-        {#if cell(svc, env).length > 1}<span class="t-meta ev-stage">{r.namespace}/{r.stage}</span>{/if}
+        <!-- A Stage of an answer read from several clusters names its cluster; the full name and uid are in the title. -->
+        {#if cell(svc, env).length > 1 || pre(r)}<span class="t-meta ev-stage" title={clusterTitle(r.cluster, data?.clusters) || undefined}>{pre(r)}{r.namespace}/{r.stage}</span>{/if}
         <span class="ev-head">
           {#if r.revision}
             <a class="ev-version" href={fleetEntityUrl('revision', r.revision)} title={r.pointer}>{r.version || shortDigest(r.pointer)}</a>
-            <a class="t-meta" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}>History</a>
+            <a class="t-meta" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage, cluster: r.cluster || undefined })}>History</a>
           {:else}
-            <a class="ev-version" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage })}
+            <a class="ev-version" href={deliveryHistoryUrl({ namespace: r.namespace, stage: r.stage, cluster: r.cluster || undefined })}
               title={r.pointer || 'nothing deployed yet'}>{r.version || shortDigest(r.pointer) || 'Nothing yet'}</a>
           {/if}
           {#if r.level}<span class="t-meta ev-level" data-testid="level" title={levelHelp(r.level)}>{levelLabel(r.level)}</span>{/if}
@@ -205,8 +210,8 @@
         {#if applier}
           <!-- Who applies the workloads; a Conflict, Unknown or stale one warns in words, clamped as the Ready reason (svelte-ignore as above). -->
           <!-- svelte-ignore a11y_no_noninteractive_tabindex -->
-          {#if applier.warn}<span class="t-meta ev-ready" title={applier.text} tabindex="0" data-testid="env-applier">Applier: <bdi>{applier.display}</bdi>{applier.problem ? `, ${applier.problem}` : ''}{applier.asOf ? ` (${applier.asOf})` : ''}</span>
-          {:else}<span class="t-meta ev-applier" data-testid="env-applier">Applier: <bdi>{applier.display}</bdi>{applier.asOf ? ` (${applier.asOf})` : ''}</span>{/if}
+          {#if applier.warn}<span class="t-meta ev-ready" title={applier.text} tabindex="0" data-testid="env-applier">Applier: <bdi>{applier.display}</bdi>{applier.problem ? `, ${applier.problem}` : ''}{#if applier.values}, values <bdi>{applier.values}</bdi>{' '}<ProvenanceMark label="Where Pacto read the values file" text={applier.valuesTitle} />{/if}{applier.asOf ? ` (${applier.asOf})` : ''}</span>
+          {:else}<span class="t-meta ev-applier" data-testid="env-applier">Applier: <bdi>{applier.display}</bdi>{#if applier.values}, values <bdi>{applier.values}</bdi>{' '}<ProvenanceMark label="Where Pacto read the values file" text={applier.valuesTitle} />{/if}{applier.asOf ? ` (${applier.asOf})` : ''}</span>{/if}
         {/if}
         {#if r.lastCheck}<span class="t-meta" data-testid="env-check">{checkText(r.lastCheck)}</span>{/if}
         {#if r.offers?.length}
@@ -268,6 +273,8 @@
     {:else if !service && data.counts?.byEnvironment?.length}
       <EnvFleetFigure byEnvironment={data.counts.byEnvironment} href={stateHref} partial={data.completeness === 'partial'} asOf={timeLabel(data.asOf)} />
     {/if}
+    <!-- One service on a hub with members: where it runs across them and what each answered (514-S6). -->
+    {#if service && data.members?.length}<MemberPlacement plans={data.members} {service} />{/if}
     {#if rows.length === 0 && filtered}
       <div class="state-box" data-testid="environments-empty"><h2>Nothing matches the filter</h2><p>No service you can see{service ? ` named ${service}` : ''}{q ? ` matches “${q}”` : ''}{environment ? ` has a Stage in ${environment}` : ''}{exceptEnvs.length ? ` has a Stage outside ${andList(exceptEnvs, 3)}` : ''}{tier ? ` has a Stage in an environment named like ${tier}` : ''}{stateFilter ? ` has a Stage that is ${ENV_STATES.find((x) => x.key === stateFilter)?.word ?? stateFilter}` : ''}.</p></div>
     {:else if rows.length === 0}
@@ -379,11 +386,11 @@
             <h2 id="ev-shadows-title" class="t-section-title">What Pacto would have done <span class="t-meta">{countOf(observing.length, 'observing Stage')} on this page, advisory and unsigned</span></h2>
             <HelpTip label="observing Stages" text="These Stages observe: GitOps applies and Pacto moves nothing. Each row is what Pacto would have done with a candidate on Autonomous, next to what happened. It comes from the Stage status and is unsigned. Seen in source is when GitOps' source showed the candidate, which can be before it rolled out." />
           </div>
-          {#each observingCap.slice(observing) as r (r.namespace + '/' + r.stage)}
+          {#each observingCap.slice(observing) as r (`${r.cluster ?? ''}/${r.namespace}/${r.stage}`)}
             <details class="ev-shadow disclosure" data-testid="shadow" data-stage={`${r.namespace}/${r.stage}`}>
               <summary>
                 <span class="disclosure-caret" data-motion aria-hidden="true"></span>
-                <h3 id={`shadow-${r.namespace}-${r.stage}`} class="ev-shadow-title"><bdi>{r.service}</bdi> in <bdi>{r.environment}</bdi></h3>
+                <h3 id={`shadow-${r.cluster ? `${r.cluster}-` : ''}${r.namespace}-${r.stage}`} class="ev-shadow-title" title={clusterTitle(r.cluster, data?.clusters) || undefined}>{pre(r)}<bdi>{r.service}</bdi> in <bdi>{r.environment}</bdi></h3>
                 <span class="t-meta">{countOf(r.shadow.length, 'candidate')}</span>
               </summary>
               <div class="ev-scroll">
@@ -514,8 +521,9 @@
   @media (pointer: coarse) { .ev-offer .btn { min-block-size: 44px; min-inline-size: 44px; } }
   .ev-fix, .ev-applier { overflow-wrap: anywhere; }
   .ev-ready { color: var(--c-warn); display: -webkit-box; -webkit-line-clamp: 2; line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  /* Two lines until a reader points at it or tabs to it; then the whole reason. */
-  .ev-ready:hover, .ev-ready:focus-visible { -webkit-line-clamp: unset; line-clamp: none; }
+  /* Two lines until a reader points at it or tabs to it or into it (the values mark); then the
+     whole reason, and nothing clipped, so the mark's tip shows. */
+  .ev-ready:hover, .ev-ready:focus-within { -webkit-line-clamp: unset; line-clamp: none; overflow: visible; }
   .ev-head { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: var(--sp-2); }
   .ev-head .ev-version { overflow-wrap: anywhere; }
   .ev-tools > :global(form) { flex: 1 1 24rem; }

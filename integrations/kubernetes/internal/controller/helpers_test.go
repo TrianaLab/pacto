@@ -16,8 +16,8 @@ import (
 	"time"
 
 	"github.com/google/go-containerregistry/pkg/authn"
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/schemax"
 	"github.com/trianalab/pacto/v4/pkg/validation"
@@ -53,14 +53,14 @@ func (m *mockLoader) ListTags(ctx context.Context, ociRef string, _ *authn.AuthC
 
 func newScheme() *runtime.Scheme {
 	s := runtime.NewScheme()
-	_ = pactov1alpha1.AddToScheme(s)
+	_ = pactov1.AddToScheme(s)
 	_ = corev1.AddToScheme(s)
 	return s
 }
 
 func newReconciler(objs ...client.Object) *PactoReconciler {
 	s := newScheme()
-	cb := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(&pactov1alpha1.Pacto{}, &pactov1alpha1.PactoRevision{})
+	cb := fake.NewClientBuilder().WithScheme(s).WithStatusSubresource(&pactov1.Pacto{}, &pactov1.PactoRevision{})
 	if len(objs) > 0 {
 		cb = cb.WithObjects(objs...)
 	}
@@ -189,21 +189,21 @@ func TestMapValidationResult_Empty(t *testing.T) {
 
 func TestResolutionPolicy_Unversioned(t *testing.T) {
 	got := resolutionPolicy("ghcr.io/org/service")
-	if got != pactov1alpha1.ResolutionPolicyLatest {
+	if got != pactov1.ResolutionPolicyLatest {
 		t.Errorf("expected Latest, got %s", got)
 	}
 }
 
 func TestResolutionPolicy_Tag(t *testing.T) {
 	got := resolutionPolicy("ghcr.io/org/service:1.0.0")
-	if got != pactov1alpha1.ResolutionPolicyPinnedTag {
+	if got != pactov1.ResolutionPolicyPinnedTag {
 		t.Errorf("expected PinnedTag, got %s", got)
 	}
 }
 
 func TestResolutionPolicy_Digest(t *testing.T) {
 	got := resolutionPolicy("ghcr.io/org/service@sha256:abc123")
-	if got != pactov1alpha1.ResolutionPolicyPinnedDigest {
+	if got != pactov1.ResolutionPolicyPinnedDigest {
 		t.Errorf("expected PinnedDigest, got %s", got)
 	}
 }
@@ -229,8 +229,8 @@ func TestApplyConfigurationOverrides_SingleScope(t *testing.T) {
 			},
 		},
 	}
-	overrides := &pactov1alpha1.ContractOverrides{
-		Configurations: []pactov1alpha1.ConfigurationOverride{
+	overrides := &pactov1.ContractOverrides{
+		Configurations: []pactov1.ConfigurationOverride{
 			{
 				Name:   "default",
 				Values: map[string]string{"db_host": "prod-db.example.com"},
@@ -256,8 +256,8 @@ func TestApplyConfigurationOverrides_NoMatch(t *testing.T) {
 	c := &contract.Contract{
 		Configurations: []contract.Configuration{{Name: "default"}},
 	}
-	overrides := &pactov1alpha1.ContractOverrides{
-		Configurations: []pactov1alpha1.ConfigurationOverride{
+	overrides := &pactov1.ContractOverrides{
+		Configurations: []pactov1.ConfigurationOverride{
 			{Name: "nonexistent", Values: map[string]string{"key": "value"}},
 		},
 	}
@@ -277,8 +277,8 @@ func TestApplyConfigurationOverrides_MultipleScopes(t *testing.T) {
 			{Name: "prod", Values: map[string]any{"b": "2"}},
 		},
 	}
-	overrides := &pactov1alpha1.ContractOverrides{
-		Configurations: []pactov1alpha1.ConfigurationOverride{
+	overrides := &pactov1.ContractOverrides{
+		Configurations: []pactov1.ConfigurationOverride{
 			{Name: "default", Values: map[string]string{"a": "100"}},
 			{Name: "prod", Values: map[string]string{"b": "200"}},
 		},
@@ -343,7 +343,7 @@ func TestMapOwnerToInfo_Empty(t *testing.T) {
 
 func TestRequeueInterval_Default(t *testing.T) {
 	r := &PactoReconciler{}
-	p := &pactov1alpha1.Pacto{}
+	p := &pactov1.Pacto{}
 	got := r.requeueInterval(p)
 	if got != 5*time.Minute {
 		t.Fatalf("expected 5m, got %v", got)
@@ -352,8 +352,8 @@ func TestRequeueInterval_Default(t *testing.T) {
 
 func TestRequeueInterval_Custom(t *testing.T) {
 	r := &PactoReconciler{}
-	p := &pactov1alpha1.Pacto{
-		Spec: pactov1alpha1.PactoSpec{
+	p := &pactov1.Pacto{
+		Spec: pactov1.PactoSpec{
 			CheckIntervalSeconds: 60,
 		},
 	}
@@ -483,9 +483,9 @@ func TestShortDigest(t *testing.T) {
 func TestResetDerivedStatus_PreservesConditionTransitionTime(t *testing.T) {
 	r := &PactoReconciler{}
 	past := metav1.NewTime(time.Now().Add(-1 * time.Hour).Truncate(time.Second))
-	pacto := &pactov1alpha1.Pacto{}
+	pacto := &pactov1.Pacto{}
 	pacto.Status.Conditions = []metav1.Condition{{
-		Type:               pactov1alpha1.ConditionContractValid,
+		Type:               pactov1.ConditionContractValid,
 		Status:             metav1.ConditionTrue,
 		Reason:             "Valid",
 		Message:            "ok",
@@ -494,7 +494,7 @@ func TestResetDerivedStatus_PreservesConditionTransitionTime(t *testing.T) {
 
 	// Simulate a reconcile: reset derived status, then re-assert the SAME status.
 	r.resetDerivedStatus(pacto)
-	r.setCondition(pacto, pactov1alpha1.ConditionContractValid, metav1.ConditionTrue, "Valid", "still ok")
+	r.setCondition(pacto, pactov1.ConditionContractValid, metav1.ConditionTrue, "Valid", "still ok")
 
 	if len(pacto.Status.Conditions) != 1 {
 		t.Fatalf("expected 1 condition preserved, got %d", len(pacto.Status.Conditions))
@@ -508,11 +508,11 @@ func TestResetDerivedStatus_PreservesConditionTransitionTime(t *testing.T) {
 // evaluated keeps its refresh interval, so delivery explains it as not
 // evaluated instead of as a status the operator stopped writing.
 func TestResetDerivedStatus_NotEvaluatedKeepsRefresh(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{}
-	pacto.Status.ObservedCallersCoverage = &pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageComplete, RefreshSeconds: 300}
+	pacto := &pactov1.Pacto{}
+	pacto.Status.ObservedCallersCoverage = &pactov1.CallerCoverage{State: pactov1.CallerCoverageComplete, RefreshSeconds: 300}
 	(&PactoReconciler{}).resetDerivedStatus(pacto)
 	got := pacto.Status.ObservedCallersCoverage
-	if got.State != pactov1alpha1.CallerCoverageUnavailable || got.Reason != "not-evaluated" || got.RefreshSeconds != 300 {
+	if got.State != pactov1.CallerCoverageUnavailable || got.Reason != "not-evaluated" || got.RefreshSeconds != 300 {
 		t.Errorf("coverage after reset = %+v, want unavailable/not-evaluated with RefreshSeconds 300", *got)
 	}
 }
@@ -521,19 +521,19 @@ func TestResetDerivedStatus_NotEvaluatedKeepsRefresh(t *testing.T) {
 // and turns an earlier coverage into not evaluated, keeping its refresh
 // interval and node counts.
 func TestResetDerivedStatusEgressNotEvaluated(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{}
-	pacto.Status.ObservedEgress = []pactov1alpha1.EgressStatus{{Identity: "stripe"}}
-	pacto.Status.ObservedEgressCoverage = &pactov1alpha1.EgressCoverage{
-		CallerCoverage: pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageComplete, RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3,
+	pacto := &pactov1.Pacto{}
+	pacto.Status.ObservedEgress = []pactov1.EgressStatus{{Identity: "stripe"}}
+	pacto.Status.ObservedEgressCoverage = &pactov1.EgressCoverage{
+		CallerCoverage: pactov1.CallerCoverage{State: pactov1.CallerCoverageComplete, RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3,
 	}
 	(&PactoReconciler{}).resetDerivedStatus(pacto)
-	want := pactov1alpha1.EgressCoverage{
-		CallerCoverage: pactov1alpha1.CallerCoverage{State: pactov1alpha1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3,
+	want := pactov1.EgressCoverage{
+		CallerCoverage: pactov1.CallerCoverage{State: pactov1.CallerCoverageUnavailable, Reason: "not-evaluated", RefreshSeconds: 300}, Nodes: 4, NodesWithAgent: 3,
 	}
 	if got := pacto.Status.ObservedEgressCoverage; *got != want || len(pacto.Status.ObservedEgress) != 1 {
 		t.Errorf("after reset: coverage %+v, egress %+v", *got, pacto.Status.ObservedEgress)
 	}
-	pacto = &pactov1alpha1.Pacto{}
+	pacto = &pactov1.Pacto{}
 	(&PactoReconciler{}).resetDerivedStatus(pacto)
 	if pacto.Status.ObservedEgressCoverage != nil {
 		t.Errorf("no coverage before, none after: %+v", pacto.Status.ObservedEgressCoverage)

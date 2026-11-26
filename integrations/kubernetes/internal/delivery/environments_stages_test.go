@@ -22,7 +22,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -244,7 +244,7 @@ func TestUpstreamNotHostedGetsNoStage(t *testing.T) {
 	pe := twoRungs(t, nil)
 	pe.r.ClusterName = "eu-prod"
 	pe.pass(t)
-	if r := rowOf(t, pe.rows(t), "payments", "production"); r.Stage != "" || !strings.HasPrefix(r.Reason, "upstream staging is not in this cluster") {
+	if r := rowOf(t, pe.rows(t), "payments", "production"); r.Stage != "" || r.Reason != noPeer {
 		t.Fatalf("production %+v", r)
 	}
 	if err := pe.c.Get(t.Context(), client.ObjectKey{Namespace: "payments-production", Name: "payments-production"}, &dv1.Stage{}); err == nil {

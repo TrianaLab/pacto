@@ -1,6 +1,6 @@
 # The RBAC inventory: every Role, ClusterRole and binding the chart renders, in
-# twelve full renders and nine single-template renders, with its exact rules,
-# roleRef and subjects. A new rule, verb,
+# twelve full renders and twelve narrower renders (one or two templates each),
+# with its exact rules, roleRef and subjects. A new rule, verb,
 # subject or retargeted binding fails here; review it against the least-privilege
 # rules (no cluster-wide Secret read, a namespace list renders no ClusterRole
 # beyond the node agent, the dashboard's delivery half and the dashboard's
@@ -13,6 +13,13 @@
 # (a member with a live review channel, 514-S4) adds one rule, create
 # subjectaccessreviews: the two `hub.url` renders turn the dashboard off,
 # because the default dashboard already holds that rule.
+# clusterInventory.secretNamespaces (514-S5) renders one Role per named namespace
+# with list on secrets and its RoleBinding: the `secretNamespaces argocd,flux-system`
+# and `hardened with secretNamespaces` renders. No ClusterRole ever gains it.
+# Member requests (delivery.remote, 514-S6) add their own ClusterRole and
+# binding in delivery/member-intake-rbac.yaml wherever delivery renders with a
+# registry (`idp with registry`): Stage read, Operation create and read,
+# create subjectaccessreviews and the identities ConfigMap by name.
 # The `idp crossplane install` render pins the upstream Crossplane chart's
 # roles and bindings that idp.crossplane.install adds (a person's choice,
 # vendored in files/crossplane): its ClusterRoles write Secrets, CRDs and webhook configurations cluster-wide and
@@ -32,8 +39,10 @@ templates:
   - templates/delivery/recorder.yaml
   - templates/delivery/identities.yaml
   - templates/delivery/environments.yaml
+  - templates/delivery/member-intake-rbac.yaml
   - templates/dashboard-signin.yaml
   - templates/cluster-identity-role.yaml
+  - templates/cluster-inventory-rbac.yaml
   - templates/idp/flux.yaml
   # upstream Crossplane, rendered only with idp.crossplane.install
   - templates/idp/crossplane.yaml
@@ -92,6 +101,21 @@ tests:
             - apiGroups: [""]
               resources: [namespaces]
               verbs: [list]
+
+  # The storage migration reads its CRDs by name and patches only their
+  # status; a scoped operator cannot list every namespace, so it has no CRD rule.
+  - it: watchNamespaces renders no customresourcedefinitions rule for the manager
+    template: templates/clusterrole.yaml
+    set:
+      controller.watchNamespaces: [a]
+      delivery.enabled: true
+      nodeAgent.enabled: true
+    asserts:
+      - notContains:
+          path: rules
+          content:
+            apiGroups: [apiextensions.k8s.io]
+          any: true
 
   - it: watchNamespaces renders a watch Role and a dashboard watch Role per namespace
     template: templates/watch-namespaces.yaml
@@ -469,6 +493,120 @@ tests:
             resources: [ciliumnetworkpolicies]
             verbs: [list]
 
+  # The cluster inventory (514-S5): list on each inventory group, only with
+  # clusterInventory.enabled, only where the cluster serves the API, and
+  # whenever the ClusterRole renders (outside the cluster-wide block).
+  - it: default renders no inventory rule
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions: &inventoryAPIs
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - cluster.x-k8s.io/v1beta1
+        - cluster.open-cluster-management.io/v1
+        - management.cattle.io/v3
+    asserts:
+      - notContains: {path: rules, content: {apiGroups: [cluster.x-k8s.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [cluster.open-cluster-management.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [management.cattle.io]}, any: true}
+
+  - it: inventory groups render only when served
+    template: templates/clusterrole.yaml
+    set:
+      clusterInventory.enabled: true
+    asserts:
+      - notContains: {path: rules, content: {apiGroups: [cluster.x-k8s.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [cluster.open-cluster-management.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [management.cattle.io]}, any: true}
+
+  - it: clusterInventory enabled with CAPI served
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - cluster.x-k8s.io/v1beta2
+    set:
+      clusterInventory.enabled: true
+    asserts:
+      - contains: {path: rules, content: {apiGroups: [cluster.x-k8s.io], resources: [clusters], verbs: [list]}}
+      - notContains: {path: rules, content: {apiGroups: [cluster.open-cluster-management.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [management.cattle.io]}, any: true}
+      - notContains: {path: rules, content: {apiGroups: [""], resources: [secrets]}, any: true}
+
+  - it: watchNamespaces with nodeAgent and clusterInventory.enabled
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions: *inventoryAPIs
+    set:
+      controller.watchNamespaces: [payments]
+      nodeAgent.enabled: true
+      clusterInventory.enabled: true
+    asserts:
+      - hasDocuments: {count: 1}
+      - contains: {path: rules, content: {apiGroups: [cluster.x-k8s.io], resources: [clusters], verbs: [list]}}
+      - contains: {path: rules, content: {apiGroups: [cluster.open-cluster-management.io], resources: [managedclusters], verbs: [list]}}
+      - contains: {path: rules, content: {apiGroups: [management.cattle.io], resources: [clusters], verbs: [list]}}
+      - notContains: {path: rules, content: {apiGroups: [""], resources: [pods]}, any: true}
+
+  - it: watchNamespaces only and clusterInventory.enabled renders no ClusterRole
+    capabilities:
+      apiVersions: *inventoryAPIs
+    set:
+      controller.watchNamespaces: [payments]
+      clusterInventory.enabled: true
+    asserts:
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrolebinding.yaml
+
+  # clusterInventory.secretNamespaces (514-S5): a person names each namespace
+  # where Secret metadata may be listed; one Role and RoleBinding per name, list
+  # only, and never a Secret rule in a ClusterRole.
+  - it: secretNamespaces renders one Role per namespace and no ClusterRole secret rule
+    set:
+      clusterInventory.enabled: true
+      clusterInventory.secretNamespaces: [flux-system, argocd]
+    asserts:
+      - hasDocuments: {count: 4}
+        template: templates/cluster-inventory-rbac.yaml
+      - notContains: {path: rules, content: {apiGroups: [""], resources: [secrets]}, any: true}
+        template: templates/clusterrole.yaml
+      - notContains: {path: rules, content: {apiGroups: [""], resources: [secrets], verbs: [list]}, any: true}
+        template: templates/role.yaml
+
+  - it: hardened renders the namespaced Roles only
+    set:
+      profile: hardened
+      controller.watchNamespaces: [payments, ledger]
+      clusterInventory.enabled: true
+      clusterInventory.secretNamespaces: [argocd]
+    asserts:
+      - hasDocuments: {count: 2}
+        template: templates/cluster-inventory-rbac.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrole.yaml
+      - hasDocuments: {count: 0}
+        template: templates/clusterrolebinding.yaml
+
+  - it: secretNamespaces without clusterInventory.enabled renders no Role
+    template: templates/cluster-inventory-rbac.yaml
+    set:
+      clusterInventory.secretNamespaces: [argocd]
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: clusterInventory.enabled without secretNamespaces renders no Role
+    template: templates/cluster-inventory-rbac.yaml
+    set:
+      clusterInventory.enabled: true
+    asserts:
+      - hasDocuments: {count: 0}
+
+  - it: default renders no cluster inventory Role
+    template: templates/cluster-inventory-rbac.yaml
+    asserts:
+      - hasDocuments: {count: 0}
+
   # Every binding's roleRef and subjects are pinned: the per-render cases below.
   - it: 'default: every rule, roleRef and subject of clusterrole.yaml is pinned'
     template: templates/clusterrole.yaml
@@ -498,6 +636,9 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [noderuntimeobservations]
           verbs: [delete, get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [noderuntimeobservations/status]
+          verbs: [patch]
         - apiGroups: [networking.k8s.io]
           resources: [ingresses]
           verbs: [get, list, watch]
@@ -540,6 +681,14 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [pactorevisions/status]
           verbs: [get, patch, update]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
         - apiGroups: [rbac.authorization.k8s.io]
           resourceNames: [pacto-dashboard]
           resources: [clusterroles, clusterrolebindings]
@@ -551,6 +700,9 @@ tests:
         - apiGroups: ['']
           resources: [nodes]
           verbs: [list]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: [compositeresourcedefinitions, compositions]
+          verbs: [get, list, watch]
         - apiGroups: ['']
           resources: [namespaces]
           verbs: [get]
@@ -1578,6 +1730,9 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [noderuntimeobservations]
           verbs: [delete, get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [noderuntimeobservations/status]
+          verbs: [patch]
         - apiGroups: [networking.k8s.io]
           resources: [ingresses]
           verbs: [get, list, watch]
@@ -1620,6 +1775,14 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [pactorevisions/status]
           verbs: [get, patch, update]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
         - apiGroups: [rbac.authorization.k8s.io]
           resourceNames: [pacto-dashboard]
           resources: [clusterroles, clusterrolebindings]
@@ -1631,6 +1794,9 @@ tests:
         - apiGroups: ['']
           resources: [nodes]
           verbs: [list]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: [compositeresourcedefinitions, compositions]
+          verbs: [get, list, watch]
         - apiGroups: ['']
           resources: [namespaces]
           verbs: [get]
@@ -1831,6 +1997,14 @@ tests:
         - apiGroups: [delivery.pacto.trianalab.io]
           resources: [stages/status, operations/status]
           verbs: [get, update, patch]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]
         - apiGroups: [admissionregistration.k8s.io]
           resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
           verbs: [get, list, watch]
@@ -2628,6 +2802,14 @@ tests:
         - apiGroups: [delivery.pacto.trianalab.io]
           resources: [stages/status, operations/status]
           verbs: [get, update, patch]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]
         - apiGroups: [admissionregistration.k8s.io]
           resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
           verbs: [get, list, watch]
@@ -2996,6 +3178,9 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [noderuntimeobservations]
           verbs: [delete, get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [noderuntimeobservations/status]
+          verbs: [patch]
         - apiGroups: [networking.k8s.io]
           resources: [ingresses]
           verbs: [get, list, watch]
@@ -3038,6 +3223,14 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [pactorevisions/status]
           verbs: [get, patch, update]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
         - apiGroups: [rbac.authorization.k8s.io]
           resourceNames: [pacto-dashboard]
           resources: [clusterroles, clusterrolebindings]
@@ -3049,6 +3242,9 @@ tests:
         - apiGroups: ['']
           resources: [nodes]
           verbs: [list]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: [compositeresourcedefinitions, compositions]
+          verbs: [get, list, watch]
         - apiGroups: [coordination.k8s.io]
           resources: [leases]
           verbs: [get, list, watch]
@@ -3325,6 +3521,9 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [noderuntimeobservations]
           verbs: [delete, get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [noderuntimeobservations/status]
+          verbs: [patch]
         - apiGroups: [networking.k8s.io]
           resources: [ingresses]
           verbs: [get, list, watch]
@@ -3367,6 +3566,14 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [pactorevisions/status]
           verbs: [get, patch, update]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
         - apiGroups: [rbac.authorization.k8s.io]
           resourceNames: [pacto-dashboard]
           resources: [clusterroles, clusterrolebindings]
@@ -3378,6 +3585,9 @@ tests:
         - apiGroups: ['']
           resources: [nodes]
           verbs: [list]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: [compositeresourcedefinitions, compositions]
+          verbs: [get, list, watch]
         - apiGroups: [monitoring.coreos.com]
           resources: [servicemonitors, podmonitors]
           verbs: [get, list, watch]
@@ -4769,6 +4979,9 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [noderuntimeobservations]
           verbs: [delete, get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [noderuntimeobservations/status]
+          verbs: [patch]
         - apiGroups: [networking.k8s.io]
           resources: [ingresses]
           verbs: [get, list, watch]
@@ -4811,6 +5024,14 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [pactorevisions/status]
           verbs: [get, patch, update]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
         - apiGroups: [rbac.authorization.k8s.io]
           resourceNames: [pacto-dashboard]
           resources: [clusterroles, clusterrolebindings]
@@ -4822,6 +5043,9 @@ tests:
         - apiGroups: ['']
           resources: [nodes]
           verbs: [list]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: [compositeresourcedefinitions, compositions]
+          verbs: [get, list, watch]
         - apiGroups: [monitoring.coreos.com]
           resources: [servicemonitors, podmonitors]
           verbs: [get, list, watch]
@@ -5028,6 +5252,14 @@ tests:
         - apiGroups: [delivery.pacto.trianalab.io]
           resources: [stages/status, operations/status]
           verbs: [get, update, patch]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]
         - apiGroups: [admissionregistration.k8s.io]
           resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
           verbs: [get, list, watch]
@@ -6265,6 +6497,9 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [noderuntimeobservations]
           verbs: [delete, get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [noderuntimeobservations/status]
+          verbs: [patch]
         - apiGroups: [networking.k8s.io]
           resources: [ingresses]
           verbs: [get, list, watch]
@@ -6307,6 +6542,14 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [pactorevisions/status]
           verbs: [get, patch, update]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
         - apiGroups: [rbac.authorization.k8s.io]
           resources: [clusterroles, clusterrolebindings]
           verbs: [get, delete]
@@ -6318,6 +6561,9 @@ tests:
         - apiGroups: ['']
           resources: [nodes]
           verbs: [list]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: [compositeresourcedefinitions, compositions]
+          verbs: [get, list, watch]
         - apiGroups: ['']
           resources: [namespaces]
           verbs: [get]
@@ -6372,6 +6618,9 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [noderuntimeobservations]
           verbs: [delete, get, list, watch]
+        - apiGroups: [pacto.trianalab.io]
+          resources: [noderuntimeobservations/status]
+          verbs: [patch]
         - apiGroups: [networking.k8s.io]
           resources: [ingresses]
           verbs: [get, list, watch]
@@ -6414,6 +6663,14 @@ tests:
         - apiGroups: [pacto.trianalab.io]
           resources: [pactorevisions/status]
           verbs: [get, patch, update]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [pactos.pacto.trianalab.io, pactorevisions.pacto.trianalab.io, noderuntimeobservations.pacto.trianalab.io]
         - apiGroups: [rbac.authorization.k8s.io]
           resourceNames: [pacto-dashboard]
           resources: [clusterroles, clusterrolebindings]
@@ -6425,6 +6682,9 @@ tests:
         - apiGroups: ['']
           resources: [nodes]
           verbs: [list]
+        - apiGroups: [apiextensions.crossplane.io]
+          resources: [compositeresourcedefinitions, compositions]
+          verbs: [get, list, watch]
         - apiGroups: [monitoring.coreos.com]
           resources: [servicemonitors, podmonitors]
           verbs: [get, list, watch]
@@ -6634,6 +6894,14 @@ tests:
         - apiGroups: [delivery.pacto.trianalab.io]
           resources: [stages/status, operations/status]
           verbs: [get, update, patch]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions]
+          verbs: [get]
+          resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]
+        - apiGroups: [apiextensions.k8s.io]
+          resources: [customresourcedefinitions/status]
+          verbs: [patch]
+          resourceNames: [stages.delivery.pacto.trianalab.io, operations.delivery.pacto.trianalab.io, approvals.delivery.pacto.trianalab.io]
         - apiGroups: [admissionregistration.k8s.io]
           resources: [validatingadmissionpolicies, validatingadmissionpolicybindings]
           verbs: [get, list, watch]
@@ -7433,3 +7701,351 @@ tests:
         - {kind: ServiceAccount, name: source-controller, namespace: flux-system}
       documentIndex: 4
     - notMatchRegex: {path: kind, pattern: ^(Role|RoleBinding)$}
+  - it: 'default: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'watchNamespaces: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id001
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'watchNamespaces with the release namespace: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id002
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'delivery: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id003
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'watchNamespaces with delivery: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id004
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'nodeAgent: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id005
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'metrics observation: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: *id006
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'hardened: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments, ledger]}
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'hardened with registry: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments, ledger], registry: ghcr.io/acme}
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'idp: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: {profile: idp}
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'hardened and idp: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: {profile: [hardened, idp], controller.watchNamespaces: [payments, ledger]}
+    asserts:
+    - hasDocuments: {count: 0}
+  - it: 'idp with registry: every rule, roleRef and subject of delivery/member-intake-rbac.yaml is pinned'
+    template: templates/delivery/member-intake-rbac.yaml
+    set: {profile: idp, registry: ghcr.io/acme, delivery.recorder.signing.kms: 'awskms:///alias/pacto-recorder'}
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: ClusterRole}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-member-intake}
+      documentIndex: 0
+    - notExists: {path: metadata.namespace}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: [delivery.pacto.trianalab.io]
+          resources: [stages]
+          verbs: [get, list, watch]
+        - apiGroups: [delivery.pacto.trianalab.io]
+          resources: [operations]
+          verbs: [create, get, list, watch]
+        - apiGroups: [authorization.k8s.io]
+          resources: [subjectaccessreviews]
+          verbs: [create]
+        - apiGroups: ['']
+          resourceNames: [pacto-delivery-identities]
+          resources: [configmaps]
+          verbs: [get]
+      documentIndex: 0
+    - equal: {path: kind, value: ClusterRoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-member-intake}
+      documentIndex: 1
+    - notExists: {path: metadata.namespace}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: ClusterRole, name: pacto-operator-member-intake}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
+  - it: 'secretNamespaces argocd,flux-system: every rule, roleRef and subject of cluster-inventory-rbac.yaml is pinned'
+    template: templates/cluster-inventory-rbac.yaml
+    set:
+      clusterInventory.enabled: true
+      clusterInventory.secretNamespaces: [flux-system, argocd]
+    asserts:
+    - hasDocuments: {count: 4}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: argocd}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [list]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 1
+    - equal: {path: metadata.namespace, value: argocd}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-cluster-inventory}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
+    - equal: {path: kind, value: Role}
+      documentIndex: 2
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 2
+    - equal: {path: metadata.namespace, value: flux-system}
+      documentIndex: 2
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [list]
+      documentIndex: 2
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 3
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 3
+    - equal: {path: metadata.namespace, value: flux-system}
+      documentIndex: 3
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-cluster-inventory}
+      documentIndex: 3
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 3
+  - it: 'hardened with secretNamespaces: every rule, roleRef and subject of cluster-inventory-rbac.yaml is pinned'
+    template: templates/cluster-inventory-rbac.yaml
+    set: {profile: hardened, controller.watchNamespaces: [payments, ledger], clusterInventory.enabled: true, clusterInventory.secretNamespaces: [argocd]}
+    asserts:
+    - hasDocuments: {count: 2}
+    - equal: {path: kind, value: Role}
+      documentIndex: 0
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 0
+    - equal: {path: metadata.namespace, value: argocd}
+      documentIndex: 0
+    - equal:
+        path: rules
+        value:
+        - apiGroups: ['']
+          resources: [secrets]
+          verbs: [list]
+      documentIndex: 0
+    - equal: {path: kind, value: RoleBinding}
+      documentIndex: 1
+    - equal: {path: metadata.name, value: pacto-operator-cluster-inventory}
+      documentIndex: 1
+    - equal: {path: metadata.namespace, value: argocd}
+      documentIndex: 1
+    - equal:
+        path: roleRef
+        value: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: pacto-operator-cluster-inventory}
+      documentIndex: 1
+    - equal:
+        path: subjects
+        value:
+        - {kind: ServiceAccount, name: pacto-operator, namespace: pacto-operator-system}
+      documentIndex: 1
+
+  # Managed resources (517-S7): list only, on the plurals of the default
+  # catalog's kinds whose group the cluster serves. A served group the catalog
+  # does not name, including the key-bearing Config Connector IAM and Secret
+  # Manager groups and a non-ASO .azure.com group, renders nothing.
+  - it: catalog groups served render list on their catalog plurals only
+    template: templates/clusterrole.yaml
+    set:
+      crossplane.offerings.enabled: false
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - rds.aws.upbound.io/v1beta1
+        - rds.services.k8s.aws/v1alpha1
+        - sql.cnrm.cloud.google.com/v1beta1
+        - sql.azure.com/v1api20211101
+        - iam.cnrm.cloud.google.com/v1beta1
+        - secretmanager.cnrm.cloud.google.com/v1beta1
+        - clusterconfig.azure.com/v1beta1
+        - example.org/v1
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [rds.aws.upbound.io], resources: [clusters, instances], verbs: [list]}
+      - contains:
+          path: rules
+          content: {apiGroups: [rds.services.k8s.aws], resources: [dbclusters, dbinstances], verbs: [list]}
+      - contains:
+          path: rules
+          content: {apiGroups: [sql.cnrm.cloud.google.com], resources: [sqlinstances], verbs: [list]}
+      - contains:
+          path: rules
+          content: {apiGroups: [sql.azure.com], resources: [servers], verbs: [list]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [iam.cnrm.cloud.google.com]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [secretmanager.cnrm.cloud.google.com]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [clusterconfig.azure.com]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [example.org]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [apiextensions.crossplane.io]}
+          any: true
+
+  - it: claim groups from XRDs render list on their composite and claim plurals
+    template: templates/clusterrole.yaml
+    set:
+      crossplane.offerings.enabled: false
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - apiextensions.crossplane.io/v1
+    kubernetesProvider:
+      scheme:
+        "apiextensions.crossplane.io/v1/CompositeResourceDefinition":
+          gvr: {group: apiextensions.crossplane.io, version: v1, resource: compositeresourcedefinitions}
+          namespaced: false
+      objects:
+        - apiVersion: apiextensions.crossplane.io/v1
+          kind: CompositeResourceDefinition
+          metadata: {name: xpostgresqlinstances.platform.example.org}
+          spec:
+            group: platform.example.org
+            names: {kind: XPostgreSQLInstance, plural: xpostgresqlinstances}
+            claimNames: {kind: PostgreSQLInstance, plural: postgresqlinstances}
+        - apiVersion: apiextensions.crossplane.io/v1
+          kind: CompositeResourceDefinition
+          metadata: {name: xthings.apps.k8s.io}
+          spec:
+            group: apps.k8s.io
+            names: {kind: XThing, plural: xthings}
+        - apiVersion: apiextensions.crossplane.io/v1
+          kind: CompositeResourceDefinition
+          metadata: {name: forged.example.org}
+          spec:
+            group: example.org
+            names: {kind: Forged, plural: "x], verbs: [create]"}
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [apiextensions.crossplane.io], resources: [compositeresourcedefinitions], verbs: [list]}
+      - contains:
+          path: rules
+          content: {apiGroups: [platform.example.org], resources: [xpostgresqlinstances, postgresqlinstances], verbs: [list]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [apps.k8s.io]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [example.org]}
+          any: true
+
+  # One XRD rule: with inferred offerings on (the default) their rule already
+  # lists XRDs, so the managed rules add only the claim groups.
+  - it: inferred offerings on keep one XRD rule beside the claim groups
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - apiextensions.crossplane.io/v1
+    kubernetesProvider:
+      scheme:
+        "apiextensions.crossplane.io/v1/CompositeResourceDefinition":
+          gvr: {group: apiextensions.crossplane.io, version: v1, resource: compositeresourcedefinitions}
+          namespaced: false
+      objects:
+        - apiVersion: apiextensions.crossplane.io/v1
+          kind: CompositeResourceDefinition
+          metadata: {name: xpostgresqlinstances.platform.example.org}
+          spec:
+            group: platform.example.org
+            names: {kind: XPostgreSQLInstance, plural: xpostgresqlinstances}
+            claimNames: {kind: PostgreSQLInstance, plural: postgresqlinstances}
+    asserts:
+      - contains:
+          path: rules
+          content: {apiGroups: [apiextensions.crossplane.io], resources: [compositeresourcedefinitions, compositions], verbs: [get, list, watch]}
+      - notContains:
+          path: rules
+          content: {apiGroups: [apiextensions.crossplane.io], resources: [compositeresourcedefinitions], verbs: [list]}
+      - contains:
+          path: rules
+          content: {apiGroups: [platform.example.org], resources: [xpostgresqlinstances, postgresqlinstances], verbs: [list]}
+
+  - it: watchNamespaces renders no managed rule
+    template: templates/clusterrole.yaml
+    capabilities:
+      apiVersions:
+        - admissionregistration.k8s.io/v1/ValidatingAdmissionPolicy
+        - rds.aws.upbound.io/v1beta1
+        - apiextensions.crossplane.io/v1
+    set:
+      controller.watchNamespaces: [payments]
+      dashboard.enabled: true
+      delivery.enabled: true
+    asserts:
+      - notContains:
+          path: rules
+          content: {apiGroups: [rds.aws.upbound.io]}
+          any: true
+      - notContains:
+          path: rules
+          content: {apiGroups: [apiextensions.crossplane.io]}
+          any: true

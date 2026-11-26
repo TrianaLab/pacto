@@ -332,7 +332,64 @@ func printExternal(w io.Writer, rec fleet.ExternalRecord, into fleet.ExternalKey
 	if rec.HiddenConsumers > 0 {
 		_, _ = fmt.Fprintf(w, "  hidden consumers %d\n", rec.HiddenConsumers)
 	}
+	printExternalResources(w, rec)
 	printExternalProvider(w, rec.Provider)
+}
+
+// printExternalResources prints the managed resources sources read for an
+// external system, each with its contract state, then the claim that puts
+// one outside contract into a contract when nothing claims the system yet.
+func printExternalResources(w io.Writer, rec fleet.ExternalRecord) {
+	label, outside := "resources", false
+	for _, r := range rec.Resources {
+		_, _ = fmt.Fprintf(w, "  %-9s  %s\n", label, managedResourceLine(r))
+		label, outside = "", outside || r.Contract != fleet.ContractOffering
+	}
+	if more := rec.ResourcesTotal - len(rec.Resources); more > 0 {
+		_, _ = fmt.Fprintf(w, "  %-9s  and %d more\n", label, more)
+		label = ""
+	}
+	if rec.HiddenResources > 0 {
+		_, _ = fmt.Fprintf(w, "  %-9s  %d hidden\n", label, rec.HiddenResources)
+	}
+	if outside && rec.Claim == nil && rec.Claimants == 0 && rec.Key != fleet.OtherEgress {
+		_, _ = fmt.Fprintf(w, "  into a contract: pacto claim %s --owner <team> --offering <offering>\n", rec.Key)
+	}
+}
+
+// managedResourceLine is one managed resource: the cluster that read it, the
+// reader, where and what it is, its verified claim, its engine and its
+// contract state. Unknown is never through an offering.
+func managedResourceLine(r fleet.ManagedResource) string {
+	parts := []string{cmp.Or(r.ClusterName, r.Cluster, "local"), r.Source}
+	if r.Location != "" {
+		parts = append(parts, r.Location)
+	}
+	name := r.Name
+	if r.Namespace != "" {
+		name = r.Namespace + "/" + name
+	}
+	parts = append(parts, r.Type, name)
+	if r.Claim != "" {
+		parts = append(parts, " claim "+r.Claim)
+	}
+	if r.Engine != "" {
+		parts = append(parts, " "+r.Engine)
+	} else if r.EngineRequested != "" {
+		parts = append(parts, " requested "+r.EngineRequested)
+	}
+	state := " outside contract"
+	if r.Contract == fleet.ContractOffering {
+		state = " through an offering"
+		if o := r.Offering; o != nil {
+			state = " through offering " + cmp.Or(o.Label, o.Key)
+		}
+	}
+	parts = append(parts, state)
+	if len(r.Missing) > 0 {
+		parts = append(parts, " missing "+strings.Join(r.Missing, ", "))
+	}
+	return strings.Join(parts, " ")
 }
 
 // printExternalOwner prints who owns an external system: the claiming

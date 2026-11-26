@@ -2,6 +2,7 @@ package backstage
 
 import (
 	"cmp"
+	"encoding/json"
 	"maps"
 	"slices"
 	"strconv"
@@ -136,6 +137,39 @@ type relationInfo struct {
 	provenance          string
 	inferred            string
 	unresolved          int
+	ranges              map[string][]rangeFact
+}
+
+// rangeFact is one range a declared edge accepts and the fleet's verdict on
+// it, copied and never upgraded.
+type rangeFact struct {
+	Range       string `json:"range"`
+	RangeStatus string `json:"rangeStatus"`
+	RangeReason string `json:"rangeReason,omitempty"`
+}
+
+// addRange records rel's declared range under ref, once per distinct fact. A
+// status the fleet did not compute reads unknown.
+func (ri *relationInfo) addRange(ref string, rel *fleet.Relationship) {
+	if ref == "" || rel.Provenance != fleet.ProvenanceDeclared || rel.Compatibility == "" {
+		return
+	}
+	f := rangeFact{rel.Compatibility, cmp.Or(rel.RangeStatus, "unknown"), rel.RangeReason}
+	if ri.ranges == nil {
+		ri.ranges = map[string][]rangeFact{}
+	}
+	if !slices.Contains(ri.ranges[ref], f) {
+		ri.ranges[ref] = append(ri.ranges[ref], f)
+	}
+}
+
+// sortedRanges orders each ref's facts by range, status and reason.
+func sortedRanges(m map[string][]rangeFact) {
+	for _, fs := range m {
+		slices.SortFunc(fs, func(a, b rangeFact) int {
+			return cmp.Or(cmp.Compare(a.Range, b.Range), cmp.Compare(a.RangeStatus, b.RangeStatus), cmp.Compare(a.RangeReason, b.RangeReason))
+		})
+	}
 }
 
 // annotate writes ri's annotations onto ann.
@@ -149,6 +183,11 @@ func (ri relationInfo) annotate(ann map[string]string) {
 	if ri.unresolved > 0 {
 		ann[AnnotationUnresolvedDependency] = strconv.Itoa(ri.unresolved)
 	}
+	if len(ri.ranges) > 0 {
+		// ponytail: json.Marshal of a map of string-only structs never fails.
+		b, _ := json.Marshal(ri.ranges)
+		ann[AnnotationDependencyRanges] = string(b)
+	}
 }
 
 // relations reads each edge from s once. spec.dependsOn holds every ref a
@@ -161,6 +200,7 @@ func (e *exporter) relations(s *fleet.ServiceRecord) relationInfo {
 	inferred := map[string]bool{}
 	consumes := map[string]bool{}
 	unresolved := map[[2]string]bool{}
+	var ri relationInfo
 	for _, rel := range e.edges[s.Key] {
 		if !e.exported(s.Key, rel) {
 			continue
@@ -175,6 +215,7 @@ func (e *exporter) relations(s *fleet.ServiceRecord) relationInfo {
 			}
 		}
 		ref := e.ref(rel)
+		ri.addRange(ref, rel)
 		switch {
 		case ref == "":
 		case rel.Provenance == fleet.ProvenanceInferred:
@@ -184,7 +225,8 @@ func (e *exporter) relations(s *fleet.ServiceRecord) relationInfo {
 			known[ref].add(rel, e.snap.CautionOnly(*rel))
 		}
 	}
-	ri := relationInfo{dependsOn: slices.Sorted(maps.Keys(known)), consumes: slices.Sorted(maps.Keys(consumes)), unresolved: len(unresolved)}
+	sortedRanges(ri.ranges)
+	ri.dependsOn, ri.consumes, ri.unresolved = slices.Sorted(maps.Keys(known)), slices.Sorted(maps.Keys(consumes)), len(unresolved)
 	entries := make([]string, len(ri.dependsOn))
 	for i, ref := range ri.dependsOn {
 		entries[i] = ref + "=" + known[ref].String()

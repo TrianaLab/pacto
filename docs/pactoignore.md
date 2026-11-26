@@ -79,7 +79,7 @@ For example, if your contract references `interfaces/openapi.yaml` and your `.pa
 interfaces/openapi.yaml
 ```
 
-Then `pacto pack` and `pacto push` exit with `contract validation failed with N error(s)` and nothing more. Under `-v` both add a debug line carrying the error count, never the file name. To see the message naming the file, run `pacto validate`: it prints `FILE_NOT_FOUND` (e.g. `interface spec file "interfaces/openapi.yaml" not found in bundle`). Neither command reports which ignore pattern excluded it.
+Then `pacto pack` and `pacto push` exit with `contract validation failed with 1 error(s):` followed by each error, here the `FILE_NOT_FOUND` error (`interface spec file "interfaces/openapi.yaml" not found in bundle`). `pacto validate` prints the same error. Neither command reports which ignore pattern excluded it.
 
 The same rule applies to `configurations[].schema`, `policies[].schema` and any other file path declared in `pacto.yaml`.
 

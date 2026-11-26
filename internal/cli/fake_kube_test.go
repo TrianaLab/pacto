@@ -15,11 +15,11 @@ import (
 func fakeKubeAPI(t *testing.T, pactos string, workloads map[string]string) {
 	t.Helper()
 	body := map[string]string{
-		"/api":                              `{"kind":"APIVersions","versions":["v1"]}`,
-		"/apis":                             `{"kind":"APIGroupList","apiVersion":"v1","groups":[{"name":"pacto.trianalab.io","versions":[{"groupVersion":"pacto.trianalab.io/v1alpha1","version":"v1alpha1"}],"preferredVersion":{"groupVersion":"pacto.trianalab.io/v1alpha1","version":"v1alpha1"}}]}`,
-		"/api/v1":                           `{"kind":"APIResourceList","apiVersion":"v1","groupVersion":"v1","resources":[]}`,
-		"/apis/pacto.trianalab.io/v1alpha1": `{"kind":"APIResourceList","apiVersion":"v1","groupVersion":"pacto.trianalab.io/v1alpha1","resources":[{"name":"pactos","singularName":"pacto","namespaced":true,"kind":"Pacto","verbs":["list"]}]}`,
-		"/apis/pacto.trianalab.io/v1alpha1/pactos": `{"apiVersion":"pacto.trianalab.io/v1alpha1","kind":"PactoList","metadata":{},"items":[` + pactos + `]}`,
+		"/api":                               `{"kind":"APIVersions","versions":["v1"]}`,
+		"/apis":                              `{"kind":"APIGroupList","apiVersion":"v1","groups":[{"name":"pacto.trianalab.io","versions":[{"groupVersion":"pacto.trianalab.io/v1","version":"v1"}],"preferredVersion":{"groupVersion":"pacto.trianalab.io/v1","version":"v1"}}]}`,
+		"/api/v1":                            `{"kind":"APIResourceList","apiVersion":"v1","groupVersion":"v1","resources":[]}`,
+		"/apis/pacto.trianalab.io/v1":        `{"kind":"APIResourceList","apiVersion":"v1","groupVersion":"pacto.trianalab.io/v1","resources":[{"name":"pactos","singularName":"pacto","namespaced":true,"kind":"Pacto","verbs":["list"]}]}`,
+		"/apis/pacto.trianalab.io/v1/pactos": `{"apiVersion":"pacto.trianalab.io/v1","kind":"PactoList","metadata":{},"items":[` + pactos + `]}`,
 	}
 	for _, r := range []struct{ gv, resource string }{{"apps/v1", "deployments"}, {"apps/v1", "statefulsets"}, {"apps/v1", "daemonsets"}, {"batch/v1", "cronjobs"}} {
 		body["/apis/"+r.gv+"/"+r.resource] = `{"apiVersion":"` + r.gv + `","kind":"List","metadata":{},"items":[` + workloads[r.resource] + `]}`

@@ -67,6 +67,10 @@ func canonicalEnvironment(name string) string {
 	return name
 }
 
+// SameEnvironment says whether a and b name one environment once
+// canonicalized: prod is production.
+func SameEnvironment(a, b string) bool { return canonicalEnvironment(a) == canonicalEnvironment(b) }
+
 // ProposeLadder proposes, as leaves, the rungs the installation ladder does
 // not hold yet. known are the rungs it holds, declared or confirmed. A rung
 // comes from a namespace suffix -<x> shared by namespaces <service>-<x> of at

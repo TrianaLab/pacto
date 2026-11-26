@@ -214,3 +214,43 @@ func TestDashboardReclaimUsesClaimedName(t *testing.T) {
 	orphan := stripeWL(t, nil, &fleet.ExternalClaim{Service: "gone"})
 	expect(t, claimerName(orphan.View, "stripe") == "", "a claimer the view holds no record of is named nowhere")
 }
+
+// TestDashboardClaimOffering: the dashboard claim panel's offering reaches
+// the shared claim planner, which writes it as display-only metadata and
+// names it in the command; an invalid slug is the OfferingInvalid refusal.
+func TestDashboardClaimOffering(t *testing.T) {
+	h := newDeclareHost(t, true, true)
+	ans := h.claimPlan(t, stripeWL(t, []string{"ledger"}, nil), dashboard.DeclareInput{ClaimInput: dashboard.ClaimInput{Owner: "team-platform", Offering: "postgresql"}})
+	expect(t, ans.Refusal == nil && ans.Plan != nil, "%+v", ans.Refusal)
+	expect(t, strings.Contains(ans.Command, " --offering postgresql "), "command %q", ans.Command)
+	expect(t, strings.Contains(ans.Plan.Contract.Text, fleet.ExternalOfferingMetadataKey+": postgresql") && !strings.Contains(ans.Plan.Contract.Text, "offering: postgresql\n  owner"),
+		"contract %q", ans.Plan.Contract.Text)
+	// The providers come from the viewer's own view, never a registry read
+	// with the dashboard's credentials.
+	expect(t, slices.Contains(ans.Plan.Notes, "proposes offering postgresql (no provider yet)"), "notes %v", ans.Plan.Notes)
+	bad := h.claimPlan(t, stripeWL(t, nil, nil), dashboard.DeclareInput{ClaimInput: dashboard.ClaimInput{Owner: "team-platform", Offering: "Not A Slug"}})
+	expect(t, bad.Refusal != nil && bad.Refusal.Code == "OfferingInvalid" && bad.Plan == nil, "%+v %+v", bad.Refusal, bad.Plan)
+}
+
+// TestDashboardClaimOfferingDraftShared: with no view (or a restricted one)
+// the offering's providers are unknown, so the claim is a draft another team
+// accepts; a shared dashboard refuses to sign it, in the plan and on accept,
+// and pushes nothing.
+func TestDashboardClaimOfferingDraftShared(t *testing.T) {
+	h := newDeclareHost(t, false, true)
+	h.ownerPolicy(t, "ana@acme.com")
+	h.freshLogin(t, personToken())
+	w := stripeWL(t, nil, nil)
+	w.View = nil
+	in := dashboard.ClaimInput{Owner: "team-platform", Offering: "postgresql"}
+	p := h.claimPlan(t, w, dashboard.DeclareInput{ClaimInput: in})
+	expect(t, p.Refusal != nil && p.Refusal.Code == "DraftNotOffered" && p.Plan == nil && strings.Contains(p.Refusal.Command, "--offering postgresql"), "%+v %+v", p.Refusal, p.Plan)
+	req, err := h.d.request(h.req(), w, nil, nil, in, nil)
+	expect(t, err == nil, "%v", err)
+	req.Login = plannedLogin
+	plan, _, err := h.d.svc.PlanDeclare(t.Context(), req)
+	expect(t, err == nil && plan.State == contract.DeclarationDraft, "%v %+v", err, plan)
+	out := h.accept(t, w, dashboard.DeclareAcceptInput{IntentDigest: plan.IntentDigest, Mode: "sign", ClaimInput: in})
+	expect(t, out.Refusal != nil && out.Refusal.Code == "DraftNotOffered" && !out.Signed && !out.Draft, "%+v", out)
+	expect(t, len(h.repoTags(t, "stripe")) == 0, "pushed %v", h.repoTags(t, "stripe"))
+}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -112,14 +113,16 @@ type fleetEntitiesInput struct {
 	Source          string   `query:"source"`
 	Service         string   `query:"service" doc:"Scope revision/target entities to a canonical parent ServiceKey (pages all revisions of one service)"`
 	Template        string   `query:"template" enum:"only,exclude" doc:"Golden path filter for service and revision entities: only keeps the golden paths (services whose contract declares service.template and that run nowhere) and, with no kinds, lists services only; exclude leaves them and their revisions out. Absent lists every service, golden paths marked template"`
-	Declaration     string   `query:"declaration" enum:"declared,inferred" doc:"Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; declared leaves them out. Absent lists every service, inferred ones marked"`
+	Declaration     string   `query:"declaration" enum:"declared,inferred" doc:"Declaration filter for service entities: inferred keeps only the services Pacto infers from workloads no contract describes and, with no kinds, lists services only; with kinds=offering it lists only the inferred offerings producers contribute, as service rows carrying inferredOffering, never consumable; declared leaves them out. Absent lists every service, inferred ones marked; with template only, inferred lists the golden paths a catalog holds (inferredTemplates) and declared leaves them out"`
 	Group           string   `query:"group" maxLength:"1024" doc:"Group filter for inferred service entities: the workload.group.key of an inferred service; with no kinds it lists services only"`
 	CreatedFrom     string   `query:"createdFrom" doc:"Keeps the services whose declared origin resolves to this golden path, by canonical ServiceKey (service entities); (none) keeps those that declare no origin and (unresolved) those whose origin resolves to no golden path. A hidden, absent or non-golden-path key answers an empty list"`
 	HasNonCompliant bool     `query:"hasNonCompliant" doc:"Keeps the owners and domains with at least one non-compliant service, counted as each row counts it (owner and domain entities)"`
 	SourceKind      string   `query:"sourceKind" doc:"Exact source kind (oci, kubernetes, evidence-http, ...) for source entities"`
 	Lifecycle       string   `query:"lifecycle" enum:"deprecated,sunset" doc:"Keeps the entities whose provider lifecycle is deprecated or past its sunset: offering entities by the worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), service entities by their newest revision"`
 	Failed          bool     `query:"failed" doc:"Keeps the offerings with at least one failed provisioning request (offering entities)"`
+	Consumable      bool     `query:"consumable" doc:"Keeps the offerings the viewer may consume and fills each row's consumable (offering entities); with no kinds it lists offerings"`
 	Class           string   `query:"class" enum:"vendor-api,managed-cloud,legacy,unclassified,other-egress" doc:"Keeps the external systems of this class (external entities)"`
+	OutsideContract bool     `query:"outsideContract" doc:"Keeps the external systems with a managed resource no offering produced (external entities)"`
 	Sort            string   `query:"sort" enum:"name,health,services,nonCompliant,rate,created,failed,consumers,gaps" doc:"Order: name (natural, so 2 before 10), health (least healthy first; owners and domains by non-compliant, failing, unknown, stale and gap services), services (owners with the most services first), nonCompliant (owners and domains with the most non-compliant services first), rate (owners and domains with the highest share of non-compliant services first), created (golden paths that created the most services first), failed (offerings with the most consumers with a failed provisioning request first), consumers (offerings and external systems with the most declared consumers first) or gaps (owners and domains with the most services that leave knowledge out first); absent orders by kind then key"`
 	Limit           int      `query:"limit" minimum:"0" doc:"Max entities to return (negatives rejected; excessive values capped)"`
 	Offset          int      `query:"offset" minimum:"0"`
@@ -135,17 +138,19 @@ func (s *Server) fleetEntities(ctx context.Context, in *fleetEntitiesInput) (*fl
 	kinds := in.Kinds
 	switch {
 	case len(kinds) > 0:
+	case in.Consumable:
+		kinds = []string{string(fleet.KindOffering)}
 	case in.Template == fleet.TemplateOnly || in.Declaration == fleet.DeclarationInferred || in.Group != "":
 		kinds = []string{string(fleet.KindService)}
-	case in.Class != "":
-		// class applies only to external systems, as on the CLI and MCP.
+	case in.Class != "" || in.OutsideContract:
+		// class and outsideContract apply only to external systems, as on the CLI and MCP.
 		kinds = []string{string(fleet.KindExternal)}
 	}
 	res, err := q.Entities(fleet.EntityFilter{
 		Text: in.Text, Kinds: entityKinds(kinds), Owner: in.Owner, OwnerKey: in.OwnerKey, Domain: in.Domain,
 		BusinessDomain: in.BusinessDomain, Environment: in.Environment, Cluster: in.Cluster, Capability: in.Capability, Offering: in.Offering, Consumes: in.Consumes, Phase: in.Phase,
 		Scope: in.Scope, Status: in.Status, SourceHealth: in.SourceHealth, SourceKind: in.SourceKind, Source: in.Source,
-		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed, Class: in.Class,
+		HasNonCompliant: in.HasNonCompliant, Lifecycle: in.Lifecycle, Failed: in.Failed, Consumable: in.Consumable, Class: in.Class, OutsideContract: in.OutsideContract,
 		Ownership: in.Ownership, Gap: in.Gap, Readiness: in.Readiness,
 		Service: in.Service, Template: in.Template, Declaration: in.Declaration, Group: in.Group, CreatedFrom: in.CreatedFrom, Sort: in.Sort, Limit: in.Limit, Offset: in.Offset,
 	})
@@ -201,6 +206,10 @@ func (s *Server) fleetEntityDetail(ctx context.Context, in *fleetEntityDetailInp
 		s.attachReached(ctx, q, fleet.ServiceKey(res.Entity.Key), &res.Service.Changes)
 	}
 	res.KeepServedTools(fleet.NoTools) // the dashboard serves no MCP tool
+	if d := s.opts.Declare; d == nil || !d.CanWrite() {
+		// Only a host that writes accepts an inferred offering.
+		res.Actions = slices.DeleteFunc(res.Actions, func(a string) bool { return a == fleet.ActionAcceptOffering })
+	}
 	return &fleetEntityDetailOutput{Body: productview.ToEntityDetail(res)}, nil
 }
 
@@ -490,8 +499,23 @@ func (s *Server) stubProvidersForSchemaExport() {
 	s.opts.ClusterJoins = func(context.Context) (delivery.ClusterJoinList, error) {
 		return delivery.ClusterJoinList{}, errors.New("schema export only")
 	}
+	s.opts.ClusterInstall = func(context.Context, string) ([]byte, error) { return nil, errors.New("schema export only") }
 	s.opts.Declare = schemaDeclarer{}
+	s.opts.CreateService = schemaCreator{}
 }
+
+// schemaCreator registers both create-service routes for the schema export.
+type schemaCreator struct{}
+
+func (schemaCreator) Plan(*http.Request, CreateServicePath, CreateServiceInput) (*CreateServiceAnswer, error) {
+	return nil, errors.New("schema export only")
+}
+
+func (schemaCreator) Accept(*http.Request, CreateServicePath, CreateServiceAcceptInput) (*CreateServiceAcceptAnswer, error) {
+	return nil, errors.New("schema export only")
+}
+
+func (schemaCreator) CanWrite() bool { return true }
 
 // schemaDeclarer registers both declare routes for the schema export.
 type schemaDeclarer struct{}
@@ -513,6 +537,8 @@ func (schemaDeclarer) AcceptOffer(*http.Request, string) AcceptExecuteOffer {
 func (schemaDeclarer) AcceptRanges(*http.Request, AcceptTarget, AcceptExecuteInput) (*AcceptExecuteAnswer, error) {
 	return nil, errors.New("schema export only")
 }
+
+func (schemaDeclarer) MayDeclareTemplate(context.Context) bool { return false }
 
 func parseViews(s string) []fleet.KnowledgeView {
 	if s == "" {

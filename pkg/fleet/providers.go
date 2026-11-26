@@ -85,8 +85,15 @@ const (
 	// UseExternalEgress: Pacto reads calls leaving the cluster, to Externals,
 	// from what the row read.
 	UseExternalEgress = "external-egress"
+	// UseManagedResources: Pacto reads managed cloud resources (cluster
+	// objects, Terraform state, cloud inventory) from what the row read.
+	UseManagedResources = "managed-resources"
 	// ProviderCrossplane is the row of the Crossplane the operator detected.
 	ProviderCrossplane = "crossplane"
+	// ProviderManagedResources is the row of the managed-resource objects
+	// the operator lists; a detail "unread <group>/<plural>" names a kind
+	// whose group appeared after install, so the chart grants no read of it.
+	ProviderManagedResources = "managed-resources"
 	// CrossplaneNoneFound starts the evidence of a Crossplane row that found
 	// no Crossplane, so a reader tells it apart with no detect import.
 	CrossplaneNoneFound = "none found"
@@ -95,6 +102,17 @@ const (
 // LimitationRegistryProbeFailed: Pacto could not probe a registry host, so it
 // does not know which mode it would use there.
 const LimitationRegistryProbeFailed = "REGISTRY_PROBE_FAILED"
+
+// Limitation codes of a consumable offering list (EntityFilter.Consumable).
+const (
+	// LimitationOfferingNotConsumable counts, per reason, the visible
+	// providers left out of the list; completeness is unchanged.
+	LimitationOfferingNotConsumable = "OFFERING_NOT_CONSUMABLE"
+	// LimitationOfferingAcceptanceUnknown counts the providers whose
+	// acceptance Pacto could not check; the answer is partial, so a missing
+	// offering means unknown.
+	LimitationOfferingAcceptanceUnknown = "OFFERING_ACCEPTANCE_UNKNOWN"
+)
 
 // Limitation codes of a registry discovery source: why the golden paths and
 // offerings under a registry prefix may be more than it lists.
@@ -524,7 +542,7 @@ func restrictProviders(rows []Provider, hiddenSvc map[ServiceKey]bool, hiddenNam
 		// reason to a hidden one: only the degraded limitation stays.
 		someHidden := slices.ContainsFunc(p.Services, func(k ServiceKey) bool { return hiddenSvc[k] })
 		p.Limitations = restrictRowLimitations(p, func(l Limitation) bool {
-			return someHidden || hiddenByScope(l, visibleIn, srcClusters) || mentionsHidden(l.Message)
+			return someHidden || hiddenByScope(l, visibleIn, srcClusters) && !cappedVisible(l, visible) || mentionsHidden(l.Message)
 		})
 		out = append(out, p)
 	}
@@ -756,6 +774,13 @@ func countVisible(c ProviderCount, visible func(string) bool, workloadVisible fu
 
 // inCluster is visible and workloadVisible with their cluster fixed to
 // cluster. A nil workloadVisible stays nil.
+// cappedVisible reports whether l is a capped managed list the reader may
+// read cluster-wide in its row's cluster (visible): the row is read there,
+// whatever source cluster hiddenByScope found for it.
+func cappedVisible(l Limitation, visible func(string) bool) bool {
+	return l.Code == LimitationManagedResourcesCapped && visible("")
+}
+
 func inCluster(cluster string, visible func(cluster, namespace string) bool, workloadVisible func(cluster, namespace, kind string) bool) (func(string) bool, func(string, string) bool) {
 	vis := func(ns string) bool { return visible(cluster, ns) }
 	if workloadVisible == nil {

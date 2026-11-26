@@ -499,6 +499,12 @@ const (
 	// LimitationInferredServicesCapped: a source reported more than
 	// MaxInferredServices workloads; the rest were not read.
 	LimitationInferredServicesCapped = "INFERRED_SERVICES_CAPPED"
+	// LimitationInferredTemplatesCapped: the sources list more than
+	// MaxInferredTemplates golden paths; the first by name are shown.
+	LimitationInferredTemplatesCapped = "INFERRED_TEMPLATES_CAPPED"
+	// LimitationInferredTemplatesSkipped: a source listed templates whose
+	// name a contract cannot carry; they are not listed.
+	LimitationInferredTemplatesSkipped = "INFERRED_TEMPLATES_SKIPPED"
 	// LimitationDeclarationUnverified: Pacto could not read the Pacto targets
 	// of an inferred service's namespace, so a contract may describe it.
 	LimitationDeclarationUnverified = "DECLARATION_UNVERIFIED"
@@ -656,6 +662,20 @@ const (
 	// a service this snapshot does not hold, or with an identity that is not
 	// one; they were dropped.
 	LimitationExternalUseUnattributed = "EXTERNAL_USE_UNATTRIBUTED"
+	// LimitationManagedResourceInvalid: a source reported managed resources
+	// with an identity that is not one; they were dropped.
+	LimitationManagedResourceInvalid = "MANAGED_RESOURCE_INVALID"
+	// LimitationManagedResourcesCapped: a reader found more managed
+	// resources than its bound keeps; what lies past it is unknown.
+	LimitationManagedResourcesCapped = "MANAGED_RESOURCES_CAPPED"
+	// LimitationManagedResourcesUnclassified: a reader skipped managed
+	// resources of kinds or types no catalog row names. A note: what the
+	// catalog does not name is outside the graph, so the source stays as it is.
+	LimitationManagedResourcesUnclassified = "MANAGED_RESOURCES_UNCLASSIFIED"
+	// LimitationSecretRefsCapped: a reader kept or read only some of the
+	// Secret names the running pods reference, so a connection-secret
+	// consumer may be missing.
+	LimitationSecretRefsCapped = "SECRET_REFS_CAPPED"
 	// LimitationExternalCatalogMismatch: a source classified external uses
 	// with a catalog other than the one this snapshot classifies with, so
 	// one external system may join evidence from two catalog versions.
@@ -695,6 +715,11 @@ const (
 	// so its empty list says nothing about that cluster. Completeness is
 	// unchanged.
 	LimitationClusterFilterUnknown = "CLUSTER_FILTER_UNKNOWN"
+	// LimitationClustersUnread: clusters publish to this hub's targets
+	// repository and are not members, so consumers there are unknown.
+	// Informational: it counts clusters and never names one; gates read
+	// [FleetSnapshot.UnreadClusters].
+	LimitationClustersUnread = "CLUSTERS_UNREAD"
 	// LimitationInferredIdentityMismatch: a contract under pacto-inferred
 	// names no external, or another external than its repository path, so it
 	// is attached to no external system and is no service either.
@@ -985,6 +1010,14 @@ type ServiceRecord struct {
 	// Contribution is the newest record a producer contributed for a service
 	// only contributions describe; nil for any other service.
 	Contribution *ServiceContribution `json:"contribution,omitempty" doc:"The newest record a producer contributed for this inferred service, read from its contribution repository; set only when contributions alone describe the service"`
+	// OfferingDrift compares a declared offering accepted from an inferred
+	// one with what its producer now reports; nil when it was accepted from
+	// none, or for a fresh, complete observation equal to what was accepted.
+	OfferingDrift *OfferingDrift `json:"offeringDrift,omitempty" doc:"On a declared offering accepted from an inferred one: whether its source changed since; absent when in sync or not accepted from one"`
+	// offeringFrom is the producer/service the declaration was accepted
+	// from; inferredOffering the facts of a contributed offering.
+	offeringFrom, offeringDigest string
+	inferredOffering             *InferredOfferingFacts
 }
 
 // ServiceContribution is the newest record a producer contributed for a
@@ -997,6 +1030,8 @@ type ServiceContribution struct {
 	ReadAt     *time.Time `json:"readAt,omitempty" doc:"When Pacto read the record"`
 	AsOf       *time.Time `json:"asOf,omitempty" doc:"When the producer made the record, from its signed manifest; absent when unknown"`
 	Stale      bool       `json:"stale,omitempty" doc:"The record is older than the freshness window, its age is unknown or a newer version was refused"`
+	// Cluster is the cluster whose installation advertised the repository.
+	Cluster string `json:"cluster,omitempty" doc:"The cluster whose installation advertised the repository; only a reader of that cluster sees the service"`
 	// NewerRefused is the newest version the reader refused (unsigned,
 	// signed by another key or mis-tagged) before reading this older one.
 	NewerRefused string `json:"newerRefused,omitempty" doc:"A newer version of the record that was refused, so this older one is shown stale"`
@@ -1215,6 +1250,10 @@ type ContractRevision struct {
 	// an unverified signature or a signer policy that refuses it; "" when
 	// it is accepted (acceptDeclaration).
 	declarationRefused string
+	// declarationPolicyUnknown says the refusal is an absent or unread
+	// installation signer policy, so whether the declarer is allowed is
+	// unknown (acceptDeclaration).
+	declarationPolicyUnknown bool
 	// registryBacked says a registry source (oci, cache) contributed the
 	// revision, so the owner rule's verdict on it applies (ownerBlocked).
 	registryBacked bool
@@ -1550,7 +1589,7 @@ type InferredSource struct {
 	// Target is the target the evidence was read on, when the source names
 	// one this snapshot holds; a restricted view drops evidence of a hidden one.
 	Target     TargetKey  `json:"target,omitempty" doc:"The target the evidence was read on"`
-	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane"`
+	Kind       string     `json:"kind" doc:"What was read: env, configMap, secretKeyRef, secretRef, externalNameService, selectorlessService, serviceEntry or ciliumFQDN on a workload; inferredRecord (a dependency the revision's pacto.inferred.yaml names); serviceFact (a depends-on a source outside every contract reports); connectionSecret (a managed resource's connection Secret a workload references); or, for an external system the inferred record names, helmValues, compose, kustomize, sdk, terraform or crossplane"`
 	Where      string     `json:"where,omitempty" doc:"The object and key it was found in, never a value"`
 	Host       string     `json:"host,omitempty" doc:"The normalized host and port; empty when only a key name matched"`
 	Confidence string     `json:"confidence" enum:"likely,possible"`
@@ -1630,6 +1669,13 @@ type ExternalRecord struct {
 	// Claimants counts the services that each establish a claim on it when
 	// more than one does: then no claim counts and Claim is absent.
 	Claimants int `json:"claimants,omitempty" doc:"How many services claim it when more than one does: no claim counts until all but one are retracted; absent otherwise"`
+	// Resources are the managed resources sources read for it, a cluster
+	// object, a Terraform state entry or a cloud inventory item each.
+	// ResourcesTotal counts them before an answer bounds them: in a
+	// restricted view the visible ones alone, HiddenResources the rest.
+	Resources       []ManagedResource `json:"resources,omitempty" doc:"The managed resources sources read for it: a cluster object, a Terraform state entry or a cloud inventory item; at most 20"`
+	ResourcesTotal  int               `json:"resourcesTotal,omitempty" doc:"How many managed resources were read for it"`
+	HiddenResources int               `json:"hiddenResources,omitempty" doc:"How many of its managed resources the caller's permissions hide"`
 	// declarations counts, per consumer, the revisions that declare it plus
 	// each observed or inferred source.
 	declarations map[ServiceKey]int
@@ -1639,6 +1685,31 @@ type ExternalRecord struct {
 	catalogLabel string
 	// hidden is the consumers a restriction hid, so a fold counts each once.
 	hidden map[ServiceKey]bool
+}
+
+// ManagedResource is one managed resource a source read for an external
+// system, as names only. It is always inferred: Pacto never adopts or changes it.
+type ManagedResource struct {
+	Source string `json:"source" enum:"crossplane,ack,config-connector,aso,terraform,aws-resource-explorer,gcp-cloud-asset,azure-resource-graph" doc:"The reader: a cluster object of Crossplane, ACK, Config Connector or ASO, a Terraform state or a cloud inventory"`
+	Type   string `json:"type" doc:"The <group>/<Kind> of a cluster object, the Terraform type or the inventory type"`
+	// Namespace is empty for a cluster-scoped object, a state or an inventory item.
+	Namespace   string `json:"namespace,omitempty"`
+	Name        string `json:"name" doc:"The object name, the Terraform address or the inventory id"`
+	Cluster     string `json:"cluster,omitempty" doc:"The cluster id of the cluster that read it; empty for a state file the CLI read"`
+	ClusterName string `json:"clusterName,omitempty" doc:"A display name for the cluster that read it; never an identity"`
+	Location    string `json:"location,omitempty" doc:"The state URL or file name, never its contents"`
+	Claim       string `json:"claim,omitempty" doc:"The verified claim, <Kind> <namespace>/<name>"`
+	Engine      string `json:"engine,omitempty" doc:"The engine and version the resource reports it runs"`
+	// EngineRequested is set only when no observed engine was read.
+	EngineRequested string     `json:"engineRequested,omitempty" doc:"The engine and version the resource requests, when it reports none it runs"`
+	Missing         []string   `json:"missing,omitempty" doc:"The identity segments that were not read, so the system is its catalog entry's identity"`
+	Provenance      string     `json:"provenance" enum:"inferred"`
+	ObservedAt      *time.Time `json:"observedAt,omitempty" doc:"When the source last read it"`
+	// Contract, Offering and Evidence are set when a query serves the record
+	// (see resourceContract): unknown is never through an offering.
+	Contract string     `json:"contract,omitempty" enum:"offering,outside" doc:"offering when a verified, current provisioning record from the offering provider a consumer uses names it; outside for every other resource"`
+	Offering *EntityRef `json:"offering,omitempty" doc:"The offering whose provider's provisioning record names it; absent outside contract"`
+	Evidence string     `json:"evidence,omitempty" doc:"The producer and time of that provisioning record, never its body"`
 }
 
 // ExternalClaim is the declared contract that claims an external system: the
@@ -1701,7 +1772,7 @@ type ExternalSource struct {
 	Version    string    `json:"version,omitempty" doc:"The free-text version the dependency declares"`
 	Required   bool      `json:"required,omitempty"`
 	Provenance string    `json:"provenance" enum:"declared,observed,inferred"`
-	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest), resource (a Terraform resource or Crossplane object) or its inferred contract (a ref to its pacto-inferred repository)"`
+	Match      string    `json:"match" doc:"How the evidence was joined to the identity: identity, catalog-alias, host, normalized-name, system (an OpenTelemetry system value), keyName (a configuration key name only), sdk (a client library in a manifest), resource (a Terraform resource, a Crossplane object or a managed resource's connection Secret) or its inferred contract (a ref to its pacto-inferred repository)"`
 	// Superseded says the consumer has a newer revision that no longer
 	// declares the dependency at this position, so the declaration may be
 	// history rather than what the service runs today.
@@ -1775,6 +1846,9 @@ type FleetSnapshot struct {
 	// Clusters are the clusters any source reported, sorted by id. Target keys
 	// carry a cluster component only when there are two or more.
 	Clusters []ClusterRecord `json:"clusters,omitempty"`
+	// UnreadClusters counts the clusters that publish to this hub's targets
+	// repository and are not members: consumers there are unknown.
+	UnreadClusters int `json:"unreadClusters,omitempty" doc:"How many clusters publish to this hub's targets repository and are not members, so consumers there are unknown. Never names a cluster."`
 	// clusterKeyed: Build keyed targets by cluster (two or more clusters). It
 	// survives Restrict, which may leave one cluster visible under 4-part keys.
 	clusterKeyed bool
@@ -1786,6 +1860,11 @@ type FleetSnapshot struct {
 	// over a service the producer contributed, so a restricted view counts
 	// only the ones it may see.
 	supersededBy map[string][]ServiceKey
+	// contributedHeads is each producer's newest contributed record per
+	// service (producer/service), kept before supersedeContributions drops
+	// any; offeringObs the inferred-offering observations by producer.
+	contributedHeads map[string]*ContractRevision
+	offeringObs      map[string]OfferingObservation
 	// declarationSigners is BuildOptions.DeclarationSigners.
 	declarationSigners *DeclarationSignerPolicy
 	// inferredLinkNotes are the limitations replaceByInferredFrom raised
@@ -1823,6 +1902,19 @@ type FleetSnapshot struct {
 	// Providers are what each source detected and read evidence from, sorted
 	// by source then id. They never change completeness or any source state.
 	Providers []Provider `json:"providers,omitempty"`
+	// InferredTemplates are the golden paths catalogs outside every registry
+	// hold (see [Collection.InferredTemplates]), sorted by name.
+	InferredTemplates []InferredTemplate `json:"inferredTemplates,omitempty" doc:"Golden paths catalogs outside every registry hold, inferred: never services, never signed or declared, never offered for creation until a person accepts one"`
+	// templateSources are the ids of the sources that list inferred
+	// templates (Collection.ListsTemplates), in source order.
+	templateSources []templateLister
+	// templatesValid are the templates whose name a contract can carry, one
+	// per source and entity, sorted, unmarked and uncapped; templatesSkipped
+	// names those left out.
+	templatesValid   []InferredTemplate
+	templatesSkipped []Limitation
+	// templateNotes are the limitations the template fold raised.
+	templateNotes []Limitation
 
 	// templateEdges are the declared dependency and reference edges of the
 	// golden paths (see deriveTemplate). They are kept out of Relationships and

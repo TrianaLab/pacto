@@ -1,0 +1,1155 @@
+/*
+Copyright 2026.
+
+Licensed under the MIT License.
+See LICENSE file in the project root for full license text.
+*/
+
+package v1
+
+import (
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+)
+
+// ContractRef specifies where to find the Pacto contract.
+type ContractRef struct {
+	// OCI is the OCI registry reference for the contract bundle.
+	// Three forms are supported:
+	//   - Unversioned (ghcr.io/org/service-pacto): tracks the latest semver tag.
+	//   - Tagged (ghcr.io/org/service-pacto:1.2.3): pinned to that exact tag.
+	//   - Digest (ghcr.io/org/service-pacto@sha256:...): immutable, exact reference.
+	// +optional
+	OCI string `json:"oci,omitempty"`
+
+	// Inline allows specifying the contract YAML directly (for testing/dev).
+	// +optional
+	Inline string `json:"inline,omitempty"`
+
+	// PullSecretRef is the name of a Secret in the same namespace containing
+	// OCI registry credentials. Supported secret types:
+	//   - Opaque with "token" key (bearer token)
+	//   - Opaque with "username"+"password" keys (basic auth)
+	//   - kubernetes.io/dockerconfigjson (standard Docker registry auth)
+	// For Opaque secrets, add a "registry" key (e.g. "ghcr.io") to bind the
+	// credentials to that host; the operator then refuses to send them to any
+	// other registry. Recommended to prevent a contract from redirecting a
+	// referenced secret to an attacker-controlled registry.
+	// +optional
+	PullSecretRef string `json:"pullSecretRef,omitempty"`
+}
+
+// WorkloadRef identifies a workload resource by name and kind.
+type WorkloadRef struct {
+	// Name of the workload resource.
+	// +required
+	Name string `json:"name"`
+
+	// Kind of the workload resource. Left unspecified (empty) unless the author sets it explicitly;
+	// WORKLOAD_MISMATCH only fires when BOTH name AND kind were explicit (AR7). No default is applied here
+	// so the collector can distinguish "author asserted kind X" from "kind was defaulted for the GET".
+	// +kubebuilder:validation:Enum=Deployment;StatefulSet;ReplicaSet;Job;CronJob
+	// +optional
+	Kind string `json:"kind,omitempty"`
+}
+
+// TargetRef specifies which Kubernetes resources to observe.
+type TargetRef struct {
+	// ServiceName is the name of the Kubernetes Service to observe.
+	// +optional
+	ServiceName string `json:"serviceName,omitempty"`
+
+	// WorkloadRef identifies the workload (Deployment, StatefulSet, ReplicaSet, Job, or CronJob).
+	// If omitted, defaults to name=serviceName, kind=Deployment.
+	// +optional
+	WorkloadRef *WorkloadRef `json:"workloadRef,omitempty"`
+
+	// InterfaceBindings maps contract interfaces to the Service port that serves each (B4). Kubernetes
+	// deployment knowledge, so it lives on the CR and the contract stays platform-agnostic.
+	// +optional
+	InterfaceBindings []InterfaceBinding `json:"interfaceBindings,omitempty"`
+
+	// ConfigBindings maps contract configurations to the concrete ConfigMap/Secret backing each (B7).
+	// +optional
+	ConfigBindings []ConfigBinding `json:"configBindings,omitempty"`
+}
+
+// InterfaceBinding maps a contract interface to the Service port that serves it (B4).
+type InterfaceBinding struct {
+	// Interface is the contract interfaces[].name this binding resolves.
+	// +required
+	Interface string `json:"interface"`
+	// ServicePort is the Service port name or number that serves the interface.
+	// +required
+	ServicePort intstr.IntOrString `json:"servicePort"`
+}
+
+// ConfigBinding maps a contract configuration to the concrete Kubernetes object backing it (B7).
+type ConfigBinding struct {
+	// Configuration is the contract configurations[].name this binding backs.
+	// +required
+	Configuration string `json:"configuration"`
+	// Kind of the backing object.
+	// +kubebuilder:validation:Enum=ConfigMap;Secret
+	// +required
+	Kind string `json:"kind"`
+	// Name of the backing ConfigMap/Secret in the Pacto's namespace.
+	// +required
+	Name string `json:"name"`
+	// Key names the single ConfigMap/Secret key to decode and validate. Omit for existence-only.
+	// +optional
+	Key string `json:"key,omitempty"`
+	// Format of the value at Key. Required with Key for ConfigMap conformance.
+	// +kubebuilder:validation:Enum=yaml;json
+	// +optional
+	Format string `json:"format,omitempty"`
+}
+
+// ConfigurationOverride specifies value overrides for a single named configuration scope.
+type ConfigurationOverride struct {
+	// Name identifies the configuration scope to override (must match a configurations[] entry in the contract).
+	// +required
+	// +kubebuilder:validation:MinLength=1
+	Name string `json:"name"`
+
+	// Values contains the configuration key-value pairs to merge into the resolved contract.
+	// These values take precedence over the values declared in the contract.
+	// +required
+	// +kubebuilder:validation:MinProperties=1
+	Values map[string]string `json:"values"`
+}
+
+// ContractOverrides specifies partial overrides to apply on top of the resolved contract.
+// Overrides are applied after contract resolution (OCI or inline) but before validation
+// and reconciliation. The original contract artifact is never mutated.
+type ContractOverrides struct {
+	// Configurations lists per-scope configuration value overrides.
+	// Each entry is matched by name to a configurations[] entry in the resolved contract.
+	// +optional
+	Configurations []ConfigurationOverride `json:"configurations,omitempty"`
+}
+
+// PactoSpec defines the desired state of Pacto.
+type PactoSpec struct {
+	// ContractRef specifies where to find the Pacto contract.
+	// +required
+	ContractRef ContractRef `json:"contractRef"`
+
+	// Target specifies which Kubernetes resources to observe.
+	// When omitted, the Pacto acts as a reference-only contract (no runtime validation).
+	// +optional
+	Target TargetRef `json:"target,omitempty"`
+
+	// Overrides specifies partial configuration overrides to apply on top of the resolved contract.
+	// This enables environment-specific tuning without duplicating the entire contract inline.
+	// Semantics mirror the Pacto CLI --set / -f override model.
+	// +optional
+	Overrides *ContractOverrides `json:"overrides,omitempty"`
+
+	// CheckIntervalSeconds controls how often the reconciler re-checks compliance.
+	// Defaults to 300 (5 minutes).
+	// +optional
+	// +kubebuilder:default=300
+	// +kubebuilder:validation:Minimum=30
+	CheckIntervalSeconds int32 `json:"checkIntervalSeconds,omitempty"`
+}
+
+// --- Status types (designed as a stable, structured API for external consumers) ---
+
+// ResourceStatus describes the observed state of a Kubernetes resource.
+type ResourceStatus struct {
+	// Name of the resource.
+	Name string `json:"name"`
+
+	// Kind of the resource (only set for workloads).
+	// +optional
+	Kind string `json:"kind,omitempty"`
+
+	// Exists indicates whether the resource was found in the cluster.
+	Exists bool `json:"exists"`
+}
+
+// ReadinessStatus is the derived operational readiness assessment of a contract.
+// It is computed from the contract's declared readiness checks and the current
+// time; the derived per-check status and score are never authored in the contract.
+type ReadinessStatus struct {
+	// Score is the percentage of in-scope weight earned (0-100).
+	// +optional
+	Score int32 `json:"score,omitempty"`
+
+	// MinScore is the gate threshold (the declared readiness.minScore, or 100 when omitted).
+	// +optional
+	MinScore int32 `json:"minScore,omitempty"`
+
+	// Passing reports whether the gate is met (not expired and Score >= MinScore).
+	// +optional
+	Passing bool `json:"passing,omitempty"`
+
+	// TotalWeight is the sum of in-scope (non-deferred) check weights.
+	// +optional
+	TotalWeight int32 `json:"totalWeight,omitempty"`
+
+	// EarnedWeight is the weight earned toward the score.
+	// +optional
+	EarnedWeight int32 `json:"earnedWeight,omitempty"`
+
+	// Expires is the assessment-level expiry boundary (YYYY-MM-DD).
+	// +optional
+	Expires string `json:"expires,omitempty"`
+
+	// Expired reports whether the assessment has expired; when true every in-scope check earns 0.
+	// +optional
+	Expired bool `json:"expired,omitempty"`
+
+	// DaysRemaining is the number of whole days until expiry (nil when expired).
+	// +optional
+	DaysRemaining *int32 `json:"daysRemaining,omitempty"`
+
+	// DoneCount is the number of checks declared done.
+	// +optional
+	DoneCount int32 `json:"doneCount,omitempty"`
+
+	// PartialCount is the number of checks declared partial.
+	// +optional
+	PartialCount int32 `json:"partialCount,omitempty"`
+
+	// NotDoneCount is the number of checks declared not-done.
+	// +optional
+	NotDoneCount int32 `json:"notDoneCount,omitempty"`
+
+	// DeferredCount is the number of checks declared deferred (excluded from scoring).
+	// +optional
+	DeferredCount int32 `json:"deferredCount,omitempty"`
+
+	// Revisions is the declared readiness revision history.
+	// +optional
+	Revisions []ReadinessRevisionStatus `json:"revisions,omitempty"`
+
+	// Claims is the derived per-claim readiness status.
+	// +optional
+	Claims []ClaimStatus `json:"claims,omitempty"`
+}
+
+// ReadinessRevisionStatus is one declared readiness revision-history entry.
+type ReadinessRevisionStatus struct {
+	// Date is the date the revision was assessed (YYYY-MM-DD).
+	// +required
+	Date string `json:"date"`
+
+	// Version is the service version assessed in this revision.
+	// +required
+	Version string `json:"version"`
+
+	// Author is who performed the assessment.
+	// +required
+	Author string `json:"author"`
+
+	// Description summarizes what changed or was observed.
+	// +required
+	Description string `json:"description"`
+}
+
+// ClaimStatus is the derived state of a single readiness claim.
+type ClaimStatus struct {
+	// ID is the readiness requirement identifier (e.g. dashboard, runbook).
+	// +required
+	ID string `json:"id"`
+
+	// Type classifies the evidence pointer (url, document, ticket, report, artifact, identifier, other).
+	// +required
+	Type string `json:"type"`
+
+	// Category is the software-domain category (security, documentation, observability, etc.).
+	// +optional
+	Category string `json:"category,omitempty"`
+
+	// Status is the declared completion status.
+	// +kubebuilder:validation:Enum=done;partial;not-done;deferred
+	// +required
+	Status string `json:"status"`
+
+	// Evidence is the declared pointer to the evidence.
+	// +optional
+	Evidence string `json:"evidence,omitempty"`
+
+	// Description is the optional human-readable explanation.
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// Weight is the declared contribution to the readiness score (0-100).
+	// +required
+	Weight int32 `json:"weight"`
+
+	// EarnedWeight is the weight this check contributed toward the score.
+	// +optional
+	EarnedWeight int32 `json:"earnedWeight"`
+
+	// Excluded reports whether the check is excluded from scoring (deferred).
+	// +optional
+	Excluded bool `json:"excluded,omitempty"`
+}
+
+// ResourcesStatus groups the status of target resources.
+type ResourcesStatus struct {
+	// Service describes the target Service.
+	// +optional
+	Service *ResourceStatus `json:"service,omitempty"`
+
+	// Workload describes the target workload (Deployment/StatefulSet/ReplicaSet).
+	// +optional
+	Workload *ResourceStatus `json:"workload,omitempty"`
+}
+
+// OwnerContact is a provider-neutral contact point for service ownership.
+type OwnerContact struct {
+	// Type is the contact channel type (e.g. email, chat, oncall).
+	// +required
+	Type string `json:"type"`
+
+	// Value is the contact address or identifier.
+	// +required
+	Value string `json:"value"`
+
+	// Purpose describes what this contact is used for (e.g. escalation, support, oncall).
+	// +optional
+	Purpose string `json:"purpose,omitempty"`
+}
+
+// OwnerInfo is the structured ownership metadata for a service.
+// At least one field must be set.
+// +kubebuilder:validation:MinProperties=1
+type OwnerInfo struct {
+	// Team is the owning team name.
+	// +optional
+	Team string `json:"team,omitempty"`
+
+	// DRI is the directly responsible individual.
+	// +optional
+	DRI string `json:"dri,omitempty"`
+
+	// Contacts lists provider-neutral contact points.
+	// +optional
+	Contacts []OwnerContact `json:"contacts,omitempty"`
+}
+
+// ContractInfo exposes parsed contract metadata.
+type ContractInfo struct {
+	// ServiceName is the service name declared in the contract.
+	ServiceName string `json:"serviceName"`
+
+	// Version is the semver version from the contract.
+	Version string `json:"version"`
+
+	// Domain is the business domain the contract declares (service.domain,
+	// pactoVersion 2.4). The operational graph groups services by it. Omitted
+	// when the contract declares none; readers trust that absence only from
+	// statusFormat 2 on.
+	// +optional
+	Domain string `json:"domain,omitempty"`
+
+	// Offering is the platform offering the contract declares
+	// (service.offering, pactoVersion 2.4). Omitted when it declares none.
+	// +optional
+	Offering string `json:"offering,omitempty"`
+
+	// Summary is the one-line purpose the contract declares (service.summary,
+	// pactoVersion 2.4). Omitted when it declares none.
+	// +optional
+	Summary string `json:"summary,omitempty"`
+
+	// Owner contains the structured ownership metadata from the contract
+	// (team, DRI, and contacts).
+	// +optional
+	Owner *OwnerInfo `json:"owner,omitempty"`
+
+	// OwnerDisplay is the canonical display string derived from owner metadata.
+	// Precedence: team > DRI.
+	// Useful for printer columns, dashboards, and backward-compatible consumers.
+	// +optional
+	OwnerDisplay string `json:"ownerDisplay,omitempty"`
+
+	// ResolvedRef is the fully-resolved OCI reference (with tag/digest).
+	// Empty for inline contracts.
+	// +optional
+	ResolvedRef string `json:"resolvedRef,omitempty"`
+}
+
+// InterfaceInfo describes a single interface declared in the contract.
+type InterfaceInfo struct {
+	// Name is the interface name.
+	Name string `json:"name"`
+
+	// Type is the interface type: openapi, asyncapi, grpc or mcp.
+	// +kubebuilder:validation:Enum=openapi;asyncapi;grpc;mcp
+	Type string `json:"type"`
+
+	// Ref is the bundle-relative path to the interface specification file.
+	// +optional
+	Ref string `json:"ref,omitempty"`
+
+	// Visibility is the declared visibility: public or internal.
+	// +optional
+	Visibility string `json:"visibility,omitempty"`
+
+	// Port is the port the interface declares it listens on.
+	// +kubebuilder:validation:Minimum=1
+	// +kubebuilder:validation:Maximum=65535
+	// +optional
+	Port int32 `json:"port,omitempty"`
+
+	// Lifecycle is the retirement schedule of a deprecated interface. Absent
+	// for an interface that is not deprecated.
+	// +optional
+	Lifecycle *InterfaceLifecycleInfo `json:"lifecycle,omitempty"`
+
+	// Guarantees is the behavior the interface promises its consumers.
+	// +optional
+	Guarantees *GuaranteesInfo `json:"guarantees,omitempty"`
+
+	// CompatibilityEpoch is raised when the interface's behavior changes
+	// incompatibly while its specification stays the same. Absent is 0.
+	// +optional
+	CompatibilityEpoch int32 `json:"compatibilityEpoch,omitempty"`
+}
+
+// InterfaceLifecycleInfo is the retirement schedule of a deprecated interface.
+type InterfaceLifecycleInfo struct {
+	// Deprecated is the date the interface was deprecated (YYYY-MM-DD).
+	Deprecated string `json:"deprecated"`
+
+	// Sunset is the date the interface is removed (YYYY-MM-DD).
+	// +optional
+	Sunset string `json:"sunset,omitempty"`
+
+	// Successor names the interface that replaces this one, or holds an
+	// absolute URL when the replacement lives in another service.
+	// +optional
+	Successor string `json:"successor,omitempty"`
+}
+
+// GuaranteesInfo is behavior an interface promises or a dependency requires.
+// Durations are Go durations such as 30s, 5m or 168h.
+type GuaranteesInfo struct {
+	// Profile is the version of the guarantee vocabulary.
+	// +optional
+	Profile string `json:"profile,omitempty"`
+
+	// Delivery is what happens when a delivery fails partway.
+	// +optional
+	Delivery string `json:"delivery,omitempty"`
+
+	// Ordering is the scope in which messages arrive in the order sent.
+	// +optional
+	Ordering string `json:"ordering,omitempty"`
+
+	// DedupeWindow is how long a repeated message is recognised and dropped.
+	// +optional
+	DedupeWindow string `json:"dedupeWindow,omitempty"`
+
+	// Retention is how long a message stays available for replay.
+	// +optional
+	Retention string `json:"retention,omitempty"`
+
+	// Idempotent means repeating a call has the effect of making it once.
+	// +optional
+	Idempotent bool `json:"idempotent,omitempty"`
+
+	// Timeout is the longest a call takes to answer.
+	// +optional
+	Timeout string `json:"timeout,omitempty"`
+}
+
+// RequirementInfo is the behavior a dependency requires from one interface of
+// its provider.
+type RequirementInfo struct {
+	// Interface names the provider's interface.
+	Interface string `json:"interface"`
+
+	GuaranteesInfo `json:",inline"`
+}
+
+// ConfigurationInfo describes a single named configuration scope from the contract.
+type ConfigurationInfo struct {
+	// Name is the configuration scope name (required, unique within contract).
+	Name string `json:"name"`
+
+	// HasSchema indicates whether a JSON Schema file is bundled.
+	HasSchema bool `json:"hasSchema"`
+
+	// Ref is the external OCI reference for the configuration schema, if used.
+	// +optional
+	Ref string `json:"ref,omitempty"`
+
+	// ValueKeys lists the declared configuration value keys.
+	// +optional
+	ValueKeys []string `json:"valueKeys,omitempty"`
+
+	// SecretKeys lists configuration keys whose values reference secrets.
+	// +optional
+	SecretKeys []string `json:"secretKeys,omitempty"`
+
+	// OverriddenKeys lists configuration keys whose values were overridden
+	// by spec.overrides.configurations. Empty when no overrides apply.
+	// +optional
+	OverriddenKeys []string `json:"overriddenKeys,omitempty"`
+
+	// Properties lists the configuration's declared keys with their type and
+	// default/value, extracted from the bundled schema (or literal values), so
+	// consumers can render configuration content without re-reading the bundle.
+	// +optional
+	Properties []SchemaProperty `json:"properties,omitempty"`
+}
+
+// SchemaProperty is a flattened key from a configuration or policy schema
+// (or a configuration values map), suitable for display by consumers.
+type SchemaProperty struct {
+	// Key is the property name (dot-notation for nested objects).
+	Key string `json:"key"`
+
+	// Value is the default (for schema properties) or the literal value.
+	// +optional
+	Value string `json:"value,omitempty"`
+
+	// Type is the JSON Schema type of the property.
+	// +optional
+	Type string `json:"type,omitempty"`
+}
+
+// DependencyInfo describes a declared dependency.
+type DependencyInfo struct {
+	// Name is the dependency name (required, unique within contract).
+	Name string `json:"name"`
+
+	// Ref is the dependency reference (OCI URI). Empty for an external
+	// dependency that has no contract.
+	// +optional
+	Ref string `json:"ref,omitempty"`
+
+	// Required indicates whether this dependency is mandatory.
+	Required bool `json:"required"`
+
+	// Compatibility is the semver constraint for the dependency, or unknown
+	// when the versions that work are not known yet; unknown is never counted
+	// as compatible.
+	// +optional
+	Compatibility string `json:"compatibility,omitempty"`
+
+	// External marks a dependency this Pacto system does not run, such as a
+	// managed database or a hosted model.
+	// +optional
+	External bool `json:"external,omitempty"`
+
+	// Version is the free-text version an external dependency without a ref
+	// declares.
+	// +optional
+	Version string `json:"version,omitempty"`
+
+	// Requires lists the behavior this service relies on from the provider's
+	// interfaces.
+	// +optional
+	Requires []RequirementInfo `json:"requires,omitempty"`
+}
+
+// PolicyInfo describes a single named policy source from the contract.
+// Each policy provides either a local JSON Schema file or a reference to an
+// external contract whose bundle contains the policy schema.
+type PolicyInfo struct {
+	// Name is the policy name (required, unique within contract).
+	Name string `json:"name"`
+
+	// HasSchema indicates whether a policy schema file is bundled.
+	HasSchema bool `json:"hasSchema"`
+
+	// Schema is the bundle-relative path to the policy schema file, if local.
+	// +optional
+	Schema string `json:"schema,omitempty"`
+
+	// Ref is the external OCI reference for the policy schema, if used.
+	// +optional
+	Ref string `json:"ref,omitempty"`
+
+	// Title is the policy schema's declared title, if any.
+	// +optional
+	Title string `json:"title,omitempty"`
+
+	// Description is the policy schema's declared description, if any.
+	// +optional
+	Description string `json:"description,omitempty"`
+
+	// Properties lists the policy schema's keys with their type and default, so
+	// consumers can render policy content without re-reading the bundle.
+	// +optional
+	Properties []SchemaProperty `json:"properties,omitempty"`
+}
+
+// ObservedRuntime describes the actual runtime state observed from the cluster (lean evidence view).
+type ObservedRuntime struct {
+	// WorkloadKind is the actual Kubernetes resource kind (Deployment, StatefulSet, ReplicaSet, Job, CronJob).
+	// +optional
+	WorkloadKind string `json:"workloadKind,omitempty"`
+
+	// DeploymentStrategy is the observed strategy (RollingUpdate, Recreate). Empty for non-Deployments.
+	// +optional
+	DeploymentStrategy string `json:"deploymentStrategy,omitempty"`
+
+	// PodManagementPolicy is the observed pod management policy (OrderedReady, Parallel). Empty for non-StatefulSets.
+	// +optional
+	PodManagementPolicy string `json:"podManagementPolicy,omitempty"`
+
+	// TerminationGracePeriodSeconds is the observed terminationGracePeriodSeconds from the pod spec.
+	// +optional
+	TerminationGracePeriodSeconds *int64 `json:"terminationGracePeriodSeconds,omitempty"`
+
+	// ContainerImages lists the container images from the pod spec.
+	// +optional
+	ContainerImages []string `json:"containerImages,omitempty"`
+
+	// HasPVC indicates whether the workload uses PersistentVolumeClaims.
+	HasPVC bool `json:"hasPVC"`
+
+	// HasEmptyDir indicates whether the workload uses emptyDir volumes.
+	HasEmptyDir bool `json:"hasEmptyDir"`
+
+	// HealthProbeInitialDelaySeconds is the observed initialDelaySeconds from the first container's probe.
+	// +optional
+	HealthProbeInitialDelaySeconds *int32 `json:"healthProbeInitialDelaySeconds,omitempty"`
+}
+
+// ValidationIssue describes a single validation error or warning.
+type ValidationIssue struct {
+	// Code is a machine-readable error code.
+	// +optional
+	Code string `json:"code,omitempty"`
+
+	// Path is the JSON path to the invalid field.
+	// +optional
+	Path string `json:"path,omitempty"`
+
+	// Message is a human-readable description of the issue.
+	Message string `json:"message"`
+}
+
+// ValidationResult describes the structural validation outcome of the contract.
+type ValidationResult struct {
+	// Valid indicates whether the contract passed structural validation.
+	Valid bool `json:"valid"`
+
+	// Errors lists structural validation errors.
+	// +optional
+	Errors []ValidationIssue `json:"errors,omitempty"`
+
+	// Warnings lists structural validation warnings.
+	// +optional
+	Warnings []ValidationIssue `json:"warnings,omitempty"`
+}
+
+// EvidenceRefStatus links a finding to the evidence that supports it.
+type EvidenceRefStatus struct {
+	// Source is the evidence source (e.g. "k8s").
+	Source string `json:"source"`
+
+	// ObservedAt is the ISO8601 timestamp when the evidence was collected.
+	ObservedAt string `json:"observedAt"`
+
+	// Collector names the producer of the matched observation: k8s-observer for
+	// the Kubernetes API alone, k8s-observer+ebpf when kernel evidence was merged
+	// in, ebpf when only the kernel saw it.
+	// +optional
+	Collector string `json:"collector,omitempty"`
+
+	// DetectedAt is the RFC 3339 time the matched observation was made.
+	// +optional
+	DetectedAt string `json:"detectedAt,omitempty"`
+}
+
+// FindingStatus is a typed conclusion emitted by the Pacto engine.
+type FindingStatus struct {
+	// Code is the stable finding identifier (e.g. WORKLOAD_MISMATCH).
+	Code string `json:"code"`
+
+	// Severity is error, warning, info, or unknown.
+	// +kubebuilder:validation:Enum=error;warning;info;unknown
+	Severity string `json:"severity"`
+
+	// Category groups related codes (e.g. RuntimeDrift, PolicyViolation).
+	Category string `json:"category"`
+
+	// Subject identifies what the finding is about.
+	// +optional
+	Subject string `json:"subject,omitempty"`
+
+	// ContractPath is the YAML path to the relevant contract field.
+	// +optional
+	ContractPath string `json:"contractPath,omitempty"`
+
+	// Message is a human-readable description.
+	Message string `json:"message"`
+
+	// EvidenceRefs links the finding to supporting evidence.
+	// +optional
+	EvidenceRefs []EvidenceRefStatus `json:"evidenceRefs,omitempty"`
+}
+
+// CapabilityInfo describes a declared capability.
+type CapabilityInfo struct {
+	// Type is the capability type (e.g. "database", "cache").
+	Type string `json:"type"`
+
+	// Ref is the capability reference (OCI URI or local path).
+	// +optional
+	Ref string `json:"ref,omitempty"`
+}
+
+// Summary provides severity-based finding counts.
+type Summary struct {
+	// ErrorCount is the number of error-severity findings.
+	ErrorCount int32 `json:"errorCount"`
+
+	// WarningCount is the number of warning-severity findings.
+	WarningCount int32 `json:"warningCount"`
+
+	// InfoCount is the number of info-severity findings.
+	InfoCount int32 `json:"infoCount"`
+
+	// UnknownCount is the number of unknown-severity findings (a required assertion could not be evaluated).
+	UnknownCount int32 `json:"unknownCount"`
+}
+
+// EvaluationCoverage reports how many REQUIRED assertions were actually evaluated (Outcome=Observed).
+// Explanatory metadata only; it NEVER changes ContractStatus.
+type EvaluationCoverage struct {
+	// Evaluated is the number of required assertions with a conclusive (Observed) observation.
+	Evaluated int32 `json:"evaluated"`
+	// Required is the total number of required assertions the contract declares.
+	Required int32 `json:"required"`
+	// Unverified lists, sorted, the contract paths of declared facets that have a
+	// runtime check but no usable fact this time (for example
+	// interfaces[name=api].type with probing off). Metadata only: it never changes
+	// the contract status.
+	// +kubebuilder:validation:MaxItems=256
+	// +listType=atomic
+	// +optional
+	Unverified []string `json:"unverified,omitempty"`
+}
+
+// ObservationWindow tracks the first sustained NEGATIVE observation for one assertion, so a transient
+// negative reads Unknown (stabilizing) and only a sustained one converts to a confirmed violation (B5).
+type ObservationWindow struct {
+	// Kind is the assertion dimension: interface | dependency | configuration | capability.
+	// +required
+	Kind string `json:"kind"`
+	// Subject is the assertion identity (interface/dependency/configuration name, or capability key).
+	// +required
+	Subject string `json:"subject"`
+	// FirstObservedNegativeAt is when the current negative streak began.
+	// +required
+	FirstObservedNegativeAt metav1.Time `json:"firstObservedNegativeAt"`
+}
+
+// EvaluatedRevision identifies what one evaluation looked at.
+type EvaluatedRevision struct {
+	// ContractDigest is the OCI manifest digest of the evaluated contract
+	// bundle. Empty for inline contracts.
+	// +optional
+	ContractDigest string `json:"contractDigest,omitempty"`
+
+	// Workload is the workload object and generation the evaluation read.
+	// Absent for a reference-only contract or a workload that does not exist.
+	// +optional
+	Workload *EvaluatedWorkload `json:"workload,omitempty"`
+
+	// KernelCoverage is how far the node agent's view of the workload's pods
+	// could be trusted in this evaluation, the worst pod first: Complete,
+	// Partial, Failed or Stale. Empty when kernel evidence is off. Complete
+	// is what lets a reader tell "observed and clean" from "not observed".
+	// +kubebuilder:validation:Enum=Complete;Partial;Failed;Stale
+	// +optional
+	KernelCoverage string `json:"kernelCoverage,omitempty"`
+}
+
+// EvaluatedWorkload is one generation of one workload object.
+type EvaluatedWorkload struct {
+	Kind       string `json:"kind"`
+	Name       string `json:"name"`
+	UID        string `json:"uid"`
+	Generation int64  `json:"generation"`
+}
+
+// PactoStatusFormat is the StatusFormat this operator writes.
+const PactoStatusFormat = 4
+
+// PactoStatus defines the observed state of Pacto.
+// All contract data is exposed as structured fields so external consumers
+// can read the CR status directly without parsing contracts themselves.
+type PactoStatus struct {
+	// StatusFormat is the layout this status is written in. Format 1 records
+	// interface guarantees and dependency requirements. Format 2 also records
+	// the contract's business domain in contract.domain, so its absence there
+	// means the contract declares none. Format 3 also records the external
+	// systems the target workload names in externals, with externalsCoverage
+	// saying how far that list can be trusted. Format 4 also records the
+	// external systems the node agent saw the workload call in observedEgress,
+	// with observedEgressCoverage. A status without a format, or with an
+	// older one, was written by an older operator, so readers treat what it
+	// would record as unknown until the operator reconciles the Pacto again.
+	// +optional
+	StatusFormat int32 `json:"statusFormat,omitempty"`
+
+	// ContractStatus is the high-level contract compliance state.
+	// This reflects contract validation/compliance and is NOT runtime health.
+	// +kubebuilder:validation:Enum=Compliant;Warning;NonCompliant;Reference;Unknown;Invalid;NotEvaluated
+	// +optional
+	ContractStatus string `json:"contractStatus,omitempty"`
+
+	// EvaluationCoverage reports how many required assertions were evaluated (metadata; never affects
+	// ContractStatus).
+	// +optional
+	EvaluationCoverage *EvaluationCoverage `json:"evaluationCoverage,omitempty"`
+
+	// ObservationWindows tracks per-assertion negative-observation streaks for time-based stabilization
+	// (B5). Operator-owned temporal state; the pure engine never sees it.
+	// +optional
+	ObservationWindows []ObservationWindow `json:"observationWindows,omitempty"`
+
+	// ResolutionPolicy describes how the OCI reference was resolved.
+	// Latest: unversioned ref, operator tracks the highest semver tag.
+	// PinnedTag: ref includes an explicit tag, used as-is.
+	// PinnedDigest: ref includes a digest, used as-is (immutable).
+	// Empty for inline contracts.
+	// +kubebuilder:validation:Enum=Latest;PinnedTag;PinnedDigest
+	// +optional
+	ResolutionPolicy string `json:"resolutionPolicy,omitempty"`
+
+	// Summary provides severity-based finding counts.
+	// +optional
+	Summary *Summary `json:"summary,omitempty"`
+
+	// ContractVersion is the version from the parsed contract.
+	// Kept for backward compatibility and simple access via JSONPath.
+	// +optional
+	ContractVersion string `json:"contractVersion,omitempty"`
+
+	// Contract exposes parsed contract metadata.
+	// +optional
+	Contract *ContractInfo `json:"contract,omitempty"`
+
+	// Validation describes the structural validation outcome of the contract.
+	// +optional
+	Validation *ValidationResult `json:"validation,omitempty"`
+
+	// Findings is the list of typed conclusions from the Pacto engine.
+	// Includes both contract-only findings (structural/semantic) and
+	// evidence-based findings (runtime drift).
+	// +optional
+	Findings []FindingStatus `json:"findings,omitempty"`
+
+	// Resources describes the existence of target Kubernetes resources.
+	// +optional
+	Resources *ResourcesStatus `json:"resources,omitempty"`
+
+	// Interfaces lists the parsed interfaces from the contract.
+	// +optional
+	Interfaces []InterfaceInfo `json:"interfaces,omitempty"`
+
+	// Capabilities lists the declared capabilities from the contract.
+	// +optional
+	Capabilities []CapabilityInfo `json:"capabilities,omitempty"`
+
+	// Configurations lists the contract's named configuration scopes.
+	// Each entry corresponds to one configurations[] entry in the contract.
+	// +optional
+	Configurations []ConfigurationInfo `json:"configurations,omitempty"`
+
+	// Dependencies lists the declared dependencies from the contract.
+	// +optional
+	Dependencies []DependencyInfo `json:"dependencies,omitempty"`
+
+	// Policies lists the contract's declared policy sources (metadata only).
+	// Each entry describes a local schema or external ref; the operator does not
+	// resolve or enforce ref-based policies at runtime.
+	// +optional
+	Policies []PolicyInfo `json:"policies,omitempty"`
+
+	// ObservedRuntime describes the actual runtime state observed from the cluster.
+	// Only populated when a target workload exists. This is a lean evidence view.
+	// +optional
+	ObservedRuntime *ObservedRuntime `json:"observedRuntime,omitempty"`
+
+	// Readiness is the derived operational readiness assessment of the contract.
+	// It is computed from the contract's declared readiness claims and the current
+	// time. It is a separate dimension from contract compliance and does NOT affect
+	// ContractStatus. Absent when the contract declares no readiness.
+	// +optional
+	Readiness *ReadinessStatus `json:"readiness,omitempty"`
+
+	// Metadata contains arbitrary key-value pairs from the contract's metadata section.
+	// +optional
+	Metadata map[string]string `json:"metadata,omitempty"`
+
+	// Conditions represent aggregated state (ContractValid, RuntimeObserved, etc.).
+	// +listType=map
+	// +listMapKey=type
+	// +optional
+	Conditions []metav1.Condition `json:"conditions,omitempty"`
+
+	// EvaluatedRevision ties this status to the exact contract and workload
+	// generation it was computed from, so a result for an old version is never
+	// read as the answer for a new one. A consumer acting on contractStatus
+	// (the opt-in Pacto delivery promoter) must check it first.
+	// +optional
+	EvaluatedRevision *EvaluatedRevision `json:"evaluatedRevision,omitempty"`
+
+	// ObservedCallers are workloads the node agent saw calling this target's
+	// Service, inside the dependency observation window, that no Pacto
+	// describes. Capped at 32, sorted by namespace, kind and name.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	ObservedCallers []ObservedCaller `json:"observedCallers,omitempty"`
+
+	// ObservedCallersCoverage says whether observedCallers can be trusted as
+	// complete. Absent when runtime observation is not configured for this Pacto.
+	// +optional
+	ObservedCallersCoverage *CallerCoverage `json:"observedCallersCoverage,omitempty"`
+
+	// Externals are the systems outside the cluster that the target
+	// workload's pod spec names: env names and values, the ConfigMap keys it
+	// references, Secret and Secret key names (never a Secret value) and the
+	// ExternalName Services, selectorless Services and Istio ServiceEntries
+	// of its own namespace it points at, and the Cilium toFQDNs egress rules
+	// that select its pods (an allow-list, so a possible call). Each entry carries the normalized
+	// host and port at most. Capped at 50, sorted by identity, kind and where.
+	// +kubebuilder:validation:MaxItems=50
+	// +optional
+	Externals []ExternalStatus `json:"externals,omitempty"`
+
+	// ExternalsCoverage says whether externals can be trusted as complete:
+	// partial or unavailable means a missing external is unknown, not absent.
+	// The reason is pod-spec-unavailable (the target workload could not be
+	// read), configmap-unreadable (a ConfigMap the pod spec references could
+	// not be read), serviceentry-reader-off (the cluster serves no Istio
+	// ServiceEntry API), serviceentry-unreadable (the ServiceEntries could
+	// not be listed), object-host-unclassified (a Service or ServiceEntry
+	// names a host that gives no identity, such as one under a private
+	// suffix), cilium-unreadable (the Cilium network policies could not be
+	// listed), fqdn-pattern-unbounded (a Cilium toFQDNs pattern allows hosts
+	// that no registrable domain bounds) or truncated (more than 50
+	// externals).
+	// +optional
+	ExternalsCoverage *CallerCoverage `json:"externalsCoverage,omitempty"`
+
+	// ObservedEgress are the systems outside the cluster the node agent saw
+	// the target workload's pods call inside the caller window, named from the
+	// DNS answers each pod received and one entry per identity. Capped at 32,
+	// sorted by identity.
+	// +kubebuilder:validation:MaxItems=32
+	// +optional
+	ObservedEgress []EgressStatus `json:"observedEgress,omitempty"`
+
+	// ObservedEgressCoverage says whether observedEgress can be trusted as
+	// complete: partial or unavailable means a missing external is unknown,
+	// not absent. The reason names the first gap: a read the operator could
+	// not make (no-agent-data, agent-data-unreadable, pods-unreadable,
+	// pactos-unreadable, services-unreadable), a node it cannot trust
+	// (node-without-agent, stale-node, degraded-node, collection-failed,
+	// shared-netns), no running pod to watch (no-running-pods), calls it
+	// cannot name (dns-unavailable, ambiguous-peers, unnamed-public,
+	// unnamed-private-peers), a name that gives no identity
+	// (egress-host-unclassified), truncated or not-evaluated. Absent when runtime
+	// observation is not configured for this Pacto.
+	// +optional
+	ObservedEgressCoverage *EgressCoverage `json:"observedEgressCoverage,omitempty"`
+
+	// ExternalCatalog is the digest of the external catalog externals were
+	// classified with, followed by " (embedded)" for the copy compiled into
+	// the operator.
+	// +optional
+	ExternalCatalog string `json:"externalCatalog,omitempty"`
+
+	// CurrentRevision is the name of the active PactoRevision.
+	// +optional
+	CurrentRevision string `json:"currentRevision,omitempty"`
+
+	// LastReconciledAt is when the status was last written: on a change, and at
+	// least every half check interval while nothing changes.
+	// +optional
+	LastReconciledAt *metav1.Time `json:"lastReconciledAt,omitempty"`
+
+	// ObservedGeneration is the most recent generation observed by the controller.
+	// +optional
+	ObservedGeneration int64 `json:"observedGeneration,omitempty"`
+}
+
+// ObservedCaller is a workload seen calling a target's Service at runtime that
+// no Pacto describes, named by the controller that owns its pods.
+type ObservedCaller struct {
+	Namespace string `json:"namespace"`
+	// Kind is the owning controller: Deployment, StatefulSet, DaemonSet, Job,
+	// CronJob, another controller kind, or Pod for a pod no controller owns.
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	// Source is the collector that saw the calls.
+	// +kubebuilder:validation:Enum=ebpf
+	Source string `json:"source"`
+	// FirstSeen is set once, when the caller first appears, so the status does
+	// not change on every reconcile.
+	FirstSeen metav1.Time `json:"firstSeen"`
+}
+
+// ExternalStatus is one external system the target workload names. It never
+// holds the value it was read from: Host is the host and port at most, and
+// Where names an object and a key.
+type ExternalStatus struct {
+	// Identity is the external's canonical identity (stripe,
+	// aws/rds/<account>/<region>/<id>, host/<registrable-domain>).
+	Identity string `json:"identity"`
+	// +kubebuilder:validation:Enum=vendor-api;managed-cloud;legacy;unclassified
+	Class string `json:"class"`
+	// Confidence is likely when a host matched and possible when only a key
+	// name did.
+	// +kubebuilder:validation:Enum=likely;possible
+	Confidence string `json:"confidence"`
+	// Kind is where in the pod spec or the namespace the external was named.
+	// +kubebuilder:validation:Enum=env;configMap;secretKeyRef;secretRef;externalNameService;selectorlessService;serviceEntry;ciliumFQDN
+	Kind string `json:"kind"`
+	// Where names the object and key that name the external, never a value.
+	Where string `json:"where"`
+	// +optional
+	Host string `json:"host,omitempty"`
+	// Entry is the catalog entry that matched, empty for an unclassified host.
+	// +optional
+	Entry string `json:"entry,omitempty"`
+}
+
+// EgressStatus is one external system the target workload's pods were seen
+// calling. Host is one host it was reached by, never a path or a value.
+type EgressStatus struct {
+	// Identity is the external's canonical identity (stripe,
+	// host/<registrable-domain>).
+	Identity string `json:"identity"`
+	// +kubebuilder:validation:Enum=vendor-api;managed-cloud;legacy;unclassified
+	Class string `json:"class"`
+	// +kubebuilder:validation:MaxLength=253
+	Host string `json:"host"`
+	Port int32  `json:"port"`
+	// Source is what saw the calls: the node agent (ebpf) or an egress
+	// gateway's access log.
+	// +kubebuilder:validation:Enum=ebpf;egress-gateway-log
+	Source string `json:"source"`
+	// FirstSeen is set once, when the external first appears, so the status
+	// does not change on every reconcile.
+	FirstSeen metav1.Time `json:"firstSeen"`
+}
+
+// Egress sources.
+const (
+	EgressSourceKernel     = "ebpf"
+	EgressSourceGatewayLog = "egress-gateway-log"
+)
+
+// EgressCoverage is how far observedEgress can be trusted, with the nodes the
+// target's cluster runs pods on and how many of them run the node agent.
+type EgressCoverage struct {
+	CallerCoverage `json:",inline"`
+	// Nodes is how many nodes run pods.
+	// +optional
+	Nodes int32 `json:"nodes,omitempty"`
+	// NodesWithAgent is how many of those nodes publish node agent data.
+	// +optional
+	NodesWithAgent int32 `json:"nodesWithAgent,omitempty"`
+}
+
+// External kinds.
+const (
+	ExternalKindEnv                 = "env"
+	ExternalKindConfigMap           = "configMap"
+	ExternalKindSecretKeyRef        = "secretKeyRef"
+	ExternalKindSecretRef           = "secretRef"
+	ExternalKindExternalNameService = "externalNameService"
+	ExternalKindSelectorlessService = "selectorlessService"
+	ExternalKindServiceEntry        = "serviceEntry"
+	// ExternalKindCiliumFQDN is a Cilium toFQDNs egress rule: intent, so the
+	// use is inferred and never a witnessed call.
+	ExternalKindCiliumFQDN = "ciliumFQDN"
+)
+
+// Caller coverage states.
+const (
+	CallerCoverageComplete    = "complete"
+	CallerCoveragePartial     = "partial"
+	CallerCoverageUnavailable = "unavailable"
+)
+
+// CallerCoverage is how far a list of observed callers can be trusted.
+type CallerCoverage struct {
+	// +kubebuilder:validation:Enum=complete;partial;unavailable
+	State string `json:"state"`
+	// +optional
+	Reason string `json:"reason,omitempty"`
+	// RefreshSeconds is how often the operator rewrites this status. A reader
+	// treats a status not reconciled within twice that as stale, so an operator
+	// that stopped never leaves a complete coverage in place.
+	// +optional
+	RefreshSeconds int32 `json:"refreshSeconds,omitempty"`
+}
+
+// +kubebuilder:object:root=true
+// +kubebuilder:storageversion
+// +kubebuilder:subresource:status
+// +kubebuilder:printcolumn:name="Status",type=string,JSONPath=`.status.contractStatus`
+// +kubebuilder:printcolumn:name="Service",type=string,JSONPath=`.spec.target.serviceName`
+// +kubebuilder:printcolumn:name="Version",type=string,JSONPath=`.status.contractVersion`
+// +kubebuilder:printcolumn:name="Errors",type=integer,JSONPath=`.status.summary.errorCount`
+// +kubebuilder:printcolumn:name="Warnings",type=integer,JSONPath=`.status.summary.warningCount`
+// +kubebuilder:printcolumn:name="Last Reconciled",type=date,JSONPath=`.status.lastReconciledAt`
+// +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
+
+// Pacto is the Schema for the pactos API.
+type Pacto struct {
+	metav1.TypeMeta `json:",inline"`
+
+	// metadata is a standard object metadata.
+	// +optional
+	metav1.ObjectMeta `json:"metadata,omitzero"`
+
+	// spec defines the desired state of Pacto.
+	// +required
+	Spec PactoSpec `json:"spec"`
+
+	// status defines the observed state of Pacto.
+	// +optional
+	Status PactoStatus `json:"status,omitzero"`
+}
+
+// +kubebuilder:object:root=true
+
+// PactoList contains a list of Pacto.
+type PactoList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitzero"`
+	Items           []Pacto `json:"items"`
+}
+
+// IsReference returns true when the Pacto has no runtime target (reference-only contract).
+func (p *Pacto) IsReference() bool {
+	return p.Spec.Target.ServiceName == "" && p.Spec.Target.WorkloadRef == nil
+}
+
+// ResolvedWorkload returns the effective workload name and kind,
+// applying defaults when WorkloadRef is not explicitly set.
+func (p *Pacto) ResolvedWorkload() (name, kind string) {
+	if p.Spec.Target.WorkloadRef != nil {
+		kind = p.Spec.Target.WorkloadRef.Kind
+		if kind == "" {
+			kind = "Deployment"
+		}
+		return p.Spec.Target.WorkloadRef.Name, kind
+	}
+	if p.Spec.Target.ServiceName != "" {
+		return p.Spec.Target.ServiceName, "Deployment"
+	}
+	return "", ""
+}
+
+func init() {
+	SchemeBuilder.Register(&Pacto{}, &PactoList{})
+}

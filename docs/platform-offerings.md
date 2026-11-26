@@ -19,8 +19,8 @@ those operators report different offerings, the service has none and the graph
 raises an `OFFERING_CONFLICT` limitation. Different summaries leave the summary
 empty with no limitation.
 
-Each distinct offering is an `offering` entity. The `offering` filter keeps the
-services that provide it. Only a query for the `offering` kind returns them.
+Each distinct offering is an `offering` entity, returned only by a query for
+the `offering` kind. The `offering` filter keeps the services that provide it.
 
 An offering's detail lists its providers and its consumers:
 
@@ -70,10 +70,11 @@ The `lifecycle` filter (`deprecated` or `sunset`) and the `failed` filter
 narrow the list; `--sort failed` (the most consumers with a failed request
 first) and `--sort consumers` order it. The
 aggregate tallies every matched offering's provisioning statuses by phase in
-`offeringPhases` and `offeringPhaseConsumers`, and names the three offerings
-with the most failures in `failedByOffering`, where `services` counts the
-consumers whose request failed. The dashboard draws that tally
-as the phase track above the list.
+`offeringPhases` and `offeringPhaseConsumers`, the dashboard's phase track, and
+names the three offerings with the most failures in `failedByOffering`, where
+`services` counts the consumers whose request failed.
+The dashboard's **Inferred offerings** checkbox switches the list to the
+[inferred offerings](inferred-offerings.md).
 
 ![The Offerings list: 20 provisioning requests across 5 offerings drawn as a phase track, with one failed postgresql request and the lifecycle and failed-request filters](assets/screenshots/dashboard-offerings-list-light.png#only-light)
 ![The Offerings list: 20 provisioning requests across 5 offerings drawn as a phase track, with one failed postgresql request and the lifecycle and failed-request filters](assets/screenshots/dashboard-offerings-list-dark.png#only-dark)
@@ -118,7 +119,7 @@ carries `OFFERING_USES_UNRESOLVED` and is `partial`.
 ## Consume snippet
 
 Each provider carries a consume snippet to add to a contract, built from its
-newest readable revision, the one the offering page shows as current:
+newest readable revision:
 
 - a `dependencies` entry when the provider declares a workload or an interface,
   with `compatibility` set to the widest caret range that admits the newest
@@ -141,7 +142,41 @@ structured contract entries in `entries` (`dependency`, `configurations` and
 `policy`), so an agent can add them without parsing YAML. The dependency `ref`
 is the provider's registry repository without a tag or
 digest. A deprecated current revision adds a comment saying so. A provider
-that is not published to a registry has no snippet.
+no registry publishes has no snippet.
+
+## Offerings you may consume
+
+Ask which offerings you may consume with `pacto fleet offerings --consumable`,
+with `pacto_fleet_entities` and `consumable: true`, or with the **Only
+offerings you may consume** filter of the Offerings view. Each row lists the
+providers in your view whose newest revision is accepted, with:
+
+- `acceptance` and `publisher`: `declaration` for a person's verified
+  declaration the signer policy allows, `publisher` for a verified signer an
+  installation publisher rule, pin, policy or the release signer covers;
+- `version`, `digest` and `lifecycle`;
+- `parameters`: each field of the required configurations' closed schemas
+  with its type, bounds, enum and `tier`: `contract` is set once, the same in
+  every environment, and `tunable` may change per environment within its
+  bounds. A field with no `x-pacto-tier` reads `contract`;
+- `classes`: the enum of the `class` property;
+- `guarantees`: the interfaces that declare guarantees;
+- `snippet`: the [consume snippet](#consume-snippet), which `pacto validate`
+  accepts as is once every field in `missingValues` has a value.
+
+Acceptance covers the listed digest; run pacto lock to pin it.
+
+A provider is left out, first reason wins, when it is `observed-only`,
+`sunset`, `not-published`, `nothing-to-consume`, `not-accepted`,
+`acceptance-unknown`, `schema-unreadable`, `schema-open` or
+`schema-composed` (`allOf`, or non-const `oneOf` choices).
+An invalid newest revision reads `acceptance-unknown`. Inferred and contributed offerings never appear.
+`OFFERING_NOT_CONSUMABLE` counts the known exclusions per reason.
+`OFFERING_ACCEPTANCE_UNKNOWN` counts the providers Pacto could not check and
+makes the answer `partial`, so a missing offering means unknown. Discovered,
+user-authored and starter offerings follow the same rule. A person
+turns an inferred offering into one you may consume with
+[Accept an inferred offering](inferred-offerings.md#accept-an-inferred-offering).
 
 ## Provider versions
 
@@ -160,8 +195,8 @@ other versions. An OCI-sourced fleet lists what the registry holds, and
 A provider adapter reports the state of a resource a consumer asked for as
 [`ResourceProvisioned`](provider-reports.md#provisioning-reports) evidence: a signed
 EvidenceSet through an Evidence Server, or an unsigned report in a v2
-target-state file. Pacto joins reports onto the offering's uses at query
-time, one status per environment, with the provider, external reference, producer, signing key,
+target-state file. Pacto joins reports onto the offering's uses,
+one status per environment, with the provider, external reference, producer, signing key,
 source, report time and `verified`, true only for signed reports. Every
 environment the consumer's current revision declares has a status. A use whose
 consumer points more than one configuration or dependency at the provider has
@@ -209,25 +244,13 @@ Adapters are `observed`, from visible consumers' reports only.
 
 ## Offerings under a restricted view
 
-A viewer restricted to some namespaces sees a provider that has no Kubernetes
-target, with its owner, offering and versions, when its contract declares the
-offering and every Kubernetes source is available. All of that provider's
-targets are removed from the view and its versions omit `inUse`. Any provider
-with a target in a namespace the viewer cannot read omits `inUse` too. With a
-Kubernetes source unavailable or partial, the absence of a target proves
-nothing, so the provider stays hidden.
-
-A consumer the viewer cannot see is
-never named: the offering counts them in `hiddenConsumers`, and its
-provisioning statuses, external references and namespace stay hidden. A
-`PROVISIONING_CONFLICT` reflects only the reports the viewer can see, and
-`PROVISIONING_TRUNCATED` counts only the dropped reports about visible
-consumers. A visible
-consumer whose configuration reference resolves to a hidden provider has the
-reference validated again without it, so the reference reads
-`CONFIG_REF_UNVERIFIED` and no finding carries what the hidden provider
-declares.
-
-Availability, observed callers and offering impact count what a restricted
-view hides; see
+A restricted view counts the providers and consumers the viewer cannot see,
+here and in the offerings you may consume, and never names them; see
 [Under a restricted view](offering-availability.md#under-a-restricted-view).
+
+## Environment values
+
+A consumer's environment files change only `tunable` fields of a tiered
+offering schema (`x-pacto-tier`);
+[Offering parameters](contract-reference/environments.md#offering-parameters)
+lists the refusal codes.

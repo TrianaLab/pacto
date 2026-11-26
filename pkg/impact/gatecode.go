@@ -14,6 +14,7 @@ const (
 	GateCodeServiceNotInFleet           = "SERVICE_NOT_IN_FLEET"
 	GateCodeServiceNameInferred         = LimitationServiceNameInferred
 	GateCodeAnswerPartial               = "ANSWER_PARTIAL"
+	GateCodeClustersUnread              = fleet.LimitationClustersUnread
 	GateCodeConsumersUnchecked          = "CONSUMERS_UNCHECKED"
 	GateCodeInferredPossibleBreak       = "INFERRED_POSSIBLE_BREAK"
 	GateCodeInferredProvider            = LimitationInferredProvider
@@ -77,6 +78,8 @@ func (r *Result) classifiedCode() string {
 		return GateCodeServiceNameInferred
 	case r.Completeness != fleet.CompletenessComplete:
 		return GateCodeAnswerPartial
+	case r.UnreadClusters > 0:
+		return GateCodeClustersUnread
 	case len(r.Consumers) > len(r.acceptedConsumers()):
 		return GateCodeConsumersUnchecked
 	case len(r.Consumers) > 0:

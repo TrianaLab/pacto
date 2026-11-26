@@ -33,4 +33,15 @@ describe('ServiceListView — egress rows', () => {
     expect(reasons[0]).toContain('oci: authentication with the source failed');
     done();
   });
+
+  it('a managed-resources row is no data source, enabled or not', () => {
+    const { target, done } = render([
+      { type: 'managed-resources', enabled: true, resources: true, reason: 'lists the catalog kinds of rds.aws.upbound.io' },
+      { type: 'cloud-inventory', enabled: false, resources: true, reason: 'set controller.cloudInventory' },
+    ]);
+    expect(target.textContent).toContain('No data sources are available');
+    expect(target.textContent).not.toContain('rds.aws.upbound.io');
+    expect(target.querySelectorAll('.source-reason')).toHaveLength(0);
+    done();
+  });
 });

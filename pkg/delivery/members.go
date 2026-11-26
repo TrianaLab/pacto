@@ -1,0 +1,184 @@
+package delivery
+
+import (
+	"cmp"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/trianalab/pacto/v4/pkg/fleet"
+)
+
+// UnreadClustersSourceID is the id of the carrier [UnreadClusters] returns.
+const UnreadClustersSourceID = "cluster-joins-unread"
+
+// UnreadClusters is the carrier of the count of clusters that publish to
+// list's repository and are not members of this hub, so consumers there are
+// unknown to every gate. It is nil unless this installation acts as a hub (a
+// person approved or removed a member: the list holds an approved or removed
+// state, or a pending one whose counted approval named another key) and some
+// cluster is pending. Removed clusters are not counted: a
+// person decided. The count and its limitation never name a cluster.
+func UnreadClusters(list ClusterJoinList) fleet.Source {
+	hub, n := false, 0
+	for _, st := range list.Clusters {
+		switch st.State {
+		case JoinApproved, JoinRemoved:
+			hub = true
+		case JoinPending:
+			n++
+			hub = hub || st.ApprovedKeyID != ""
+		}
+	}
+	if !hub || n == 0 {
+		return nil
+	}
+	msg := strconv.Itoa(n) + " cluster publishes to " + list.Repository + " and is not a member of this hub, so consumers there are unknown: approve or remove it (pacto cluster list)"
+	if n > 1 {
+		msg = strconv.Itoa(n) + " clusters publish to " + list.Repository + " and are not members of this hub, so consumers there are unknown: approve or remove them (pacto cluster list)"
+	}
+	return fleet.NewMemorySource(UnreadClustersSourceID, fleet.SourceKindClusterJoins, &fleet.Collection{UnreadClusters: n,
+		Limitations: []fleet.Limitation{{Code: fleet.LimitationClustersUnread, Source: UnreadClustersSourceID, Message: msg}}})
+}
+
+// MemberUnreadID is the id of the carrier [MemberOnlyUnread] returns.
+const MemberUnreadID = "cluster-joins-member"
+
+// MemberOnlyUnread are the members a member cluster's promoter reads: none,
+// and one unread cluster. A member reads no joins (their records name the
+// hub, whose approvers it cannot review), so at least one cluster may hold
+// consumers it did not read, and a change that is not NON_BREAKING asks a
+// person there.
+func MemberOnlyUnread() Members {
+	return Members{Sources: []fleet.Source{fleet.NewMemorySource(MemberUnreadID, fleet.SourceKindClusterJoins, &fleet.Collection{UnreadClusters: 1,
+		Limitations: []fleet.Limitation{{Code: fleet.LimitationClustersUnread, Source: MemberUnreadID,
+			Message: "this cluster is a member of a hub: consumers in other clusters are read on the hub"}}})}}
+}
+
+// MembersHiddenID is the id of the carrier [RestrictMembers] adds.
+const MembersHiddenID = "cluster-joins-hidden"
+
+// memberSourcePrefix starts the id of a member's source (memberSource).
+const memberSourcePrefix = "member-"
+
+// RestrictMembers is m as a reader sees it: the source of each member cluster
+// sees refuses is replaced by one unread count, so its consumers stay unknown
+// to the gate and are never named to a reader who may not see that cluster.
+func RestrictMembers(m Members, sees func(uid string) bool) Members {
+	out, hidden := Members{Home: m.Home}, 0
+	for _, src := range m.Sources {
+		uid, member := strings.CutPrefix(src.ID(), memberSourcePrefix)
+		if member && !sees(uid) {
+			hidden++
+			continue
+		}
+		out.Sources = append(out.Sources, src)
+	}
+	if hidden > 0 {
+		msg := strconv.Itoa(hidden) + " member clusters you may not see may hold consumers, so consumers there are unknown"
+		if hidden == 1 {
+			msg = "1 member cluster you may not see may hold consumers, so consumers there are unknown"
+		}
+		out.Sources = append(out.Sources, fleet.NewMemorySource(MembersHiddenID, fleet.SourceKindClusterJoins, &fleet.Collection{UnreadClusters: hidden,
+			Limitations: []fleet.Limitation{{Code: fleet.LimitationClustersUnread, Source: MembersHiddenID, Message: msg}}}))
+	}
+	return out
+}
+
+// Members are what a promote reads beyond the hub's own Pactos: the sources
+// of the clusters that joined this hub and the hub's own cluster, which the
+// hub's Pactos sit in whenever Sources is not empty, so they are never
+// clusterless next to a member's.
+type Members struct {
+	Home    *fleet.Cluster
+	Sources []fleet.Source
+}
+
+// membersListID names the source that says the member list was read partly.
+const membersListID = "cluster-joins"
+
+// MembersOf are the members of list a promote in environment reads, as of
+// now, the hub being home. Only approved members are read, each through read
+// (which verifies the snapshot under the member's approved key): as on the
+// hub (EnvironmentPactos), its Pactos whose environment label names another
+// environment the hub's Stages declare (known) are dropped, and one labelled
+// for an environment no Stage declares counts in every environment, and a
+// snapshot past TargetSnapshotFreshness reads stale. A member read fails is
+// unavailable, so its consumers are unknown. A list read partly adds one
+// partial source, and pending clusters of a hub add the unread count
+// ([UnreadClusters]). Advertised environments are never read: they are
+// inferred, and inferred never clears a gate.
+func MembersOf(list ClusterJoinList, read func(uid string) (TargetSnapshot, error), environment string, known map[string]bool, now time.Time, home *fleet.Cluster) Members {
+	m := Members{Home: home}
+	if list.Completeness != fleet.CompletenessComplete {
+		m.Sources = append(m.Sources, fleet.NewMemorySource(membersListID, fleet.SourceKindTargetSnapshot, &fleet.Collection{
+			State: &fleet.SourceState{Status: fleet.SourcePartial}, Limitations: sourced(membersListID, list.Limitations)}))
+	}
+	for _, st := range list.Clusters {
+		if st.State != JoinApproved {
+			continue
+		}
+		cl := &fleet.Cluster{ID: st.UID, Name: st.Name, NameSource: st.NameSource}
+		snap, err := read(st.UID)
+		m.Sources = append(m.Sources, memberSource(cl, snap, err, environment, known, now))
+	}
+	if u := UnreadClusters(list); u != nil {
+		m.Sources = append(m.Sources, u)
+	}
+	return m
+}
+
+// memberSource is the source of member cl's snapshot snap (err when it was
+// not read), with the Pactos that may run in environment.
+func memberSource(cl *fleet.Cluster, snap TargetSnapshot, err error, environment string, known map[string]bool, now time.Time) fleet.Source {
+	id := memberSourcePrefix + cl.ID
+	name := cmp.Or(cl.Name, cl.ID)
+	if err != nil {
+		return fleet.NewMemorySource(id, fleet.SourceKindTargetSnapshot, &fleet.Collection{Cluster: cl,
+			State: &fleet.SourceState{Status: fleet.SourceUnavailable, Cluster: cl},
+			Limitations: []fleet.Limitation{{Code: fleet.LimitationSourceUnavailable, Source: id,
+				Message: "the snapshot of member " + name + " was not read, so consumers there are unknown: " + err.Error()}}})
+	}
+	views := slices.DeleteFunc(slices.Clone(snap.Pactos), func(p PactoView) bool {
+		env := p.Metadata.Labels[EnvironmentLabel]
+		return known[env] && env != environment
+	})
+	col := LinkedCollection(id, views, now)
+	col.Limitations = append(col.Limitations, sourced(id, snap.Limitations)...)
+	status := fleet.SourceAvailable
+	if len(col.Limitations) > 0 || snap.Completeness != fleet.CompletenessComplete {
+		status = fleet.SourcePartial
+	}
+	asOf, _ := time.Parse(time.RFC3339, snap.AsOf) // the reader verified it
+	if age := now.Sub(asOf); age > TargetSnapshotFreshness {
+		status = fleet.SourceStale
+		col.Limitations = append(col.Limitations, fleet.Limitation{Code: fleet.LimitationTargetSnapshotStale, Source: id,
+			Message: "member " + name + " last published " + ageWords(age) + " ago, so Pacto cannot tell what runs there now"})
+	}
+	col.Cluster = cl
+	col.State = &fleet.SourceState{Status: status, Cluster: cl, LastSuccessfulSync: &asOf}
+	return fleet.NewMemorySource(id, fleet.SourceKindTargetSnapshot, col)
+}
+
+// sourced is lims, each naming source id.
+func sourced(id string, lims []fleet.Limitation) []fleet.Limitation {
+	out := make([]fleet.Limitation, len(lims))
+	for i, l := range lims {
+		l.Source = id
+		out[i] = l
+	}
+	return out
+}
+
+// ageWords is d as a person reads an age: minutes under an hour, hours
+// under two days, else days.
+func ageWords(d time.Duration) string {
+	switch {
+	case d < time.Hour:
+		return strconv.Itoa(int(d/time.Minute)) + "m"
+	case d < 48*time.Hour:
+		return strconv.Itoa(int(d/time.Hour)) + "h"
+	}
+	return strconv.Itoa(int(d/(24*time.Hour))) + "d"
+}

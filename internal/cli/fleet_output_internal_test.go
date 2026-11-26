@@ -949,6 +949,92 @@ func TestFleetGetTargetPrintsReportedBy(t *testing.T) {
 	expect(t, !strings.Contains(out, "Reported by"), "a target-state target names a reporter:\n%s", out)
 }
 
+// managedRecord is orders-db with resources: a Crossplane object through the
+// postgresql offering, a Terraform state entry and a desired-only engine.
+func managedRecord() fleet.ExternalRecord {
+	return fleet.ExternalRecord{Key: "aws/rds/123456789012/eu-west-1/orders-db", Class: "managed-cloud", ConsumersTotal: 2, ResourcesTotal: 3,
+		Resources: []fleet.ManagedResource{
+			{Source: "crossplane", Type: "rds.aws.upbound.io/Instance", Name: "orders-db", Cluster: "uid-1", ClusterName: "prod", Claim: "PostgreSQLInstance shop/orders-db",
+				Engine: "postgres 16", Contract: fleet.ContractOffering, Offering: &fleet.EntityRef{Kind: fleet.KindOffering, Key: "postgresql", Label: "postgresql"}},
+			{Source: "terraform", Type: "aws_db_instance", Name: "aws_db_instance.orders", Location: "s3://acme-tf/prod.tfstate", Cluster: "uid-1",
+				Contract: fleet.ContractOutside, Missing: []string{"account"}},
+			{Source: "ack", Type: "rds.services.k8s.aws/DBInstance", Namespace: "shop", Name: "orders", EngineRequested: "postgres 16", Contract: fleet.ContractOffering},
+		}}
+}
+
+func TestPrintExternalResources(t *testing.T) {
+	var b strings.Builder
+	printExternal(&b, managedRecord(), "", fleet.ExternalEvidence{})
+	for _, want := range []string{
+		"  resources  prod crossplane rds.aws.upbound.io/Instance orders-db  claim PostgreSQLInstance shop/orders-db  postgres 16  through offering postgresql\n",
+		"             uid-1 terraform s3://acme-tf/prod.tfstate aws_db_instance aws_db_instance.orders  outside contract  missing account\n",
+		"             local ack rds.services.k8s.aws/DBInstance shop/orders  requested postgres 16  through an offering\n",
+		"  into a contract: pacto claim aws/rds/123456789012/eu-west-1/orders-db --owner <team> --offering <offering>\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Errorf("lacks %q:\n%s", want, b.String())
+		}
+	}
+}
+
+func TestPrintExternalResourcesHiddenCount(t *testing.T) {
+	rec := managedRecord()
+	rec.ResourcesTotal, rec.HiddenResources = 30, 7
+	var b strings.Builder
+	printExternal(&b, rec, "", fleet.ExternalEvidence{})
+	// ResourcesTotal counts the visible resources alone (finalizeExternal).
+	if !strings.Contains(b.String(), "             and 27 more\n             7 hidden\n") {
+		t.Errorf("%s", b.String())
+	}
+	rec.Resources = nil
+	b.Reset()
+	printExternal(&b, rec, "", fleet.ExternalEvidence{})
+	if !strings.Contains(b.String(), "  resources  and 30 more\n             7 hidden\n") || strings.Contains(b.String(), "into a contract") {
+		t.Errorf("%s", b.String())
+	}
+}
+
+// The folded other-egress node is no system to claim: no claim hint.
+func TestPrintExternalResourcesOtherEgressNoClaim(t *testing.T) {
+	rec := managedRecord()
+	rec.Key = fleet.OtherEgress
+	var b strings.Builder
+	printExternalResources(&b, rec)
+	if strings.Contains(b.String(), "into a contract") {
+		t.Errorf("%s", b.String())
+	}
+}
+
+func TestPrintExternalRequestedEngine(t *testing.T) {
+	r := fleet.ManagedResource{Source: "crossplane", Type: "t", Name: "n", EngineRequested: "postgres 16", Contract: fleet.ContractOutside}
+	if got := managedResourceLine(r); got != "local crossplane t n  requested postgres 16  outside contract" {
+		t.Fatal(got)
+	}
+}
+
+// TestPrintExternalIntoContractHint: the claim hint shows only while a
+// resource is outside contract and nothing claims the system.
+func TestPrintExternalIntoContractHint(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		edit func(*fleet.ExternalRecord)
+		want bool
+	}{
+		{"outside, unclaimed", func(*fleet.ExternalRecord) {}, true},
+		{"claimed", func(r *fleet.ExternalRecord) { r.Claim = &fleet.ExternalClaim{Service: "orders-db"} }, false},
+		{"two claimants", func(r *fleet.ExternalRecord) { r.Claimants = 2 }, false},
+		{"all through offerings", func(r *fleet.ExternalRecord) { r.Resources = r.Resources[:1] }, false},
+	} {
+		rec := managedRecord()
+		tc.edit(&rec)
+		var b strings.Builder
+		printExternal(&b, rec, "", fleet.ExternalEvidence{})
+		if got := strings.Contains(b.String(), "into a contract: pacto claim"); got != tc.want {
+			t.Errorf("%s: hint %v:\n%s", tc.name, got, b.String())
+		}
+	}
+}
+
 func TestFleetGetPrintsExtensionChecks(t *testing.T) {
 	at := time.Date(2026, 11, 22, 3, 0, 0, 0, time.UTC)
 	revs := []*fleet.ContractRevision{

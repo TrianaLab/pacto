@@ -22,7 +22,7 @@ sets `spec.workload`.
 List the checks under `spec.gates.verify.checks`. Each names a provider:
 
 ```yaml
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata:
   name: payments

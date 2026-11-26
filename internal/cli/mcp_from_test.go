@@ -127,3 +127,16 @@ func TestMCPInitMapsOverrides(t *testing.T) {
 		t.Errorf("broken trust: %v", err)
 	}
 }
+
+// TestCreateFromInferredTemplateRefused: pacto_create from an inferred
+// golden path is refused with the accept command, before any registry read.
+func TestCreateFromInferredTemplateRefused(t *testing.T) {
+	t.Setenv(app.TrustEnv, "")
+	var reads atomic.Int32
+	svc := app.NewService(recordingStore(&reads), nil)
+	opts := app.InitOptions{Dir: filepath.Join(t.TempDir(), "gift-cards"), Owner: "checkout", Plan: true}
+	_, err := mcpInit(svc, "")(context.Background(), opts, pactomcp.FromRequest{Ref: "template:default/x"})
+	if err == nil || !strings.Contains(err.Error(), "accept it first with pacto declare template:default/x") || reads.Load() != 0 {
+		t.Fatalf("%v (%d reads)", err, reads.Load())
+	}
+}

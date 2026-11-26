@@ -269,7 +269,7 @@ func TestManagedFiveSegmentGetsCatalogClass(t *testing.T) {
 		contract.InferredExternalSource{Kind: "crossplane", Path: "k8s/queue.yaml", Line: 1, Key: "orders"}))
 	snap := repoFleet(t, repoSvc{"checkout", "1.0.0", "shop", fsys})
 	rec := snap.Externals[ExternalKey(id)]
-	if rec == nil || rec.Class != externalcatalog.ClassManagedCloud || rec.Catalog == nil || rec.Catalog.Entry != "aws/sqs" || rec.Label != id {
+	if rec == nil || rec.Class != externalcatalog.ClassManagedCloud || rec.Catalog == nil || rec.Catalog.Entry != "aws/sqs" || rec.Label != "orders" {
 		t.Fatalf("record = %+v", rec)
 	}
 	srcs := relsTo(snap, ExternalKey(id))[0].InferredSources

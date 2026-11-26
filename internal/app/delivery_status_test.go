@@ -30,7 +30,7 @@ func statusStage(ns, name, service, env, upNS, upName string, status map[string]
 	if status == nil {
 		status = map[string]any{}
 	}
-	return obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", ns, name, map[string]any{"spec": spec, "status": status})
+	return obj("delivery.pacto.trianalab.io/v1", "Stage", ns, name, map[string]any{"spec": spec, "status": status})
 }
 
 // statusFixture is the delivery fixture for alice, whose RBAC lets her
@@ -76,6 +76,7 @@ func envsOf(s *delivery.ServiceStatus) string {
 }
 
 func TestStatusNeedsService(t *testing.T) {
+	t.Parallel()
 	d, _ := statusFixture(t)
 	_, err := d.Status(context.Background(), delivery.StatusQuery{})
 	wantErrContaining(t, err, "name the service")
@@ -85,6 +86,7 @@ func TestStatusNeedsService(t *testing.T) {
 // contract it runs, offers narrowed by RBAC and where its candidates come
 // from, complete when every namespace was read.
 func TestStatusRowsAndOffers(t *testing.T) {
+	t.Parallel()
 	d, _ := statusFixture(t)
 	s, err := d.Status(context.Background(), delivery.StatusQuery{Service: "payments"})
 	if err != nil || len(s.Stages) != 1 || s.Completeness != "complete" || s.AsOf == "" || s.Service != "payments" {
@@ -105,6 +107,7 @@ func TestStatusRowsAndOffers(t *testing.T) {
 // TestStatusUpstreamAndNote: each row names where its candidates come from,
 // the note says the order, and an unknown caller is an error.
 func TestStatusUpstreamAndNote(t *testing.T) {
+	t.Parallel()
 	d, c := statusFixture(t)
 	s, _ := d.Status(context.Background(), delivery.StatusQuery{Service: "payments"})
 	r := s.Stages[0]
@@ -125,6 +128,7 @@ func TestStatusUpstreamAndNote(t *testing.T) {
 // TestStatusNarrowedByRBAC: where RBAC refuses or the review fails, every
 // available offer becomes unavailable with the reason.
 func TestStatusNarrowedByRBAC(t *testing.T) {
+	t.Parallel()
 	d, c := statusFixture(t)
 	allow(c, false, nil)
 	s, _ := d.Status(context.Background(), delivery.StatusQuery{Service: "payments"})
@@ -142,6 +146,7 @@ func TestStatusNarrowedByRBAC(t *testing.T) {
 // is named with why, the answer is partial, and an upstream Stage there is
 // unreadable, never missing. A walk past auditLimit is partial too.
 func TestStatusPartialWhenNamespaceForbidden(t *testing.T) {
+	t.Parallel()
 	d, c := statusFixture(t, obj("v1", "Namespace", "", "prod", nil), obj("v1", "Namespace", "", "test", nil))
 	c.PrependReactor("list", "stages", func(a k8stesting.Action) (bool, runtime.Object, error) {
 		if ns := a.GetNamespace(); ns == "" || ns == "test" {
@@ -177,6 +182,7 @@ func TestStatusPartialWhenNamespaceForbidden(t *testing.T) {
 // TestStatusOpsForbiddenIsPartial: operations that cannot be read make the
 // answer partial and the held count unknown.
 func TestStatusOpsForbiddenIsPartial(t *testing.T) {
+	t.Parallel()
 	d, c := statusFixture(t)
 	c.PrependReactor("list", "operations", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, forbid("operations") })
 	s, err := d.Status(context.Background(), delivery.StatusQuery{Service: "payments"})
@@ -191,6 +197,7 @@ func TestStatusOpsForbiddenIsPartial(t *testing.T) {
 // TestStatusOpsForbiddenStateUnknown: a verified Stage whose operations were
 // refused is unknown, never verified; a frozen one is still frozen.
 func TestStatusOpsForbiddenStateUnknown(t *testing.T) {
+	t.Parallel()
 	d, c := statusFixture(t, statusStage("prod", "payments-frozen", "payments", "prod-2", "", "",
 		map[string]any{"pointer": dlA, "verified": []any{dlA}, "frozen": true}))
 	c.PrependReactor("list", "operations", func(k8stesting.Action) (bool, runtime.Object, error) { return true, nil, forbid("operations") })
@@ -207,6 +214,7 @@ func TestStatusOpsForbiddenStateUnknown(t *testing.T) {
 // TestStatusUndoFromBlame: the change that put the running version in place
 // gives the undo offer.
 func TestStatusUndoFromBlame(t *testing.T) {
+	t.Parallel()
 	d, _ := statusFixture(t, opFixture("ship", map[string]any{"type": delivery.TypePromote, "stage": "payments-prod",
 		"params": map[string]any{"from": dlC, "to": dlA}, "actor": map[string]any{"user": "bot"}},
 		map[string]any{"phase": "Concluded", "outcome": "Succeeded", "seq": int64(1), "pointer": map[string]any{"before": dlC, "after": dlA}}))
@@ -222,6 +230,7 @@ func TestStatusUndoFromBlame(t *testing.T) {
 // TestStatusReadsStageOnce: the listed Stage is never read again, and its
 // stream is read once.
 func TestStatusReadsStageOnce(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	e.twoRecords()
 	allow(e.c, true, nil)
@@ -246,6 +255,7 @@ func TestStatusReadsStageOnce(t *testing.T) {
 // TestStatusWhyLimit: one walk plans at most statusWhyLimit Stages and names
 // the rest in its note.
 func TestStatusWhyLimit(t *testing.T) {
+	t.Parallel()
 	var objs []runtime.Object
 	for i := range statusWhyLimit + 1 {
 		objs = append(objs, statusStage("o", fmt.Sprintf("s%02d", i), "orders", "prod", "", "", nil))
@@ -269,6 +279,7 @@ func TestStatusWhyLimit(t *testing.T) {
 // the caller, not proposed; unread operations and a failed review make it
 // unknown, never a refusal.
 func TestProgressPlansCandidate(t *testing.T) {
+	t.Parallel()
 	d, c := statusFixture(t)
 	ri := c.Resource(gvrStages).Namespace("prod")
 	u, _ := ri.Get(context.Background(), "payments-prod", metav1.GetOptions{})
@@ -301,6 +312,7 @@ func TestProgressPlansCandidate(t *testing.T) {
 // TestStatusTopologicalOrder: rows follow the upstream links, whatever the
 // names say.
 func TestStatusTopologicalOrder(t *testing.T) {
+	t.Parallel()
 	d, _ := statusFixture(t,
 		statusStage("a", "o-prod", "orders", "prod", "b", "o-staging", nil),
 		statusStage("b", "o-staging", "orders", "staging", "c", "o-test", nil),
@@ -318,6 +330,7 @@ func TestStatusTopologicalOrder(t *testing.T) {
 // placed by name, and the note names the cycle; so are environments
 // different Stages order both ways.
 func TestStatusReportsCycle(t *testing.T) {
+	t.Parallel()
 	d, _ := statusFixture(t,
 		statusStage("x", "o-us", "orders", "us", "x", "o-eu", nil),
 		statusStage("x", "o-eu", "orders", "eu", "x", "o-us", nil))
@@ -338,6 +351,7 @@ func TestStatusReportsCycle(t *testing.T) {
 // namespace read in full names its environment, never missing; with -n it
 // sits outside the scope asked for, which is not an unreadable namespace.
 func TestStatusUpstreamOtherService(t *testing.T) {
+	t.Parallel()
 	d, _ := statusFixture(t,
 		statusStage("o", "orders", "orders", "prod", "p", "other", nil),
 		statusStage("p", "other", "other", "qa", "", "", nil))
@@ -360,6 +374,7 @@ func walk(w auditWalk) string {
 // TestAuditStagesWalk: All keeps every listed Stage, Stages only the
 // service's, and the walk says which namespaces it read in full.
 func TestAuditStagesWalk(t *testing.T) {
+	t.Parallel()
 	d, c := statusFixture(t, obj("v1", "Namespace", "", "prod", nil), obj("v1", "Namespace", "", "test", nil),
 		statusStage("test", "orders", "orders", "test", "", "", nil))
 	ctx, payments := context.Background(), delivery.ServiceRef{Name: "payments"}
@@ -384,6 +399,7 @@ func TestAuditStagesWalk(t *testing.T) {
 // TestStatusCountsHeldPerStage: held counts only the Stage's own changes
 // waiting for a person, and why reads them.
 func TestStatusCountsHeldPerStage(t *testing.T) {
+	t.Parallel()
 	spec := func(stage string) map[string]any {
 		return map[string]any{"type": delivery.TypePromote, "stage": stage, "params": map[string]any{"from": dlA, "to": dlB}, "actor": map[string]any{"user": "bot"}}
 	}

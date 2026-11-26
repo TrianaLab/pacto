@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -89,5 +92,98 @@ func TestOpenAPIListsClusterRoute(t *testing.T) {
 	}
 	if doc.Components.Schemas["Delivery.ClusterJoinList"] == nil {
 		t.Error("no ClusterJoinList schema")
+	}
+}
+
+// installOf generates "kind: <from>" for the engine it is asked, recording
+// what it was asked.
+func installOf(asked *string, err error) func(context.Context, string) ([]byte, error) {
+	return func(_ context.Context, from string) ([]byte, error) {
+		*asked = from
+		return []byte("registry: ghcr.io/acme\nkind: " + from + "\n"), err
+	}
+}
+
+func installServer(t *testing.T, l delivery.ClusterJoinList, listErr error, asked *string, err error) *httptest.Server {
+	return statsServer(t, Options{ClusterJoins: joinsOf(l, listErr), ClusterInstall: installOf(asked, err)})
+}
+
+func TestInstallRouteAttachment(t *testing.T) {
+	var asked string
+	srv := installServer(t, memberList(), nil, &asked, nil)
+	resp, err := http.Get(srv.URL + "/api/fleet/clusters/install?from=flux")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	body, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK || asked != "flux" || string(body) != "registry: ghcr.io/acme\nkind: flux\n" {
+		t.Fatalf("status %d, asked %q: %s", resp.StatusCode, asked, body)
+	}
+	if ct, cd := resp.Header.Get("Content-Type"), resp.Header.Get("Content-Disposition"); ct != "application/yaml" || cd != `attachment; filename="pacto-members-flux.yaml"` {
+		t.Errorf("headers %q %q", ct, cd)
+	}
+	if code, _ := fetch(t, srv, "/api/fleet/clusters/install?from=capi"); code != http.StatusUnprocessableEntity {
+		t.Errorf("from=capi: status %d", code)
+	}
+}
+
+func TestInstallRouteForbiddenWithoutApprove(t *testing.T) {
+	l := memberList()
+	l.CanApprove = false
+	asked := ""
+	code, body := fetch(t, installServer(t, l, nil, &asked, nil), "/api/fleet/clusters/install?from=argocd")
+	if code != http.StatusForbidden || asked != "" || strings.Contains(body, "registry") {
+		t.Errorf("status %d, asked %q: %s", code, asked, body)
+	}
+	code, body = fetch(t, installServer(t, l, errors.New("401 from ghcr.io"), &asked, nil), "/api/fleet/clusters/install?from=argocd")
+	if code != http.StatusBadGateway || asked != "" || !strings.Contains(body, "401 from ghcr.io") {
+		t.Errorf("unread list: status %d, asked %q: %s", code, asked, body)
+	}
+}
+
+// TestInstallRouteIgnoresHubURLParam: the route takes no hub URL from the
+// request, so a crafted link never points members at another hub.
+func TestInstallRouteIgnoresHubURLParam(t *testing.T) {
+	var asked string
+	code, body := fetch(t, installServer(t, memberList(), nil, &asked, nil), "/api/fleet/clusters/install?from=argocd&hubUrl=https://evil.example&hub.url=wss://evil.example")
+	if code != http.StatusOK || asked != "argocd" || strings.Contains(body, "hub:") || strings.Contains(body, "evil") {
+		t.Errorf("status %d: %s", code, body)
+	}
+}
+
+func TestInstallRouteNeedsChartVersion(t *testing.T) {
+	var asked string
+	code, body := fetch(t, installServer(t, memberList(), nil, &asked, delivery.ErrNoChartVersion), "/api/fleet/clusters/install?from=argocd")
+	if code != http.StatusUnprocessableEntity || !strings.Contains(body, "pacto cluster install --from argocd --chart-version") {
+		t.Errorf("status %d: %s", code, body)
+	}
+	code, body = fetch(t, installServer(t, memberList(), nil, &asked, errors.New("no Flux kubeconfig ref was detected")), "/api/fleet/clusters/install?from=flux")
+	if code != http.StatusUnprocessableEntity || !strings.Contains(body, "could not be generated: no Flux kubeconfig ref") {
+		t.Errorf("status %d: %s", code, body)
+	}
+}
+
+// TestInstallRouteHubReadIs502: a failure to read the hub is the upstream's,
+// not the request's, so it answers 502 rather than 422.
+func TestInstallRouteHubReadIs502(t *testing.T) {
+	var asked string
+	inner := errors.New("the candidate clusters were not read: Forbidden")
+	err := HubReadError{Err: inner}
+	if !errors.Is(err, inner) {
+		t.Error("HubReadError hides the error it wraps")
+	}
+	code, body := fetch(t, installServer(t, memberList(), nil, &asked, fmt.Errorf("wrapped: %w", err)), "/api/fleet/clusters/install?from=flux")
+	if code != http.StatusBadGateway || !strings.Contains(body, "the hub could not be read for the member install") || !strings.Contains(body, "Forbidden") {
+		t.Errorf("status %d: %s", code, body)
+	}
+}
+
+func TestInstallRouteAbsentWithoutJoins(t *testing.T) {
+	var asked string
+	for _, o := range []Options{{ClusterInstall: installOf(&asked, nil)}, {ClusterJoins: joinsOf(memberList(), nil)}} {
+		if code, _ := fetch(t, statsServer(t, o), "/api/fleet/clusters/install?from=argocd"); code != http.StatusNotFound {
+			t.Errorf("status %d, want 404", code)
+		}
 	}
 }

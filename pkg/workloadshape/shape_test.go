@@ -131,3 +131,29 @@ func TestReadWorkloadShapeStripsProbeQuery(t *testing.T) {
 		t.Errorf("path = %q, want /h", got)
 	}
 }
+
+func TestSecretNames(t *testing.T) {
+	pod := map[string]any{
+		"containers": []any{map[string]any{
+			"env":     []any{map[string]any{"valueFrom": map[string]any{"secretKeyRef": map[string]any{"name": "db", "key": "password"}}}, map[string]any{"value": "plain"}},
+			"envFrom": []any{map[string]any{"secretRef": map[string]any{"name": "api"}}, map[string]any{"configMapRef": map[string]any{"name": "cfg"}}},
+		}},
+		"initContainers": []any{map[string]any{"envFrom": []any{map[string]any{"secretRef": map[string]any{"name": "db"}}}}},
+		"volumes": []any{
+			map[string]any{"secret": map[string]any{"secretName": "tls"}},
+			map[string]any{"projected": map[string]any{"sources": []any{map[string]any{"secret": map[string]any{"name": "proj"}}, map[string]any{"configMap": map[string]any{"name": "cfg2"}}}}},
+			map[string]any{"secret": map[string]any{"secretName": ""}},
+		},
+	}
+	deploy := map[string]any{"spec": map[string]any{"template": map[string]any{"spec": pod}}}
+	if got := SecretNames("Deployment", deploy); !reflect.DeepEqual(got, []string{"api", "db", "proj", "tls"}) {
+		t.Errorf("Deployment secrets = %v", got)
+	}
+	cron := map[string]any{"spec": map[string]any{"jobTemplate": deploy}}
+	if got := SecretNames("CronJob", cron); !reflect.DeepEqual(got, []string{"api", "db", "proj", "tls"}) {
+		t.Errorf("CronJob secrets = %v", got)
+	}
+	if got := SecretNames("Deployment", map[string]any{}); got != nil {
+		t.Errorf("no pod template = %v", got)
+	}
+}

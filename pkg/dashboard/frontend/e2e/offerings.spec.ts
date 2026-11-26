@@ -36,13 +36,13 @@ test.describe('WASM demo — platform offerings', () => {
     expect(await noSideScroll(page)).toBe(true);
   });
 
-  test('the demo lists its six offerings and postgresql and shared-config have two providers', async ({ page }) => {
+  test('the demo lists its seven offerings and postgresql and shared-config have two providers', async ({ page }) => {
     await page.goto('/#/fleet/offerings');
     const list = page.getByTestId('offering-list');
     await expect(list).toBeVisible({ timeout: T });
     const rows = list.locator('tbody tr');
-    await expect(rows).toHaveCount(6);
-    for (const name of ['messaging', 'postgresql', 'redis', 'security-scanning', 'shared-config', 'shared-policy']) {
+    await expect(rows).toHaveCount(7);
+    for (const name of ['messaging', 'objectstore', 'postgresql', 'redis', 'security-scanning', 'shared-config', 'shared-policy']) {
       await expect(list.locator(`a.entity-link[href$="/fleet/offerings/${name}"]`)).toBeVisible();
     }
     await expect(rows.filter({ has: page.locator('a.entity-link[href$="/fleet/offerings/shared-config"]') })).toContainText('2 providers');
@@ -58,7 +58,7 @@ test.describe('WASM demo — platform offerings', () => {
     const fig = page.getByTestId('offerings-figure');
     await expect(fig).toBeVisible({ timeout: T });
     await expect(fig).toContainText('Are the requests for platform offerings ready?');
-    await expect(fig).toContainText(/across 6 offerings/);
+    await expect(fig).toContainText(/across 7 offerings/);
     // The Failed station and the offering it names both open the failed-request list.
     await expect(fig.locator('a[data-lists="1"]')).toHaveAttribute('href', /[?&]failed=1/);
     await expect(fig.locator(`a.chip[href$="/fleet/offerings/postgresql"]`)).toBeVisible();
@@ -92,6 +92,34 @@ test.describe('WASM demo — platform offerings', () => {
     await expect(rows).toHaveCount(1, { timeout: T });
     await expect(rows.locator(PG_ROW)).toBeVisible();
     await expect(rows.locator('[data-label="Lifecycle"] .badge-warn')).toHaveText('deprecated');
+  });
+
+  test('lists only the offerings you may consume', async ({ page }) => {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    await page.goto('/#/fleet/offerings');
+    await page.addStyleTag({ content: WIDE_FONT });
+    await expect(page.getByTestId('offering-list')).toBeVisible({ timeout: T });
+    await page.getByTestId('offering-consumable-filter').check();
+    await expect(page).toHaveURL(/#\/fleet\/offerings\?consumable=1$/);
+    await expect(page.locator('.filter-chips')).toContainText('Consumable');
+    // postgresql 17.0.0 is signed by its workflow under the installation's publisher rule
+    // and objectstore is the offering a person declared; the other providers are not
+    // checked, so the answer is partial and says so.
+    const rows = page.getByTestId('offering-list').locator('tbody tr');
+    await expect(rows).toHaveCount(2, { timeout: T });
+    const pg = rows.filter({ has: page.locator(PG_ROW) });
+    // The line names the provider it speaks for, and the count leaves postgresql-ha
+    // (acceptance unknown) out of the providers you may consume.
+    await expect(pg.getByTestId('offering-consumable')).toHaveText('postgresql 17.0.0');
+    await expect(pg.getByTestId('offering-providers')).toHaveText('1 of 2 providers you may consume');
+    await expect(pg.getByTestId('offering-consumable')).toHaveAttribute('title', /^postgresql 17\.0\.0; publisher https:\/\/github\.com\/trianalab\/postgresql\/\.github\/workflows\/publish\.yml@refs\/heads\/main, as of /);
+    const os = rows.filter({ has: page.locator('a.entity-link[href$="/fleet/offerings/objectstore"]') });
+    const line = os.getByTestId('offering-consumable');
+    await expect(line).toHaveText('objectstore 1.0.0 · classes archive, standard');
+    await expect(line).toHaveAttribute('title', /^objectstore 1\.0\.0 · classes archive, standard; publisher dana@acme\.example, as of /);
+    await expect(page.locator('.knowledge').first()).toBeVisible();
+    await audit(page, 'consumable offerings');
+    expect(await noSideScroll(page)).toBe(true);
   });
 
   test('the postgresql page shows its providers, a consume snippet and its consumers', async ({ page }) => {
@@ -306,16 +334,18 @@ test.describe('WASM demo — platform offerings', () => {
     await audit(page, 'shared-config unresolved uses');
   });
 
-  test('an unsigned Ready never reads positive in the offering figures', async ({ page }) => {
+  test('an unsigned Ready is counted apart and only a signed one reads positive in the offering figures', async ({ page }) => {
     await page.setViewportSize({ width: 1280, height: 900 });
-    // Every postgresql Ready is unsigned: the Ready station is info, draws no check and says so.
+    // postgresql has two Readies: catalog's through platform-db is unsigned, ticketing's
+    // through the PostgreSQLInstance claim is the platform adapter's signed report. The
+    // station reads ok for the signed one and still counts the unsigned one apart. An
+    // offering whose every Ready is unsigned reads info: readyTone's unit test holds that.
     await page.goto('/#/fleet/offerings/postgresql');
     const fig = page.getByTestId('offering-figure');
     const ready = fig.locator('.ph-ready');
-    await expect(ready.locator('.nd')).toHaveClass(/\bt-info\b/, { timeout: T });
-    await expect(ready.locator('.nd')).not.toHaveClass(/\bt-ok\b/);
+    await expect(ready.locator('.nd')).toHaveClass(/\bt-ok\b/, { timeout: T });
     await expect(ready).toContainText('unsigned');
-    await expect(fig.locator('svg.fig-wires')).toHaveAttribute('aria-label', /ready \(\d+ unsigned\)/);
+    await expect(fig.locator('svg.fig-wires')).toHaveAttribute('aria-label', /ready \(1 unsigned\)/);
     // The list adds security-scanning's signed Ready, so its Ready station reads ok.
     await page.goto('/#/fleet/offerings');
     await expect(page.getByTestId('offerings-figure').locator('.ph-ready .nd')).toHaveClass(/\bt-ok\b/, { timeout: T });

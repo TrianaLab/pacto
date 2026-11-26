@@ -70,22 +70,23 @@ func u(apiVersion, kind, name string, fields map[string]any) *unstructured.Unstr
 func deliveryDeps(user string, dynErr error) deps {
 	d := defaultDeps()
 	d.newDeliveryRegistry = func(...string) app.DeliveryRegistry { return cliRegistry{} }
+	d.served = func(*rest.Config, string) (bool, error) { return true, nil }
 	d.newDynamic = func() (dynamic.Interface, error) {
 		lists := map[schema.GroupVersionResource]string{
-			{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}: "OperationList",
-			{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}:     "StageList",
-			{Group: "pacto.trianalab.io", Version: "v1alpha1", Resource: "pactos"}:              "PactoList",
-			{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}:   "KustomizationList",
+			{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}:     "OperationList",
+			{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}:         "StageList",
+			{Group: "pacto.trianalab.io", Version: "v1", Resource: "pactos"}:                  "PactoList",
+			{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}: "KustomizationList",
 		}
 		c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists,
-			u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
+			u("delivery.pacto.trianalab.io/v1", "Stage", "payments-prod", map[string]any{
 				"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"},
 					"candidates": map[string]any{"ociRepositoryRef": map[string]any{"name": "payments"}}},
 				"status": map[string]any{"level": "autonomous", "pointer": cliA, "verified": []any{cliA}, "published": []any{cliB}, "frozen": true, "frozenReason": "a rollback failed",
 					"autoHold": true, "lastCheck": map[string]any{"operation": "uid-x", "digest": cliA, "at": "2026-10-20T10:00:00Z",
 						"verdicts": []any{map[string]any{"gate": "health", "phase": "verify", "result": "Unknown", "message": "too few spans"}}}}}),
 			u("source.toolkit.fluxcd.io/v1", "OCIRepository", "payments", map[string]any{"spec": map[string]any{"url": "oci://reg/apps/payments"}}),
-			u("delivery.pacto.trianalab.io/v1alpha1", "Operation", "held", map[string]any{
+			u("delivery.pacto.trianalab.io/v1", "Operation", "held", map[string]any{
 				"spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "intentDigest": "sha256:i"},
 				"status": map[string]any{"phase": "Held", "question": "Approve?", "reason": "AwaitingHuman", "message": "m",
 					"times": map[string]any{"approvalDeadline": "2026-10-30T09:00:00Z"},
@@ -121,7 +122,7 @@ func approveDeps(user string, dynErr error) deps {
 	plain := d.newDynamic
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
-		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}).Namespace("prod")
+		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}).Namespace("prod")
 		s, _ := stages.Get(context.Background(), "payments-prod", metav1.GetOptions{})
 		_ = unstructured.SetNestedField(s.Object, "15m0s", "status", "authFreshness")
 		_, _ = stages.Update(context.Background(), s, metav1.UpdateOptions{})
@@ -141,11 +142,57 @@ func approveDeps(user string, dynErr error) deps {
 	return d
 }
 
+// TestDeliveryClientFollowsTheServedVersion: against a chart-6 cluster, which
+// serves the Pacto groups at v1alpha1 only, the CLI's delivery clients ask
+// discovery on first use and keep the answer; a failed or empty answer is not
+// kept, so a long-lived MCP server asks again; without a cluster or an answer
+// they address v1.
+func TestDeliveryClientFollowsTheServedVersion(t *testing.T) {
+	d := deliveryDeps("alice", nil)
+	var asked []string
+	d.clusterConfig = func() (*rest.Config, error) { return &rest.Config{Host: "https://k8s"}, nil }
+	d.served = func(cfg *rest.Config, gv string) (bool, error) {
+		asked = append(asked, fmt.Sprint(gv, " ", cfg.Timeout))
+		return gv == deliveryGroup+"/v1alpha1" || gv == "pacto.trianalab.io/v1alpha1", nil
+	}
+	versions := deliveryClientsFor(nil, "", nil, d)(nil).ServedVersions
+	want := map[string]string{deliveryGroup: "v1alpha1", "pacto.trianalab.io": "v1alpha1"}
+	for range 2 {
+		expect(t, fmt.Sprint(versions()) == fmt.Sprint(want), "versions %v", versions())
+	}
+	expect(t, strings.Join(asked, ",") == deliveryGroup+"/v1 5s,"+deliveryGroup+"/v1alpha1 5s,pacto.trianalab.io/v1 5s,pacto.trianalab.io/v1alpha1 5s",
+		"asked once, with a timeout: %v", asked)
+
+	// A failed first answer is not kept: the next call asks again.
+	down := true
+	retry := d
+	retry.served = func(_ *rest.Config, gv string) (bool, error) {
+		if down {
+			return false, errors.New("timeout")
+		}
+		return strings.HasSuffix(gv, "/v1alpha1"), nil
+	}
+	again := deliveryClientsFor(nil, "", nil, retry)(nil)
+	expect(t, again.ServedVersions() == nil, "discovery failed")
+	down = false
+	expect(t, fmt.Sprint(again.ServedVersions()) == fmt.Sprint(want), "asked again after a failure: %v", again.ServedVersions())
+
+	none := deps{}
+	expect(t, servedVersions(none)() == nil, "no cluster config")
+	none.clusterConfig = func() (*rest.Config, error) { return nil, errors.New("no kubeconfig") }
+	expect(t, servedVersions(none)() == nil, "no kubeconfig")
+	none.clusterConfig = d.clusterConfig
+	none.served = func(*rest.Config, string) (bool, error) { return false, errors.New("down") }
+	expect(t, servedVersions(none)() == nil, "discovery failed")
+	none.served = func(*rest.Config, string) (bool, error) { return false, nil }
+	expect(t, servedVersions(none)() == nil, "served at neither")
+}
+
 func runDelivery(t *testing.T, d deps, format string, args ...string) (string, error) {
 	t.Helper()
 	v := viper.New()
 	v.Set(outputFormatKey, format)
-	cmd := newDeliveryCommand(v, d)
+	cmd := newDeliveryCommand(app.NewService(nil, nil), v, d)
 	out := &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(&strings.Builder{})
@@ -234,10 +281,10 @@ func TestDeliveryHistoryWindowAndService(t *testing.T) {
 	plain := d.newDynamic
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
-		ops := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}).Namespace("prod")
+		ops := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}).Namespace("prod")
 		for i, name := range []string{"one-hour-ago", "three-hours-ago"} {
 			finished := time.Now().Add(-time.Duration(1+2*i) * time.Hour).UTC().Format(time.RFC3339)
-			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1alpha1", "Operation", name, map[string]any{
+			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1", "Operation", name, map[string]any{
 				"spec":   map[string]any{"type": delivery.TypePromote, "stage": "payments-prod"},
 				"status": map[string]any{"phase": "Concluded", "seq": int64(i + 1), "times": map[string]any{"applied": finished, "finished": finished}}}),
 				metav1.CreateOptions{})
@@ -351,14 +398,14 @@ func historyOps(d deps) deps {
 	plain := d.newDynamic
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
-		ops := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}).Namespace("prod")
+		ops := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}).Namespace("prod")
 		at := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 		for i, op := range []map[string]any{
 			{"name": "tied", "spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "correlationID": "INC-1",
 				"cause": map[string]any{"reason": "Latency alert"}}},
 			{"name": "untied", "spec": map[string]any{"type": delivery.TypePromote, "stage": "payments-prod"}},
 		} {
-			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1alpha1", "Operation", op["name"].(string), map[string]any{
+			_, _ = ops.Create(context.Background(), u("delivery.pacto.trianalab.io/v1", "Operation", op["name"].(string), map[string]any{
 				"spec":   op["spec"],
 				"status": map[string]any{"phase": "Concluded", "seq": int64(i + 1), "times": map[string]any{"applied": at, "finished": at}}}),
 				metav1.CreateOptions{})
@@ -503,7 +550,7 @@ func TestDeliveryApproveFreshLogin(t *testing.T) {
 	v.SetEnvPrefix("PACTO")
 	v.SetEnvKeyReplacer(strings.NewReplacer("-", "_", ".", "_"))
 	v.AutomaticEnv()
-	cmd := newDeliveryCommand(v, d)
+	cmd := newDeliveryCommand(app.NewService(nil, nil), v, d)
 	out, errOut := &strings.Builder{}, &strings.Builder{}
 	cmd.SetOut(out)
 	cmd.SetErr(errOut)
@@ -596,7 +643,7 @@ func TestMCPDeliveryMode(t *testing.T) {
 		t.Fatalf("modes: %v", err)
 	}
 	c, _, _ := deliveryClient(cmd, deliveryDeps("alice", nil))
-	if p, err := (mcpDelivery{c}).Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: cliB}); err != nil || p.IntentDigest == "" {
+	if p, err := (mcpDelivery{Delivery: c}).Plan(context.Background(), delivery.Request{Namespace: "prod", Stage: "payments-prod", To: cliB}); err != nil || p.IntentDigest == "" {
 		t.Fatalf("adapter: %+v %v", p, err)
 	}
 	if newDeliveryRegistry("h") == nil {
@@ -659,6 +706,7 @@ func TestRequestFromCorrelationID(t *testing.T) {
 	cmd := &cobra.Command{}
 	addRequestFlags(cmd)
 	_ = cmd.Flags().Set("correlation-id", "CHG-2041")
+	_ = cmd.Flags().Set("stage", "payments-prod")
 	req, err := requestFrom(cmd, "prod")
 	if err != nil || req.CorrelationID != "CHG-2041" {
 		t.Fatalf("request %+v, err %v", req, err)
@@ -794,6 +842,75 @@ func TestPrintPlanManifestsAbsentWithoutGate(t *testing.T) {
 	for _, no := range []string{"objects:", "refused:", "unread:"} {
 		if strings.Contains(b.String(), no) {
 			t.Fatalf("no %q expected in\n%s", no, b.String())
+		}
+	}
+}
+
+// valuesPlanAnswer is a promote plan whose pacto.published, pacto.manifests and
+// pacto.environment verdicts carry the given citations.
+func valuesPlanAnswer(published delivery.Result, upstream string, manifests, environment map[string]string) delivery.PlanAnswer {
+	pub := map[string]string{}
+	if upstream != "" {
+		pub["upstream"] = upstream
+	}
+	return delivery.PlanAnswer{Plan: delivery.Plan{Type: delivery.TypePromote, To: "sha256:ab12...", Verdicts: []delivery.Verdict{
+		{Gate: delivery.GatePublished, Result: published, Citation: pub},
+		{Gate: delivery.GateApplier, Result: delivery.Pass, Citation: map[string]string{"observed": "Argo CD Application payments", "declared": "Application payments"}},
+		{Gate: delivery.GateManifests, Result: delivery.Pass, Citation: manifests},
+		{Gate: delivery.GateEnvironment, Result: delivery.Pass, Citation: environment,
+			Message: "the values of environment production satisfy the configuration schemas"},
+	}}}
+}
+
+// TestPrintPlanValues: the plan names the values file the applier applies,
+// read from the digest it ships, the upstream Stage that verified that
+// digest and whether Pacto checks the same values.
+func TestPrintPlanValues(t *testing.T) {
+	chart := map[string]string{"valuesFile": "values-production.yaml", "valuesDigest": "sha256:5e0c..."}
+	same := map[string]string{"checkedValues": "environments[1].file"}
+	for _, tc := range []struct {
+		name string
+		p    delivery.PlanAnswer
+		want string
+	}{
+		{"upstream pass, same values (the Goal's UX block)", valuesPlanAnswer(delivery.Pass, "test/payments", chart, same),
+			"applier:   Argo CD Application payments; declared Application payments\n" +
+				"values:    values-production.yaml sha256:5e0c... in sha256:ab12... (the digest test/payments verified); Pacto checks the same values as environments[1].file\n"},
+		{"artifact-fed Stage", valuesPlanAnswer(delivery.Pass, "", chart, same),
+			"values:    values-production.yaml sha256:5e0c... in sha256:ab12...; Pacto checks the same values as environments[1].file\n"},
+		{"upstream fail", valuesPlanAnswer(delivery.Fail, "test/payments", chart, same),
+			"values:    values-production.yaml sha256:5e0c... in sha256:ab12...; Pacto checks the same values as environments[1].file\n"},
+		{"different values", valuesPlanAnswer(delivery.Pass, "test/payments", chart, map[string]string{}),
+			"values:    values-production.yaml sha256:5e0c... in sha256:ab12... (the digest test/payments verified)\n"},
+		{"overlay", valuesPlanAnswer(delivery.Pass, "", map[string]string{"valuesFile": "overlays/production"}, map[string]string{}),
+			"values:    overlays/production in sha256:ab12...\n"},
+	} {
+		var b strings.Builder
+		printPlan(&b, tc.p)
+		if !strings.Contains(b.String(), tc.want) {
+			t.Fatalf("%s: want %q in\n%s", tc.name, tc.want, b.String())
+		}
+	}
+	// The environment verdict of the Goal reads Checked: a Pass on an
+	// evidence gate only says the gate ran (delivery.VerdictLabel).
+	var b strings.Builder
+	printPlan(&b, valuesPlanAnswer(delivery.Pass, "test/payments", chart, same))
+	if want := "  pacto.environment Checked  the values of environment production satisfy the configuration schemas\n"; !strings.Contains(b.String(), want) {
+		t.Fatalf("want %q in\n%s", want, b.String())
+	}
+}
+
+// TestNoValuesLineWithoutInspection: the plan prints a values line only for
+// a values file the inspector read.
+func TestNoValuesLineWithoutInspection(t *testing.T) {
+	for _, p := range []delivery.PlanAnswer{
+		valuesPlanAnswer(delivery.Pass, "test/payments", map[string]string{"objects": "Deployment payments"}, map[string]string{}),
+		{Plan: delivery.Plan{Type: delivery.TypePromote, Verdicts: []delivery.Verdict{{Gate: delivery.GatePublished, Result: delivery.Pass}}}},
+	} {
+		var b strings.Builder
+		printPlan(&b, p)
+		if strings.Contains(b.String(), "values:") {
+			t.Fatalf("no values line expected in\n%s", b.String())
 		}
 	}
 }

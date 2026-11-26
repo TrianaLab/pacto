@@ -46,7 +46,6 @@ type acceptEnv struct {
 
 func newAcceptEnv(t *testing.T, referrers bool) *acceptEnv {
 	t.Helper()
-	noAmbient(t)
 	p := provenanceTestRegistryOf(t, referrers)
 	e := &acceptEnv{prov: p}
 	p.failWhen(func(r *http.Request) bool {

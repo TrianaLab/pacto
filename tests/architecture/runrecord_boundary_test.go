@@ -51,7 +51,7 @@ var (
 var operatorRunRecordEmitters = []string{runStatsPkg}
 
 const (
-	operatorRoot   = "github.com/trianalab/pacto/integrations/kubernetes/v6/"
+	operatorRoot   = "github.com/trianalab/pacto/integrations/kubernetes/v7/"
 	runStatsPkg    = operatorRoot + "internal/runstats"
 	runStatsDir    = "../../integrations/kubernetes/internal/runstats"
 	ocireferrerPkg = modRoot + "pkg/ocireferrer"
@@ -99,7 +99,7 @@ func TestDecidersNeverReachRunRecords(t *testing.T) {
 }
 
 func TestOperatorNeverImportsRunRecords(t *testing.T) {
-	for pkg, imports := range listGraph(t, "github.com/trianalab/pacto/integrations/kubernetes/v6/...", "Imports") {
+	for pkg, imports := range listGraph(t, "github.com/trianalab/pacto/integrations/kubernetes/v7/...", "Imports") {
 		if slices.Contains(operatorRunRecordEmitters, pkg) {
 			continue
 		}

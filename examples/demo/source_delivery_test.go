@@ -292,7 +292,7 @@ func storyProblems(t *testing.T, d *demoDelivery) {
 
 	// The refused publish (B4).
 	r, _ := d.PublishRefusals(t.Context(), "")
-	if len(r.Refusals) != 2 || r.Refusals[0].RequiredBump != "major" || r.Refusals[0].Verified {
+	if len(r.Refusals) != 3 || r.Refusals[0].RequiredBump != "major" || r.Refusals[0].Verified {
 		t.Fatalf("refusals: %+v", r)
 	}
 }
@@ -887,14 +887,15 @@ func TestDemoStagesRecordRegistryMode(t *testing.T) {
 }
 
 // TestDemoRefusalsListAPromote: the refused list holds one refused promote
-// beside the refused publish, on a Stage and version of the story.
+// beside the refused publish and the member row, on a Stage and version of
+// the story.
 func TestDemoRefusalsListAPromote(t *testing.T) {
 	_, h := demoServer(t)
 	var out struct {
 		Total    int                        `json:"total"`
 		Refusals []dashboard.PublishRefusal `json:"refusals"`
 	}
-	if code := call(t, h, "GET", "/api/delivery/refusals", "", &out); code != 200 || out.Total != 2 {
+	if code := call(t, h, "GET", "/api/delivery/refusals", "", &out); code != 200 || out.Total != 3 {
 		t.Fatalf("refusals %d %+v", code, out)
 	}
 	i := slices.IndexFunc(out.Refusals, func(r dashboard.PublishRefusal) bool { return r.Check == "manifests" })
@@ -933,11 +934,35 @@ func TestDemoInspectedPlanComesFromPlanFor(t *testing.T) {
 		v.Citation["objects"] != "Deployment checkout, Service checkout" || v.Message != "every one of the 2 objects stays in prod" {
 		t.Fatalf("pacto.manifests: %+v", v)
 	}
-	// Only the chosen Stage is inspected.
+	// Only the chosen Stages (prod/checkout and prod/payments) are inspected.
 	req = strings.Replace(req, `"namespace":"`+story.Prod+`"`, `"namespace":"prod-eu"`, 1)
 	if code := call(t, h, "POST", "/api/delivery/plan", req, &p); code != 200 ||
 		slices.ContainsFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateManifests }) {
 		t.Fatalf("prod-eu plan %d %+v", code, p.Verdicts)
+	}
+}
+
+// TestDemoPaymentsPlanCitesValues: payments ships through Argo CD with one
+// values file per environment. Each Stage records the file its Application
+// selects, as SelectedValues reads it, and a promote to prod cites the file
+// it applies from the version.
+func TestDemoPaymentsPlanCitesValues(t *testing.T) {
+	d, h := demoServer(t)
+	for _, env := range []string{story.Test, story.Prod} {
+		want := "values-" + env + ".yaml"
+		if r := rowOf(t, environments(t, h, "payments"), env, "payments"); r.Applier == nil || r.Applier.Values != want {
+			t.Errorf("%s: applier %+v, want values %s", env, r.Applier, want)
+		}
+	}
+	p := d.op(story.Prod, "payments-promote-2").Status.Plan
+	i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GateManifests })
+	if i < 0 {
+		t.Fatalf("no pacto.manifests verdict: %+v", p.Verdicts)
+	}
+	v := p.Verdicts[i]
+	if v.Citation["valuesFile"] != "values-prod.yaml" || v.Citation["valuesDigest"] != "" ||
+		!strings.HasPrefix(v.Citation["artifact"], "chart (simulated") {
+		t.Fatalf("pacto.manifests: %+v", v)
 	}
 }
 

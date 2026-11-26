@@ -46,6 +46,15 @@ type K8sEntry struct {
 // label names e where a reader sees it: its context, "k8s" without one.
 func (e K8sEntry) label() string { return cmp.Or(e.Name, "k8s") }
 
+// ClusterName is the display name of the cluster e reaches (514 D2), else
+// its context name.
+func (e K8sEntry) ClusterName() string {
+	if e.cluster != nil && e.cluster.Name != "" {
+		return e.cluster.Name
+	}
+	return e.Name
+}
+
 // k8sMemo keys what Service.k8sLast remembers of one context.
 type k8sMemo struct{ what, key string }
 

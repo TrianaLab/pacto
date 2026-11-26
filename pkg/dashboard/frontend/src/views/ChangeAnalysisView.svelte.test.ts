@@ -112,6 +112,51 @@ describe('ChangeAnalysisView — one workspace for what changed and what it affe
     location.hash = '';
   });
 
+  it('names each Runs on target by its cluster when the answer holds several, marks a stale cluster and leaves the consumer cell alone (514-S7)', async () => {
+    const base = impactResult();
+    const clusters = [
+      { id: '1b2c3d4e-0000-4000-8000-000000000001', name: 'eu-prod', status: 'available', targets: 1 },
+      { id: '1b2c3d4e-0000-4000-8000-000000000002', name: 'us-prod', status: 'stale', asOf: '2026-07-29T09:46:00Z', targets: 1 },
+    ];
+    const eu = ref('target', `${clusters[0].id}/prod/k8s/checkout`, 'checkout');
+    const us = ref('target', `${clusters[1].id}/prod/k8s/ledger`, 'ledger');
+    base.meta = { ...meta, clusters };
+    base.consumers.items[0] = { ...base.consumers.items[0], targets: [eu], targetsTotal: 1, clusters: [clusters[0].id] };
+    base.consumers.items[1] = { ...base.consumers.items[1], targets: [us], targetsTotal: 1, clusters: [clusters[1].id] };
+    impactFn.mockResolvedValue(base);
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="consumer-row"]').length).toBe(2));
+    const [billing, ledger] = [...target.querySelectorAll('[data-testid="consumer-row"]')];
+    const runsOn = (row: Element) => row.querySelector('[data-label="Runs on"]') as HTMLElement;
+    expect(runsOn(billing).textContent).toContain('eu-prod / checkout');
+    expect(runsOn(ledger).textContent).toContain('us-prod / ledger');
+    // The uid is only in the title, never in a label.
+    expect(runsOn(ledger).querySelector('.ei-label')?.textContent).not.toMatch(/[0-9a-f]{8}-[0-9a-f]{4}-/);
+    expect(runsOn(ledger).querySelector('span[title^="Cluster us-prod"]')?.getAttribute('title')).toBe(`Cluster us-prod (${clusters[1].id})`);
+    // A target in a stale cluster wears the stale badge with the cluster's age.
+    expect(runsOn(billing).querySelector('[data-testid="consumer-target-cluster-stale"]')).toBeNull();
+    expect(runsOn(ledger).querySelector('[data-testid="consumer-target-cluster-stale"]')?.getAttribute('title')).toMatch(/^Cluster us-prod last published .+, so what runs there now is unknown$/);
+    // The consumer cell names the service only.
+    expect(billing.querySelector('[data-label="Consumer"]')?.textContent).not.toContain('eu-prod');
+    unmount(component); document.body.removeChild(target);
+  });
+
+  it('adds no cluster prefix with one cluster (514-S7)', async () => {
+    const base = impactResult();
+    base.consumers.items[0] = { ...base.consumers.items[0], targets: [ref('target', 'prod/k8s/billing', 'billing')], targetsTotal: 1 };
+    impactFn.mockResolvedValue(base);
+    const { target, component } = mountView({ svc: 'domain-a/payments' });
+    await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());
+    analyzeBtn(target).click();
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="consumer-row"]').length).toBe(2));
+    const runsOn = target.querySelector('[data-testid="consumer-row"] [data-label="Runs on"]') as HTMLElement;
+    expect(runsOn.textContent?.trim()).toBe('billing');
+    expect(runsOn.querySelector('span[title]:not(.ei-label)')).toBeNull();
+    unmount(component); document.body.removeChild(target);
+  });
+
   it('loads revisions from the product service detail and analyzes via the POST with CANONICAL keys', async () => {
     const { target, component } = mountView({ svc: 'domain-a/payments' });
     await vi.waitFor(() => expect(target.querySelector('#impact-new-rev')).toBeTruthy());

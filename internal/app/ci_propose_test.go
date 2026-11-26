@@ -75,6 +75,7 @@ func recordFields(t *testing.T, fsys fs.FS) map[string]contract.Inferred {
 }
 
 func TestCIProposesFromIndexAndSnapshot(t *testing.T) {
+	t.Parallel()
 	e := proposalEnv(t)
 	_, key, _ := ed25519.GenerateKey(rand.Reader)
 	snap := delivery.TargetSnapshot{Cluster: snapA, AsOf: time.Now().Format(time.RFC3339), Completeness: fleet.CompletenessComplete,
@@ -113,6 +114,7 @@ func TestCIProposesFromIndexAndSnapshot(t *testing.T) {
 // TestCIPlanAndPublishCarrySameProposals: the bundle pushed holds the record
 // the plan judged, proposals included.
 func TestCIPlanAndPublishCarrySameProposals(t *testing.T) {
+	t.Parallel()
 	e := proposalEnv(t)
 	bundles := map[string]*contract.Bundle{}
 	if _, _, err := e.svc.CIPlan(t.Context(), CIOptions{Root: e.root, Registry: e.host + "/acme", Bundles: bundles, revision: "r2"}); err != nil {
@@ -143,6 +145,7 @@ func TestCIPlanAndPublishCarrySameProposals(t *testing.T) {
 // TestCIProposalOnlyDifferenceNotRepublished: a proposal alone never makes a
 // service changed, so nothing is written for it.
 func TestCIProposalOnlyDifferenceNotRepublished(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.svc.sys.refusalRepo = anonRepo
 	e.write(t, map[string]string{"a/pacto.yaml": e.contract("reports", "", reportsByName, ""), "b/pacto.yaml": e.contract("ledger", "2.4.0", "", "")})
@@ -171,6 +174,7 @@ func TestCIProposalOnlyDifferenceNotRepublished(t *testing.T) {
 // snapshot or left unlinked does not, and an unresolved dependency proposes
 // nothing.
 func TestRunningProvidersReadsLinkedTargets(t *testing.T) {
+	t.Parallel()
 	const reports, ledger fleet.ServiceKey = "acme/reports", "acme/ledger"
 	rev := &fleet.ContractRevision{Version: "2.5.0"}
 	snap := &fleet.FleetSnapshot{
@@ -204,6 +208,7 @@ func TestRunningProvidersReadsLinkedTargets(t *testing.T) {
 // TestCIProposesNoRefWithoutAnIndex: an index that cannot be read, or
 // --index none, proposes no ref and fails nothing.
 func TestCIProposesNoRefWithoutAnIndex(t *testing.T) {
+	t.Parallel()
 	e := newCIPub(t)
 	e.write(t, map[string]string{"a/pacto.yaml": e.contract("reports", "1.0.0", "dependencies:\n  - name: ledger\n    required: true\n", "")})
 	for _, fo := range []FleetOptions{{}, {Index: IndexNone}} {
@@ -225,6 +230,7 @@ func TestCIProposesNoRefWithoutAnIndex(t *testing.T) {
 // refused, so the index names exactly one ledger and one ref is proposed,
 // from ledger's own tag.
 func TestProposeRefAmbiguousIsFinding(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.push(t, "ledger", "1.0.0", interfaceYAML, "")
 	v2 := e.push(t, "ledger", "2.0.0", interfaceYAML, IndexNone)
@@ -258,6 +264,7 @@ func TestProposeRefAmbiguousIsFinding(t *testing.T) {
 // depends on ledger proposes no ref for ledger; the name matches the
 // entry's own service, never its dependencies.
 func TestIndexRefsIgnoresAConsumerOfTheName(t *testing.T) {
+	t.Parallel()
 	e := newIdxEnv(t)
 	e.push(t, "billing", "1.0.0", e.dependsOnLedger(), "")
 	refs := e.svc.indexRefs(t.Context(), indexCandidates("", e.ir.host+"/acme/reports"), e.ir.host+"/acme", []string{"ledger"})
@@ -270,6 +277,7 @@ func TestIndexRefsIgnoresAConsumerOfTheName(t *testing.T) {
 // dependencies on other services: declared in pacto.yaml, accepted when a
 // carried acceptance pinned the range, else unknown with the proposal.
 func TestCIRangesOverWalkedServices(t *testing.T) {
+	t.Parallel()
 	dep := func(name, compat string) contract.Dependency {
 		return contract.Dependency{Name: name, Compatibility: compat}
 	}

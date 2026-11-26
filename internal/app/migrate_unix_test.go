@@ -9,6 +9,7 @@ import (
 )
 
 func TestMigrateKeepsNonRegularFile(t *testing.T) {
+	t.Parallel()
 	dir := writeTree(t, "", map[string]string{"s/README": "x"})
 	if err := syscall.Mkfifo(filepath.Join(dir, "s", "pacto.yaml"), 0o644); err != nil {
 		t.Fatal(err)

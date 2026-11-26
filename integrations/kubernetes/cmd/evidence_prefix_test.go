@@ -12,7 +12,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/credentials"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/credentials"
 )
 
 // The Evidence Server writes its ledger with its own credential, so a subject

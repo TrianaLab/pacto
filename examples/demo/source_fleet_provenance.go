@@ -9,8 +9,9 @@ import (
 // provenanced are the services whose newest revision the demo registry
 // checked, and what accepted its signer: payments-service publishes from a
 // workflow the installation's rule covers, orders-service from one a person
-// pinned. Every other revision is not checked.
-var provenanced = map[string]string{"payments-service": "rule", "orders-service": "pin"}
+// pinned, postgresql (an offering) from one the rule covers too. Every other
+// revision is not checked.
+var provenanced = map[string]string{"payments-service": "rule", "orders-service": "pin", "postgresql": "rule"}
 
 // withProvenance sets the signature check on the newest revision of each
 // provenanced service, as the registry source's ProvenanceFunc would.

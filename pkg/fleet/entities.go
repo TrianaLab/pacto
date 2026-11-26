@@ -135,8 +135,16 @@ type EntityFilter struct {
 	// Failed keeps the OFFERING rows with at least one failed provisioning
 	// request.
 	Failed bool
+	// Consumable keeps the OFFERING rows with a provider a caller may consume
+	// and fills [EntityRef.Consumable]: an accepted provider that declares the
+	// offering, is published and is not past sunset, judged at its newest
+	// revision. It needs exactly kind offering.
+	Consumable bool
 	// Class keeps the EXTERNAL systems of this class (see [ExternalClasses]).
 	Class string
+	// OutsideContract keeps the EXTERNAL systems with at least one managed
+	// resource no offering produced (see resourceContract).
+	OutsideContract bool
 	// Sort orders the answer: "" by kind then key, SortName by label in natural
 	// order (target-2 before target-10), SortHealth least healthy first, then by
 	// name. Paging walks the sorted answer, so every page agrees with the order.
@@ -256,10 +264,16 @@ type EntityList struct {
 	// Hidden counts, when external systems are listed, those only services
 	// the caller's permissions hide declare. They are never named.
 	Hidden int `json:"hidden,omitempty" doc:"When external systems are listed, how many only hidden services declare; never named"`
+	// InferredTotal counts, when declared offerings are listed, the inferred
+	// offerings kind offering with declaration inferred lists; never in Total.
+	InferredTotal int `json:"inferredTotal,omitempty" doc:"When declared offerings are listed: how many inferred offerings declaration=inferred lists under the same text filter; never counted in total"`
 	// Aggregate tallies everything the filter matched, not this page. It is what
 	// makes a filtered list page able to say something true about the whole match
 	// instead of about its first 25 rows.
 	Aggregate EntityAggregate `json:"aggregate"`
+	// InferredTemplates, with template only, are the golden paths catalogs
+	// hold that no registry publishes (see [Query.InferredTemplates]).
+	InferredTemplates *InferredTemplateList `json:"inferredTemplates,omitempty" doc:"With template only: golden paths catalogs hold that no registry publishes, inferred and listed apart from the declared ones; declaration declared leaves them out"`
 }
 
 // Entities searches services, revisions, targets, owners and sources with one
@@ -277,18 +291,19 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 		f.Kinds = []EntityKind{KindService, KindRevision, KindTarget}
 	}
 	want := kindSet(f.Kinds)
-	refs, offerings := q.candidateRefs(want, f.SourceHealth)
+	inferredOfferings := want[KindOffering] && f.Declaration == DeclarationInferred
+	refs, offerings := q.candidateRefs(want, f.SourceHealth, inferredOfferings)
 	consumers := q.offeringConsumers(f.Consumes)
 	if f.Phase != "" {
 		consumers = q.offeringConsumersInPhase(f.Consumes, f.Phase, f.Environment)
 	}
 	x := q.crossKindSets(f)
 	derived := q.entityLimitations(f, consumers, x)
-	filtered := refs[:0:0]
-	for _, r := range refs {
-		if q.entityMatches(r, f, x) && (f.Consumes == "" || r.Kind == KindService && consumers[ServiceKey(r.Key)]) {
-			filtered = append(filtered, r)
-		}
+	filtered := q.filterEntities(refs, f, x, consumers)
+	if f.Consumable {
+		var lims []Limitation
+		filtered, lims = q.consumableRows(filtered, offerings)
+		derived = append(derived, lims...)
 	}
 	sortEntityRefs(filtered)
 	sortEntityList(filtered, f.Sort)
@@ -298,15 +313,54 @@ func (q *Query) Entities(f EntityFilter) (*EntityList, error) {
 	if want[KindExternal] {
 		meta = q.externalProductMeta(derived)
 	}
+	if hasLimitation(derived, LimitationOfferingAcceptanceUnknown) {
+		meta.Completeness = partialOf(meta.Completeness)
+	}
 	res := &EntityList{
 		Meta: meta, Total: len(filtered), Count: len(pg.Items),
 		Limit: pg.Limit, Offset: pg.Offset, Truncated: pg.Truncated, NextOffset: pg.NextOffset, Entities: pg.Items,
 		Aggregate: q.aggregate(filtered, offerings),
 	}
+	q.addInferred(res, f, want, inferredOfferings)
+	return res, nil
+}
+
+// addInferred adds to res what a list beside the declared entities says of
+// the inferred ones: the hidden externals, the inferred offerings a declared
+// offering list leaves out and the golden paths a catalog holds.
+func (q *Query) addInferred(res *EntityList, f EntityFilter, want map[EntityKind]bool, inferredOfferings bool) {
 	if want[KindExternal] {
 		res.Hidden = q.snap.hiddenExternals
 	}
-	return res, nil
+	if want[KindOffering] && !inferredOfferings {
+		res.InferredTotal = q.inferredOfferingCount(f.Text)
+	}
+	if f.Template == TemplateOnly && f.Declaration != DeclarationDeclared {
+		res.InferredTemplates = q.InferredTemplates(f.Text)
+	}
+}
+
+// filterEntities is the refs every filter of f keeps.
+func (q *Query) filterEntities(refs []EntityRef, f EntityFilter, x crossKind, consumers map[ServiceKey]bool) []EntityRef {
+	filtered := refs[:0:0]
+	for _, r := range refs {
+		if q.entityMatches(r, f, x) && (f.Consumes == "" || r.Kind == KindService && consumers[ServiceKey(r.Key)]) {
+			filtered = append(filtered, r)
+		}
+	}
+	return filtered
+}
+
+// inferredOfferingCount is how many contributed offerings the view holds
+// that match text: the inferred offering list a declared one points at
+// (which keeps only the text filter: no inferred row has a failed request
+// or a lifecycle), never counted in it.
+func (q *Query) inferredOfferingCount(text string) int {
+	n := 0
+	for _, r := range q.inferredOfferingRefs() {
+		n += b2i(matchEntityText(r, text))
+	}
+	return n
 }
 
 // sortEntityList orders a filtered answer by the requested [EntityFilter.Sort],
@@ -586,6 +640,9 @@ func validateEntityFilter(f EntityFilter) error {
 	}); err != nil {
 		return err
 	}
+	if err := validateConsumable(f); err != nil {
+		return err
+	}
 	if f.Failed && !kindSet(f.Kinds)[KindOffering] {
 		return &InvalidQueryError{Field: "failed", Value: "true", Reason: "failed keeps offerings; ask kind offering"}
 	}
@@ -666,7 +723,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"environment", f.Environment, []EntityKind{KindTarget, KindService}},
 		{"capability", f.Capability, []EntityKind{KindService}},
 		{"template", f.Template, []EntityKind{KindService, KindRevision}},
-		{"declaration", f.Declaration, []EntityKind{KindService}},
+		{"declaration", f.Declaration, []EntityKind{KindService, KindOffering}},
 		{"group", f.Group, []EntityKind{KindService}},
 		{"createdFrom", f.CreatedFrom, []EntityKind{KindService}},
 		{"domain", f.Domain, []EntityKind{KindService, KindRevision, KindTarget}},
@@ -682,6 +739,7 @@ func validateFilterCombos(f EntityFilter) error {
 		{"readiness", f.Readiness, []EntityKind{KindRevision}},
 		{"lifecycle", f.Lifecycle, []EntityKind{KindService, KindOffering}},
 		{"class", f.Class, []EntityKind{KindExternal}},
+		{"outsideContract", boolValue(f.OutsideContract), []EntityKind{KindExternal}},
 	} {
 		if err := appliesTo(c.field, c.value, c.kinds...); err != nil {
 			return err
@@ -706,14 +764,13 @@ func kindSet(kinds []EntityKind) map[EntityKind]bool {
 
 // candidateRefs collects one reference per entity of every requested kind;
 // sourceHealth narrows the sources (see sourceListRefs).
-func (q *Query) candidateRefs(want map[EntityKind]bool, sourceHealth string) ([]EntityRef, map[string]*offeringFacts) {
+// With inferredOfferings the offering candidates are the inferred offerings,
+// as service rows carrying their facts, in place of the declared ones.
+func (q *Query) candidateRefs(want map[EntityKind]bool, sourceHealth string, inferredOfferings bool) ([]EntityRef, map[string]*offeringFacts) {
 	var refs []EntityRef
 	var offerings map[string]*offeringFacts
 	if want[KindService] {
-		created := q.createdCounts()
-		for _, s := range q.snap.Services {
-			refs = append(refs, q.serviceListRef(s, created[s.Key]))
-		}
+		refs = q.serviceCandidates(inferredOfferings)
 	}
 	if want[KindRevision] {
 		for _, r := range q.snap.Revisions {
@@ -734,7 +791,10 @@ func (q *Query) candidateRefs(want map[EntityKind]bool, sourceHealth string) ([]
 	if want[KindDomain] {
 		refs = append(refs, q.domainListRefs()...)
 	}
-	if want[KindOffering] {
+	switch {
+	case inferredOfferings && !want[KindService]:
+		refs = append(refs, q.inferredOfferingRefs()...)
+	case want[KindOffering] && !inferredOfferings:
 		var rows []EntityRef
 		rows, offerings = q.offeringListRefs()
 		refs = append(refs, rows...)
@@ -745,6 +805,37 @@ func (q *Query) candidateRefs(want map[EntityKind]bool, sourceHealth string) ([]
 		}
 	}
 	return refs, offerings
+}
+
+// serviceCandidates is one row per service; with inferredOfferings an
+// inferred offering's row carries its facts.
+func (q *Query) serviceCandidates(inferredOfferings bool) []EntityRef {
+	var accepted map[string]*ServiceRecord
+	if inferredOfferings {
+		accepted = q.acceptedOfferings()
+	}
+	created := q.createdCounts()
+	refs := make([]EntityRef, 0, len(q.snap.Services))
+	for _, s := range q.snap.Services {
+		if inferredOfferings && s.inferredOffering != nil {
+			refs = append(refs, q.inferredOfferingRef(s, accepted))
+			continue
+		}
+		refs = append(refs, q.serviceListRef(s, created[s.Key]))
+	}
+	return refs
+}
+
+// inferredOfferingRefs is one row per inferred offering, with its facts.
+func (q *Query) inferredOfferingRefs() []EntityRef {
+	accepted := q.acceptedOfferings()
+	var refs []EntityRef
+	for _, s := range q.snap.Services {
+		if s.inferredOffering != nil {
+			refs = append(refs, q.inferredOfferingRef(s, accepted))
+		}
+	}
+	return refs
 }
 
 // sourceListRefs is one row per source. Asked for any state but available
@@ -928,13 +1019,15 @@ func (q *Query) entityMatches(r EntityRef, f EntityFilter, x crossKind) bool {
 }
 
 // matchEntityTextOrClass applies the text filter: an external system also matches by a
-// catalog alias. The class filter keeps the external systems of that class.
+// catalog alias. The class filter keeps the external systems of that class,
+// the outside-contract filter those with a resource no offering produced.
 func (q *Query) matchEntityTextOrClass(r EntityRef, f EntityFilter) bool {
 	if r.Kind != KindExternal {
-		return f.Class == "" && matchEntityText(r, f.Text)
+		return f.Class == "" && !f.OutsideContract && matchEntityText(r, f.Text)
 	}
-	return (f.Text == "" || externalTextMatches(q.externals[ExternalKey(r.Key)], f.Text)) &&
-		(f.Class == "" || r.Secondary == f.Class)
+	rec := q.externals[ExternalKey(r.Key)]
+	return (f.Text == "" || externalTextMatches(rec, f.Text)) &&
+		(f.Class == "" || r.Secondary == f.Class) && (!f.OutsideContract || q.outsideContract(rec) > 0)
 }
 
 // matchGoldenPath applies the template and created-from filters.

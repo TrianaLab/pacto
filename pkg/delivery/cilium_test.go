@@ -37,7 +37,7 @@ func TestCiliumFQDNUseNeverClearsAGate(t *testing.T) {
 		{"environment", rev(dA, c1, old), rev(dB, c2, envBundle(map[string]string{"prod": "prod.yaml"}, prod, true))},
 	} {
 		plan := func(pactos ...PactoView) (Plan, *fleet.FleetSnapshot) {
-			snap, err := Snapshot(context.Background(), pactos, nil, []Revision{c.from, c.to}, now)
+			snap, err := Snapshot(context.Background(), pactos, nil, []Revision{c.from, c.to}, now, Members{})
 			if err != nil {
 				t.Fatal(err)
 			}

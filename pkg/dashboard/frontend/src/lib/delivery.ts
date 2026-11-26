@@ -472,6 +472,10 @@ interface ApplierLine {
   problem: string;
   /** asOf is when the promoter last looked, stale when it stopped, else ''. */
   asOf: string;
+  /** values is the values file or overlay the applier selects, else ''. */
+  values: string;
+  /** valuesTitle says where values comes from: observed on the applier, never declared. */
+  valuesTitle: string;
   warn: boolean;
   text: string;
 }
@@ -490,7 +494,7 @@ export function serverNow(asOf: string | undefined): number {
   return Date.parse(asOf ?? '') || Date.now();
 }
 
-export function applierLine(a: { state?: string; display?: string; manager?: string; message?: string; asOf?: string; staleAt?: string } | null | undefined,
+export function applierLine(a: { state?: string; display?: string; manager?: string; message?: string; asOf?: string; staleAt?: string; values?: string } | null | undefined,
   now = Date.now(), ready = ''): ApplierLine | null {
   if (!a) return null;
   const bad = a.state === 'Conflict' || a.state === 'Unknown';
@@ -500,7 +504,10 @@ export function applierLine(a: { state?: string; display?: string; manager?: str
   const said = /^False: Applier(Conflict|Unknown)\b/.test(ready);
   const problem = bad && !said ? `${a.state!.toLowerCase()}: ${a.message ?? ''}` : '';
   const asOf = a.asOf ? `as of ${timeLabel(a.asOf)}${stale ? ', stale: the promoter has not checked since' : ''}` : '';
-  return { display, problem, asOf, warn: bad || stale, text: `Applier: ${display}${problem ? `, ${problem}` : ''}${asOf ? ` (${asOf})` : ''}` };
+  const values = a.values ?? '';
+  const valuesTitle = values ? `observed on ${display}${a.asOf ? ` as of ${timeLabel(a.asOf)}` : ''}` : '';
+  return { display, problem, asOf, values, valuesTitle, warn: bad || stale,
+    text: `Applier: ${display}${problem ? `, ${problem}` : ''}${values ? `, values ${values}` : ''}${asOf ? ` (${asOf})` : ''}` };
 }
 
 /** gateLabel names a built-in check in plain words; a check the Stage names itself keeps its own name. */
@@ -839,4 +846,31 @@ export function placementTip(r: Pick<EnvironmentRowOf, 'source' | 'placement'>):
 /** ladderCommand is the command that confirms exactly the proposal the inbox shows. */
 export function ladderCommand(l: Pick<InboxLadder, 'command' | 'proposalDigest'>): string {
   return l.command || `pacto delivery ladder confirm --proposal ${l.proposalDigest}`;
+}
+
+type MemberPlanOf = NonNullable<DeliveryEnvironments['members']>[number];
+
+const MEMBER_STATES: Record<string, string> = {
+  'no request': 'No request yet', waiting: 'Waiting for the member', unknown: 'Unknown: no answer in time',
+  refused: 'Refused', raised: 'Raised', held: 'Held for a person', applied: 'Applied', failed: 'Failed', concluded: 'Ended without applying',
+};
+
+/** memberStateLabel names what a member answered to the newest request (514-S6). */
+export function memberStateLabel(state: string): string {
+  return MEMBER_STATES[state] ?? state;
+}
+
+/** placementSourceLabel says where a placement over members came from: a signed rule,
+ *  the environments members advertise (unconfirmed) or a person who signed a request. */
+export function placementSourceLabel(p: Pick<MemberPlanOf['placement'], 'source' | 'confirmedBy'>): string {
+  if (p.source === 'policy') return 'From a signed placement rule';
+  if (p.source === 'advertised') return `Confirmed by ${p.confirmedBy}`;
+  return 'Proposed from advertised environments';
+}
+
+/** memberRefusalLine is one refused-list row from a member: its intake refused the
+ *  request, or its gates rejected the promote it raised (code Rejected). */
+export function memberRefusalLine(r: { code?: string; reason: string }): string {
+  if (r.code === 'Rejected') return `The member's gates rejected the promote: ${r.reason}.`.replace(/\.\.$/, '.');
+  return `The member refused the request${r.code ? ` (${r.code})` : ''}: ${r.reason}.`.replace(/\.\.$/, '.');
 }

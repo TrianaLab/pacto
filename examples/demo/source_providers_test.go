@@ -31,8 +31,8 @@ func TestDemoProviderRows(t *testing.T) {
 	snap := demoFleet(t)
 	reported, reporting := splitReporting(snap.Providers)
 	reported = slices.DeleteFunc(reported, provedElsewhere)
-	if len(reported) != 6 || len(reporting) != 5 {
-		t.Fatalf("providers = %+v, reporting = %+v, want 6 and 5 rows", reported, reporting)
+	if len(reported) != 6 || len(reporting) != 6 {
+		t.Fatalf("providers = %+v, reporting = %+v, want 6 and 6 rows", reported, reporting)
 	}
 	rows := map[string]fleet.Provider{}
 	for _, p := range reported {
@@ -42,7 +42,7 @@ func TestDemoProviderRows(t *testing.T) {
 		rows[p.Source+"/"+p.ID] = p
 	}
 	crd, ok := rows["k8s-production/"+fleet.ProviderPactoCRD]
-	if !ok || crd.Evidence != "served (pacto.trianalab.io/v1alpha1)" {
+	if !ok || crd.Evidence != "served (pacto.trianalab.io/v1)" {
 		t.Errorf("crd row = %+v", crd)
 	}
 	for _, id := range []string{fleet.ProviderArgoCD, fleet.ProviderFlux, fleet.ProviderHelm} {

@@ -50,14 +50,14 @@ afterEach(() => {
 describe('DetectedProviders', () => {
   it('renders one row per provider with its name, evidence and use', async () => {
     providersFn.mockResolvedValue(resp([
-      row('pacto-crd', { name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1alpha1)', usedFor: ['declared-targets'] }),
+      row('pacto-crd', { name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1)', usedFor: ['declared-targets'] }),
       row('kubernetes-workloads', { name: 'Kubernetes workloads', evidence: '3 Deployments' }),
     ]));
     const t = render();
     await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
     expect(block(t).querySelector('h2')?.textContent).toBe('Detected providers');
     expect(text(rows(t)[0])).toContain('Pacto CRD');
-    expect(text(rows(t)[0])).toContain('served (pacto.trianalab.io/v1alpha1)');
+    expect(text(rows(t)[0])).toContain('served (pacto.trianalab.io/v1)');
     // Tokens render with spaces, never with the wire's hyphen.
     expect(text(rows(t)[0])).toContain('declared targets');
     expect(text(rows(t)[1])).toContain('inferred services');
@@ -68,11 +68,33 @@ describe('DetectedProviders', () => {
     providersFn.mockResolvedValue(resp([
       row('istio-egress', { provenance: 'inferred', usedFor: ['reads calls leaving the cluster; nothing is turned on', 'external-egress'] }),
       row('kernel-egress', { usedFor: ['external-egress'] }),
+      row('managed-resources', { provenance: 'inferred', usedFor: ['reads managed cloud resources and the services that use them; nothing is turned on', 'managed-resources'] }),
     ]));
     const t = render();
-    await vi.waitFor(() => expect(rows(t)).toHaveLength(2));
+    await vi.waitFor(() => expect(rows(t)).toHaveLength(3));
     expect(text(rows(t)[0].querySelector('.dp-used'))).toBe('reads calls leaving the cluster; nothing is turned on');
     expect(text(rows(t)[1].querySelector('.dp-used'))).toBe('external egress');
+    expect(text(rows(t)[2].querySelector('.dp-used'))).toBe('reads managed cloud resources and the services that use them; nothing is turned on');
+  });
+
+  it('cloud inventory off row names the opt-in', async () => {
+    const reason = 'set controller.cloudInventory to read the inventory with arn:aws:iam::123456789012:role/pacto-read';
+    const hint = 'helm upgrade <release> <chart> --reuse-values --set controller.cloudInventory=<cloud>';
+    providersFn.mockResolvedValue(resp([
+      row('cloud-inventory', { name: 'Cloud inventory', provenance: 'inferred', status: 'unavailable', evidence: 'off', hint,
+        usedFor: ['reads managed cloud resources and the services that use them; nothing is turned on', 'managed-resources'],
+        limitations: [{ code: 'DETECTED_UNKNOWN', message: reason }] }),
+    ]));
+    const t = render();
+    await vi.waitFor(() => expect(rows(t)).toHaveLength(1));
+    const r = rows(t)[0];
+    expect(text(r)).toContain('Cloud inventory');
+    expect(text(r.querySelector('.dp-evidence'))).toBe('off');
+    // The reason and the upgrade that turns it on sit behind More details, never as a verdict.
+    const more = r.querySelector('details.dp-why')!;
+    expect(text(more.querySelector('summary'))).toBe('More details');
+    expect(text(more)).toContain(reason);
+    expect(text(more)).toContain('--set controller.cloudInventory=<cloud>');
   });
 
   it('collapses the reasons of a partial row under "Why partial" and of a stale one under "Why stale"', async () => {

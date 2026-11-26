@@ -52,10 +52,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/controller"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/controller"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
 )
 
 var (
@@ -89,7 +89,7 @@ func TestMain(m *testing.M) {
 		return dialer.DialContext(ctx, network, addr)
 	}
 
-	if err := pactov1alpha1.AddToScheme(scheme.Scheme); err != nil {
+	if err := pactov1.AddToScheme(scheme.Scheme); err != nil {
 		fmt.Fprintf(os.Stderr, "add scheme: %v\n", err)
 		os.Exit(1)
 	}
@@ -177,7 +177,7 @@ func (f faultClient) Get(ctx context.Context, key client.ObjectKey, obj client.O
 
 // reconcileResult carries the reconciled CR plus the events the recorder captured (for the no-leak scan).
 type reconcileResult struct {
-	pacto  *pactov1alpha1.Pacto
+	pacto  *pactov1.Pacto
 	events []string
 }
 
@@ -241,9 +241,9 @@ func reconcile(t *testing.T, name, ns string, opts reconcileOpts) reconcileResul
 	}
 }
 
-func getPacto(t *testing.T, name, ns string) *pactov1alpha1.Pacto {
+func getPacto(t *testing.T, name, ns string) *pactov1.Pacto {
 	t.Helper()
-	p := &pactov1alpha1.Pacto{}
+	p := &pactov1.Pacto{}
 	if err := k8sClient.Get(testCtx, client.ObjectKey{Namespace: ns, Name: name}, p); err != nil {
 		t.Fatalf("get pacto %s/%s: %v", ns, name, err)
 	}
@@ -283,9 +283,9 @@ func newNamespace(t *testing.T) string {
 	return name
 }
 
-func createPacto(t *testing.T, name, ns string, spec pactov1alpha1.PactoSpec) {
+func createPacto(t *testing.T, name, ns string, spec pactov1.PactoSpec) {
 	t.Helper()
-	p := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}, Spec: spec}
+	p := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns}, Spec: spec}
 	if err := k8sClient.Create(testCtx, p); err != nil {
 		t.Fatalf("create pacto: %v", err)
 	}
@@ -469,15 +469,15 @@ func createSecret(t *testing.T, ns, name string, data map[string][]byte) {
 // spec.target.serviceName let the collector's real sibling resolution find its Service coordinates.
 func createSiblingPacto(t *testing.T, ns, name, serviceName, resolvedRef, version string) {
 	t.Helper()
-	sib := &pactov1alpha1.Pacto{
+	sib := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: ns},
-		Spec:       pactov1alpha1.PactoSpec{Target: pactov1alpha1.TargetRef{ServiceName: serviceName}},
+		Spec:       pactov1.PactoSpec{Target: pactov1.TargetRef{ServiceName: serviceName}},
 	}
 	if err := k8sClient.Create(testCtx, sib); err != nil {
 		t.Fatalf("create sibling pacto: %v", err)
 	}
-	sib.Status.Contract = &pactov1alpha1.ContractInfo{ServiceName: serviceName, Version: version, ResolvedRef: resolvedRef}
-	sib.Status.ContractStatus = pactov1alpha1.ContractStatusCompliant
+	sib.Status.Contract = &pactov1.ContractInfo{ServiceName: serviceName, Version: version, ResolvedRef: resolvedRef}
+	sib.Status.ContractStatus = pactov1.ContractStatusCompliant
 	if err := k8sClient.Status().Update(testCtx, sib); err != nil {
 		t.Fatalf("set sibling status: %v", err)
 	}
@@ -559,7 +559,7 @@ func substringButNotPrometheus(w http.ResponseWriter, _ *http.Request) {
 
 // --- assertion helpers ------------------------------------------------------
 
-func findingCodes(p *pactov1alpha1.Pacto) []string {
+func findingCodes(p *pactov1.Pacto) []string {
 	out := make([]string, 0, len(p.Status.Findings))
 	for _, f := range p.Status.Findings {
 		out = append(out, f.Code)
@@ -567,7 +567,7 @@ func findingCodes(p *pactov1alpha1.Pacto) []string {
 	return out
 }
 
-func findFinding(p *pactov1alpha1.Pacto, code string) *pactov1alpha1.FindingStatus {
+func findFinding(p *pactov1.Pacto, code string) *pactov1.FindingStatus {
 	for i := range p.Status.Findings {
 		if p.Status.Findings[i].Code == code {
 			return &p.Status.Findings[i]
@@ -576,7 +576,7 @@ func findFinding(p *pactov1alpha1.Pacto, code string) *pactov1alpha1.FindingStat
 	return nil
 }
 
-func validationCodes(p *pactov1alpha1.Pacto) []string {
+func validationCodes(p *pactov1.Pacto) []string {
 	var out []string
 	if p.Status.Validation == nil {
 		return out
@@ -596,7 +596,7 @@ func contains(hay []string, needle string) bool {
 	return false
 }
 
-func requireStatus(t *testing.T, p *pactov1alpha1.Pacto, want string) {
+func requireStatus(t *testing.T, p *pactov1.Pacto, want string) {
 	t.Helper()
 	if p.Status.ContractStatus != want {
 		t.Fatalf("contractStatus = %q, want %q; findings=%v validation=%v",
@@ -604,14 +604,14 @@ func requireStatus(t *testing.T, p *pactov1alpha1.Pacto, want string) {
 	}
 }
 
-func requireFinding(t *testing.T, p *pactov1alpha1.Pacto, code string) {
+func requireFinding(t *testing.T, p *pactov1.Pacto, code string) {
 	t.Helper()
 	if !contains(findingCodes(p), code) {
 		t.Fatalf("expected finding %q, got %v", code, findingCodes(p))
 	}
 }
 
-func requireNoFinding(t *testing.T, p *pactov1alpha1.Pacto, code string) {
+func requireNoFinding(t *testing.T, p *pactov1.Pacto, code string) {
 	t.Helper()
 	if contains(findingCodes(p), code) {
 		t.Fatalf("did not expect finding %q, got %v", code, findingCodes(p))
@@ -631,7 +631,7 @@ var ipv6Pattern = regexp.MustCompile(`::[0-9a-fA-F]{1,4}|(?:[0-9a-fA-F]{1,4}:){4
 // requireNoIP asserts the serialized status/findings carry NO IPv4 or IPv6 address (INV-5). Fixtures use
 // the 10.244.0.x range for EndpointSlice addresses; a ClusterIP or pod IP would also be a dotted quad. Any
 // such address surfacing in findings or status is a leak.
-func requireNoIP(t *testing.T, p *pactov1alpha1.Pacto) {
+func requireNoIP(t *testing.T, p *pactov1.Pacto) {
 	t.Helper()
 	b, err := json.Marshal(p.Status)
 	if err != nil {
@@ -648,7 +648,7 @@ func requireNoIP(t *testing.T, p *pactov1alpha1.Pacto) {
 
 // requireStatusExcludes fails if any needle appears in the serialized status (a no-leak canary for known
 // secret/config values or response bodies that INV-5 must discard).
-func requireStatusExcludes(t *testing.T, p *pactov1alpha1.Pacto, needles ...string) {
+func requireStatusExcludes(t *testing.T, p *pactov1.Pacto, needles ...string) {
 	t.Helper()
 	b, err := json.Marshal(p.Status)
 	if err != nil {
@@ -674,7 +674,7 @@ func serviceMonitorCRDInstalled(ctx context.Context) bool {
 	return !meta.IsNoMatchError(err)
 }
 
-func requireCoverage(t *testing.T, p *pactov1alpha1.Pacto, evaluated, required int32) {
+func requireCoverage(t *testing.T, p *pactov1.Pacto, evaluated, required int32) {
 	t.Helper()
 	c := p.Status.EvaluationCoverage
 	if c == nil {

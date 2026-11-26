@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/finding"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/validation"
 )
@@ -75,21 +76,66 @@ func revisionConfigRefVerdict(rev *fleet.ContractRevision, names []string, provi
 			return CompatibilityUnknown, err.Error() + " in " + who
 		}
 	}
-	var violations []string
+	violations, unverified := valueFindings(rev, &c, fsys, refs, who)
+	switch {
+	case len(violations) > 0:
+		return CompatibilityIncompatible, strings.Join(violations, "; ")
+	case len(unverified) > 0:
+		return CompatibilityUnknown, strings.Join(unverified, "; ")
+	}
+	return CompatibilityCompatible, "the values for configuration " + strings.Join(names, ", ") + " satisfy the schema of " + who
+}
+
+// valueFindings checks the values c, rev's contract narrowed to the
+// configurations that name the provider who, gives against refs: the
+// violations, and the values nobody checked.
+func valueFindings(rev *fleet.ContractRevision, c *contract.Contract, fsys fs.FS, refs validation.ConfigRefs, who string) (violations, unverified []string) {
+	recorded := recordedTierFindings(rev)
 	for _, st := range []validation.Stage{
-		validation.ConfigRefStage(&c, refs, validation.ValidationResult{}, validation.ConfigRefOptions{}),
-		validation.EnvironmentStageWith(&c, fsys, refs),
+		validation.ConfigRefStage(c, refs, validation.ValidationResult{}, validation.ConfigRefOptions{}),
+		validation.EnvironmentStageWith(c, fsys, refs),
 	} {
 		for _, e := range st.Errors {
-			if e.Code != "ENVIRONMENT_UNKNOWN_CONFIGURATION" { // a configuration this check left out
-				violations = append(violations, e.Message+" against "+who)
+			// ENVIRONMENT_UNKNOWN_CONFIGURATION is a configuration this check
+			// left out; a recorded tier finding is the consumer's own, there
+			// before this change.
+			if e.Code != "ENVIRONMENT_UNKNOWN_CONFIGURATION" && !recorded[tierKey(e.Path, e.Code, e.Message)] {
+				msg, _, _ := strings.Cut(e.Message, ". Next: ")
+				violations = append(violations, msg+" against "+who)
+			}
+		}
+		// Values nobody checked, such as those for an inferred offering,
+		// are unknown, never compatible.
+		for _, w := range st.Warnings {
+			if w.Code == "ENVIRONMENT_VALUES_UNVERIFIED" {
+				unverified = append(unverified, w.Message+" in "+who)
 			}
 		}
 	}
-	if len(violations) > 0 {
-		return CompatibilityIncompatible, strings.Join(violations, "; ")
+	return violations, unverified
+}
+
+// recordedTierFindings is the set of tierKey of the TierNotTunable findings
+// rev's own validation run recorded, against the provider revision the
+// snapshot holds.
+func recordedTierFindings(rev *fleet.ContractRevision) map[string]bool {
+	out := map[string]bool{}
+	for _, f := range rev.Validation {
+		if k := tierKey(f.ContractPath, string(f.Code), f.Message); k != "" {
+			out[k] = true
+		}
 	}
-	return CompatibilityCompatible, "the values for configuration " + strings.Join(names, ", ") + " satisfy the schema of " + who
+	return out
+}
+
+// tierKey names a TierNotTunable finding by its path and the field it names,
+// leaving out the offering version, which differs between revisions; "" for
+// any other code.
+func tierKey(path, code, msg string) string {
+	if code != string(finding.CodeTierNotTunable) {
+		return ""
+	}
+	return path + "\x00" + validation.TierNotTunableField(msg)
 }
 
 // unreadableEnvironments says which environment file of c cannot be read, or

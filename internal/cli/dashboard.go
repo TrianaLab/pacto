@@ -185,6 +185,8 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			if err != nil {
 				return err
 			}
+			identity.members = newMemberDelivery(svc, fopts.ClusterJoins)
+			identity.planMembers = svc.PlanMembers(fopts.ClusterJoins)
 			go identity.signing.report(cmd.Context())
 			warnOpen(cmd.Context(), identity)
 			opts := dashboard.Options{
@@ -211,8 +213,10 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 			opts.Stats, opts.StatsRegistry = dashboardStats(cmd, svc)
 			identity.options(&opts)
 			opts.Declare = declarer
+			opts.CreateService, opts.PortalCreateURL = newDashboardCreator(declarer), portalCreateURL(v)
 			opts.Outside = members.outside()
 			opts.ClusterJoins = identity.clusterJoins(joins)
+			opts.ClusterInstall = dashboardInstall(d, clusterCfg, det.detected, fopts.ClusterJoins, joins)
 			mcpLine, err := mountDashboardMCP(v, svc, version, repos, identity, managerFleetProvider(mgr), fopts.Provenance, d, &opts)
 			if err != nil {
 				return err
@@ -244,7 +248,7 @@ answer carries the as-of time and the completeness of the sources behind it.`,
 	cmd.Flags().StringArray("traces", nil, "OTLP/JSON trace file to fold observed dependencies from (repeatable; also PACTO_DASHBOARD_TRACES)")
 	cmd.Flags().StringArray("trace-source", nil, "named offline OTLP/JSON trace source as NAME=PATH, where NAME is its stable data-source identity (repeatable; also PACTO_DASHBOARD_TRACE_SOURCES)")
 	cmd.Flags().StringArray("mira-source", nil, "base URL of a Mira node whose service map supplies observed calls between services (repeatable; also PACTO_DASHBOARD_MIRA_SOURCES)")
-	cmd.Flags().String("backstage-url", "", "base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values; the reader token comes from "+
+	cmd.Flags().String("backstage-url", "", "base URL of a Backstage catalog whose owners, systems and dependencies join the snapshot as inferred values and whose software templates are listed as inferred golden paths a person can accept; the reader token comes from "+
 		backstageTokenEnv+" (also PACTO_DASHBOARD_BACKSTAGE_URL)")
 	cmd.Flags().String("external-catalog", "", "organization external catalog to merge over the default, as oci://REPOSITORY@sha256:DIGEST; a tag is refused (also PACTO_DASHBOARD_EXTERNAL_CATALOG)")
 	cmd.Flags().String("owner-policy", "", "the mounted owner policy (the chart's declare block as policy.json) that decides who may set a service owner (also PACTO_DASHBOARD_OWNER_POLICY)")

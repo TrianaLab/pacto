@@ -127,6 +127,23 @@ matched services, and their `nonCompliant` counts sum to the non-compliant
 ones. `pacto fleet entities` prints the ranking under the list, and the
 dashboard's Golden paths page draws it.
 
+## Follow the creation
+
+`pacto init --from` ends with the step list: signature, contract, validation,
+each plugin, delivery with `--delivery`, publishing, the fleet, deployment and
+provisioning. A step is
+`done` only when Pacto established it. Publishing, the fleet and deployment
+stay `unknown` at creation, since no source has observed the new service yet.
+
+Once a fleet source reads the service, `pacto fleet entity service gift-cards`
+and the dashboard show its declared origin, the golden path revision whose
+content digest matches and the same steps as a checklist derived from what the
+fleet observes. `pacto fleet entities --created-from http-service` and
+`pacto_fleet_entities` with `created_from` list every service created from a
+path.
+
+The [creation checklist](#creation-checklist) lists how each step is derived.
+
 ## Creation checklist
 
 A service with an origin carries `creation`, a checklist derived from what the
@@ -147,6 +164,56 @@ The `delivery` step appears only in the step list `pacto init --from
 --delivery` and `pacto_create` with `delivery` return. It is `planned`, then
 `done`, when the Pacto resource and every Stage were planned. Otherwise it is
 `unknown` with the reason.
+
+## Create service
+
+`POST /api/fleet/services` plans a service created from a golden path, and
+`POST /api/fleet/services/accept` signs the plan or saves it as a draft.
+`pacto_create_service` takes the same inputs in snake case, plus
+`on_behalf_of`, `dry_run` and `intent_digest`.
+
+| Field | Meaning |
+|---|---|
+| `path` | The service key of a declared golden path in your view; never a reference |
+| `name` | The new service's name |
+| `owner` | The owner team; the person who signs belongs to it or is a default approver |
+| `namespace` | Where the review of `create` on `services.pacto.trianalab.io` runs |
+| `cluster` | The cluster of that namespace; empty for the only one. Over MCP, the cluster the caller signed in against |
+| `repository` | Where `0.1.0` goes; defaults to `<registry>/<name>` |
+| `revision` | The publish revision; defaults to `pacto-create:<signer>:<RFC3339 time>` |
+| `offerings` | `[{offering, values, environments}]`: values set once, and per environment on tunable fields only |
+| `fromDraft` | `{tag, digest}` of an agent's created draft to review and sign; dashboard only |
+
+A repository sits under the installation registry and ends in the service
+name. A revision is 1 to 128 printable characters with no whitespace, and a
+`pacto-create:` revision names only the person creating the service; a commit
+SHA is fine. The plan answers both, and the write sends them back.
+
+Each refusal of an input carries `code`, `message` and `field`, plus
+`closest`, `allowed`, `cli` and `mcp` when they apply: `cli` and `mcp` are the
+`pacto init` command and the `pacto_create_service` fragment that set the fix. `field` is
+`configurations[<name>].values.<key>` for a value set once,
+`environments[<env>].<configuration>.<key>` for a value set per environment,
+`environments[<env>]` or `offerings[<offering>]`. A refused plan has no
+`intentDigest` and publishes nothing.
+
+| Code | Meaning |
+|---|---|
+| `ServiceExists` | The name is taken in this registry, by a version or by someone else's draft |
+| `GoldenPathNotDeclared` | No declared golden path pinned by digest has this key in your view |
+| `RepositoryOutsideRegistry` | The repository is outside the registry or does not end in the service name |
+| `OfferingNotConsumable` | Not an offering you may consume here, hidden or absent alike |
+| `OfferingUnknown` | The offerings list is partial, so Pacto could not confirm the offering |
+| `ParameterNotDeclared` | The offering's schema declares no such field; `closest` names a near key |
+| `ParameterOutOfRange` | The schema refuses the value; `closest` is the nearest bound or allowed value |
+| `ParameterSensitive` | A sensitive field takes a Secret reference, never a literal |
+| `ClassNotOffered` | The offering has no such class; `allowed` lists its classes |
+| `TierNotTunable` | A `contract` tier field, or one with no tier, is the same in every environment |
+| `EnvironmentNotDeclared` | The golden path declares no such environment |
+
+The first three refuse the whole plan and carry `code`, `message` and
+`command`. A denied review answers `NotAllowed`, with HTTP 403 on the
+dashboard, and a review that fails `ReviewFailed`.
 
 ## Golden paths in a restricted view
 

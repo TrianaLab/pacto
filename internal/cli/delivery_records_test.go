@@ -80,13 +80,13 @@ func recordDeps(t *testing.T, key ed25519.PrivateKey) deps {
 	}
 	d.newDynamic = func() (dynamic.Interface, error) {
 		lists := map[schema.GroupVersionResource]string{
-			{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}: "OperationList",
-			{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}:     "StageList",
-			{Group: "pacto.trianalab.io", Version: "v1alpha1", Resource: "pactos"}:              "PactoList",
-			{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}:   "KustomizationList",
+			{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}:     "OperationList",
+			{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}:         "StageList",
+			{Group: "pacto.trianalab.io", Version: "v1", Resource: "pactos"}:                  "PactoList",
+			{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Resource: "kustomizations"}: "KustomizationList",
 		}
 		c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(), lists,
-			u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "payments-prod", map[string]any{
+			u("delivery.pacto.trianalab.io/v1", "Stage", "payments-prod", map[string]any{
 				"spec": map[string]any{"service": map[string]any{"name": "payments"}, "applyRef": map[string]any{"name": "payments"}},
 				"status": map[string]any{"pointer": cliA, "lastOp": "uid-ship", "stream": map[string]any{"id": cliStream, "seq": int64(1),
 					"recordedSeq": int64(1), "head": id, "anchor": deliveryrecord.AnchorRef(streams, cliStream)}}}),
@@ -148,8 +148,8 @@ func TestDeliveryUndoPrintsThePlanAndProposesNothing(t *testing.T) {
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, _ := inner()
 		fc := c.(*dynamicfake.FakeDynamicClient)
-		_, _ = fc.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "operations"}).
-			Namespace("prod").Create(context.Background(), u("delivery.pacto.trianalab.io/v1alpha1", "Operation", "older", map[string]any{
+		_, _ = fc.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "operations"}).
+			Namespace("prod").Create(context.Background(), u("delivery.pacto.trianalab.io/v1", "Operation", "older", map[string]any{
 			"spec":   map[string]any{"type": delivery.TypePromote, "stage": "payments-prod", "params": map[string]any{"from": cliB, "to": cliC}},
 			"status": map[string]any{"phase": "Concluded", "pointer": map[string]any{"before": cliB, "after": cliC}}}), metav1.CreateOptions{})
 		return fc, nil

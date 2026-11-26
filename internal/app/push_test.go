@@ -30,6 +30,7 @@ func offlineService(store oci.BundleStore) *Service {
 }
 
 func TestPush_Success(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	store := &mockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
@@ -56,6 +57,7 @@ func TestPush_Success(t *testing.T) {
 }
 
 func TestPush_NilStore(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: "."})
 	if err == nil {
@@ -64,6 +66,7 @@ func TestPush_NilStore(t *testing.T) {
 }
 
 func TestPush_InvalidContract(t *testing.T) {
+	t.Parallel()
 	dir := writeInvalidBundle(t)
 	store := &mockBundleStore{}
 	svc := offlineService(store)
@@ -74,6 +77,7 @@ func TestPush_InvalidContract(t *testing.T) {
 }
 
 func TestPush_FileNotFound(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/svc:1.0.0", Path: "/nonexistent/dir"})
@@ -83,6 +87,7 @@ func TestPush_FileNotFound(t *testing.T) {
 }
 
 func TestPush_StoreError(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	store := &mockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
@@ -100,6 +105,7 @@ func TestPush_StoreError(t *testing.T) {
 }
 
 func TestHasTagOrDigest(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		ref  string
 		want bool
@@ -122,6 +128,7 @@ func TestHasTagOrDigest(t *testing.T) {
 }
 
 func TestPush_AutoTagFromVersion(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	var pushedRef string
 	store := &mockBundleStore{
@@ -147,6 +154,7 @@ func TestPush_AutoTagFromVersion(t *testing.T) {
 }
 
 func TestRejectLocalDeps_LocalRef(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{
 		Dependencies: []contract.Dependency{
 			{Ref: "../local-dep", Required: true},
@@ -162,6 +170,7 @@ func TestRejectLocalDeps_LocalRef(t *testing.T) {
 }
 
 func TestRejectLocalDeps_FileScheme(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{
 		Dependencies: []contract.Dependency{
 			{Ref: "file:///abs/path/dep", Required: true},
@@ -174,6 +183,7 @@ func TestRejectLocalDeps_FileScheme(t *testing.T) {
 }
 
 func TestRejectLocalDeps_OCIAllowed(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{
 		Dependencies: []contract.Dependency{
 			{Ref: "oci://ghcr.io/acme/dep:1.0.0", Required: true},
@@ -187,6 +197,7 @@ func TestRejectLocalDeps_OCIAllowed(t *testing.T) {
 
 // An external dependency with no ref has nothing local to publish.
 func TestRejectLocalDeps_ExternalWithoutRefAllowed(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{Dependencies: []contract.Dependency{{Name: "model", External: true, Version: "v1"}}}
 	if err := rejectLocalDeps(c); err != nil {
 		t.Fatalf("unexpected error for an external dependency: %v", err)
@@ -194,6 +205,7 @@ func TestRejectLocalDeps_ExternalWithoutRefAllowed(t *testing.T) {
 }
 
 func TestRejectLocalDeps_NoDeps(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{}
 	err := rejectLocalDeps(c)
 	if err != nil {
@@ -202,6 +214,7 @@ func TestRejectLocalDeps_NoDeps(t *testing.T) {
 }
 
 func TestPush_RejectsLocalDeps(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := []byte(`pactoVersion: "2.0"
 service:
@@ -244,6 +257,7 @@ capabilities:
 }
 
 func TestRejectLocalRefs_ConfigRef(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{
 		Configurations: []contract.Configuration{
 			{Name: "cfg", Ref: "../local-config"},
@@ -259,6 +273,7 @@ func TestRejectLocalRefs_ConfigRef(t *testing.T) {
 }
 
 func TestRejectLocalRefs_PolicyRef(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{
 		Policies: []contract.Policy{
 			{Name: "pol", Ref: "./local-policy"},
@@ -274,6 +289,7 @@ func TestRejectLocalRefs_PolicyRef(t *testing.T) {
 }
 
 func TestPush_RejectsLocalRef(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "../local-path", Path: "."})
@@ -283,6 +299,7 @@ func TestPush_RejectsLocalRef(t *testing.T) {
 }
 
 func TestPush_ExplicitTagKept(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	var pushedRef string
 	store := &mockBundleStore{
@@ -308,6 +325,7 @@ func TestPush_ExplicitTagKept(t *testing.T) {
 }
 
 func TestPush_OverridesPersistInBundle(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	var pushedBundle *contract.Bundle
 	store := &mockBundleStore{
@@ -350,6 +368,7 @@ func TestPush_OverridesPersistInBundle(t *testing.T) {
 }
 
 func TestPush_AlreadyExists(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	other := &contract.Bundle{Contract: &contract.Contract{}, FS: fstest.MapFS{"pacto.yaml": {Data: []byte("other")}}}
 	store := &mockBundleStore{
@@ -377,6 +396,7 @@ func TestPush_AlreadyExists(t *testing.T) {
 }
 
 func TestPush_AlreadyExistsWithForce(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	store := &mockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
@@ -394,6 +414,7 @@ func TestPush_AlreadyExistsWithForce(t *testing.T) {
 }
 
 func TestPush_ResolveNonNotFoundError(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	store := &mockBundleStore{
 		ResolveFn: func(_ context.Context, _ string) (string, error) {
@@ -411,6 +432,7 @@ func TestPush_ResolveNonNotFoundError(t *testing.T) {
 }
 
 func TestPush_RejectsLocalConfigRef(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := []byte(`pactoVersion: "2.0"
 service:
@@ -452,6 +474,7 @@ capabilities:
 }
 
 func TestPush_RejectsRemotePolicyViolation(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := []byte(`pactoVersion: "2.0"
 service:
@@ -506,6 +529,7 @@ capabilities:
 }
 
 func TestRejectLocalRefs_NilPolicyAndConfig(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{}
 	if err := rejectLocalRefs(c); err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -513,6 +537,7 @@ func TestRejectLocalRefs_NilPolicyAndConfig(t *testing.T) {
 }
 
 func TestRejectLocalRefs_LocalConfigRef(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{
 		Configurations: []contract.Configuration{{Name: "default", Ref: "file://../config"}},
 	}
@@ -526,6 +551,7 @@ func TestRejectLocalRefs_LocalConfigRef(t *testing.T) {
 }
 
 func TestRejectLocalRefs_LocalPolicyRef(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{
 		Policies: []contract.Policy{{Name: "local", Ref: "../policy"}},
 	}
@@ -539,6 +565,7 @@ func TestRejectLocalRefs_LocalPolicyRef(t *testing.T) {
 }
 
 func TestRejectLocalRefs_OCIRefsAllowed(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{
 		Configurations: []contract.Configuration{{Name: "default", Ref: "oci://ghcr.io/acme/config:1.0.0"}},
 		Policies:       []contract.Policy{{Name: "remote", Ref: "oci://ghcr.io/acme/policy:1.0.0"}},
@@ -549,6 +576,7 @@ func TestRejectLocalRefs_OCIRefsAllowed(t *testing.T) {
 }
 
 func TestRejectLocalRefs_EmptyRefs(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{
 		Configurations: []contract.Configuration{{Name: "default", Schema: "configuration/schema.json"}},
 		Policies:       []contract.Policy{{Name: "local", Schema: "policy/schema.json"}},
@@ -559,6 +587,7 @@ func TestRejectLocalRefs_EmptyRefs(t *testing.T) {
 }
 
 func TestIsNotFound(t *testing.T) {
+	t.Parallel()
 	tests := []struct {
 		name string
 		err  error
@@ -580,6 +609,7 @@ func TestIsNotFound(t *testing.T) {
 
 // TestPush_Identical: the same content again is a successful no-op.
 func TestPush_Identical(t *testing.T) {
+	t.Parallel()
 	dir := writeTestBundle(t)
 	svc := offlineService(&mockBundleStore{})
 	b, err := svc.ResolveBundle(context.Background(), dir)
@@ -604,6 +634,7 @@ func TestPush_Identical(t *testing.T) {
 // it runs the same guarantees check. An unmet guarantee of a required
 // dependency refuses the push; an unreachable provider is a warning.
 func TestPush_ChecksGuarantees(t *testing.T) {
+	t.Parallel()
 	provider, err := contract.Parse(strings.NewReader(guaranteeProvider))
 	if err != nil {
 		t.Fatal(err)
@@ -647,6 +678,7 @@ func TestPush_ChecksGuarantees(t *testing.T) {
 // A 2.4 consumer whose configuration ref cannot be fetched is refused: push
 // runs the same strict validation as validate.
 func TestPushFailsOnUnresolvableConfigRef(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	content := "pactoVersion: \"2.4\"\nservice: {name: orders, version: 1.0.0}\nconfigurations:\n  - {name: db, ref: \"oci://ghcr.io/acme/pg:16.1.0\", required: true, values: {size: small}}\n"
 	if err := os.WriteFile(filepath.Join(dir, "pacto.yaml"), []byte(content), 0o644); err != nil {
@@ -662,8 +694,12 @@ func TestPushFailsOnUnresolvableConfigRef(t *testing.T) {
 	}
 	svc := offlineService(store)
 	_, err := svc.Push(context.Background(), PushOptions{Ref: "oci://ghcr.io/acme/orders:1.0.0", Path: dir})
-	if err == nil || err.Error() != "contract validation failed with 1 error(s)" {
+	if err == nil || !strings.HasPrefix(err.Error(), "contract validation failed with 1 error(s): [CONFIG_REF_UNRESOLVED] ") {
 		t.Fatalf("expected a refused push, got %v", err)
+	}
+	// A contribution runs the same validation before its record is read.
+	if _, _, err := loadContribution(context.Background(), dir, override.Overrides{}, store); err == nil || !strings.HasPrefix(err.Error(), "contract validation failed with 1 error(s): [CONFIG_REF_UNRESOLVED] ") {
+		t.Fatalf("expected a refused contribution, got %v", err)
 	}
 	// The one error is the unresolved ref, as validate reports it.
 	r, _ := svc.Validate(context.Background(), ValidateOptions{Path: dir})
@@ -676,6 +712,7 @@ func TestPushFailsOnUnresolvableConfigRef(t *testing.T) {
 // digest of the same content. A push leaves it where it is and still writes
 // the missing index entry.
 func TestPushLegacyTagIsUnchanged(t *testing.T) {
+	t.Parallel()
 	ir := newIndexReg(t)
 	svc, dir := pushIndexService(ir), writeTestBundle(t)
 	b, err := svc.ResolveBundle(t.Context(), dir)

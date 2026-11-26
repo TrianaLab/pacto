@@ -14,6 +14,7 @@ import (
 // source reads contributions under the roots of the refs it is given, with
 // the freshness window and clock of the build; without one it reads none.
 func TestHTTPSourcesWireContributions(t *testing.T) {
+	t.Parallel()
 	now := func() time.Time { return time.Date(2026, 11, 22, 0, 0, 0, 0, time.UTC) }
 	opts := FleetOptions{EvidenceURLs: []string{"http://ev-a", "http://ev-b"}, Now: now, FreshnessWindow: time.Hour,
 		OCIRefs:        []string{"oci://ghcr.io/acme/ledger:1.0.0", "oci://ghcr.io/acme/billing:1.0.0"},

@@ -20,7 +20,7 @@ func approval(user string, groups ...string) *unstructured.Unstructured {
 	for _, x := range append(groups, "system:authenticated") {
 		g = append(g, x)
 	}
-	return obj("delivery.pacto.trianalab.io/v1alpha1", "Approval", uniq("ok"), nil, map[string]any{
+	return obj("delivery.pacto.trianalab.io/v1", "Approval", uniq("ok"), nil, map[string]any{
 		"operation": "p1", "operationUID": "0f6c2a1e-5b7d-4c3a-9e2f-1a2b3c4d5e6f", "intentDigest": digestA,
 		"decision": "approve", "by": user, "groups": g,
 	})
@@ -65,7 +65,7 @@ var recorderGroups = []string{"system:serviceaccounts", "system:serviceaccounts:
 // the person the certificate names, no groups, the record and its verified
 // signing time.
 func view() *unstructured.Unstructured {
-	return obj("delivery.pacto.trianalab.io/v1alpha1", "Approval", uniq("view"), nil, map[string]any{
+	return obj("delivery.pacto.trianalab.io/v1", "Approval", uniq("view"), nil, map[string]any{
 		"operation": "p1", "operationUID": "0f6c2a1e-5b7d-4c3a-9e2f-1a2b3c4d5e6f", "intentDigest": digestA,
 		"decision": "approve", "by": "oidc:alice@acme.com", "record": "reg/approvals@" + digestB, "signedAt": "2026-11-18T10:00:00Z",
 	})

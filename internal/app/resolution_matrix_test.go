@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"math/rand"
 	"net/http"
-	"net/http/httptest"
 	"sort"
 	"strings"
 	"sync"
@@ -35,16 +34,14 @@ import (
 
 func mxPlainRegistry(t *testing.T) string {
 	t.Helper()
-	freshProbes(t)
-	srv := httptest.NewServer(registry.New())
+	srv := probedServer(t, registry.New())
 	t.Cleanup(srv.Close)
 	return strings.TrimPrefix(srv.URL, "http://")
 }
 
 func mxClosableRegistry(t *testing.T) (host string, stop func()) {
 	t.Helper()
-	freshProbes(t)
-	srv := httptest.NewServer(registry.New())
+	srv := probedServer(t, registry.New())
 	var once sync.Once
 	stop = func() { once.Do(srv.Close) }
 	t.Cleanup(stop)
@@ -55,8 +52,7 @@ func mxAuthRegistry(t *testing.T, user, pass string) string {
 	t.Helper()
 	reg := registry.New()
 	want := "Basic " + base64.StdEncoding.EncodeToString([]byte(user+":"+pass))
-	freshProbes(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != want {
 			w.Header().Set("WWW-Authenticate", `Basic realm="pacto-test"`)
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
@@ -196,6 +192,7 @@ func seededOrderings(n, count int, seed int64) [][]int {
 }
 
 func TestResolutionMatrix_OrderIndependence(t *testing.T) {
+	t.Parallel()
 	regA := mxPlainRegistry(t)
 	regAuth := mxAuthRegistry(t, "robot", "s3cret")
 	kc := mxHostKeychain{creds: map[string]authn.AuthConfig{regAuth: {Username: "robot", Password: "s3cret"}}}
@@ -273,6 +270,7 @@ func TestResolutionMatrix_OrderIndependence(t *testing.T) {
 
 // Linear multi-registry chain across a plain and an auth'd registry.
 func TestResolutionMatrix_LinearMultiRegistryChain(t *testing.T) {
+	t.Parallel()
 	regA := mxPlainRegistry(t)
 	regAuth := mxAuthRegistry(t, "u", "p")
 	kc := mxHostKeychain{creds: map[string]authn.AuthConfig{regAuth: {Username: "u", Password: "p"}}}
@@ -306,6 +304,7 @@ func TestResolutionMatrix_LinearMultiRegistryChain(t *testing.T) {
 
 // Diamond dependency dedups to a single lock entry reached through multiple paths.
 func TestResolutionMatrix_DiamondDedup(t *testing.T) {
+	t.Parallel()
 	regA := mxPlainRegistry(t)
 	svc, client := mxService(mxHostKeychain{}, regA)
 	refD := "oci://" + regA + "/svc/d"
@@ -333,6 +332,7 @@ func TestResolutionMatrix_DiamondDedup(t *testing.T) {
 
 // Cycle detection: A->B->A is reported as a cycle and fails the lock closed.
 func TestResolutionMatrix_CycleDetection(t *testing.T) {
+	t.Parallel()
 	regA := mxPlainRegistry(t)
 	svc, client := mxService(mxHostKeychain{}, regA)
 	refA := "oci://" + regA + "/svc/a"
@@ -353,6 +353,7 @@ func TestResolutionMatrix_CycleDetection(t *testing.T) {
 
 // A transitive-hop auth failure (no credentials for the deep registry) fails closed.
 func TestResolutionMatrix_TransitiveAuthFailure(t *testing.T) {
+	t.Parallel()
 	regA := mxPlainRegistry(t)
 	regAuth := mxAuthRegistry(t, "u", "p")
 	// Keychain intentionally has NO creds for regAuth.
@@ -376,6 +377,7 @@ func TestResolutionMatrix_TransitiveAuthFailure(t *testing.T) {
 
 // An unreachable transitive registry fails closed.
 func TestResolutionMatrix_UnreachableTransitiveRegistry(t *testing.T) {
+	t.Parallel()
 	regA := mxPlainRegistry(t)
 	regDead, stop := mxClosableRegistry(t)
 	svc, client := mxService(mxHostKeychain{}, regA, regDead)
@@ -396,6 +398,7 @@ func TestResolutionMatrix_UnreachableTransitiveRegistry(t *testing.T) {
 
 // Artifact-not-found on a transitive hop propagates and fails closed.
 func TestResolutionMatrix_ArtifactNotFoundPropagation(t *testing.T) {
+	t.Parallel()
 	regA := mxPlainRegistry(t)
 	svc, client := mxService(mxHostKeychain{}, regA)
 	refGhost := "oci://" + regA + "/svc/ghost:1.0.0" // never pushed
@@ -414,6 +417,7 @@ func TestResolutionMatrix_ArtifactNotFoundPropagation(t *testing.T) {
 // Lock digest equality + semver range: two builds of the same closure pin the same
 // digests, and a ^1.0.0 edge selects the highest matching version (1.2.0).
 func TestResolutionMatrix_LockDigestEqualityAndSemverRange(t *testing.T) {
+	t.Parallel()
 	regA := mxPlainRegistry(t)
 	svc, client := mxService(mxHostKeychain{}, regA)
 	for _, v := range []string{"1.0.0", "1.1.0", "1.2.0", "2.0.0"} {
@@ -443,6 +447,7 @@ func TestResolutionMatrix_LockDigestEqualityAndSemverRange(t *testing.T) {
 // Concurrent graph resolution of a shared artifact through many paths dedups to a
 // single fetched node (single-flight), validated under -race.
 func TestResolutionMatrix_ConcurrentSharedArtifactSingleFlight(t *testing.T) {
+	t.Parallel()
 	regA := mxPlainRegistry(t)
 	svc, client := mxService(mxHostKeychain{}, regA)
 	refShared := "oci://" + regA + "/svc/shared"

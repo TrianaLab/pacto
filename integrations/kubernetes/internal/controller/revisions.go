@@ -26,11 +26,11 @@ import (
 
 	"github.com/google/go-containerregistry/pkg/authn"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 )
 
-func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alpha1.Pacto, loadResult *loader.LoadResult) (string, error) {
+func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1.Pacto, loadResult *loader.LoadResult) (string, error) {
 	log := logf.FromContext(ctx)
 
 	hash := fmt.Sprintf("%x", sha256.Sum256(loadResult.RawYAML))
@@ -43,7 +43,7 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 
 	revisionName := revisionNameFor(pacto.Name, version, shortHash)
 
-	existing := &pactov1alpha1.PactoRevision{}
+	existing := &pactov1.PactoRevision{}
 	err := r.Get(ctx, client.ObjectKey{Namespace: pacto.Namespace, Name: revisionName}, existing)
 	if err == nil {
 		if existing.Status.ContractHash == "" || existing.Status.CreatedAt == nil {
@@ -63,7 +63,7 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 		return "", fmt.Errorf("failed to check for existing revision: %w", err)
 	}
 
-	source := pactov1alpha1.RevisionSource{}
+	source := pactov1.RevisionSource{}
 	if loadResult.ResolvedRef != "" {
 		source.OCI = loadResult.ResolvedRef
 		source.Digest = loadResult.ResolvedDigest
@@ -75,16 +75,16 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 	}
 
 	now := metav1.Now()
-	revision := &pactov1alpha1.PactoRevision{
+	revision := &pactov1.PactoRevision{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      revisionName,
 			Namespace: pacto.Namespace,
 			Labels: map[string]string{
-				pactov1alpha1.LabelPactoName:       pacto.Name,
-				pactov1alpha1.LabelRevisionVersion: versionLabelValue(version),
+				pactov1.LabelPactoName:       pacto.Name,
+				pactov1.LabelRevisionVersion: versionLabelValue(version),
 			},
 		},
-		Spec: pactov1alpha1.PactoRevisionSpec{
+		Spec: pactov1.PactoRevisionSpec{
 			Version:     version,
 			Source:      source,
 			PactoRef:    pacto.Name,
@@ -103,7 +103,7 @@ func (r *PactoReconciler) ensureRevision(ctx context.Context, pacto *pactov1alph
 		return "", fmt.Errorf("failed to create PactoRevision: %w", err)
 	}
 
-	revision.Status = pactov1alpha1.PactoRevisionStatus{
+	revision.Status = pactov1.PactoRevisionStatus{
 		Resolved:     true,
 		ContractHash: hash,
 		CreatedAt:    &now,
@@ -191,16 +191,16 @@ func shortDigest(d string) string {
 // the superseded one would re-raise TagOverwritten on every reconcile.
 // ponytail: creationTimestamp ordering, ties go to List order. Revisions are created
 // seconds apart, so a tie needs a same-second double force-push to even be observable.
-func (r *PactoReconciler) revisionsBySourceRef(ctx context.Context, pacto *pactov1alpha1.Pacto) (map[string]*pactov1alpha1.PactoRevision, error) {
-	revList := &pactov1alpha1.PactoRevisionList{}
+func (r *PactoReconciler) revisionsBySourceRef(ctx context.Context, pacto *pactov1.Pacto) (map[string]*pactov1.PactoRevision, error) {
+	revList := &pactov1.PactoRevisionList{}
 	if err := r.List(ctx, revList,
 		client.InNamespace(pacto.Namespace),
-		client.MatchingLabels{pactov1alpha1.LabelPactoName: pacto.Name},
+		client.MatchingLabels{pactov1.LabelPactoName: pacto.Name},
 	); err != nil {
 		return nil, fmt.Errorf("failed to list revisions: %w", err)
 	}
 
-	byRef := make(map[string]*pactov1alpha1.PactoRevision, len(revList.Items))
+	byRef := make(map[string]*pactov1.PactoRevision, len(revList.Items))
 	for i := range revList.Items {
 		rev := &revList.Items[i]
 		// An inline revision has an empty ref; taggedRef never is, so it is simply never hit.
@@ -221,7 +221,7 @@ func (r *PactoReconciler) revisionsBySourceRef(ctx context.Context, pacto *pacto
 // rest being mirrored -- but it is no longer swallowed into a V(1) line either: the
 // failures are joined into the returned error, and RevisionMirror turns that into
 // the same event vocabulary the main load path uses.
-func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1alpha1.Pacto, baseRef string, ociAuth *authn.AuthConfig) error {
+func (r *PactoReconciler) syncAllRevisions(ctx context.Context, pacto *pactov1.Pacto, baseRef string, ociAuth *authn.AuthConfig) error {
 	log := logf.FromContext(ctx)
 
 	tags, err := r.Loader.ListTags(ctx, baseRef, ociAuth)

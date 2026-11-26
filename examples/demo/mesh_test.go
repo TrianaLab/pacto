@@ -37,7 +37,8 @@ func checkDemoMeshEdge(t *testing.T, snap *fleet.FleetSnapshot) {
 		t.Errorf("edge observed by %+v, want %s", rel.ObservedSources, demoMeshID)
 	}
 	for _, r := range snap.Relationships {
-		if r.FromService == worker {
+		// The external use its connection Secret joins is TestDemoManagedConsumersJoined's.
+		if r.FromService == worker && r.ToExternal == "" {
 			t.Errorf("a mesh edge of an inferred service is in Relationships: %+v", r)
 		}
 	}

@@ -12,7 +12,7 @@
   "dependencies": [],
   "consumers": [],
   "externals": [],
-  "catalog": "default sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063 (embedded)",
+  "catalog": "default sha256:385565ae13db14c9acb82c882c5bdb85d6c48b79f621749c657a9284bf828b36 (embedded)",
   "externalSummary": [
     "External dependencies: none found, inferred"
   ],
@@ -44,7 +44,7 @@
         }
       ],
       "catalog": [
-        "default sha256:62a3fd52949e99b18eb330766ec3269d47ba7a821f59b77ab69dea81ad76a063"
+        "default sha256:385565ae13db14c9acb82c882c5bdb85d6c48b79f621749c657a9284bf828b36"
       ]
     },
     "fields": [

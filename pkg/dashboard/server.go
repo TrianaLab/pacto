@@ -101,6 +101,15 @@ type Options struct {
 	// /api/fleet/declare/accept; a declarer that cannot write registers only
 	// the plan.
 	Declare Declarer
+	// CreateService plans and carries out creating a service from a declared
+	// golden path for the person behind a request. Nil registers neither
+	// POST /api/fleet/services nor /api/fleet/services/accept; a creator that
+	// cannot write registers only the plan.
+	CreateService ServiceCreator
+	// PortalCreateURL is where a configured developer portal creates a
+	// service (Backstage's scaffolder root); empty without one. The Create
+	// service panel offers it first.
+	PortalCreateURL string
 	// Refresh rebuilds the fleet snapshot for /api/refresh. When nil — as in the
 	// offline WASM demo, whose snapshot is baked in — refresh is a successful no-op.
 	Refresh func(ctx context.Context) error
@@ -117,6 +126,10 @@ type Options struct {
 	// DeliveryNamespace, when set, is the only namespace delivery reads and
 	// acts in, as the fleet views are scoped to it.
 	DeliveryNamespace string
+	// DeliveryRemotes, when set, are the dashboard's own cluster and the
+	// other clusters a request reads delivery from (inbox, environments and
+	// history); nil reads only the dashboard's own.
+	DeliveryRemotes func(*http.Request) (fleet.Cluster, []RemoteDelivery)
 	// Auth is the identity layer: sign-in, sessions and request guards.
 	Auth *Auth
 	// InstallationConfig reads what the operator was configured with, for
@@ -137,6 +150,12 @@ type Options struct {
 	// reader may see them; it also counts the pending ones in
 	// capabilities.installation. Nil serves no /api/fleet/clusters.
 	ClusterJoins func(ctx context.Context) (delivery.ClusterJoinList, error)
+	// ClusterInstall generates the member install for the engine from
+	// (argocd or flux) as YAML, never with a hub URL; it is served only
+	// with ClusterJoins and only to a reader that list lets approve
+	// clusterjoins. delivery.ErrNoChartVersion is a 422 naming the CLI flag,
+	// a HubReadError a 502 and any other error a 422.
+	ClusterInstall func(ctx context.Context, from string) ([]byte, error)
 	// OperationAccess reviews a signed-in viewer's access to list operations
 	// in the Stage namespaces the operation records name and says which they
 	// may see, and the clusters they were reviewed in: a record of another
@@ -423,7 +442,7 @@ type metricsOutput struct {
 
 type getSourcesOutput struct {
 	Body struct {
-		Sources     []SourceInfo `json:"sources" doc:"Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set)"`
+		Sources     []SourceInfo `json:"sources" doc:"Data sources backing the published snapshot, then one row per provider that reads calls leaving the cluster (egress set) or managed resources (resources set)"`
 		Discovering bool         `json:"discovering" doc:"True while the first snapshot is still being built"`
 	}
 }
@@ -493,15 +512,16 @@ func (s *Server) metrics(ctx context.Context, _ *struct{}) (*metricsOutput, erro
 }
 
 // getSources reports the per-kind source pills the nav renders, then one row
-// per provider that reads egress (flagged egress; the nav skips those). The
+// per provider that reads egress or managed resources (flagged egress or
+// resources; the nav skips those). The
 // pills are derived from the published snapshot's own source states, so they
 // describe what the data the user is looking at actually came from.
 func (s *Server) getSources(ctx context.Context, _ *struct{}) (*getSourcesOutput, error) {
 	out := &getSourcesOutput{}
 	q := s.publishedQuery(ctx)
-	// Egress rows follow the data sources, read from the same viewed q: the
+	// Provider rows follow the data sources, read from the same viewed q: the
 	// endpoint is polled while discovering, so it never views twice.
-	out.Body.Sources = append(sourcesFromFleet(q), egressSources(q)...)
+	out.Body.Sources = append(sourcesFromFleet(q), providerSources(q)...)
 	// A wired provider with nothing published yet is the honest "still discovering"
 	// state; no provider at all is simply a host with no sources.
 	out.Body.Discovering = s.opts.Fleet != nil && q == nil

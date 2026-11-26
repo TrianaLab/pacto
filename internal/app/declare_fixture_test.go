@@ -63,7 +63,7 @@ func kubeService(ns, name, ip string) *unstructured.Unstructured {
 
 func kubePacto(ns, svc, version string) *unstructured.Unstructured {
 	ref := "oci://reg.io/acme/contracts/" + svc
-	return kubeObj("pacto.trianalab.io/v1alpha1", "Pacto", ns, svc, map[string]any{
+	return kubeObj("pacto.trianalab.io/v1", "Pacto", ns, svc, map[string]any{
 		"metadata": map[string]any{"generation": int64(1)},
 		"spec":     map[string]any{"contractRef": map[string]any{"oci": ref + ":" + version}, "target": map[string]any{"serviceName": svc}},
 		"status": map[string]any{"observedGeneration": int64(1),
@@ -86,7 +86,7 @@ func billing(now time.Time) []runtime.Object {
 		kubeService("billing", "ledger", "10.0.0.60"), kubePacto("billing", "ledger", "2.3.1"),
 		kubeService("billing", "audit", "10.0.0.70"), kubePacto("billing", "audit", "1.4.0"),
 		kubeObj("v1", "Namespace", "", "kube-system", map[string]any{"metadata": map[string]any{"uid": "3f1c-uid"}}),
-		kubeObj("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+		kubeObj("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
 			"nodeName": "node-1", "pods": []any{map[string]any{"uid": "u-invoices", "connections": []any{call("10.0.0.60"), call("10.0.0.70")}}}}}),
 	}
 }
@@ -125,7 +125,6 @@ func identities() *unstructured.Unstructured {
 
 func newDeclareEnv(t *testing.T, objs ...runtime.Object) *declareEnv {
 	t.Helper()
-	noAmbient(t)
 	host, reg := publishRegistry(t)
 	ss := testutil.New(t)
 	rootPath := filepath.Join(t.TempDir(), "trusted_root.json")

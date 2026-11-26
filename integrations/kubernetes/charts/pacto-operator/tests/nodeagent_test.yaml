@@ -255,8 +255,10 @@ tests:
           path: $.rules[?(@.resources[0]=="roles")]
       - notExists:
           path: $.rules[?(@.resources[0]=="serviceaccounts")]
+      # The storage migration's status patch is the only cluster-wide write on
+      # the observations; the agent's create and get stay in its namespace.
       - notExists:
-          path: $.rules[?(@.resources[0]=="noderuntimeobservations/status")]
+          path: $.rules[?(@.resources[0]=="noderuntimeobservations/status" && @.verbs[0]!="patch")]
       - notExists:
           path: $.rules[?(@.resources[0]=="leases" && @.verbs[0]=="create")]
 

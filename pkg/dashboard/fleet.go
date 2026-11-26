@@ -37,6 +37,13 @@ type capabilitiesOutput struct {
 		MiraURL  string         `json:"miraURL,omitempty" doc:"Mira's address, to link health-check citations and open a service in Mira"`
 		Stats    bool           `json:"stats" doc:"The Metrics page has a stats repository to read"`
 		Declare  bool           `json:"declare" doc:"This caller can plan declaring an inferred service: the host declares and knows who the caller is"`
+		// DeclareTemplate is Declare for a golden path a catalog holds.
+		DeclareTemplate bool `json:"declareTemplate" doc:"This caller may accept a golden path a catalog holds: on a shared host, update pactos in the installation namespace"`
+		// CreateService is Declare for creating a service from a golden path.
+		CreateService bool `json:"createService" doc:"This caller can plan creating a service from a golden path: the host creates and knows who the caller is"`
+		// PortalCreateURL is where a configured developer portal creates a
+		// service; the Create service panel offers it first.
+		PortalCreateURL string `json:"portalCreateURL,omitempty" doc:"Where the configured developer portal creates a service; empty without one"`
 		// Installation is the one answer pacto_capabilities gives too.
 		Installation fleet.Installation `json:"installation" doc:"How this installation runs: its profile, registry, delivery, provisioning engine, clusters and MCP endpoint, each with where Pacto learned it and when"`
 	}
@@ -96,6 +103,9 @@ func (s *Server) capabilities(ctx context.Context, _ *struct{}) (*capabilitiesOu
 	out.Body.Stats = s.opts.Stats != nil
 	// A sign-in link session is refused by every declare route.
 	out.Body.Declare = s.opts.Declare != nil && s.declares(ctx) && !s.authState(ctx).FleetOnly
+	out.Body.DeclareTemplate = out.Body.Declare && s.opts.Declare.MayDeclareTemplate(ctx)
+	out.Body.CreateService = s.opts.CreateService != nil && s.declares(ctx) && !s.authState(ctx).FleetOnly
+	out.Body.PortalCreateURL = s.opts.PortalCreateURL
 	out.Body.Installation = q.Installation(in)
 	return out, nil
 }
@@ -141,6 +151,7 @@ func (s *Server) registerFleetOperations(api huma.API) {
 	s.registerAcceptOperation(api)
 	s.registerAcceptExecuteOperation(api)
 	s.registerDeclareOperations(api)
+	s.registerCreateServiceOperations(api)
 	huma.Register(api, huma.Operation{
 		OperationID: "fleet-snapshot",
 		Method:      http.MethodGet,
@@ -469,31 +480,34 @@ func impactHTTPError(err error) error {
 // live-host shape, not a contract-view one: only /api/sources emits it, and the
 // offline static export has no sources to report.
 type SourceInfo struct {
-	Type     string `json:"type"` // the fleet source kind: "kubernetes", "oci", "local", "cache"..., or an egress row id
-	Enabled  bool   `json:"enabled"`
-	Reason   string `json:"reason,omitempty"` // why enabled/disabled
-	Egress   bool   `json:"egress,omitempty" doc:"Set on a row projected from a detected provider that reads calls leaving the cluster; such a row is not a data source"`
-	Coverage string `json:"coverage,omitempty" enum:"complete,partial,unavailable" doc:"How much of the calls leaving the cluster an egress row read; set on egress rows only"`
-	Source   string `json:"source,omitempty" doc:"The fleet source that reported an egress row; set on egress rows only"`
-	Cluster  string `json:"cluster,omitempty" doc:"The cluster an egress row describes, when its source names one; set on egress rows only"`
+	Type      string `json:"type"` // the fleet source kind: "kubernetes", "oci", "local", "cache"..., or a detected provider row id
+	Enabled   bool   `json:"enabled"`
+	Reason    string `json:"reason,omitempty"` // why enabled/disabled
+	Egress    bool   `json:"egress,omitempty" doc:"Set on a row projected from a detected provider that reads calls leaving the cluster; such a row is not a data source"`
+	Resources bool   `json:"resources,omitempty" doc:"Set on a row projected from a detected provider that reads managed resources; such a row is not a data source"`
+	Coverage  string `json:"coverage,omitempty" enum:"complete,partial,unavailable" doc:"How much an egress or resources row read; set on those rows only"`
+	Source    string `json:"source,omitempty" doc:"The fleet source that reported an egress or resources row; set on those rows only"`
+	Cluster   string `json:"cluster,omitempty" doc:"The cluster an egress or resources row describes, when its source names one; set on those rows only"`
 }
 
-// egressSources projects every provider row of q that reads calls leaving the
-// cluster (UsedFor names fleet.UseExternalEgress) onto one SourceInfo, with
-// the source and cluster that tell two rows of one id apart. q is
-// the caller's view, so the rows are already restricted. A stale or
-// unavailable row is disabled with coverage unavailable: unknown never reads
-// as positive.
-func egressSources(q *fleet.Query) []SourceInfo {
+// providerSources projects every provider row of q that reads calls leaving
+// the cluster (UsedFor names fleet.UseExternalEgress) or managed resources
+// (fleet.UseManagedResources) onto one SourceInfo, with the source and
+// cluster that tell two rows of one id apart. q is the caller's view, so the
+// rows are already restricted. A stale or unavailable row is disabled with
+// coverage unavailable: unknown never reads as positive. The reason is the
+// row's evidence, which names a missing read access or opt-in.
+func providerSources(q *fleet.Query) []SourceInfo {
 	if q == nil {
 		return nil
 	}
 	var out []SourceInfo
 	for _, p := range q.SnapshotForSerialization().Providers {
-		if !slices.Contains(p.UsedFor, fleet.UseExternalEgress) {
+		egress, resources := slices.Contains(p.UsedFor, fleet.UseExternalEgress), slices.Contains(p.UsedFor, fleet.UseManagedResources)
+		if !egress && !resources {
 			continue
 		}
-		info := SourceInfo{Type: p.ID, Reason: p.Evidence, Egress: true, Coverage: "unavailable", Source: p.Source, Cluster: p.Cluster}
+		info := SourceInfo{Type: p.ID, Reason: p.Evidence, Egress: egress, Resources: resources, Coverage: "unavailable", Source: p.Source, Cluster: p.Cluster}
 		switch p.Status {
 		case fleet.SourceAvailable:
 			info.Enabled, info.Coverage = true, "complete"

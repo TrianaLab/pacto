@@ -136,10 +136,10 @@ func seedIsolation(t *testing.T, ctx context.Context, adm dynamic.Interface) {
 			"apiVersion": "v1", "kind": "Namespace", "metadata": map[string]any{"name": ns}}}, false))
 		must(t, create(ctx, adm.Resource(gvrPerfStage).Namespace(ns), toU(delivery.StageObject{Metadata: delivery.ObjectMeta{Namespace: ns, Name: "s"},
 			Spec: delivery.StageSpec{Service: delivery.ServiceRef{Name: "svc"}, Environment: "prod", ApplyRef: delivery.ApplyRef{Name: "s"}}},
-			"delivery.pacto.trianalab.io/v1alpha1", "Stage"), false))
+			"delivery.pacto.trianalab.io/v1", "Stage"), false))
 		must(t, create(ctx, adm.Resource(gvrPerfOp).Namespace(ns), toU(delivery.OperationObject{Metadata: delivery.ObjectMeta{Namespace: ns, Name: "op"},
 			Spec: delivery.OperationSpec{Type: delivery.TypePromote, Stage: "s", Facet: delivery.FacetPointer, Params: delivery.Params{From: "sha256:a", To: "sha256:b"}}},
-			"delivery.pacto.trianalab.io/v1alpha1", "Operation"), false))
+			"delivery.pacto.trianalab.io/v1", "Operation"), false))
 	}
 	// installRBAC binds alice and bob in the perf namespaces too.
 	for _, ns := range append(readable("bob"), perfPolicyNS) {

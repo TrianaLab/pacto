@@ -55,12 +55,13 @@ the path instead.
 
 A dashboard with a fleet serves `GET /api/backstage/entities`, the same YAML
 `pacto export backstage` writes over the same sources, with only what the
-reader may read, so Backstage needs no file or sync job.
+reader may read, so Backstage needs no file or sync job. Any IDP reads
+the same route: [Sit on top of any IDP](any-idp.md).
 
 On a dashboard with sign-in, the reader is a ServiceAccount: the chart's
 `pacto-viewer`, or one you bind to `get` and `list` on
-`pactos.pacto.trianalab.io`. Mint its token for the dashboard and rotate it
-before it expires:
+`pactos.pacto.trianalab.io`. Mint its token and rotate it before it
+expires:
 
 ```bash
 kubectl -n pacto create token pacto-viewer --audience pacto-dashboard --duration 720h
@@ -96,8 +97,8 @@ catalog:
 ```
 
 Backstage shows the reader's scope to every Backstage user. A namespace-scoped
-reader sees no service known only from a registry, so give a reader that should
-see the whole fleet a cluster-wide grant. A namespace grant shows that
+reader sees no service known only from a registry, so give a whole-fleet
+reader a cluster-wide grant. A namespace grant shows that
 namespace in its own cluster only ([Multi-cluster](multi-cluster.md)).
 
 Open and local dashboards serve the route without a token. Whenever
@@ -170,7 +171,7 @@ adds `pacto.trianalab.io/caller-ambiguous: "true"` and is `partial`.
 |---|---|
 | `pacto.trianalab.io/provenance` | How Pacto knows the entity: `declared`, `observed`, `declared+observed` or `inferred` |
 | `pacto.trianalab.io/as-of` | When the snapshot was built |
-| `pacto.trianalab.io/completeness` | `complete` or `partial` |
+| `pacto.trianalab.io/completeness` | `complete` or `partial`. A stale contribution (older than the freshness window, of unknown age, or with a newer version refused) reads `partial` on its Component |
 | `pacto.trianalab.io/service-key` | The full service key |
 | `pacto.trianalab.io/owner-provenance` | Where the owner comes from: `declared`, `declared-via-target`, `attested` or `inferred` |
 | `pacto.trianalab.io/owner` | The raw owner when it is not a valid Backstage name |
@@ -181,6 +182,10 @@ adds `pacto.trianalab.io/caller-ambiguous: "true"` and is `partial`.
 | `pacto.trianalab.io/name-source` | Where an inferred name came from |
 | `pacto.trianalab.io/relation-provenance` | Provenance of each `dependsOn` ref |
 | `pacto.trianalab.io/inferred-depends-on` | Edges Pacto only inferred |
+| `pacto.trianalab.io/dependency-ranges` | JSON: for each `dependsOn` ref, the ranges its contract accepts and whether the provider revisions Pacto reads from the registry (the locked revision, or every published one) satisfy each: `rangeStatus` reads `satisfied`, `unsatisfied` or `unknown`, and `rangeReason` reads `INFERRED_PROVIDER` when the provider is only an inferred contract. A declared range on a `dependsOn` ref with no computed status reads `unknown`, never absent. A declared dependency that did not resolve has no `dependsOn` ref and no entry here: `unresolved-dependencies` counts it. The versions a running target reaches show up in `conformance` |
+| `pacto.trianalab.io/conformance` | Runtime conformance of the service in your view: `Compliant`, `Warning`, `Unknown`, `NonCompliant`, `Invalid`, `Reference` or `NotEvaluated` |
+| `pacto.trianalab.io/offering` | The platform offering the Component provides |
+| `pacto.trianalab.io/contributed-by` | The producer whose contribution alone describes the Component. It reads `inferred`, or `observed` when a running target shows it, never `declared` |
 | `pacto.trianalab.io/hidden-relations` | How many relations your view hides |
 | `pacto.trianalab.io/unresolved-dependencies` | How many declared dependencies, configuration or policy references did not resolve |
 | `pacto.trianalab.io/external-key` | The external system's key |
@@ -210,6 +215,8 @@ metadata:
   annotations:
     pacto.trianalab.io/as-of: "2026-11-16T12:00:00Z"
     pacto.trianalab.io/completeness: complete
+    pacto.trianalab.io/conformance: NotEvaluated
+    pacto.trianalab.io/dependency-ranges: '{"component:default/event-bus":[{"range":"^3.6.0","rangeStatus":"satisfied"}],"component:default/inventory-service":[{"range":"^2.1.0","rangeStatus":"unknown"}],"component:default/shipping-rates":[{"range":"^1.0.0","rangeStatus":"unknown"}]}'
     pacto.trianalab.io/owner-provenance: declared
     pacto.trianalab.io/provenance: declared
     pacto.trianalab.io/relation-provenance: component:default/event-bus=declared,component:default/inventory-service=declared,component:default/shipping-rates=declared

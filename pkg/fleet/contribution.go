@@ -93,7 +93,11 @@ func ingestContribution(rev *ContractRevision, c *Contributor, refused contribut
 // sent, never that the source failed. It reports whether rev was diverted.
 func divertRevision(snap *FleetSnapshot, rev *ContractRevision, raw RawRevision, source string, refused contributionRefusals) bool {
 	if raw.Contributor != nil {
-		return !ingestContribution(rev, raw.Contributor, refused)
+		if !ingestContribution(rev, raw.Contributor, refused) {
+			return true
+		}
+		recordHead(snap, rev)
+		return false
 	}
 	return divertInferredProvider(snap, rev, source)
 }
@@ -183,7 +187,7 @@ func serviceContribution(snap *FleetSnapshot, s *ServiceRecord) *ServiceContribu
 	ref := contract.TrimOCIScheme(newest.ResolvedRef)
 	repo, _, _ := contract.SplitOCIRef(ref)
 	out := &ServiceContribution{Producer: c.Producer, Repository: repo, Ref: ref, KeyID: c.KeyID,
-		ReadAt: optionalTime(c.ReadAt), AsOf: optionalTime(c.AsOf), NewerRefused: c.NewerRefused}
+		ReadAt: optionalTime(c.ReadAt), AsOf: optionalTime(c.AsOf), NewerRefused: c.NewerRefused, Cluster: c.Cluster}
 	out.Stale = c.AsOf.IsZero() || c.NewerRefused != "" || snap.GeneratedAt.Sub(c.AsOf) > cmp.Or(snap.provisioningWindow, RecentEvidenceWindow)
 	return out
 }

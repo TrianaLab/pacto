@@ -6,7 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -17,6 +19,7 @@ import (
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
+	"github.com/trianalab/pacto/v4/internal/fleetsrc"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/deliveryrecord"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -36,13 +39,13 @@ const (
 func newClusterCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "cluster",
-		Short: "List, approve and remove the member clusters of this hub, and map their groups",
+		Short: "List, approve, remove and install the member clusters of this hub, and map their groups",
 		Long: "Every cluster whose operator sets registry publishes a signed snapshot to <registry>/pacto-targets:cluster-<uid>. " +
 			"This cluster, the hub, reads them: a cluster stays pending until a person approves its key, and only an approved member's " +
 			"services, targets and workloads join the hub's fleet. The hub is the current kubeconfig context or --context.",
 	}
 	cmd.AddCommand(newClusterListCommand(svc, v, d), newClusterDecisionCommand(svc, v, d, delivery.JoinApprove), newClusterDecisionCommand(svc, v, d, delivery.JoinRemove),
-		newClusterMapGroupsCommand(svc, v, d))
+		newClusterMapGroupsCommand(svc, v, d), newClusterInstallCommand(svc, v, d))
 	return cmd
 }
 
@@ -156,8 +159,13 @@ func joinsOn(ctx context.Context, dyn dynamic.Interface, registry, detected, pol
 			return app.JoinOptions{}, err
 		}
 	}
-	return app.JoinOptions{Repository: repo, Hub: hub, Authorize: authn.SubjectAccessReview(dyn),
-		Delivery: &app.Delivery{Dynamic: dyn, PolicyNamespace: policyNS, Now: time.Now}}, nil
+	opts := app.JoinOptions{Repository: repo, Hub: hub, Authorize: authn.SubjectAccessReview(dyn),
+		Delivery: &app.Delivery{Dynamic: dyn, PolicyNamespace: policyNS, Now: time.Now}}
+	if detected != "" {
+		opts.Candidates = fleetsrc.ClustersReader(dyn, detected, time.Now)
+		opts.Member = app.AdvertisedMember(ctx, dyn, detected, time.Now)
+	}
+	return opts, nil
 }
 
 // hubDynamic is a client of the kubeconfig context name, or of the
@@ -252,13 +260,65 @@ func printClusterList(w io.Writer, l delivery.ClusterJoinList) {
 	for _, c := range l.Clusters {
 		_, _ = fmt.Fprintln(w, clusterLine(c))
 	}
+	printClusterCandidates(w, l)
 	printClusterCounts(w, l)
+}
+
+// printClusterCandidates prints l's candidate clusters grouped by source.
+func printClusterCandidates(w io.Writer, l delivery.ClusterJoinList) {
+	if len(l.Candidates) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "candidate clusters (%s, as of %s)\n", l.CandidatesCompleteness, l.CandidatesAsOf)
+	src := ""
+	for _, c := range l.Candidates {
+		if c.Source != src {
+			src = c.Source
+			_, _ = fmt.Fprintf(w, "  from %s\n", candidateSourceNames[src])
+		}
+		_, _ = fmt.Fprintln(w, "    "+strings.Join(slices.DeleteFunc([]string{candidateName(c), candidateLabels(c), candidateMatch(c)}, func(s string) bool { return s == "" }), "  "))
+	}
+}
+
+// candidateSourceNames name the sources a candidate comes from.
+var candidateSourceNames = map[string]string{"argocd": "Argo CD", "flux": "Flux", "capi": "Cluster API", "ocm": "OCM", "rancher": "Rancher"}
+
+// candidateName is c's display name and the object it is.
+func candidateName(c delivery.ClusterCandidate) string {
+	ref := c.Name
+	if c.Namespace != "" {
+		ref = c.Namespace + "/" + c.Name
+	}
+	return fmt.Sprintf("%s (%s %s)", cmp.Or(c.DisplayName, c.Name), c.Kind, ref)
+}
+
+// candidateLabels are c's labels as key=value, sorted.
+func candidateLabels(c delivery.ClusterCandidate) string {
+	var out []string
+	for _, k := range slices.Sorted(maps.Keys(c.Labels)) {
+		out = append(out, k+"="+c.Labels[k])
+	}
+	return strings.Join(out, " ")
+}
+
+// candidateMatch says how c stands against the members, never by its UID.
+func candidateMatch(c delivery.ClusterCandidate) string {
+	switch c.Match {
+	case delivery.CandidateMatched:
+		return "matched member " + c.Member.Name
+	case delivery.CandidateSameUID:
+		return "states the same UID as a member: " + c.Reason
+	}
+	return "not matched: " + c.Reason
 }
 
 // printClusterCounts prints what l hid or did not count, and its limitations.
 func printClusterCounts(w io.Writer, l delivery.ClusterJoinList) {
 	if l.Hidden > 0 {
 		_, _ = fmt.Fprintf(w, "%d clusters you may not approve are hidden\n", l.Hidden)
+	}
+	if l.HiddenCandidates > 0 {
+		_, _ = fmt.Fprintf(w, "%d candidate clusters are hidden: they show to those who may approve clusterjoins\n", l.HiddenCandidates)
 	}
 	if l.OtherHubs > 0 {
 		_, _ = fmt.Fprintf(w, "%d join or mapping records name another hub and were not used\n", l.OtherHubs)
@@ -293,7 +353,23 @@ func printClusterListMarkdown(w io.Writer, l delivery.ClusterJoinList) {
 			strings.ReplaceAll(who, "|", `\|`), cmp.Or(mappingWords(c), "-"))
 	}
 	_, _ = fmt.Fprintln(w)
+	printCandidatesMarkdown(w, l)
 	printClusterCounts(w, l)
+}
+
+// printCandidatesMarkdown prints l's candidate clusters as a table, by source.
+func printCandidatesMarkdown(w io.Writer, l delivery.ClusterJoinList) {
+	if len(l.Candidates) == 0 {
+		return
+	}
+	_, _ = fmt.Fprintf(w, "Candidate clusters (%s, as of %s)\n\n", l.CandidatesCompleteness, l.CandidatesAsOf)
+	_, _ = fmt.Fprintln(w, "| Source | Name | Labels | Match |")
+	_, _ = fmt.Fprintln(w, "|---|---|---|---|")
+	esc := strings.NewReplacer("|", `\|`).Replace
+	for _, c := range l.Candidates {
+		_, _ = fmt.Fprintf(w, "| %s | %s | %s | %s |\n", candidateSourceNames[c.Source], esc(candidateName(c)), esc(cmp.Or(candidateLabels(c), "-")), esc(candidateMatch(c)))
+	}
+	_, _ = fmt.Fprintln(w)
 }
 
 // keyPattern is a key id as --key takes it.

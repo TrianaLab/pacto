@@ -25,7 +25,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/config"
 	metricsserver "sigs.k8s.io/controller-runtime/pkg/metrics/server"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 )
 
 // INV-5 says Secret VALUES never enter operator memory, and a name-scoped Secret grant

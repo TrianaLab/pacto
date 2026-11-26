@@ -1,0 +1,78 @@
+{
+  "intentDigest": "sha256:22d640e1fe25e19b9dcc28e4f1d29d886b497b234204a991c15a0416d315440f",
+  "type": "delivery.pacto.trianalab.io/promote",
+  "from": "sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "to": "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+  "toVersion": "2.0.0",
+  "verdicts": [
+    {
+      "gate": "pacto.published",
+      "phase": "pre",
+      "result": "Pass",
+      "citation": {
+        "contract": "oci://reg.example/pactos/payments@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "source": "payments-candidates"
+      },
+      "message": "sha256:bbbbbbbbbbbb is signed and names its contract"
+    },
+    {
+      "gate": "pacto.diff",
+      "phase": "pre",
+      "result": "Pass",
+      "citation": {
+        "classification": "BREAKING",
+        "from": "oci://reg.example/pactos/payments@sha256:1111111111111111111111111111111111111111111111111111111111111111",
+        "to": "oci://reg.example/pactos/payments@sha256:2222222222222222222222222222222222222222222222222222222222222222"
+      },
+      "message": "Breaking: 2 contract changes"
+    },
+    {
+      "gate": "pacto.impact",
+      "phase": "pre",
+      "result": "Pass",
+      "citation": {
+        "classification": "BREAKING",
+        "completeness": "complete",
+        "impact": "sha256:d49be07b2031fd066e6387cda295158b62118896feed54ca741ac18a3d09b2ac",
+        "snapshot": "sha256:4dd13c8c3b95fa029465a7b57599acbc8577c8e9824e26381cecb39064ab2519"
+      },
+      "message": "breaks checkout"
+    },
+    {
+      "gate": "pacto.environment",
+      "phase": "pre",
+      "result": "Pass",
+      "citation": {
+        "applicable": "false",
+        "contract": "oci://reg.example/pactos/payments@sha256:2222222222222222222222222222222222222222222222222222222222222222",
+        "environment": "prod"
+      },
+      "message": "not applicable: the contract of sha256:bbbbbbbbbbbb declares no environments"
+    }
+  ],
+  "floor": {
+    "human": true,
+    "decision": "approve",
+    "owners": [
+      "team-checkout"
+    ],
+    "consumers": [
+      "checkout"
+    ]
+  },
+  "question": "payments 2.0.0 is not accepted by checkout (accepts ^1.0.0). Approve shipping it anyway? Asked of: team-checkout",
+  "predicted": "Held",
+  "impactDigest": "sha256:d49be07b2031fd066e6387cda295158b62118896feed54ca741ac18a3d09b2ac",
+  "order": {
+    "moveFirst": [
+      {
+        "service": "checkout",
+        "domain": "reg.example/pactos",
+        "version": "1.0.0",
+        "accepts": "^1.0.0",
+        "unknown": "no Stage delivers checkout in prod, so Pacto cannot tell whether a version of it that accepts 2.0.0 exists",
+        "message": "checkout 1.0.0 runs in prod and accepts payments ^1.0.0, not 2.0.0. Pacto cannot tell what would move it first: no Stage delivers checkout in prod, so Pacto cannot tell whether a version of it that accepts 2.0.0 exists."
+      }
+    ]
+  }
+}

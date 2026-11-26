@@ -1,0 +1,30 @@
+# The XRD scenario 3b maps to an inferred offering: engine is immutable
+# (self == oldSelf), so the mapper tiers it contract; storageGB is bounded.
+apiVersion: apiextensions.crossplane.io/v2
+kind: CompositeResourceDefinition
+metadata:
+  name: xdatabases.e2e.pacto.run
+spec:
+  group: e2e.pacto.run
+  names: {kind: XDatabase, plural: xdatabases}
+  scope: Namespaced
+  versions:
+  - name: v1alpha1
+    served: true
+    referenceable: true
+    schema:
+      openAPIV3Schema:
+        type: object
+        description: A database for one service.
+        properties:
+          spec:
+            type: object
+            required: [engine]
+            properties:
+              engine:
+                type: string
+                enum: [postgres, mysql]
+                x-kubernetes-validations:
+                - rule: self == oldSelf
+                  message: engine is immutable
+              storageGB: {type: integer, minimum: 10, maximum: 500}

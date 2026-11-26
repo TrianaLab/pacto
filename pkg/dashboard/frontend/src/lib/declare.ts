@@ -4,7 +4,7 @@
  * what moved between two plans. Pure, so the panel only draws.
  */
 
-import { fleetEntityUrl, serviceAcceptSignedUrl, serviceDeclareUrl } from './router.ts';
+import { fleetEntityUrl, goldenPathDeclareUrl, serviceAcceptSignedUrl, serviceDeclareUrl } from './router.ts';
 import { pagedHash } from './paging.ts';
 
 type Range = { dependency: string; compatibility: string; proposed?: string; observed?: string; accepted?: boolean };
@@ -87,8 +87,9 @@ export function signUrl(ticket: string, serviceKey: string, intent: string): str
 }
 
 /** signReturn is the page a signing login comes back to: this service's (or external
- *  system's) panel with the intent it was started for. */
+ *  system's, or inferred golden path's) panel with the intent it was started for. */
 export function signReturn(serviceKey: string, intent: string): string {
+  if (isTemplateKey(serviceKey)) return goldenPathDeclareUrl(serviceKey, { signed: intent });
   const id = claimId(serviceKey);
   return id ? pagedHash(fleetEntityUrl('external', id), { declare: '1', signed: intent }) : serviceDeclareUrl(serviceKey, { signed: intent });
 }
@@ -99,24 +100,54 @@ export function claimId(serviceKey: string): string {
   return serviceKey.startsWith('external:') ? serviceKey.slice('external:'.length) : '';
 }
 
+/** isTemplateKey says whether a declare subject is an inferred golden path,
+ *  template:<namespace>/<name>: it has no service page, only the Golden paths list. */
+export function isTemplateKey(serviceKey: string): boolean {
+  return serviceKey.startsWith('template:');
+}
+
 // The contract schema's owner.team and service.name patterns.
 const TEAM = /^[a-zA-Z0-9._/-]+$/;
 const NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/;
 
-/** claimFieldError says which field of a claim is wrong, its owner (required) or
- *  name (optional), and what is wrong with it; field '' and message '' when both
- *  are fine. */
-export function claimFieldError(owner: string, name: string): { field: '' | 'owner' | 'name'; message: string } {
+/** claimFieldError says which field of a claim is wrong, its owner (required),
+ *  name or offering (both optional), and what is wrong with it; field '' and
+ *  message '' when all are fine. */
+export function claimFieldError(owner: string, name: string, offering = ''): { field: '' | 'owner' | 'name' | 'offering'; message: string } {
   if (!owner) return { field: 'owner', message: 'Name the team that owns it' };
   if (owner.length > 253 || !TEAM.test(owner)) return { field: 'owner', message: 'A team uses letters, digits, dots, dashes, underscores and slashes' };
   if (name && (name.length > 63 || !NAME.test(name))) return { field: 'name', message: 'A service name uses lower-case letters, digits and dashes, at most 63' };
+  // The offering is a slug like service.offering; the server refuses any other with OfferingInvalid.
+  if (offering && (offering.length > 63 || !NAME.test(offering))) return { field: 'offering', message: 'An offering uses lower-case letters, digits and dashes, at most 63' };
   return { field: '', message: '' };
+}
+
+const RELEASE = /^\d+\.\d+\.\d+$/;
+
+/** offeringFieldError says which field of an offering acceptance is wrong: its version
+ *  (a release MAJOR.MINOR.PATCH, required) or its owner (checked only when given: the
+ *  server asks for one on a first acceptance). field '' and message '' when both are fine. */
+export function offeringFieldError(version: string, owner: string): { field: '' | 'version' | 'owner'; message: string } {
+  if (!version) return { field: 'version', message: 'Set the version the declared offering is published at' };
+  if (version.length > 64 || !RELEASE.test(version)) return { field: 'version', message: 'A version is MAJOR.MINOR.PATCH, such as 1.0.0' };
+  if (owner && (owner.length > 253 || !TEAM.test(owner))) return { field: 'owner', message: 'A team uses letters, digits, dots, dashes, underscores and slashes' };
+  return { field: '', message: '' };
+}
+
+/** openPaths are the paths an OfferingSchemaOpen refusal names, one per open path of
+ *  the offering's parameters, so the panel lists them; [] for any other refusal. */
+export function openPaths(r: { code?: string; message?: string } | null | undefined): string[] {
+  if (r?.code !== 'OfferingSchemaOpen') return [];
+  // ponytail: reads the planner's own message ("open at a, b: close each path ..."); a
+  // structured paths field on the refusal if another surface ever needs them.
+  const m = /open at (.+?): close each path/.exec(r.message ?? '');
+  return m ? m[1].split(', ') : [];
 }
 
 /** acceptSignUrl starts the signing login for an accept plan and comes back to the
  *  service page with the intent it was started for. */
 export function acceptSignUrl(ticket: string, serviceKey: string, intent: string): string {
-  const ret = '/' + serviceAcceptSignedUrl(serviceKey, intent);
+  const ret = '/' + (isTemplateKey(serviceKey) ? goldenPathDeclareUrl(serviceKey, { signed: intent }) : serviceAcceptSignedUrl(serviceKey, intent));
   return `/auth/sign?ticket=${encodeURIComponent(ticket)}&return=${encodeURIComponent(ret)}`;
 }
 

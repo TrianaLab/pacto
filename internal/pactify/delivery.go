@@ -99,7 +99,7 @@ const pactoResource = `# The Pacto resource: it checks the running %s against th
 # version that ships. It ships inside every version: pacto ci --publish
 # fills in @PACTO_VERSION@. Its Service,
 # when there is one, lets Pacto see the calls made to it.
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: %s

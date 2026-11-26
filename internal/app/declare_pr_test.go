@@ -31,6 +31,7 @@ func goldenPlan() *DeclarePlan {
 // TestIntentDigestUnchangedWithoutPR: a plan without --pr digests to the
 // same bytes it did before --pr existed, its repository answer included.
 func TestIntentDigestUnchangedWithoutPR(t *testing.T) {
+	t.Parallel()
 	p := goldenPlan()
 	acc := []contract.InferredAcceptance{{Field: "dependencies.ledger.compatibility", Range: "^1.0.0"}}
 	const golden = "sha256:1bf4388e116a352353f318ba0bb37c869cdcb9968a535199f6a22e8b41492380"
@@ -76,6 +77,7 @@ func planImage(t *testing.T, e *declareEnv, img string, edit func(*DeclareReques
 }
 
 func TestResolveImageLabelFromIndexAnnotation(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	p, err := planImage(t, e, e.labelledImage(t, "https://github.com/Acme/Invoices.git", true), nil)
 	want := &contract.InferredSourceRepository{URL: "https://github.com/Acme/Invoices", Rung: contract.RepositoryRungImageLabel, Folder: ".", FolderRung: contract.FolderRungDefault}
@@ -85,6 +87,7 @@ func TestResolveImageLabelFromIndexAnnotation(t *testing.T) {
 }
 
 func TestResolveImageLabelFromConfig(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	p, err := planImage(t, e, e.labelledImage(t, "https://github.com/acme/invoices", false), nil)
 	if err != nil || p.Repository == nil || p.Repository.URL != invoicesRepo || p.Repository.Rung != contract.RepositoryRungImageLabel {
@@ -127,6 +130,7 @@ func TestUnreadableImageIsAReason(t *testing.T) {
 }
 
 func TestGivenOverridesEveryRung(t *testing.T) {
+	t.Parallel()
 	base := ciID(invoicesRepo)
 	in := repoInputs{Given: givenRepo{URL: "https://gitlab.com/acme/x"}, Baseline: &base, GitOps: []fleet.InferredRepository{{URL: invoicesRepo, Path: "deploy"}},
 		Label: invoicesRepo, Map: &repoMapEntry{Repository: invoicesRepo, Folder: "m"}}
@@ -155,6 +159,7 @@ func TestGivenOverridesEveryRung(t *testing.T) {
 }
 
 func TestFolderFlagOverridesGitOpsPath(t *testing.T) {
+	t.Parallel()
 	a := resolveRepository(repoInputs{Given: givenRepo{Folder: "mine"}, GitOps: []fleet.InferredRepository{{URL: invoicesRepo, Path: "deploy"}}})
 	if a.Repo == nil || a.Repo.Rung != contract.RepositoryRungGitOps || a.Repo.Folder != "mine" || a.Repo.FolderRung != contract.RepositoryRungGiven {
 		t.Fatalf("%+v", a.Repo)
@@ -162,6 +167,7 @@ func TestFolderFlagOverridesGitOpsPath(t *testing.T) {
 }
 
 func TestMapAnswersLast(t *testing.T) {
+	t.Parallel()
 	m := &repoMapEntry{Repository: invoicesRepo, Folder: "svc/invoices"}
 	a := resolveRepository(repoInputs{Map: m})
 	want := &contract.InferredSourceRepository{URL: invoicesRepo, Rung: contract.RepositoryRungMap, Folder: "svc/invoices", FolderRung: contract.RepositoryRungMap}
@@ -189,6 +195,7 @@ func writeMap(t *testing.T, body string) string {
 }
 
 func TestMapReadOnlyWithPR(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.RepoMap = filepath.Join(t.TempDir(), "absent.yaml")
@@ -208,6 +215,7 @@ func TestMapReadOnlyWithPR(t *testing.T) {
 }
 
 func TestMapStrictDecode(t *testing.T) {
+	t.Parallel()
 	for body, want := range map[string]string{
 		"invoices: {repository: https://github.com/acme/invoices, from: x}\n": "field from not found",
 		"invoices: {repository: ftp://h/x}\n":                                 "invoices.repository \"ftp://h/x\" is not a repository URL",
@@ -246,6 +254,7 @@ func code(err error) string {
 }
 
 func TestLabelAnswerNeedsConfirmation(t *testing.T) {
+	t.Parallel()
 	in := repoInputs{Label: invoicesRepo}
 	err := prCheck(in, resolveRepository(in), cli)
 	var de *DeclareError
@@ -256,6 +265,7 @@ func TestLabelAnswerNeedsConfirmation(t *testing.T) {
 }
 
 func TestMapConfirmsLabel(t *testing.T) {
+	t.Parallel()
 	in := repoInputs{Label: invoicesRepo, Map: &repoMapEntry{Repository: invoicesRepo}}
 	if err := prCheck(in, resolveRepository(in), cli); err != nil {
 		t.Fatal(err)
@@ -267,6 +277,7 @@ func TestMapConfirmsLabel(t *testing.T) {
 }
 
 func TestAgentNeverConfirmsLabel(t *testing.T) {
+	t.Parallel()
 	in := repoInputs{Agent: true, Label: invoicesRepo, Map: &repoMapEntry{Repository: invoicesRepo}}
 	if err := prCheck(in, resolveRepository(in), cli); code(err) != codeRepositoryUnconfirmed {
 		t.Fatalf("an agent confirmed its own label answer: %v", err)
@@ -274,6 +285,7 @@ func TestAgentNeverConfirmsLabel(t *testing.T) {
 }
 
 func TestAgentRepoMapNeverConfirms(t *testing.T) {
+	t.Parallel()
 	in := repoInputs{Agent: true, Map: &repoMapEntry{Repository: invoicesRepo}}
 	if err := prCheck(in, resolveRepository(in), cli); code(err) != codeRepositoryUnconfirmed {
 		t.Fatalf("an agent's map confirmed itself: %v", err)
@@ -286,6 +298,7 @@ func TestAgentRepoMapNeverConfirms(t *testing.T) {
 }
 
 func TestAgentGivenRepositoryNeedsPerson(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Agent, req.PR, req.Repository = true, true, "https://github.com/acme/invoices"
@@ -307,6 +320,7 @@ func TestAgentGivenRepositoryNeedsPerson(t *testing.T) {
 }
 
 func TestPRWithoutAnswerRefused(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.PR = true
@@ -319,6 +333,7 @@ func TestPRWithoutAnswerRefused(t *testing.T) {
 }
 
 func TestIntentDigestBindsPRTarget(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.req()
 	req.Repository = invoicesRepo

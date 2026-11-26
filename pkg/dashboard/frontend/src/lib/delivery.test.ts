@@ -7,7 +7,7 @@ import {
   verdictBadge, isBreaking, andList, reasonWords, verificationLabel, outcomeTone, reasonAfter, actorBadge, autonomyOf, unknownHelp, undoCause, UNKNOWN_DOCS,
   exceptParam, exceptList, offerLabel, checkText, watchText, progressStamp, isCommand, offerRequest, lifecycleWords,
   causeText, historyWindow, windowSince, samePerson, classSourceLabel, accessSourceLabel, gateLabel, applierLine, serverNow,
-  placementTip, ladderCommand,
+  placementTip, ladderCommand, memberStateLabel, placementSourceLabel, memberRefusalLine,
 } from './delivery.ts';
 import { changeSummary } from './changeFigure.ts';
 import {
@@ -461,7 +461,7 @@ describe('applier', () => {
     const now = Date.parse('2026-11-15T10:00:00Z');
     expect(applierLine(undefined, now)).toBeNull();
     const ok = applierLine({ state: 'Adopted', display: 'Argo CD (Application payments, tracking annotation)', asOf: '2026-11-15T09:59:30Z' }, now);
-    expect(ok).toEqual({ display: 'Argo CD (Application payments, tracking annotation)', problem: '', asOf: 'as of 2026-11-15 09:59 UTC', warn: false,
+    expect(ok).toEqual({ display: 'Argo CD (Application payments, tracking annotation)', problem: '', asOf: 'as of 2026-11-15 09:59 UTC', values: '', valuesTitle: '', warn: false,
       text: 'Applier: Argo CD (Application payments, tracking annotation) (as of 2026-11-15 09:59 UTC)' });
     const bad = applierLine({ state: 'Conflict', display: 'Helm (release payments, release annotations)', message: 'Helm release payments owns Deployment payments',
       asOf: '2026-11-15T09:50:00Z' }, now);
@@ -471,6 +471,15 @@ describe('applier', () => {
     const stale = applierLine({ state: 'Unmanaged', display: 'unmanaged', asOf: '2026-11-15T09:50:00Z' }, now);
     expect(stale?.warn).toBe(true);
     expect(applierLine({ state: 'Unknown', manager: 'none', message: 'cannot tell' }, now)?.text).toBe('Applier: none, unknown: cannot tell');
+  });
+
+  it('TestApplierLineCarriesValues: the values file the applier selects, observed on it', () => {
+    const now = Date.parse('2026-11-15T10:00:00Z');
+    const line = applierLine({ state: 'Adopted', display: 'Argo CD (Application payments)', values: 'values-production.yaml', asOf: '2026-11-15T09:59:30Z' }, now);
+    expect(line?.values).toBe('values-production.yaml');
+    expect(line?.valuesTitle).toBe('observed on Argo CD (Application payments) as of 2026-11-15 09:59 UTC');
+    expect(line?.text).toBe('Applier: Argo CD (Application payments), values values-production.yaml (as of 2026-11-15 09:59 UTC)');
+    expect(applierLine({ state: 'Adopted', display: 'Flux', values: 'overlays/production' }, now)?.valuesTitle).toBe('observed on Flux');
   });
 
   it('judges staleness by the promoter\'s staleAt and the server clock', () => {
@@ -522,5 +531,32 @@ describe('ladderCommand', () => {
     const d = `sha256:${'5be1'.repeat(16)}`;
     expect(ladderCommand({ command: `pacto delivery ladder confirm --proposal ${d}`, proposalDigest: d })).toBe(`pacto delivery ladder confirm --proposal ${d}`);
     expect(ladderCommand({ command: '', proposalDigest: d })).toBe(`pacto delivery ladder confirm --proposal ${d}`);
+  });
+});
+
+describe('memberStateLabel', () => {
+  it('names every state a member answers in plain words, and keeps one it does not know', () => {
+    expect(memberStateLabel('applied')).toBe('Applied');
+    expect(memberStateLabel('held')).toBe('Held for a person');
+    expect(memberStateLabel('no request')).toBe('No request yet');
+    expect(memberStateLabel('unknown')).toBe('Unknown: no answer in time');
+    expect(memberStateLabel('concluded')).toBe('Ended without applying');
+    expect(memberStateLabel('later')).toBe('later');
+  });
+});
+
+describe('placementSourceLabel', () => {
+  it('says whether a rule, the advertised environments or a person placed it', () => {
+    expect(placementSourceLabel({ source: 'policy' })).toBe('From a signed placement rule');
+    expect(placementSourceLabel({ source: 'unconfirmed' })).toBe('Proposed from advertised environments');
+    expect(placementSourceLabel({ source: 'advertised', confirmedBy: 'oidc:bob@acme.com' })).toBe('Confirmed by oidc:bob@acme.com');
+  });
+});
+
+describe('memberRefusalLine', () => {
+  it('says whether the member refused the request or its gates rejected the promote', () => {
+    expect(memberRefusalLine({ code: 'NotAllowedHere', reason: 'alice may not create operations in billing' })).toBe('The member refused the request (NotAllowedHere): alice may not create operations in billing.');
+    expect(memberRefusalLine({ code: 'Rejected', reason: 'pacto.published: no publisher signature' })).toBe("The member's gates rejected the promote: pacto.published: no publisher signature.");
+    expect(memberRefusalLine({ reason: 'x' })).toBe('The member refused the request: x.');
   });
 });

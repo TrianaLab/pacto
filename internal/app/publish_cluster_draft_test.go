@@ -23,6 +23,7 @@ import (
 // a cluster draft holds no literal of the workload's env or args, in the =,
 // split and sh -c forms or in an init container.
 func TestPublishClusterDraftHoldsNoLiteral(t *testing.T) {
+	t.Parallel()
 	ctr := func(name string, command, args []any, env ...any) map[string]any {
 		c := map[string]any{"name": name, "image": "reg.io/acme/" + name + ":1.0.0", "args": args, "env": env}
 		if command != nil {

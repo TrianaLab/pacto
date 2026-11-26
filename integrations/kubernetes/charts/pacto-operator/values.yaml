@@ -64,6 +64,13 @@ idp:
     # https://pacto.run/latest/integrations/kubernetes/profiles/#crossplane
     install: false
 
+crossplane:
+  offerings:
+    # -- Push each Crossplane XRD as an inferred offering to
+    # `<registry>/pacto-inferred/crossplane-<clusterID>/services`. Needs registry
+    # and a cluster-wide operator. The operator only reads XRDs and Compositions.
+    enabled: true
+
 # -- namespace/name of an existing Secret that authenticates to `registry`, for
 # a registry without workload identity. Pacto proposes one it saw running pods
 # use (helm upgrade notes and Data sources) and never uses it until you name it
@@ -80,6 +87,18 @@ hub:
   # -- ConfigMap in the release namespace holding `ca.crt`, the PEM CAs the
   # hub's certificate may chain to beside the system pool.
   caConfigMap: ""
+
+clusterInventory:
+  # -- List the candidate clusters Argo CD, Flux, Cluster API, OCM and Rancher
+  # know on this hub: Data sources and `pacto cluster list` show them with
+  # their labels and source. Adds `list` on each inventory API the cluster
+  # serves (metadata only); nothing joins on its own.
+  enabled: false
+  # -- Namespaces where the operator may list Secrets (metadata only), for
+  # Argo CD cluster Secrets and Flux kubeconfig Secrets. This grants the
+  # operator's ServiceAccount Secret list there; no Secret is read
+  # cluster-wide.
+  secretNamespaces: []
 
 # -- Number of controller replicas
 replicaCount: 1
@@ -221,6 +240,20 @@ controller:
   # in a Role there, never in a ClusterRole. Quote "off": a bare off is YAML
   # false, and false keeps meaning auto; true means on.
   egressGatewayLogs: auto
+  # -- Remote Terraform or OpenTofu states the operator reads managed
+  # resources from, through its workload identity (serviceAccount.annotations),
+  # written s3://<bucket>/<key>?region=<region>, gs://<bucket>/<object> or
+  # azurerm://<account>/<container>/<key>. Only resource types, ids, regions and
+  # engines are kept, never another attribute value. Bind a role that may only
+  # read these objects. pacto ci proposes the backends it finds.
+  terraformStates: []
+  # -- The cloud whose inventory the operator reads managed resources from:
+  # aws (Resource Explorer), gcp (Cloud Asset Inventory), azure (Resource Graph)
+  # or "off" (quoted: a bare off is YAML false). Read only through the workload
+  # identity of that cloud on serviceAccount.annotations, never a node identity.
+  # The identity often serves registry access too, so it is never used for the
+  # inventory until you name the cloud here; bind it a read-only role.
+  cloudInventory: "off"
 
 leaderElection:
   # -- Enable leader election for HA deployments
@@ -949,6 +982,26 @@ delivery:
   # Stage namespace or a RoleBinding to a ClusterRole, before the promoter writes its pointer.
   # `auto` is on wherever delivery is enabled; `false` opts out.
   manifestInspector: auto
+
+  # Member requests: a person on the hub asks this member to promote a version by signing one
+  # request in this cluster's request stream in `<registry>/pacto-targets`. The operator verifies
+  # it with this installation's approver signers, checks that person may create Operations here,
+  # and raises one promote on their behalf, which this cluster's gates, approvals and applier decide.
+  # Every refusal and conclusion is a record signed with the installation key.
+  remote:
+    # -- (bool or `auto`) Take member requests. `auto` and `true` take them wherever delivery renders
+    # with a `registry` and a profile other than hardened; `false` turns them off
+    enabled: auto
+    allow:
+      # -- Service name patterns (globs) member requests are taken for. Empty takes every service;
+      # the `pacto.published` gate still rejects a version no trusted publisher signed
+      services: []
+      # -- Namespaces member requests are taken for. Empty takes every namespace the operator
+      # watches; a listed namespace the operator does not watch stays refused
+      namespaces: []
+      # -- Environments member requests are taken for. Empty takes every environment the cluster
+      # name hosts; a listed environment the cluster name does not host stays refused
+      environments: []
 
   # -- Registry hosts (`host:port`) the promoter and the recorder reach over plain HTTP. An
   # OCIRepository with `spec.insecure: true` is read over HTTP anyway.

@@ -1,0 +1,12 @@
+# The Pacto of the published orders revision in prod; its target workload is
+# the orders Deployment.
+apiVersion: pacto.trianalab.io/v1
+kind: Pacto
+metadata:
+  namespace: shop
+  name: orders
+  labels: {delivery.pacto.trianalab.io/environment: prod}
+spec:
+  checkIntervalSeconds: 30
+  contractRef: {oci: "__CONSUMER_REF__"}
+  target: {workloadRef: {name: orders, kind: Deployment}}

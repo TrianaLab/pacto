@@ -83,6 +83,7 @@ func occurrences(t *testing.T, refs []lock.Reference) map[lock.Occurrence]lock.R
 // files both under ("config:a/policy:b", config, settings). Whichever is read
 // back names a bundle the other contract never referenced.
 func TestReferenceOccurrence_DelimiterCollisionIsNotAnIdentity(t *testing.T) {
+	t.Parallel()
 	store := refStore(map[string]*contract.Contract{
 		"alpha":    cfg("alpha", [2]string{"settings", "oci://r/mike"}),
 		"bravo":    cfg("bravo", [2]string{"settings", "oci://r/november"}),
@@ -140,6 +141,7 @@ func TestReferenceOccurrence_DelimiterCollisionIsNotAnIdentity(t *testing.T) {
 // The declaring identity is never "" except for the root, so "root declared it"
 // stays a decidable question no matter what a name contains.
 func TestReferenceOccurrence_EmptyFromMeansRootOnly(t *testing.T) {
+	t.Parallel()
 	store := refStore(map[string]*contract.Contract{
 		"alpha":    cfg("alpha", [2]string{"", "oci://r/mike"}, [2]string{"/", "oci://r/november"}),
 		"mike":     cfg("mike"),
@@ -170,6 +172,7 @@ func TestReferenceOccurrence_EmptyFromMeansRootOnly(t *testing.T) {
 // Names that are hostile to any string encoding must still round-trip to
 // distinct occurrences.
 func TestReferenceOccurrence_HostileNamesStayDistinct(t *testing.T) {
+	t.Parallel()
 	hostile := []string{
 		"a/policy:b",
 		"a", // the prefix of the first, so a prefix-based split cannot work either
@@ -226,6 +229,7 @@ func diamondStore() *testutil.MockBundleStore {
 }
 
 func TestReferenceOccurrence_MultiplePathsToOneContractAreOneDeclaration(t *testing.T) {
+	t.Parallel()
 	root := cfg("app",
 		[2]string{"left", "oci://r/mid"},
 		[2]string{"right", "oci://r/mid"},
@@ -261,6 +265,7 @@ func TestReferenceOccurrence_MultiplePathsToOneContractAreOneDeclaration(t *test
 
 // The same closure, declared in the other order, must produce the same lock.
 func TestReferenceOccurrence_DeclarationOrderDoesNotChangeTheLock(t *testing.T) {
+	t.Parallel()
 	marshal := func(root *contract.Contract) []byte {
 		t.Helper()
 		refs, err := NewService(diamondStore(), nil).buildReferenceClosure(context.Background(), root, "")
@@ -302,6 +307,7 @@ func TestReferenceOccurrence_DeclarationOrderDoesNotChangeTheLock(t *testing.T) 
 // directory the walk saw first. Note that this is not the duplicate-name case:
 // canonical validation accepts every contract here.
 func TestReferenceClosure_IdenticalLocalTwinsResolvingDifferentlyFailClosed(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	twin := "configurations:\n  - name: shared\n    ref: ../cfg\n"
 	for _, side := range []string{"one", "two"} {
@@ -337,6 +343,7 @@ func TestReferenceClosure_IdenticalLocalTwinsResolvingDifferentlyFailClosed(t *t
 // resolution, so it is emitted once and where the copies sit does not leak into
 // the lock.
 func TestReferenceClosure_IdenticalLocalTwinsAgreeingAreOneDeclaration(t *testing.T) {
+	t.Parallel()
 	base := t.TempDir()
 	twin := "configurations:\n  - name: shared\n    ref: ../cfg\n"
 	for _, side := range []string{"one", "two"} {
@@ -363,6 +370,7 @@ func TestReferenceClosure_IdenticalLocalTwinsAgreeingAreOneDeclaration(t *testin
 
 // The same declaration reached twice is one entry, not an ambiguity.
 func TestReferenceClosure_IdenticalDeclarationReachedTwiceIsNotAmbiguous(t *testing.T) {
+	t.Parallel()
 	root := cfg("app",
 		[2]string{"left", "oci://r/mid"},
 		[2]string{"right", "oci://r/mid"},

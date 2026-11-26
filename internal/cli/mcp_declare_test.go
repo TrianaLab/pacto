@@ -61,7 +61,7 @@ func declareCluster() *dynamicfake.FakeDynamicClient {
 		gvr("apps", "v1", "deployments"): "DeploymentList", gvr("apps", "v1", "statefulsets"): "StatefulSetList", gvr("apps", "v1", "daemonsets"): "DaemonSetList",
 		gvr("batch", "v1", "cronjobs"): "CronJobList", gvr("", "v1", "services"): "ServiceList", gvr("", "v1", "pods"): "PodList",
 		gvr("apps", "v1", "replicasets"): "ReplicaSetList", gvr("batch", "v1", "jobs"): "JobList", gvr("discovery.k8s.io", "v1", "endpointslices"): "EndpointSliceList",
-		gvr("pacto.trianalab.io", "v1alpha1", "pactos"): "PactoList", gvr("pacto.trianalab.io", "v1alpha1", "noderuntimeobservations"): "NodeRuntimeObservationList",
+		gvr("pacto.trianalab.io", "v1", "pactos"): "PactoList", gvr("pacto.trianalab.io", "v1", "noderuntimeobservations"): "NodeRuntimeObservationList",
 		gvr("", "v1", "configmaps"): "ConfigMapList",
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -83,13 +83,13 @@ func declareCluster() *dynamicfake.FakeDynamicClient {
 		kubeObject("apps/v1", "ReplicaSet", "billing", "invoices-7f", map[string]any{"metadata": owner("Deployment", "invoices")}),
 		kubeObject("v1", "Pod", "billing", "invoices-7f-a", map[string]any{"metadata": podMeta}),
 		svc("invoices", "10.0.0.30"), svc("ledger", "10.0.0.60"),
-		kubeObject("pacto.trianalab.io/v1alpha1", "Pacto", "billing", "ledger", map[string]any{
+		kubeObject("pacto.trianalab.io/v1", "Pacto", "billing", "ledger", map[string]any{
 			"metadata": map[string]any{"generation": int64(1)},
 			"spec":     map[string]any{"contractRef": map[string]any{"oci": "oci://reg.io/acme/contracts/ledger:2.3.1"}, "target": map[string]any{"serviceName": "ledger"}},
 			"status": map[string]any{"observedGeneration": int64(1), "contract": map[string]any{"serviceName": "ledger", "version": "2.3.1",
 				"resolvedRef": "oci://reg.io/acme/contracts/ledger@sha256:aa"}}}),
 		kubeObject("v1", "Namespace", "", "kube-system", map[string]any{"metadata": map[string]any{"uid": "3f1c-uid"}}),
-		kubeObject("pacto.trianalab.io/v1alpha1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
+		kubeObject("pacto.trianalab.io/v1", "NodeRuntimeObservation", "pacto-system", "node-1", map[string]any{"status": map[string]any{
 			"nodeName": "node-1", "pods": []any{map[string]any{"uid": "u-invoices", "connections": []any{
 				map[string]any{"address": "10.0.0.60", "port": int64(80), "successes": int64(2), "lastSuccessAt": now}}}}}}),
 	}
@@ -238,7 +238,7 @@ func TestMCPDeclareCITokenSignsDraft(t *testing.T) {
 	const wf = "acme/invoices/.github/workflows/release.yml@refs/heads/main"
 	t.Setenv("SIGSTORE_ID_TOKEN", testutil.TokenWith(map[string]string{"sub": "https://github.com/" + wf, "iss": "https://token.actions.githubusercontent.com",
 		"job_workflow_ref": wf, "repository": "https://github.com/acme/invoices", "ref": "refs/heads/main"}))
-	decl := newMCPDeclarer(app.NewService(nil, nil), "")
+	decl := newMCPDeclarer(app.NewService(nil, nil), "", "", "")
 	decl.base.Signing.FulcioURL, decl.base.Signing.TimestampURL, decl.base.Signing.RekorURL, decl.base.Signing.TrustedRoot = ss.Fulcio, ss.TSA, "", rootPath
 	server := func() *mcpsdk.Server {
 		s, _ := pactomcp.New("v", pactomcp.Authoring{Declare: decl}, pactomcp.Modes{})
@@ -255,9 +255,9 @@ func TestMCPDeclareCITokenSignsDraft(t *testing.T) {
 
 func TestMCPDeclareRequestErrors(t *testing.T) {
 	newDeclareWorld(t)
-	decl := newMCPDeclarer(app.NewService(nil, nil), "")
+	decl := newMCPDeclarer(app.NewService(nil, nil), "", "", "")
 	ctx := context.Background()
-	for _, a := range []pactomcp.DeclareArgs{{Service: "invoices", CallWindow: "a day"}, {Service: "offering:pay"}} {
+	for _, a := range []pactomcp.DeclareArgs{{Service: "invoices", CallWindow: "a day"}, {Service: "service:pay"}} {
 		if _, _, err := decl.Plan(ctx, a); err == nil {
 			t.Errorf("%+v planned", a)
 		}
@@ -328,7 +328,7 @@ func TestMCPDeclareHTTPRefusesDraftArgument(t *testing.T) {
 }
 
 func TestMCPDeclareStdioPassesDraft(t *testing.T) {
-	req, err := newMCPDeclarer(nil, "").request(pactomcp.DeclareArgs{Service: "invoices", Draft: true})
+	req, err := newMCPDeclarer(nil, "", "", "").request(pactomcp.DeclareArgs{Service: "invoices", Draft: true})
 	if err != nil || !req.Draft || !req.Agent {
 		t.Fatalf("%+v %v", req, err)
 	}
@@ -609,11 +609,11 @@ func TestMCPDeclareExternalRequiresOwner(t *testing.T) {
 }
 
 func TestMCPDeclareExternalBypassesWorkloadSubject(t *testing.T) {
-	req, err := newMCPDeclarer(nil, "").request(pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Name: "payments-stripe"})
-	if err != nil || req.Service != "external:stripe" || req.Owner != "team-platform" || req.Name != "payments-stripe" || !req.Agent {
+	req, err := newMCPDeclarer(nil, "", "", "").request(pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Name: "payments-stripe", Offering: "postgresql"})
+	if err != nil || req.Service != "external:stripe" || req.Owner != "team-platform" || req.Name != "payments-stripe" || req.Offering != "postgresql" || !req.Agent {
 		t.Fatalf("%+v %v", req, err)
 	}
-	if _, err := newMCPDeclarer(nil, "").request(pactomcp.DeclareArgs{Service: "offering:x"}); err == nil || !strings.Contains(err.Error(), "offering:") {
+	if _, err := newMCPDeclarer(nil, "", "", "").request(pactomcp.DeclareArgs{Service: "service:x"}); err == nil || !strings.Contains(err.Error(), "service:") {
 		t.Fatal(err)
 	}
 	// A claim whose kubeconfig fails plans with the signer policy unread.
@@ -773,5 +773,19 @@ func TestRemoteDeclareExternalReclaimUsesClaimedName(t *testing.T) {
 	_ = json.Unmarshal(raw, &p)
 	if p.BundleRepo != w.host+"/acme/stripe" {
 		t.Fatalf("%s", raw)
+	}
+}
+
+// TestRemoteDeclareClaimOfferingReadsCallerView: over HTTP an offering's
+// providers come from the caller's fleet view, never from the registry with
+// this server's credentials (which this server could not read: unknown).
+func TestRemoteDeclareClaimOfferingReadsCallerView(t *testing.T) {
+	w := newDeclareWorld(t)
+	rd := newRemoteDeclarer(app.NewService(nil, nil), []string{"oci://" + w.host + "/acme"}, claimFleet(t, []string{"ledger"}, map[fleet.ExternalKey]*fleet.ExternalClaim{"stripe": nil}))
+	raw, refused, err := rd.Plan(remoteCtx(declareCluster()), pactomcp.DeclareArgs{Service: "external:stripe", Owner: "team-platform", Offering: "postgresql", Registry: w.host + "/acme"})
+	var p app.DeclarePlan
+	_ = json.Unmarshal(raw, &p)
+	if err != nil || refused != nil || !slices.Contains(p.Notes, "proposes offering postgresql (no provider yet)") {
+		t.Fatalf("%s %+v %v", raw, refused, err)
 	}
 }

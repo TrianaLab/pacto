@@ -13,8 +13,8 @@ import (
 	"strings"
 	"testing"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/tools/record"
@@ -33,8 +33,8 @@ func TestApplyConfigurationOverrides_ConfigNotFound(t *testing.T) {
 		},
 	}
 
-	overrides := &pactov1alpha1.ContractOverrides{
-		Configurations: []pactov1alpha1.ConfigurationOverride{
+	overrides := &pactov1.ContractOverrides{
+		Configurations: []pactov1.ConfigurationOverride{
 			{Name: "nonexistent", Values: map[string]string{"key": "override"}},
 		},
 	}
@@ -57,8 +57,8 @@ func TestApplyConfigurationOverrides_NilValues(t *testing.T) {
 		},
 	}
 
-	overrides := &pactov1alpha1.ContractOverrides{
-		Configurations: []pactov1alpha1.ConfigurationOverride{
+	overrides := &pactov1.ContractOverrides{
+		Configurations: []pactov1.ConfigurationOverride{
 			{Name: "default", Values: map[string]string{"new_key": "new_value"}},
 		},
 	}
@@ -77,7 +77,7 @@ func TestApplyConfigurationOverrides_NilValues(t *testing.T) {
 
 // Test ensureRevision with Get error (non-NotFound)
 func TestEnsureRevision_GetError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default", UID: "uid"},
 	}
 
@@ -94,7 +94,7 @@ func TestEnsureRevision_GetError(t *testing.T) {
 		Client: fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+					if _, ok := obj.(*pactov1.PactoRevision); ok {
 						return fmt.Errorf("get failed")
 					}
 					return c.Get(ctx, key, obj, opts...)
@@ -115,7 +115,7 @@ func TestEnsureRevision_GetError(t *testing.T) {
 
 // Test ensureRevision with Create error (non-AlreadyExists)
 func TestEnsureRevision_CreateError(t *testing.T) {
-	pacto := &pactov1alpha1.Pacto{
+	pacto := &pactov1.Pacto{
 		ObjectMeta: metav1.ObjectMeta{Name: "test", Namespace: "default", UID: "uid"},
 	}
 
@@ -132,7 +132,7 @@ func TestEnsureRevision_CreateError(t *testing.T) {
 		Client: fake.NewClientBuilder().WithScheme(s).WithObjects(pacto).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Create: func(ctx context.Context, c client.WithWatch, obj client.Object, opts ...client.CreateOption) error {
-					if _, ok := obj.(*pactov1alpha1.PactoRevision); ok {
+					if _, ok := obj.(*pactov1.PactoRevision); ok {
 						return fmt.Errorf("create failed")
 					}
 					return c.Create(ctx, obj, opts...)
@@ -158,7 +158,7 @@ func TestReconcile_GetError(t *testing.T) {
 		Client: fake.NewClientBuilder().WithScheme(s).
 			WithInterceptorFuncs(interceptor.Funcs{
 				Get: func(ctx context.Context, c client.WithWatch, key client.ObjectKey, obj client.Object, opts ...client.GetOption) error {
-					if _, ok := obj.(*pactov1alpha1.Pacto); ok {
+					if _, ok := obj.(*pactov1.Pacto); ok {
 						return fmt.Errorf("get failed")
 					}
 					return c.Get(ctx, key, obj, opts...)

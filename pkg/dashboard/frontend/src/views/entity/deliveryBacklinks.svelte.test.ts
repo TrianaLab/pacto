@@ -85,7 +85,7 @@ describe('revision page Delivery lifecycle (B4)', () => {
     fns.record.mockResolvedValue({ namespace: 'test', stage: 'payments', record: REC, verified: true, asOf: '', entry: ev('arrived'), verdicts: [], note: 'verified' });
     (sec.querySelector('button[aria-label^="Read record"]') as HTMLButtonElement).click();
     await settle();
-    expect(fns.record).toHaveBeenCalledWith('test', 'payments', REC);
+    expect(fns.record).toHaveBeenCalledWith('test', 'payments', REC, undefined);
     expect(sec.querySelector('[data-testid="record-panel"]')).not.toBeNull();
     destroy();
   });
@@ -198,6 +198,26 @@ describe('target page Delivery link (B4)', () => {
     expect([...target.querySelectorAll('a')].some((x) => /^Delivery in/.test(x.textContent ?? ''))).toBe(false);
     expect(text(target.querySelector('[data-testid="target-delivery"]'))).toContain('observed');
     destroy();
+  });
+
+  it('keeps, with several clusters, only the Stage in the cluster of the target', async () => {
+    const EU = '9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34';
+    const clusters = [{ id: 'hub-uid', name: 'hub', completeness: 'complete' }, { id: EU, name: 'eu-prod', completeness: 'complete' }];
+    fns.environments.mockResolvedValue({ asOf: '', completeness: 'complete', clusters, environments: [row('prod'), { ...row('prod'), cluster: EU }] });
+    const detail = targetDetail('prod');
+    (detail.target as Record<string, unknown>).cluster = { id: EU, name: 'eu-prod', nameSource: 'context' };
+    const { target, destroy } = render(TargetEntity, { detail, deliveryState: 'enabled' });
+    await settle();
+    const links = [...target.querySelectorAll('a')].filter((x) => /^Delivery in/.test(x.textContent ?? ''));
+    expect(links.map((a) => a.getAttribute('href'))).toEqual([`#/delivery/history?namespace=prod&stage=audit-log&cluster=${EU}`]);
+    destroy();
+    const home = targetDetail('prod');
+    (home.target as Record<string, unknown>).cluster = { id: 'hub-uid', name: 'hub', nameSource: 'context' };
+    const v = render(TargetEntity, { detail: home, deliveryState: 'enabled' });
+    await settle();
+    const homeLinks = [...v.target.querySelectorAll('a')].filter((x) => /^Delivery in/.test(x.textContent ?? ''));
+    expect(homeLinks.map((a) => a.getAttribute('href'))).toEqual(['#/delivery/history?namespace=prod&stage=audit-log']);
+    v.destroy();
   });
 
   it('says a partial listing may hide the Stage', async () => {

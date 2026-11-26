@@ -23,6 +23,8 @@
   import ConfigurationList from '../../components/ConfigurationList.svelte';
   import InferredFieldList from '../../components/InferredFieldList.svelte';
   import AcceptProposedRanges from '../../components/AcceptProposedRanges.svelte';
+  import DeclarePanel from '../../components/DeclarePanel.svelte';
+  import Fold from '../../components/Fold.svelte';
   import FieldProvenanceFold from '../../components/FieldProvenanceFold.svelte';
   import LifecycleBadge from '../../components/LifecycleBadge.svelte';
   import ResourceList from '../../components/ResourceList.svelte';
@@ -30,7 +32,7 @@
   import ServiceRevisionsFigure from '../../components/figure/ServiceRevisionsFigure.svelte';
   import GoldenPathFigure from '../../components/figure/GoldenPathFigure.svelte';
   import CreationFigure from '../../components/figure/CreationFigure.svelte';
-  import CreationExplainer from '../../components/figure/explain/CreationExplainer.svelte';
+  import CreateServicePanel from '../../components/CreateServicePanel.svelte';
   import Glyph from '../../components/figure/Glyph.svelte';
   import { creationStatus } from '../../lib/goldenFigures.ts';
   import { readinessSegments, signatureSegments, signatureState, segmentTotal, complianceSegments, READINESS_STATES } from '../../lib/distributions.ts';
@@ -52,11 +54,19 @@
   // computed from the previews beside it: those are capped at 200 items, so counting
   // them would quietly turn "the first 200 targets" into "this service".
   // acceptSigned is the intent a signing login for the accept plan came back with.
-  let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '', changesQuery = {}, acceptSigned = '' } = $props();
+  // canDeclare and declareQuery reach only a contributed inferred offering: declare=1
+  // opens its Accept panel, signed is the intent a signing login came back with.
+  // createService and portalCreateURL are the host's capabilities for the golden path's
+  // Create service panel; createQuery.signed is the intent its signing login came back with.
+  let { detail, deliveryState = 'unknown', refreshTick = 0, miraURL = '', changesQuery = {}, acceptSigned = '', canDeclare = false, declareQuery = {}, createService = false, portalCreateURL = '', createQuery = {} } = $props();
   const d = $derived(detail.service ?? {});
   // A producer's contribution names no owner and is never delivered: its owner and
   // Delivery blocks would only offer to set what no contract declares.
   const contributed = $derived(!!d.contribution);
+  // The server lists accept-offering only for a verified inferred offering on a host that writes.
+  const acceptable = $derived(contributed && canDeclare && (detail.actions ?? []).includes('accept-offering'));
+  let acceptToggled = $state(null);
+  const acceptOpen = $derived(acceptToggled ?? !!declareQuery.open);
   // The Delivery section's Stage rows, bound out so the Environments section joins them without a second fetch.
   let deliveryRows = $state([]);
   let deliveryCompleteness = $state('');
@@ -165,7 +175,7 @@
   const STEP_LABEL = { signature: 'Signature', contract: 'Contract', validation: 'Validation', plugin: 'Plugin', published: 'Published', fleet: 'Seen by Pacto', deployed: 'Deployed', provisioning: 'Provisioning' };
   // Unknown is neutral (SPEC 2.2): no evidence never reads as done, nor as a warning.
   const stepStatus = (st) => { const s = creationStatus(st); return [s.word, s.tone]; };
-  // What the golden path requests, for the creation explainer's last station.
+  // What the golden path requests, named by the Create service panel before a review.
   const requested = $derived([...new Set((gp?.requirements?.items ?? []).map((u) => u.offering || u.provider?.label || u.provider?.key).filter(Boolean))]);
   const hiddenCreated = $derived(gp?.hiddenCreatedServices ?? 0);
   const hiddenReqs = $derived(gp?.hiddenRequirements ?? 0);
@@ -276,6 +286,14 @@
     {/if}
   </section>
 
+  {#if acceptable}
+    <!-- Accept the inferred offering as a declared one: the version the person sets, the
+         plan first, signed by the person (515-S4). The panel plans only once open. -->
+    <Fold title="Accept this offering" testid="offering-accept" open={!!declareQuery.open} ontoggle={(e) => (acceptToggled = e.currentTarget.open)}>
+      {#key declareQuery.signed}<DeclarePanel serviceKey={key} offering={provides} open={acceptOpen} signed={declareQuery.signed ?? ''} />{/key}
+    </Fold>
+  {/if}
+
   {#if d.ownership?.conflicts?.count}
     <!-- Each conflict carries a canonical revision key, so joining them into one prose
          sentence buried the owner names -- the actual point -- inside 71 characters of
@@ -308,32 +326,36 @@
       {#if detail.entity?.summary}<p class="se-lead t-body-2">{detail.entity.summary}</p>{/if}
 
       <GoldenPathFigure path={key} name={self} version={d.currentRevision?.version ?? ''} hidden={hiddenCreated} />
-      <CreationExplainer requires={requested} hidden={hiddenReqs} />
-
       <h3 class="t-subsection-title">Create a service from it</h3>
-      <div class="se-create" data-testid="golden-path-create">
-        {#if gp.instantiate}
-          <div class="se-cmd">
-            <span class="se-k">CLI</span>
-            <CopyableIdentifier value={gp.instantiate.cli} label="CLI command" iconOnly />
+      <!-- Create service (515-S6): with createService false it shows only the commands, as always. -->
+      <CreateServicePanel pathKey={key} pathName={self} pathVersion={d.currentRevision?.version ?? ''} {requested} canCreate={createService && !!gp.instantiate?.ref?.includes('@sha256:')} {portalCreateURL} signed={createQuery.signed ?? ''}
+        draftName={createQuery.name ?? ''} draftTag={createQuery.draft ?? ''} draftRepository={createQuery.repository ?? ''}>
+        {#snippet commands()}
+          <div class="se-create" data-testid="golden-path-create">
+            {#if gp.instantiate}
+              <div class="se-cmd">
+                <span class="se-k">CLI</span>
+                <CopyableIdentifier value={gp.instantiate.cli} label="CLI command" iconOnly />
+              </div>
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long digest-pinned command scrolls sideways; focus lets a keyboard reader scroll it) -->
+              <pre class="se-snippet" tabindex="0"><code>{gp.instantiate.cli}</code></pre>
+              <div class="se-cmd">
+                <span class="se-k">MCP</span>
+                <CopyableIdentifier value={gp.instantiate.mcp} label="MCP call" iconOnly />
+              </div>
+              <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long digest-pinned command scrolls sideways; focus lets a keyboard reader scroll it) -->
+              <pre class="se-snippet" tabindex="0"><code>{gp.instantiate.mcp}</code></pre>
+              {#if gp.instantiate.ref?.includes('@sha256:')}
+                <p class="se-note">The command names the exact bytes shown here by digest. Set a trust config with --trust or PACTO_DELIVERY_TRUST to check the signature at creation.</p>
+              {:else}
+                <p class="se-note">The command names a local folder: it copies the files the folder holds when it runs, which may differ from the ones shown here.</p>
+              {/if}
+            {:else}
+              <p class="se-none">{gp.instantiateReason || 'No command is available.'}</p>
+            {/if}
           </div>
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long digest-pinned command scrolls sideways; focus lets a keyboard reader scroll it) -->
-          <pre class="se-snippet" tabindex="0"><code>{gp.instantiate.cli}</code></pre>
-          <div class="se-cmd">
-            <span class="se-k">MCP</span>
-            <CopyableIdentifier value={gp.instantiate.mcp} label="MCP call" iconOnly />
-          </div>
-          <!-- svelte-ignore a11y_no_noninteractive_tabindex (a long digest-pinned command scrolls sideways; focus lets a keyboard reader scroll it) -->
-          <pre class="se-snippet" tabindex="0"><code>{gp.instantiate.mcp}</code></pre>
-          {#if gp.instantiate.ref?.includes('@sha256:')}
-            <p class="se-note">The command names the exact bytes shown here by digest. Set a trust config with --trust or PACTO_DELIVERY_TRUST to check the signature at creation.</p>
-          {:else}
-            <p class="se-note">The command names a local folder: it copies the files the folder holds when it runs, which may differ from the ones shown here.</p>
-          {/if}
-        {:else}
-          <p class="se-none">{gp.instantiateReason || 'No command is available.'}</p>
-        {/if}
-      </div>
+        {/snippet}
+      </CreateServicePanel>
 
       <div class="se-fact" data-testid="golden-path-signature">
         <span class="se-k">Signature</span>

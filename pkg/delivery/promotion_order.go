@@ -23,7 +23,7 @@ import (
 func PromotionOrder(stages []StageObject) (order []string, upstream map[string][]string, cycle, unordered map[string]bool) {
 	byStage := map[string]*StageObject{}
 	for i := range stages {
-		byStage[stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name] = &stages[i]
+		byStage[StageKey(stages[i].Metadata, stages[i].Metadata.Name)] = &stages[i]
 	}
 	feeds := map[string]map[string]bool{}      // environment -> environments it is fed by directly
 	stageFeeds := map[string]map[string]bool{} // Stage -> the Stage it is fed by
@@ -35,12 +35,12 @@ func PromotionOrder(stages []StageObject) (order []string, upstream map[string][
 		if u == nil {
 			continue
 		}
-		ns := cmp.Or(u.Namespace, st.Metadata.Namespace)
-		up := byStage[ns+"/"+u.Name]
+		upKey := StageKey(ObjectMeta{Cluster: st.Metadata.Cluster, Namespace: cmp.Or(u.Namespace, st.Metadata.Namespace)}, u.Name)
+		up := byStage[upKey]
 		if up == nil {
 			continue
 		}
-		stageFeeds[st.Metadata.Namespace+"/"+st.Metadata.Name] = map[string]bool{ns + "/" + u.Name: true}
+		stageFeeds[StageKey(st.Metadata, st.Metadata.Name)] = map[string]bool{upKey: true}
 		if up.Spec.Environment != env {
 			if feeds[env] == nil {
 				feeds[env] = map[string]bool{}

@@ -766,6 +766,9 @@ func gateCases() []gateCase {
 		{name: "not in fleet", gate: GateUnverified, reason: "api is not in the fleet snapshot", code: GateCodeServiceNotInFleet, r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessPartial,
 			Limitations: []fleet.Limitation{{Code: "SOURCE_STALE"}, {Code: "SERVICE_NOT_IN_FLEET"}}}},
 		{name: "partial", gate: GateUnverified, reason: "the answer is partial", code: GateCodeAnswerPartial, r: Result{Classification: "BREAKING", Completeness: fleet.CompletenessPartial}},
+		// Unread clusters hold a BREAKING change on a complete answer, ahead of its consumers.
+		{name: "clusters unread", gate: GateUnverified, reason: "the change is BREAKING and 2 clusters publish to this hub and are not members", code: GateCodeClustersUnread,
+			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, UnreadClusters: 2, Consumers: []AffectedConsumer{paper}}},
 		{name: "one consumer", gate: GateUnverified, reason: "1 consumer depends on api", code: GateCodeConsumersUnchecked,
 			r: Result{Classification: "BREAKING", Service: "api", Completeness: fleet.CompletenessComplete, Consumers: []AffectedConsumer{paper}}},
 		{name: "two consumers", gate: GateUnverified, reason: "2 consumers depend on api", code: GateCodeConsumersUnchecked,
@@ -1442,5 +1445,84 @@ func TestImpactFilelessEnvironmentIsReadable(t *testing.T) {
 	c.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://x/postgresql", Values: map[string]any{"size": "small"}}}
 	if v, note := revisionConfigRefVerdict(&fleet.ContractRevision{Contract: c}, []string{"db"}, provider); v != CompatibilityCompatible {
 		t.Errorf("file-less consumer: %s %q", v, note)
+	}
+}
+
+// tieredPG is postgresql at version as the tiered offering postgresql, whose
+// configuration provisioning has replicas tunable when replicasTunable and
+// storageGB contract.
+func tieredPG(version string, replicasTunable bool) (*contract.Contract, fstest.MapFS) {
+	c := pgContract(version, "provisioning", version == "16.1.0")
+	c.PactoVersion, c.Service.Offering = "2.5", "postgresql"
+	tier := ""
+	if replicasTunable {
+		tier = `,"x-pacto-tier":"tunable"`
+	}
+	return c, fstest.MapFS{"schema.json": {Data: []byte(`{"type":"object","additionalProperties":false,"properties":{
+"class":{"enum":["small","large"],"x-pacto-tier":"tunable"},"storageGB":{"type":"integer"},"replicas":{"type":"integer"` + tier + `}}}`)}}
+}
+
+// tieredImpact analyzes postgresql 16.1.0 (replicas tunable) changing to
+// 16.2.0 (replicas tunable when stillTunable) for orders, whose prod
+// environment sets prod.
+func tieredImpact(t *testing.T, prod string, stillTunable bool) AffectedConsumer {
+	t.Helper()
+	old, oldFS := tieredPG("16.1.0", true)
+	orders := refConsumer("orders", "", map[string]any{"class": "small"}, true)
+	orders.Bundle.Contract.Environments = []contract.Environment{{Name: "prod", File: "prod.yaml"}}
+	orders.Bundle.FS = fstest.MapFS{"prod.yaml": {Data: []byte(prod)}}
+	// The raw document lets the fleet build record orders' own run.
+	orders.Bundle.RawYAML = []byte("pactoVersion: \"2.4\"\nservice:\n  name: orders\n  version: 1.0.0\n  owner:\n    team: orders-team\n" +
+		"configurations:\n  - name: db\n    ref: oci://x/postgresql\n    required: false\n    values:\n      class: small\nenvironments:\n  - name: prod\n    file: prod.yaml\n")
+	col := &fleet.Collection{Revisions: []fleet.RawRevision{
+		{Bundle: &contract.Bundle{Contract: old, FS: oldFS}, Digest: "sha256:pg", RequestedRef: "oci://x/postgresql:16.1.0"}, orders}}
+	snap, err := fleet.Build(context.Background(), fleet.BuildOptions{}, fleet.NewMemorySource("test", "memory", col))
+	if err != nil {
+		t.Fatal(err)
+	}
+	nu, nuFS := tieredPG("16.2.0", stillTunable)
+	res := Analyze(context.Background(), old, nu, oldFS, nuFS, snap, Options{})
+	if len(res.Consumers) != 1 {
+		t.Fatalf("consumers = %+v", res.Consumers)
+	}
+	return res.Consumers[0]
+}
+
+// TestImpactOfferingUnchangedTierKeepsConsumerCompatible: a consumer that
+// already sets a contract-tier field is not broken by an offering change that
+// leaves its tiers alone: the violation is its own, recorded before.
+func TestImpactOfferingUnchangedTierKeepsConsumerCompatible(t *testing.T) {
+	if c := tieredImpact(t, "db:\n  storageGB: 100\n  replicas: 2\n", true); c.CompatibilityVerdict != CompatibilityCompatible {
+		t.Fatalf("consumer = %+v", c)
+	}
+}
+
+// TestImpactTierMovedToContractBreaksConsumer: a field the consumer's
+// environment sets that moves from tunable to contract breaks it, and the
+// note names the field and the revision with no next step.
+func TestImpactTierMovedToContractBreaksConsumer(t *testing.T) {
+	c := tieredImpact(t, "db:\n  storageGB: 100\n  replicas: 2\n", false)
+	if c.CompatibilityVerdict != CompatibilityIncompatible || !strings.Contains(c.Note, "db.replicas is contract-tier") ||
+		strings.Contains(c.Note, "storageGB") || strings.Contains(c.Note, "Next:") || !strings.HasSuffix(c.Note, "against postgresql@16.2.0") {
+		t.Fatalf("consumer = %+v", c)
+	}
+}
+
+// TestConfigRefVerdictInferredOfferingIsUnknown: environment values for an
+// inferred offering are left unchecked, so impact reads them as unknown,
+// never as compatible.
+func TestConfigRefVerdictInferredOfferingIsUnknown(t *testing.T) {
+	c := svcContract("orders", "1.0.0", contract.Owner{})
+	c.PactoVersion = "2.6"
+	c.Configurations = []contract.Configuration{{Name: "db", Ref: "oci://x/postgresql", Required: true, Values: map[string]any{"size": "small"}}}
+	c.Environments = []contract.Environment{{Name: "prod"}}
+	rev := &fleet.ContractRevision{Contract: c}
+	pc := pgContract("16.2.0", "provisioning", false)
+	pc.Service.Offering = "postgresql"
+	fsys := pgSchema("small", "large")
+	fsys[contract.InferredRecordFile] = &fstest.MapFile{Data: []byte("format: pacto.inferred/v1\n")}
+	v, note := revisionConfigRefVerdict(rev, []string{"db"}, &contract.Bundle{Contract: pc, FS: fsys})
+	if v != CompatibilityUnknown || !strings.Contains(note, "inferred") {
+		t.Fatalf("got %s %q", v, note)
 	}
 }

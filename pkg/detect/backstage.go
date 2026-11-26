@@ -7,6 +7,10 @@ import (
 	"strings"
 )
 
+// NotDetected is the value of a Backstage entry when no Backstage runs in a
+// watched namespace.
+const NotDetected = "not detected"
+
 // backstagePort is the Backstage backend's default port.
 const backstagePort = 7007
 
@@ -23,11 +27,13 @@ func backstageImage(repo string) bool {
 // namespace running a Backstage image. Several Services in one namespace: the
 // first is read and the entry says so. Candidates in more than one namespace
 // give no Endpoint, so nobody wins the pick by a namespace that sorts first.
-// An external Backstage is invisible here, so no entry says nothing.
+// No Backstage image gives a [NotDetected] entry, partial: an external
+// Backstage is invisible here, so the entry never reads as "no catalog".
 func Backstage(ws []Workload, svcs []Service) Entry {
 	found, nss := running(ws, backstageImage)
 	if len(found) == 0 {
-		return Entry{}
+		return partial(Entry{Kind: "backstage", Value: NotDetected, Evidence: "no Backstage image runs in a watched namespace", Source: tracesSource, Completeness: Complete},
+			"an external Backstage is invisible to the cluster: set dashboard.backstage.url to read its owners and templates")
 	}
 	e := Entry{Kind: "backstage", Value: "Backstage", Evidence: workloadsFigure(len(found)), Source: tracesSource, Completeness: Complete}
 	var cands []Object

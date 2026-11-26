@@ -569,11 +569,11 @@ approve_as() {
   digest="$(kubectl -n "$ns" get operation "$op" -o jsonpath='{.spec.intentDigest}')"
   groups="$(KUBECONFIG="$kc" kubectl auth whoami -o json | jq -c '.status.userInfo.groups')"
   KUBECONFIG="$kc" kubectl -n "$ns" create -f - >/dev/null <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Approval
 metadata:
   generateName: $op-
-  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1alpha1, kind: Operation, name: "$op", uid: "$uid"}]
+  ownerReferences: [{apiVersion: delivery.pacto.trianalab.io/v1, kind: Operation, name: "$op", uid: "$uid"}]
 spec: {operation: "$op", operationUID: "$uid", intentDigest: "$digest", decision: $decision, note: "$note", by: "$u", authTime: "$at", groups: $groups}
 YAML
 }
@@ -684,7 +684,7 @@ spec:
       containers: [{name: app, image: registry.k8s.io/pause:3.9}]
 YAML
   cat > "$tree/pacto.yaml" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $svc}
 spec:
@@ -781,7 +781,7 @@ spec:
     metadata: {labels: {app: $2}}
     spec: {containers: [{name: app, image: registry.k8s.io/pause:3.9}]}
 ---
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $2}
 spec:
@@ -808,7 +808,7 @@ kind: OCIRepository
 metadata: {name: payments-candidates}
 spec: {interval: $CANDIDATE_INTERVAL, insecure: true, url: "oci://${REG_HOST}/${APP_REPO}", ref: {tag: candidate}, $VERIFY}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments}
 spec:
@@ -820,7 +820,7 @@ spec:
   gates: {impact: {declaredConsumersOnly: true}, verify: {window: 3m}}
 YAML
 kubectl -n prod apply -f - >/dev/null <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments}
 spec:
@@ -999,7 +999,7 @@ always 5 waits_for_f || fail "F moved without a person"
 OUT="$(as_agent "$AGENT_A" approve -n test "$OPF" 2>&1 || true)"
 if grep -q "this Stage asks for a fresh login to approve" <<<"$OUT"; then pass "the agent cannot approve"; else fail "an agent approved: $OUT"; fi
 if KUBECONFIG="$AGENT_A" kubectl -n test create -f - 2>/dev/null <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Approval
 metadata: {name: forged}
 spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: approve, by: alice}
@@ -1008,7 +1008,7 @@ then fail "an agent created an Approval"; fi
 # A decision that is not approve, reject or accept-unknown is refused by the
 # schema, never stored to be silently ignored.
 OUT="$(kubectl -n test create -f - 2>&1 <<YAML || true
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Approval
 metadata: {name: typo}
 spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: aprove, by: carol}
@@ -1018,7 +1018,7 @@ grep -q 'Unsupported value: "aprove"' <<<"$OUT" || fail "an Approval with a miss
 pass "an Approval's decision must be approve, reject or accept-unknown"
 # A person without a login time is refused by admission.
 if kubectl --as carol --as-group humans -n test create -f - 2>/dev/null <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Approval
 metadata: {name: no-login}
 spec: {operation: $OPF, operationUID: x, intentDigest: x, decision: approve, by: carol}
@@ -1074,7 +1074,7 @@ else
   fail "an operation's spec was edited: $OUT"
 fi
 OUT="$(KUBECONFIG="$AGENT_A" kubectl -n prod create -f - 2>&1 <<YAML || true
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Operation
 metadata: {name: forged, finalizers: [delivery.pacto.trianalab.io/record]}
 spec: {type: delivery.pacto.trianalab.io/promote, stage: payments, facet: pointer, params: {from: "$WINNER", to: "$F"}, actor: {user: alice}}
@@ -1163,7 +1163,7 @@ eventually 20 has_event test Operation Held || fail "no held operation emitted a
 # A throwaway Stage that reads nothing: its creation and deletion each emit one Event on it.
 stage_event() { kubectl -n test get events --field-selector "involvedObject.kind=Stage,involvedObject.name=payments-envevent,reason=$1" -o name | grep -q .; }
 kubectl -n test apply -f - >/dev/null <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments-envevent}
 spec:
@@ -1274,7 +1274,7 @@ spec:
       - {name: app, image: $AGNHOST, imagePullPolicy: Never, args: [pause]}$extra
 YAML
   cat > "$tree/pacto.yaml" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: payments}
 spec:
@@ -1321,7 +1321,7 @@ spec:
   targetNamespace: $H
   healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: payments, namespace: $H}]
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments}
 spec:
@@ -1367,7 +1367,7 @@ kind: Service
 metadata: {name: fraud}
 spec: {selector: {app: fraud}, ports: [{name: http, port: 80, targetPort: 8080}]}
 ---
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: fraud}
 spec:
@@ -1516,7 +1516,7 @@ section "S: an agent cannot take the name of S's rollback first; S fails and is 
 # first, it would keep S's failure out of the records, so admission keeps the
 # names the promoter raises under to the promoter.
 OUT="$(KUBECONFIG="$AGENT_A" kubectl -n "$H" create -f - 2>&1 <<YAML || true
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Operation
 metadata: {name: promote-s-rollback, finalizers: [delivery.pacto.trianalab.io/record]}
 spec: {type: delivery.pacto.trianalab.io/promote, stage: payments, facet: pointer, params: {from: "$H1", to: "$H1"}, actor: {user: "system:serviceaccount:agents:agent-a", groups: [system:serviceaccounts, "system:serviceaccounts:agents", system:authenticated]}, onBehalfOf: {user: dana@example.com}, reason: squat}
@@ -1583,7 +1583,7 @@ spec:
     spec: {containers: [{name: app, image: registry.k8s.io/pause:3.9}]}
 YAML
 cat > "$PACTO_OUT/pacto.yaml" <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: billing}
 spec:
@@ -1655,7 +1655,7 @@ spec:
   targetNamespace: $P
   healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: billing, namespace: $P}]
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: billing}
 spec:
@@ -1753,7 +1753,7 @@ spec:
   targetNamespace: $M
   healthChecks: [{apiVersion: apps/v1, kind: Deployment, name: billing, namespace: $M}]
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: billing}
 spec:
@@ -1843,7 +1843,7 @@ metadata:
   labels: {delivery.pacto.trianalab.io/apply-ref: billing-anyone}
 spec: {interval: 30s, insecure: true, url: "oci://${REG_HOST}/apps/billing", ref: {}}
 ---
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: billing-anyone}
 spec:
@@ -1905,7 +1905,7 @@ stage_runs() { [ "$(stage_ptr "$1" "$2")" = "$3" ]; }
 # stage_yaml NAME ENV CANDIDATES
 stage_yaml() {
   cat <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: $1}
 spec:
@@ -1994,7 +1994,7 @@ section "a partial graph holds as Unknown"
 # shipping's contract is not in the registry, so its Pacto never carries one:
 # Pacto cannot rule it out as a consumer of pricing.
 kubectl -n live apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: shipping}
 spec:

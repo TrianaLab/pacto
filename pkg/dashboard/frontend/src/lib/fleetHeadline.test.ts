@@ -28,6 +28,16 @@ describe('the fleet figures (509-S12)', () => {
     expect(matchTile(null)).toMatchObject({ value: 'unknown', unknown: true, total: 0 });
   });
 
+  it('resources sub-line only when discovered', () => {
+    const m = { ...matchOfCoverage(cm(8, 1, 1, 0))! };
+    expect(matchTile(m).resources).toBe('');
+    expect(matchTile({ ...m, resources: { discovered: 7, throughOfferings: 3, percent: 42 } }).resources).toBe('Resources through offerings: 3 of 7');
+    expect(matchTile({ ...m, resources: { discovered: 0, throughOfferings: 0 } }).resources).toBe('');
+    // A fleet with nothing observable still says its resources.
+    expect(matchTile({ ...matchOfCoverage(cm(0, 0, 0, 0))!, resources: { discovered: 1200, throughOfferings: 0 } }).resources).toBe('Resources through offerings: 0 of 1,200');
+    expect(matchTile(null).resources).toBe('');
+  });
+
   it('says completeness over its judged base and names the sections most often missing', () => {
     const t = completenessTile({ percentComplete: 72, judged: 2950, unknown: 50, fullyDescribed: 1204, mostMissing: [{ section: 'readiness', count: 640 }, { section: 'owner', count: 0 }] }, { readiness: 'readiness' });
     expect(t).toMatchObject({ value: '72%', note: '1,204 of 2,950 judged services fully described, 50 not judged', sub: 'Most missing: readiness 640', total: 3000 });

@@ -14,6 +14,7 @@ import (
 )
 
 func TestAcceptPlanListsDrafts(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	if p, err := e.svc.AcceptPlan(t.Context(), e.proposedOpts()); err != nil || p.Drafts != nil || p.DraftsTotal != 0 {
 		t.Fatalf("%+v %v", p, err)
@@ -36,6 +37,7 @@ func TestAcceptPlanListsDrafts(t *testing.T) {
 }
 
 func TestAcceptDraftPlanListsNoDrafts(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	first := e.agentDraft(t, e.proposedOpts())
 	// A plan of a draft lists none: the person reads that draft alone.
@@ -46,6 +48,7 @@ func TestAcceptDraftPlanListsNoDrafts(t *testing.T) {
 }
 
 func TestAcceptPlanDraftsBoundedAndUnreadable(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	for i := range MaxListedDrafts + 2 {
 		if _, err := e.svc.writeAcceptanceDraft(t.Context(), nil, e.repo, delivery.AcceptanceDraft{Record: e.rangesRecord(), Subject: e.subject, OnBehalfOf: strings.Repeat("a", i+1)}, nil); err != nil {
@@ -65,6 +68,7 @@ func TestAcceptPlanDraftsBoundedAndUnreadable(t *testing.T) {
 }
 
 func TestAcceptPlanDraftListingFailsIsANote(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.failWhen(func(r *http.Request) bool {
 		return strings.HasSuffix(r.URL.Path, "/tags/list") && strings.Contains(r.URL.RawQuery, "draft")
@@ -76,6 +80,7 @@ func TestAcceptPlanDraftListingFailsIsANote(t *testing.T) {
 }
 
 func TestAcceptWritesThroughOpts(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opened := []string{}
 	open := func(path string) (*remote.Repository, error) {

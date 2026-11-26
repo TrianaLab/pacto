@@ -342,6 +342,8 @@ tests:
   - it: a full detection leaves every manifest unchanged, a detected registry and pull Secret included
     release:
       upgrade: true
+    chart:
+      version: 9.9.9
     kubernetesProvider:
       scheme:
         "v1/ConfigMap":
@@ -365,11 +367,11 @@ tests:
       - template: templates/deployment.yaml
         equal:
           path: spec.template.spec.containers[0].args
-          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--enable-probing=auto","--enable-metrics-observation=auto","--egress-gateway-logs=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-token-login","--dashboard-mcp","--dashboard-fingerprints-configmap=pacto-operator-fingerprints","--dashboard-index=auto"]
+          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--chart-version=9.9.9","--enable-probing=auto","--enable-metrics-observation=auto","--egress-gateway-logs=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-token-login","--dashboard-mcp","--dashboard-fingerprints-configmap=pacto-operator-fingerprints","--dashboard-index=auto"]
       - template: templates/clusterrole.yaml
         equal:
           path: rules
-          value: [{"apiGroups":[""],"resources":["events"],"verbs":["create","patch"]},{"apiGroups":[""],"resources":["services"],"verbs":["get","list","watch"]},{"apiGroups":[""],"resources":["configmaps"],"verbs":["get","list","watch"]},{"apiGroups":[""],"resources":["pods"],"verbs":["get","list","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["noderuntimeobservations"],"verbs":["delete","get","list","watch"]},{"apiGroups":["networking.k8s.io"],"resources":["ingresses"],"verbs":["get","list","watch"]},{"apiGroups":["gateway.networking.k8s.io"],"resources":["httproutes"],"verbs":["get","list","watch"]},{"apiGroups":["discovery.k8s.io"],"resources":["endpointslices"],"verbs":["get","list","watch"]},{"apiGroups":["apps"],"resources":["deployments","replicasets","statefulsets","daemonsets"],"verbs":["get","list","watch"]},{"apiGroups":["batch"],"resources":["cronjobs","jobs"],"verbs":["get","list","watch"]},{"apiGroups":["argoproj.io"],"resources":["applications"],"verbs":["list"]},{"apiGroups":["kustomize.toolkit.fluxcd.io"],"resources":["kustomizations"],"verbs":["list"]},{"apiGroups":["helm.toolkit.fluxcd.io"],"resources":["helmreleases"],"verbs":["list"]},{"apiGroups":["source.toolkit.fluxcd.io"],"resources":["gitrepositories"],"verbs":["list"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactos"],"verbs":["create","delete","get","list","patch","update","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactos/status"],"verbs":["get","patch","update"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactos/finalizers"],"verbs":["update"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactorevisions"],"verbs":["create","get","list","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactorevisions/status"],"verbs":["get","patch","update"]},{"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles","clusterrolebindings"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard"]},{"apiGroups":[""],"resources":["namespaces"],"resourceNames":["kube-system"],"verbs":["get"]},{"apiGroups":[""],"resources":["nodes"],"verbs":["list"]},{"apiGroups":[""],"resources":["namespaces"],"verbs":["get"]},{"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles","clusterrolebindings"],"verbs":["create","delete","get","list","patch","update","watch"]},{"apiGroups":["authorization.k8s.io"],"resources":["subjectaccessreviews"],"verbs":["create"]},{"apiGroups":["delivery.pacto.trianalab.io"],"resources":["stages","operations"],"verbs":["get","list","watch"]},{"apiGroups":[""],"resources":["namespaces"],"verbs":["list"]}]
+          value: [{"apiGroups":[""],"resources":["events"],"verbs":["create","patch"]},{"apiGroups":[""],"resources":["services"],"verbs":["get","list","watch"]},{"apiGroups":[""],"resources":["configmaps"],"verbs":["get","list","watch"]},{"apiGroups":[""],"resources":["pods"],"verbs":["get","list","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["noderuntimeobservations"],"verbs":["delete","get","list","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["noderuntimeobservations/status"],"verbs":["patch"]},{"apiGroups":["networking.k8s.io"],"resources":["ingresses"],"verbs":["get","list","watch"]},{"apiGroups":["gateway.networking.k8s.io"],"resources":["httproutes"],"verbs":["get","list","watch"]},{"apiGroups":["discovery.k8s.io"],"resources":["endpointslices"],"verbs":["get","list","watch"]},{"apiGroups":["apps"],"resources":["deployments","replicasets","statefulsets","daemonsets"],"verbs":["get","list","watch"]},{"apiGroups":["batch"],"resources":["cronjobs","jobs"],"verbs":["get","list","watch"]},{"apiGroups":["argoproj.io"],"resources":["applications"],"verbs":["list"]},{"apiGroups":["kustomize.toolkit.fluxcd.io"],"resources":["kustomizations"],"verbs":["list"]},{"apiGroups":["helm.toolkit.fluxcd.io"],"resources":["helmreleases"],"verbs":["list"]},{"apiGroups":["source.toolkit.fluxcd.io"],"resources":["gitrepositories"],"verbs":["list"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactos"],"verbs":["create","delete","get","list","patch","update","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactos/status"],"verbs":["get","patch","update"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactos/finalizers"],"verbs":["update"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactorevisions"],"verbs":["create","get","list","watch"]},{"apiGroups":["pacto.trianalab.io"],"resources":["pactorevisions/status"],"verbs":["get","patch","update"]},{"apiGroups":["apiextensions.k8s.io"],"resources":["customresourcedefinitions"],"verbs":["get"],"resourceNames":["pactos.pacto.trianalab.io","pactorevisions.pacto.trianalab.io","noderuntimeobservations.pacto.trianalab.io"]},{"apiGroups":["apiextensions.k8s.io"],"resources":["customresourcedefinitions/status"],"verbs":["patch"],"resourceNames":["pactos.pacto.trianalab.io","pactorevisions.pacto.trianalab.io","noderuntimeobservations.pacto.trianalab.io"]},{"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles","clusterrolebindings"],"verbs":["get","delete"],"resourceNames":["pacto-dashboard"]},{"apiGroups":[""],"resources":["namespaces"],"resourceNames":["kube-system"],"verbs":["get"]},{"apiGroups":[""],"resources":["nodes"],"verbs":["list"]},{"apiGroups":["apiextensions.crossplane.io"],"resources":["compositeresourcedefinitions","compositions"],"verbs":["get","list","watch"]},{"apiGroups":[""],"resources":["namespaces"],"verbs":["get"]},{"apiGroups":["rbac.authorization.k8s.io"],"resources":["clusterroles","clusterrolebindings"],"verbs":["create","delete","get","list","patch","update","watch"]},{"apiGroups":["authorization.k8s.io"],"resources":["subjectaccessreviews"],"verbs":["create"]},{"apiGroups":["delivery.pacto.trianalab.io"],"resources":["stages","operations"],"verbs":["get","list","watch"]},{"apiGroups":[""],"resources":["namespaces"],"verbs":["list"]}]
       - template: templates/role.yaml
         documentIndex: 0
         equal:
@@ -405,3 +407,116 @@ tests:
           pattern: "  Registry: ghcr.io/acme in 2 of 2 namespaces, 100% of workloads \\(from running pods\\) \\[partial: read only the watched namespaces\\]"
       - matchRegexRaw:
           pattern: "Most of the namespaces Pacto read pull from that registry"
+
+  # The cluster inventory (514-S5): the chart version the operator advertises
+  # for a generated member install, and the inventory args.
+  - it: chart version arg matches Chart.yaml
+    template: templates/deployment.yaml
+    chart:
+      version: 1.2.3
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --chart-version=1.2.3}
+      - notContains: {path: "spec.template.spec.containers[0].args", content: --cluster-inventory}
+
+  - it: clusterInventory renders the inventory args
+    template: templates/deployment.yaml
+    set:
+      clusterInventory.enabled: true
+      clusterInventory.secretNamespaces: [argocd, flux-system]
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --cluster-inventory}
+      - contains: {path: "spec.template.spec.containers[0].args", content: "--cluster-inventory-namespaces=argocd,flux-system"}
+
+  - it: clusterInventory without namespaces renders no namespace arg
+    template: templates/deployment.yaml
+    set:
+      clusterInventory.enabled: true
+    asserts:
+      - contains: {path: "spec.template.spec.containers[0].args", content: --cluster-inventory}
+      - notMatchRegex: {path: "spec.template.spec.containers[0].args[*]", pattern: "^--cluster-inventory-namespaces"}
+
+  - it: secretNamespaces refuses a name that is not a DNS label
+    template: templates/deployment.yaml
+    set:
+      clusterInventory.secretNamespaces: [Argo_CD]
+    asserts:
+      - failedTemplate:
+          errorPattern: "secretNamespaces"
+
+  # controller.terraformStates and controller.cloudInventory (517-S7): each
+  # renders its flag only when set, so the default render is unchanged.
+  - it: listed Terraform states render one flag each
+    template: templates/deployment.yaml
+    set:
+      controller.terraformStates: ["s3://acme-tf/prod/app.tfstate?region=eu-west-1", "gs://acme-tf/env/prod.tfstate"]
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --terraform-state=s3://acme-tf/prod/app.tfstate?region=eu-west-1
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --terraform-state=gs://acme-tf/env/prod.tfstate
+
+  - it: a named cloud renders the inventory flag, and the identity flag from the annotation
+    template: templates/deployment.yaml
+    set:
+      controller.cloudInventory: gcp
+      serviceAccount.annotations:
+        iam.gke.io/gcp-service-account: pacto@acme-prod.iam.gserviceaccount.com
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --cloud-inventory=gcp
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --workload-identity=gcp=pacto@acme-prod.iam.gserviceaccount.com
+
+  - it: an identity annotation alone renders the identity flag and no inventory flag
+    template: templates/deployment.yaml
+    set:
+      serviceAccount.annotations:
+        eks.amazonaws.com/role-arn: arn:aws:iam::123456789012:role/pacto
+    asserts:
+      - contains:
+          path: spec.template.spec.containers[0].args
+          content: --workload-identity=aws=arn:aws:iam::123456789012:role/pacto
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--cloud-inventory
+
+  - it: the default renders no state, inventory or identity flag, and cloudInventory defaults to off
+    template: templates/deployment.yaml
+    chart:
+      version: 1.2.3
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--(terraform-state|cloud-inventory|workload-identity)
+      - equal:
+          path: spec.template.spec.containers[0].args
+          value: ["--leader-elect=true","--health-probe-bind-address=:8081","--metrics-bind-address=:8443","--metrics-secure=true","--chart-version=1.2.3","--enable-probing=auto","--enable-metrics-observation=auto","--egress-gateway-logs=auto","--node-agent-namespace=pacto-node-agent","--enable-dashboard","--dashboard-cpu-request=50m","--dashboard-memory-request=128Mi","--dashboard-memory-limit=512Mi","--dashboard-token-login","--dashboard-mcp","--dashboard-fingerprints-configmap=pacto-operator-fingerprints","--dashboard-index=auto"]
+
+  - it: cloudInventory off, quoted or bare, renders no inventory flag
+    template: templates/deployment.yaml
+    set:
+      controller.cloudInventory: false
+    asserts:
+      - notMatchRegex:
+          path: spec.template.spec.containers[0].args[*]
+          pattern: ^--cloud-inventory
+
+  - it: a state location that is not s3, gs or azurerm fails the schema
+    template: templates/deployment.yaml
+    set:
+      controller.terraformStates: ["https://acme.example/app.tfstate"]
+    asserts:
+      - failedTemplate:
+          errorPattern: "terraformStates"
+
+  - it: a cloud other than aws, gcp, azure or off fails the schema
+    template: templates/deployment.yaml
+    set:
+      controller.cloudInventory: oci
+    asserts:
+      - failedTemplate:
+          errorPattern: "cloudInventory"

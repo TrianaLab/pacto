@@ -29,6 +29,7 @@ Validates against the embedded schema of the contract's version, from `pacto-v2.
 - A `pacto.inferred.yaml` in the bundle parses, and every file it cites is in the bundle with the digest it records, and a `surface` section names the identity `service.external` names (`INFERRED_RECORD_INVALID`)
 - A [declaration](inferred-record.md#declaration) in that record agrees with `pacto.yaml`: each range it accepts or requests is the declared `compatibility` (`DECLARATION_ACCEPTED_MISMATCH`) and each other proposed range stays `unknown` (`DECLARATION_RANGE_NOT_ACCEPTED`)
 - An `inferredFrom` of `external:<identity>` in that declaration names the identity `service.external` names (`DECLARATION_EXTERNAL_MISMATCH`)
+- An `inferredFrom` of `offering:<producer>/<service>@sha256:<hex>` in that declaration names the offering `service.offering` names (`DECLARATION_OFFERING_MISMATCH`)
 - Each key that record's `inputs.declaration` says was [carried from a registry declaration](inferred-record.md#format) is declared in `pacto.yaml` (`CARRIED_FIELD_NOT_DECLARED`)
 
 Structural failures report `SCHEMA_VIOLATION`. A field a later version adds,
@@ -259,9 +260,13 @@ file against the schema of every configuration it names. It runs when the
 structural, cross-field and policy layers passed, whatever the
 configuration-refs stage reported, and reports `SKIP no environments declared`
 for a contract without `environments`. [Environments](environments.md#how-values-are-checked)
-lists the rules and the codes it reports: `ENVIRONMENT_UNKNOWN_CONFIGURATION`,
-`ENVIRONMENT_VALUES_INVALID`, `ENVIRONMENT_VALUES_MISSING` and the
-`ENVIRONMENT_VALUES_UNVERIFIED` warning.
+lists the rules and the codes it reports:
+
+- `ENVIRONMENT_UNKNOWN_CONFIGURATION`, `ENVIRONMENT_VALUES_INVALID`,
+  `ENVIRONMENT_VALUES_MISSING` and the `ENVIRONMENT_VALUES_UNVERIFIED` warning;
+- `TierNotTunable`, `ParameterOutOfRange`, `ParameterNotDeclared` and
+  `ClassNotOffered` for values outside the parameters of an offering whose
+  schema declares tiers; see [Offering parameters](environments.md#offering-parameters).
 
 An error in an environment's file carries that file in `file`, with `line` and
 `column` pointing into it, also when `--set` or `-f` is given. The stage passes

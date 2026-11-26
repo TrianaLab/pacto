@@ -15,7 +15,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 )
 
@@ -165,7 +165,7 @@ func upstreamCutRewrittenReset(t *testing.T, e *env, up *[]delivery.StoredRecord
 		t.Fatalf("extended: %+v %+v", c, e.getStage().Status.UpstreamSeen)
 	}
 	// A deliberate reset of the upstream stream blocks the follower until a
-	// person clears the mark, as delivery-reach.md tells them to.
+	// person clears the mark, as delivery-members.md tells them to.
 	*up = upstreamView([]string{"n1"}, dC)
 	e.now = e.now.Add(UpstreamPoll)
 	if c := ready(); c.Reason != "UpstreamUnreadable" {
@@ -300,4 +300,11 @@ func TestAcknowledgeUpstreamStandIn(t *testing.T) {
 	o.Spec.IntentDigest = delivery.IntentDigest(o.Spec, stageObj("").Spec)
 	l.create(o)
 	wantOutcome(t, l.drive("a5"), delivery.Rejected, "NoUpstreamRecords")
+}
+
+// TestPlanSourcesReadNoMembers: the promoter projects onto its own Pactos.
+func TestPlanSourcesReadNoMembers(t *testing.T) {
+	if m := (planSources{}).Members(context.Background(), "prod", nil); m.Home != nil || m.Sources != nil {
+		t.Fatalf("%+v", m)
+	}
 }

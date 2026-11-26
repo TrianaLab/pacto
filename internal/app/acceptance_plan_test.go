@@ -41,6 +41,7 @@ func planFields(p *AcceptPlan) []string {
 }
 
 func TestAcceptPlanProposed(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opts := e.trust()
 	opts.Proposed = true
@@ -64,6 +65,7 @@ func TestAcceptPlanProposed(t *testing.T) {
 }
 
 func TestAcceptPlanListsAttachedAcceptances(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.attach(t, attachment{record: e.rangesRecord(), token: personTok("bob@acme.com"), tag: true})
 	opts := e.trust()
@@ -75,6 +77,7 @@ func TestAcceptPlanListsAttachedAcceptances(t *testing.T) {
 }
 
 func TestProposedAcceptsRangesOnly(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opts := e.trust()
 	opts.Proposed = true
@@ -91,6 +94,7 @@ func TestProposedAcceptsRangesOnly(t *testing.T) {
 }
 
 func TestAcceptPlanNothingProposed(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.publishBundle(t, e.repo, "1.7.0", e.reportsFiles("1.7.0", false), nil)
 	opts := e.trust()
@@ -101,6 +105,7 @@ func TestAcceptPlanNothingProposed(t *testing.T) {
 }
 
 func TestAcceptFieldWithValue(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opts := e.trust()
 	opts.Fields = []string{"dependencies[ledger].compatibility=^2.4.0"}
@@ -121,6 +126,7 @@ func TestAcceptFieldWithValue(t *testing.T) {
 }
 
 func TestAcceptFieldNotAcceptable(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opts := e.trust()
 	opts.Fields = []string{"ports[8080]"}
@@ -130,6 +136,7 @@ func TestAcceptFieldNotAcceptable(t *testing.T) {
 }
 
 func TestAcceptPlanBreakFromUnpublishedProvider(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opts := e.trust()
 	opts.Break, opts.From = "ledger@3.0.0", writeDir(t, ledgerFiles("3.0.0", "2026-12-31", "billing", "reports"))
@@ -142,6 +149,7 @@ func TestAcceptPlanBreakFromUnpublishedProvider(t *testing.T) {
 }
 
 func TestAcceptPlanBreakFromPublishedProvider(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	files := ledgerFiles("3.0.0", "", "reports")
 	files[contract.InferredRecordFile] = string(acceptRecordOf(
@@ -162,6 +170,7 @@ func TestAcceptPlanBreakFromPublishedProvider(t *testing.T) {
 }
 
 func TestAcceptBreakNotAnnounced(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opts := e.trust()
 	for name, o := range map[string]struct{ brk, from string }{
@@ -184,6 +193,7 @@ func TestAcceptBreakNotAnnounced(t *testing.T) {
 }
 
 func TestAcceptPlanBreakFromPushedRef(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	e.publishBundle(t, e.host+"/acme/ledger-rc", "3.0.0-rc.1", ledgerFiles("3.0.0", "", "reports"), nil)
 	opts := e.trust()
@@ -198,6 +208,7 @@ func TestAcceptPlanBreakFromPushedRef(t *testing.T) {
 }
 
 func TestAcceptNotPublished(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	opts := e.trust()
 	opts.Ref, opts.Proposed = "oci://"+e.host+"/acme/nothing", true
@@ -220,6 +231,7 @@ func TestAcceptNotPublished(t *testing.T) {
 }
 
 func TestAcceptPlanOnlyCandidatesIsNotPublished(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	repo := e.host + "/acme/drafty"
 	e.publishBundle(t, repo, "2.0.0-rc.1", e.reportsFiles("2.0.0-rc.1", true), nil)
@@ -231,6 +243,7 @@ func TestAcceptPlanOnlyCandidatesIsNotPublished(t *testing.T) {
 }
 
 func TestAcceptPlanInferredOwnerMayNotAccept(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	files := e.reportsFiles("1.7.0", false)
 	files[contract.InferredRecordFile] = string(acceptRecordOf(
@@ -247,6 +260,7 @@ func TestAcceptPlanInferredOwnerMayNotAccept(t *testing.T) {
 }
 
 func TestAcceptPlanRegistryFailures(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	ledger := e.host + "/acme/ledger"
 	e.publishBundle(t, ledger, "3.0.0", ledgerFiles("3.0.0", "", "reports"), nil)
@@ -274,6 +288,7 @@ func TestAcceptPlanRegistryFailures(t *testing.T) {
 }
 
 func TestAcceptPlanUnreadableRecord(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	files := e.reportsFiles("1.7.0", false)
 	files[contract.InferredRecordFile] = "format: [\n"
@@ -286,6 +301,7 @@ func TestAcceptPlanUnreadableRecord(t *testing.T) {
 }
 
 func TestAcceptPlanBreakOfDependencyByRef(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	files := ledgerFiles("2.0.0", "2026-12-31", "reports")
 	files["pacto.yaml"] = strings.Replace(files["pacto.yaml"], "name: ledger", "name: billing", 1)
@@ -298,6 +314,7 @@ func TestAcceptPlanBreakOfDependencyByRef(t *testing.T) {
 }
 
 func TestRepoOf(t *testing.T) {
+	t.Parallel()
 	for ref, want := range map[string]string{"oci://h:5000/a/b": "h:5000/a/b", "oci://h/a/b:1.0.0": "h/a/b", "h/a/b@sha256:00": "h/a/b"} {
 		if got := repoOf(ref); got != want {
 			t.Errorf("repoOf(%q) = %q", ref, got)
@@ -309,6 +326,7 @@ func TestRepoOf(t *testing.T) {
 }
 
 func TestAcceptPlanListsBreakAcceptances(t *testing.T) {
+	t.Parallel()
 	e := newAcceptEnv(t, false)
 	entry := contract.Break{Consumers: []string{"reports"}, Reason: "the v1 API is removed", Expires: "2026-12-31"}
 	brk := &delivery.AcceptedBreak{Provider: e.key("ledger"), Version: "3.0.0", Announcement: delivery.BreakAnnouncement(entry)}

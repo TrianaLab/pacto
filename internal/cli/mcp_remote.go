@@ -10,6 +10,7 @@ import (
 	"os"
 	"time"
 
+	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
 	"github.com/modelcontextprotocol/go-sdk/auth"
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
@@ -338,7 +339,7 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	}
 	rm := remoteMCP{version: version, auth: s.auth, cluster: cluster, newClient: d.dynamicFor, claims: claimsFlags(flagString(cmd))}
 	if deliveryMode {
-		if rm.delivery, err = remoteDeliveryClients(cmd, d); err != nil {
+		if rm.delivery, err = remoteDeliveryClients(cmd, svc, d); err != nil {
 			return err
 		}
 	}
@@ -352,10 +353,21 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	if err != nil {
 		return err
 	}
-	rm.authoring = remoteAuthoring(svc, ociRefs, rm.modes.Fleet, registry, push)
+	detected, _ := cmd.Flags().GetString("detected")
+	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
+	rm.authoring = remoteAuthoring(svc, ociRefs, rm.modes.Fleet, registry, push, detected, policyNS)
+	if rm.authoring.CreateService, err = remoteCreatorFor(cmd, svc, rm.modes.Fleet, registry, push); err != nil {
+		return err
+	}
 	if rm.delivery != nil {
 		policy := rm.delivery(nil) // only its trust and policy namespace are read
-		id := baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace)
+		id := remoteDeliveryIdentity(cmd, svc, d, cluster, policy)
+		inner := rm.delivery
+		rm.delivery = func(dyn dynamic.Interface) *app.Delivery {
+			c := inner(dyn)
+			c.Members = viewedMembers(id.viewer, c.Members, personFrom)
+			return c
+		}
 		rm.reads = mcpDeliveryReads(id, rm.modes.Fleet, deliveryNarrowing(flagNamespaces(cmd)))
 		rm.installed, rm.installedAt = id.installedProbe(), id.installedAt()
 	}
@@ -364,6 +376,37 @@ func remoteCallerFor(cmd *cobra.Command, svc *app.Service, version string, args 
 	}
 	s.remoteAuthoring = true
 	return nil
+}
+
+// remoteDeliveryIdentity is the identity a remote MCP server's delivery
+// reads use: every other context its fleet reads is read too, each caller
+// reviewed in that cluster as the dashboard reviews a person, never read
+// with the server's own credentials unreviewed.
+func remoteDeliveryIdentity(cmd *cobra.Command, svc *app.Service, d deps, cluster *rest.Config, policy *app.Delivery) *dashboardIdentity {
+	id := baseDashboardIdentity(cluster, d, policy.Trust, policy.PolicyNamespace)
+	mode, _ := cmd.Flags().GetString("review")
+	home := newHomeCluster(cluster, d)
+	id.entries = memoEntries(fleetEntries(svc, d, mcpFleetOptions(cmd)))
+	// A separate MCP server is no hub: its member clusters stay unreviewable.
+	id.viewer, id.homeUID = clusterViewer(id.entries, home, d, mode, flagNamespaces(cmd), nil), home.UID
+	return id
+}
+
+// remoteCreatorFor is pacto_create_service for pacto mcp --transport http
+// with registry, checking golden paths against the --delivery-trust template
+// keys loaded once here (an unreadable trust file fails startup); nil
+// without a registry or without the fleet view it resolves golden paths in,
+// which never reads the trust file for it.
+func remoteCreatorFor(cmd *cobra.Command, svc *app.Service, fleet *pactomcp.FleetMode, registry string, push gcrauthn.Keychain) (pactomcp.CreateServicer, error) {
+	if registry == "" || fleet == nil {
+		return nil, nil
+	}
+	path, _ := cmd.Flags().GetString("delivery-trust")
+	trust, err := app.DeliveryTrust(path)
+	if err != nil {
+		return nil, err
+	}
+	return newRemoteCreator(svc, fleet, registry, push, trust), nil
 }
 
 // remoteMCP builds an HTTP MCP server whose callers the apiserver names per
@@ -382,6 +425,9 @@ type remoteMCP struct {
 	reads       func(*app.Delivery, string) pactomcp.DeliveryReads
 	installed   func(context.Context) (bool, error)
 	installedAt func() time.Time
+	// id is the dashboard's identity on its /mcp: members plan through it,
+	// as each caller may see them; nil reads no members.
+	id *dashboardIdentity
 }
 
 // middleware names each request's caller and picks their server. The modes
@@ -409,7 +455,7 @@ func (rm remoteMCP) middleware() (func(http.Handler) http.Handler, error) {
 	// caller from the request's context.
 	build := func(context.Context) *mcpsdk.Server { return shared }
 	if rm.delivery != nil {
-		build = perCallerBuild(rm.version, rm.authoring, rm.modes, rm.reads, rm.installed, rm.installedAt)
+		build = rm.perCallerBuild()
 	}
 	rc.build = build
 	if credless {
@@ -424,10 +470,10 @@ func (rm remoteMCP) middleware() (func(http.Handler) http.Handler, error) {
 	return rc.middleware, nil
 }
 
-// fleetOnlyAuthoring is the authoring a for a caller with no client: pacto_declare and
-// pacto_accept read the caller's own client, so neither is registered.
+// fleetOnlyAuthoring is the authoring a for a caller with no client: pacto_declare,
+// pacto_accept and pacto_create_service read the caller's own client, so none is registered.
 func fleetOnlyAuthoring(a pactomcp.Authoring) pactomcp.Authoring {
-	a.Declare, a.Accept = nil, nil
+	a.Declare, a.Accept, a.CreateService = nil, nil, nil
 	return a
 }
 
@@ -456,37 +502,52 @@ func quietBundle(b *pactomcp.BundleMode) *pactomcp.BundleMode {
 }
 
 // perCallerBuild builds each request's server with its caller's delivery
-// tools. The bundle's notices went out once at startup, so the per-request
-// builds discard them.
-func perCallerBuild(version string, a pactomcp.Authoring, m pactomcp.Modes, reads func(*app.Delivery, string) pactomcp.DeliveryReads,
-	installed func(context.Context) (bool, error), installedAt func() time.Time) func(context.Context) *mcpsdk.Server {
+// tools; on the dashboard's /mcp a member plan reads the members as the
+// caller may see them, as the dashboard's own reads do. The bundle's notices
+// went out once at startup, so the per-request builds discard them.
+func (rm remoteMCP) perCallerBuild() func(context.Context) *mcpsdk.Server {
+	m := rm.modes
 	m.Bundle = quietBundle(m.Bundle)
 	return func(ctx context.Context) *mcpsdk.Server {
 		mm := m
 		if who := reviewedFrom(ctx); who.delivery != nil {
-			mm.Delivery = &pactomcp.DeliveryMode{API: mcpDelivery{who.delivery}, Writes: who.writes, Caller: who.caller,
-				Reads: reads(who.delivery, remoteCallerKey(who.person)), CallerAt: time.Now(), Installed: installed, InstalledAt: installedAt}
+			mm.Delivery = &pactomcp.DeliveryMode{API: rm.deliveryAPI(who.delivery), Writes: who.writes, Caller: who.caller,
+				Reads: rm.reads(who.delivery, remoteCallerKey(who.person)), CallerAt: time.Now(), Installed: rm.installed, InstalledAt: rm.installedAt}
 		}
-		srv, _ := pactomcp.New(version, a, mm) // registered once at startup
+		srv, _ := pactomcp.New(rm.version, rm.authoring, mm) // registered once at startup
 		return srv
 	}
 }
 
+// deliveryAPI is a caller's delivery tools over their client d: on the
+// dashboard's /mcp a member plan reads the members as that caller may see
+// them, as the dashboard's own reads do; elsewhere it reads none.
+func (rm remoteMCP) deliveryAPI(d *app.Delivery) mcpDelivery {
+	api := mcpDelivery{Delivery: d}
+	if rm.id != nil {
+		api.members, api.scope = rm.id.members, dashDelivery{id: rm.id}.restrictMembers
+	}
+	return api
+}
+
 // remoteDeliveryClients builds each caller's delivery client over their
-// exchanged token, with the trust and policy namespace the flags name.
-func remoteDeliveryClients(cmd *cobra.Command, d deps) (func(dyn dynamic.Interface) *app.Delivery, error) {
+// exchanged token, with the trust and policy namespace the flags name, and
+// the members of the hub the fleet reads (--k8s --detected k8s:).
+func remoteDeliveryClients(cmd *cobra.Command, svc *app.Service, d deps) (func(dyn dynamic.Interface) *app.Delivery, error) {
 	policyNS, _ := cmd.Flags().GetString("delivery-namespace")
 	path, _ := cmd.Flags().GetString("delivery-trust")
 	trust, err := app.DeliveryTrust(path)
 	if err != nil {
 		return nil, err
 	}
-	return deliveryClientsFor(trust, policyNS, d), nil
+	includeK8s, _ := cmd.Flags().GetBool("k8s")
+	detected, _ := cmd.Flags().GetString("detected")
+	return deliveryClientsFor(trust, policyNS, svc.PlanMembers(fleetJoins(cmd, d, includeK8s, detected)), d), nil
 }
 
 // deliveryClientsFor builds each caller's delivery client over their own
-// token with trust and the policy namespace policyNS.
-func deliveryClientsFor(trust *delivery.TrustConfig, policyNS string, d deps) func(dyn dynamic.Interface) *app.Delivery {
+// token with trust, the policy namespace policyNS and the hub's members.
+func deliveryClientsFor(trust *delivery.TrustConfig, policyNS string, members func(context.Context, string, map[string]bool) delivery.Members, d deps) func(dyn dynamic.Interface) *app.Delivery {
 	// API discovery is the same for every caller: read once, as the server.
 	var scope delivery.ScopeFunc
 	var infra delivery.InfraFunc
@@ -494,8 +555,10 @@ func deliveryClientsFor(trust *delivery.TrustConfig, policyNS string, d deps) fu
 		cfg, _ := d.clusterConfig()
 		scope, infra = app.DiscoveryScope(cfg)
 	}
+	versions := servedVersions(d)
 	return func(dyn dynamic.Interface) *app.Delivery {
 		return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Scope: scope, Infra: infra}
+			Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, Scope: scope, Infra: infra, Members: members,
+			ServedVersions: versions}
 	}
 }

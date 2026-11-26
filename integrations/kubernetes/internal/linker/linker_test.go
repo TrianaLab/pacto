@@ -28,8 +28,8 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 	"sigs.k8s.io/controller-runtime/pkg/client/interceptor"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
 	core "github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
@@ -49,7 +49,7 @@ func newScheme() *runtime.Scheme {
 	_ = corev1.AddToScheme(s)
 	_ = appsv1.AddToScheme(s)
 	_ = batchv1.AddToScheme(s)
-	_ = pactov1alpha1.AddToScheme(s)
+	_ = pactov1.AddToScheme(s)
 	return s
 }
 
@@ -89,23 +89,23 @@ func newClient(funcs interceptor.Funcs, objs ...client.Object) client.WithWatch 
 // as service at version, adding one observation window per call.
 type evaluator struct {
 	service string
-	seen    []*pactov1alpha1.Pacto
-	anon    []*pactov1alpha1.Pacto
+	seen    []*pactov1.Pacto
+	anon    []*pactov1.Pacto
 	fail    bool
 }
 
-func (e *evaluator) judge(_ context.Context, p *pactov1alpha1.Pacto) {
+func (e *evaluator) judge(_ context.Context, p *pactov1.Pacto) {
 	e.seen = append(e.seen, p.DeepCopy())
 	if e.fail {
-		p.Status.ContractStatus = pactov1alpha1.ContractStatusUnknown
+		p.Status.ContractStatus = pactov1.ContractStatusUnknown
 		return
 	}
-	p.Status.ContractStatus = pactov1alpha1.ContractStatusCompliant
-	p.Status.Contract = &pactov1alpha1.ContractInfo{ServiceName: e.service, Version: "2.3.0", ResolvedRef: p.Spec.ContractRef.OCI}
-	p.Status.ObservationWindows = append(p.Status.ObservationWindows, pactov1alpha1.ObservationWindow{Kind: "dependency", Subject: "ledger"})
+	p.Status.ContractStatus = pactov1.ContractStatusCompliant
+	p.Status.Contract = &pactov1.ContractInfo{ServiceName: e.service, Version: "2.3.0", ResolvedRef: p.Spec.ContractRef.OCI}
+	p.Status.ObservationWindows = append(p.Status.ObservationWindows, pactov1.ObservationWindow{Kind: "dependency", Subject: "ledger"})
 }
 
-func (e *evaluator) judgeAnonymously(ctx context.Context, p *pactov1alpha1.Pacto) {
+func (e *evaluator) judgeAnonymously(ctx context.Context, p *pactov1.Pacto) {
 	e.anon = append(e.anon, p.DeepCopy())
 	e.judge(ctx, p)
 }
@@ -178,8 +178,8 @@ func TestLinkerWritesOnlyItsKey(t *testing.T) {
 }
 
 func TestLinkerSkipsTargetedWorkload(t *testing.T) {
-	cr := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "payments"},
-		Spec: pactov1alpha1.PactoSpec{Target: pactov1alpha1.TargetRef{ServiceName: "payments"}}}
+	cr := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Namespace: "shop", Name: "payments"},
+		Spec: pactov1.PactoSpec{Target: pactov1.TargetRef{ServiceName: "payments"}}}
 	e := &evaluator{service: "payments"}
 	c := newClient(interceptor.Funcs{}, cluster(append(deployment("payments", annRef, "ghcr.io/acme/payments:2.3.0", dA), cr)...)...)
 	l := newLinker(c, e)
@@ -386,6 +386,25 @@ func TestLinkerLeavesRoomForDetection(t *testing.T) {
 		if tc.targets > 0 && len(cm.Data[detect.ConfigMapKey])+len(cm.Data[core.LinkedConfigMapKey]) > maxConfigMapBytes-detectionHeadroom {
 			t.Fatalf("the two keys pass the bound: %d", len(cm.Data[detect.ConfigMapKey])+len(cm.Data[core.LinkedConfigMapKey]))
 		}
+	}
+}
+
+// TestRoomReservesClustersBound: the room reserves the full bound of
+// clusters.json whatever its size now, and a full clusters.json beside a full
+// linked.json and detected.json at its headroom stays under the bound.
+func TestRoomReservesClustersBound(t *testing.T) {
+	reserve := len(detect.ClustersConfigMapKey) + detect.MaxClustersBytes
+	base := maxConfigMapBytes - detectionHeadroom - len(detect.ConfigMapKey) - len(core.LinkedConfigMapKey)
+	for _, clusters := range []string{"", "{}", strings.Repeat("x", detect.MaxClustersBytes)} {
+		if got := room(&corev1.ConfigMap{Data: map[string]string{detect.ClustersConfigMapKey: clusters}}); got != base-reserve {
+			t.Errorf("clusters.json of %d bytes: room %d, want %d", len(clusters), got, base-reserve)
+		}
+	}
+	detected := strings.Repeat("d", 32<<10)
+	r := room(&corev1.ConfigMap{Data: map[string]string{detect.ConfigMapKey: detected}})
+	total := len(detect.ConfigMapKey) + len(detected) + detectionHeadroom + len(core.LinkedConfigMapKey) + min(r, core.MaxLinkedBytes) + reserve
+	if total > maxConfigMapBytes {
+		t.Errorf("every key at its bound takes %d bytes, more than %d", total, maxConfigMapBytes)
 	}
 }
 

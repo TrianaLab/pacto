@@ -89,11 +89,16 @@ func TestDetectorReadsOnlyAllowlistedEnv(t *testing.T) {
 	p.Spec.Containers[0].EnvFrom = []corev1.EnvFromSource{{SecretRef: &corev1.SecretEnvSource{LocalObjectReference: corev1.LocalObjectReference{Name: "from-envfrom"}}}}
 	c := newClient(routesInterceptor(), operatorDeployment(), p)
 	_ = newDetector(c, servedAll).Sync(context.Background())
-	cm, _ := readResult(t, c)
-	for _, s := range []string{"x-secret-value", "literal", "DB_PASSWORD", "from-envfrom"} {
+	cm, res := readResult(t, c)
+	for _, s := range []string{"x-secret-value", "literal", "DB_PASSWORD"} {
 		if strings.Contains(cm.Data[detect.ConfigMapKey], s) {
 			t.Errorf("the ConfigMap holds %q: %s", s, cm.Data[detect.ConfigMapKey])
 		}
+	}
+	// The envFrom Secret's name is kept only as a Secret ref, for the
+	// connection-secret join; nothing it holds is read.
+	if strings.Count(cm.Data[detect.ConfigMapKey], "from-envfrom") != 1 || len(res.SecretRefs) != 1 || res.SecretRefs[0].Secret != "from-envfrom" {
+		t.Errorf("secret refs = %+v", res.SecretRefs)
 	}
 	if got := envFacts(p.Spec.Containers[0].Env); got != nil {
 		t.Errorf("env facts = %+v", got)
@@ -154,7 +159,7 @@ func TestDetectorEntriesFitMaxEntries(t *testing.T) {
 	d.Pieces = func() []detect.Entry {
 		return []detect.Entry{detect.EvidencePiece("off", "no registry value", nil, detect.Complete, ""), detect.RecorderPiece("on")}
 	}
-	res := d.detect(context.Background())
+	res, _ := d.detect(context.Background())
 	want := []string{"registry", "pull-secret", "cloud", "nodes", "metrics", "istio-egress", "cilium-fqdn", "sign-in", "exposure",
 		"crossplane", "evidence", "recorder", "otel-collector", "tempo", "jaeger", "datadog", "backstage"}
 	got := make([]string, 0, len(res.Entries))
@@ -253,6 +258,38 @@ func TestDetectorSampledBackstageHasNoEndpoint(t *testing.T) {
 	_ = newDetector(c, servedAll).Sync(context.Background())
 	_, res := readResult(t, c)
 	if e := entry(t, res, "backstage"); e.Endpoint != "" || e.Completeness != detect.Partial || !strings.Contains(e.Reason, "sampled the first 20000 running pods") {
+		t.Errorf("sampled backstage = %+v", e)
+	}
+}
+
+// TestDetectorReportsBackstageNotDetected: a cluster with no Backstage gets a
+// partial "not detected" row; a sampled read keeps the sampled reason too.
+func TestDetectorReportsBackstageNotDetected(t *testing.T) {
+	c := newClient(routesInterceptor(), operatorDeployment())
+	if err := newDetector(c, servedAll).Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	_, res := readResult(t, c)
+	if e := entry(t, res, "backstage"); e.Value != detect.NotDetected || e.Completeness != detect.Partial || e.Endpoint != "" ||
+		!strings.Contains(e.Reason, "dashboard.backstage.url") {
+		t.Errorf("backstage = %+v", e)
+	}
+
+	pages := 0
+	big := func(l client.ObjectList, i int) {
+		if l, ok := l.(*corev1.PodList); ok {
+			l.Items = make([]corev1.Pod, detect.MaxPods/2+1)
+			for j := range l.Items {
+				l.Items[j] = *pod("aaa", "p", "", "registry.example/x/web:1")
+				l.Items[j].UID = types.UID(strings.Repeat("u", i) + string(rune(j)))
+			}
+		}
+	}
+	c = newClient(pagedList(&pages, 3, big), operatorDeployment())
+	_ = newDetector(c, servedAll).Sync(context.Background())
+	_, res = readResult(t, c)
+	if e := entry(t, res, "backstage"); e.Value != detect.NotDetected || e.Completeness != detect.Partial ||
+		!strings.Contains(e.Reason, "dashboard.backstage.url") || !strings.Contains(e.Reason, "sampled the first 20000 running pods") {
 		t.Errorf("sampled backstage = %+v", e)
 	}
 }

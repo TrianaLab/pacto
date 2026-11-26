@@ -111,6 +111,7 @@ func TestPullVerifyRefusals(t *testing.T) {
 }
 
 func TestPullWithoutVerifyUnchanged(t *testing.T) {
+	t.Parallel()
 	store := &mockBundleStore{}
 	svc := NewService(store, nil)
 	svc.sys.publishRegistry = func() publish.Registry { t.Fatal("pull without --verify-* read the registry"); return nil }

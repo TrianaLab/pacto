@@ -186,3 +186,20 @@ describe('servicePath', () => {
     expect(servicePath(rows, ['c', 'b', 'x', 'y']).map((m) => `${m.env}:${m.linked}`)).toEqual(['b:false', 'c:false', 'x:false', 'y:false']);
   });
 });
+
+describe('promotionModel across clusters', () => {
+  it('keeps same-named Stages of two clusters apart and wires each to its own upstream', () => {
+    const EU = '9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34';
+    const art = { kind: 'artifact', repository: 'svc-candidates' };
+    const graph: Any = {
+      nodes: [node('staging', 0, art), node('prod', 1, { kind: 'stage', namespace: 'staging', stage: 'svc' }),
+        { ...node('staging', 0, art), cluster: EU }, { ...node('prod', 1, { kind: 'stage', namespace: 'staging', stage: 'svc' }), cluster: EU }],
+      edges: [{ from: 'staging/svc', to: 'prod/svc' }, { from: `${EU}/staging/svc`, to: `${EU}/prod/svc` }],
+    };
+    const m = promotionModel('svc', graph, [row('staging'), row('prod'), row('staging', { cluster: EU }), row('prod', { cluster: EU, failed: true })]);
+    expect(new Set(m.stations.map((s) => s.key)).size).toBe(4);
+    expect(m.stations.map((s) => s.state?.key)).toEqual(['verified', 'verified', 'verified', 'failed']);
+    expect(m.wires.filter((w) => w.id.startsWith('wp')).map((w) => `${w.from}>${w.to}`)).toEqual(['s0-r>s1-l', 's2-r>s3-l']);
+    expect(m.stations.some((s) => s.stage.includes(EU))).toBe(false);
+  });
+});

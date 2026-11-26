@@ -30,6 +30,7 @@ func loadExtensionTrust(t *testing.T, fields string) (map[string][]string, error
 }
 
 func TestLoadStructuredTrustStore_ExtensionRefs(t *testing.T) {
+	t.Parallel()
 	refs, err := loadExtensionTrust(t, "allowedObservationKinds: [CapabilityObserved], allowedExtensionRefs: [x.acme.io/backup, x.acme.io/restore]")
 	if err != nil || !slices.Equal(refs["acme-backup-2026"], []string{"x.acme.io/backup", "x.acme.io/restore"}) {
 		t.Fatalf("valid key: refs %v, err %v", refs, err)
@@ -56,6 +57,7 @@ func TestLoadStructuredTrustStore_ExtensionRefs(t *testing.T) {
 // TestTrustConfigBarePubGrantsNoExtension: a key of the directory-of-*.pub
 // store can never report an extension.
 func TestTrustConfigBarePubGrantsNoExtension(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := (&Service{}).GenerateKey(dir, "", "acme-backup", false); err != nil {
 		t.Fatal(err)

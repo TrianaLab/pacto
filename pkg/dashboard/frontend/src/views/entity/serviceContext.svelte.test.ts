@@ -876,3 +876,38 @@ describe('service page: a contributed service', () => {
     done();
   });
 });
+
+describe('service page: accept an inferred offering', () => {
+  beforeEach(() => { detailFn.mockReset(); entitiesFn.mockReset(); entitiesFn.mockResolvedValue({ entities: [], total: 0 }); });
+  const contribution = { producer: 'crossplane-6f1c', repository: 'ghcr.io/acme/pacto-inferred/crossplane-6f1c/services', ref: 'ghcr.io/acme/pacto-inferred/crossplane-6f1c/services@sha256:4c1e', keyId: 'k' };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture builder
+  const offered = (entity: Record<string, any> = { offering: 'xbucket' }): any => {
+    const d = detail({ contribution });
+    d.entity = { ...d.entity, declaration: 'inferred', ...entity };
+    d.actions = ['open-graph', 'accept-offering'];
+    return d;
+  };
+
+  it('opens the Declare panel in offering mode from declare=1', async () => {
+    const { target, done } = await render(offered(), { canDeclare: true, declareQuery: { open: true, signed: '' } });
+    const fold = fact(target, 'offering-accept') as HTMLDetailsElement;
+    expect(fold.open).toBe(true);
+    expect(text(fold.querySelector('summary'))).toContain('Accept this offering');
+    await vi.waitFor(() => expect(fold.querySelector('[data-testid="offering-version"]')).toBeTruthy());
+    expect(fold.querySelector('[data-testid="offering-owner"]')).toBeTruthy();
+    expect(fold.querySelector('[data-testid="offering-registry"]')).toBeTruthy();
+    done();
+  });
+
+  it('keeps the panel closed without declare=1 and away without canDeclare or an offering', async () => {
+    let r = await render(offered(), { canDeclare: true });
+    expect((fact(r.target, 'offering-accept') as HTMLDetailsElement).open).toBe(false);
+    r.done();
+    r = await render(offered(), { canDeclare: false, declareQuery: { open: true } });
+    expect(fact(r.target, 'offering-accept')).toBeNull();
+    r.done();
+    r = await render(offered({}), { canDeclare: true, declareQuery: { open: true } });
+    expect(fact(r.target, 'offering-accept')).toBeNull();
+    r.done();
+  });
+});

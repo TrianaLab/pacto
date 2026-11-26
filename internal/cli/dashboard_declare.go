@@ -6,19 +6,27 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"path"
 	"slices"
 	"strconv"
+	"strings"
 
 	gcrauthn "github.com/google/go-containerregistry/pkg/authn"
 	"github.com/spf13/viper"
+	"k8s.io/apimachinery/pkg/api/meta"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/client-go/discovery"
+	"k8s.io/client-go/discovery/cached/memory"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/rest"
+	"k8s.io/client-go/restmapper"
 
 	"github.com/trianalab/pacto/v4/internal/app"
 	"github.com/trianalab/pacto/v4/internal/authn"
 	pactomcp "github.com/trianalab/pacto/v4/internal/mcp"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/dashboard"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 	"github.com/trianalab/pacto/v4/pkg/inferredcontract"
 	"github.com/trianalab/pacto/v4/pkg/logging"
@@ -33,6 +41,10 @@ const noPushCredential = "the installation gave the dashboard no push credential
 // noClaimDraft is why a shared dashboard saves no claim draft: it would go
 // with the dashboard's own push credential for any signed-in viewer.
 const noClaimDraft = "a shared dashboard claims only with your own signature"
+
+// noOfferingDraft is why a shared dashboard saves no offering draft, for the
+// same reason.
+const noOfferingDraft = "a shared dashboard accepts an offering only with your own signature"
 
 // dashboardDeclarer declares inferred services for the person behind a
 // dashboard request: the cluster is read as them (their own token on a shared
@@ -59,6 +71,9 @@ type dashboardDeclarer struct {
 	// trust reads the installation signer policy accepted ranges are judged
 	// by, as the accept plan reads it.
 	trust func(context.Context) (app.Installation, error)
+	// detected is the detection (--detected) whose installation key
+	// verifies an inferred offering's record, read with the person's client.
+	detected string
 }
 
 // newDashboardDeclarer declares into --registry; nil without one. A local
@@ -69,7 +84,7 @@ func newDashboardDeclarer(v *viper.Viper, svc *app.Service, id *dashboardIdentit
 	if registry == "" {
 		return nil, nil
 	}
-	d := &dashboardDeclarer{svc: svc, id: id, entries: entries, registry: registry}
+	d := &dashboardDeclarer{svc: svc, id: id, entries: entries, registry: registry, detected: v.GetString("dashboard.detected")}
 	if id.auth.Local() {
 		d.push = oci.NewKeychain(oci.EnvCredentialOptions())
 	}
@@ -85,6 +100,7 @@ func newDashboardDeclarer(v *viper.Viper, svc *app.Service, id *dashboardIdentit
 	s.TimestampURL, s.TrustedRoot = v.GetString("dashboard.timestamp-url"), v.GetString("dashboard.trusted-root")
 	s.OIDCIssuer = v.GetString("dashboard.oidc-issuer-url")
 	d.base.DeliveryTrust = v.GetString("dashboard.delivery-trust")
+	d.base.BackstageURL = v.GetString("dashboard.backstage-url")
 	if l := id.signing.login(); l != nil {
 		d.ticket, d.take, d.accepted, d.live = l.Ticket, l.Take, l.Accepted, l.Live
 	}
@@ -118,7 +134,7 @@ func refused(code, msg, cmd string) *dashboard.DeclareRefusal {
 // read as them, the registry and the Sigstore services. A claim of an
 // external system reads no cluster; its name defaults to the one the visible
 // claim already has, so a claim again never adds a second claiming service.
-func (d *dashboardDeclarer) request(r *http.Request, w dashboard.DeclareWorkload, accept []string, from *dashboard.DraftRef, claim dashboard.ClaimInput) (app.DeclareRequest, error) {
+func (d *dashboardDeclarer) request(r *http.Request, w dashboard.DeclareWorkload, accept []string, from *dashboard.DraftRef, claim dashboard.ClaimInput, off *dashboard.OfferingInput) (app.DeclareRequest, error) {
 	req := d.base
 	req.Service, req.Namespace, req.Registry, req.Accept = w.Name, w.Namespace, d.registry, accept
 	// The repository comes from what the person's own view shows, never
@@ -129,8 +145,27 @@ func (d *dashboardDeclarer) request(r *http.Request, w dashboard.DeclareWorkload
 		req.FromDraft = from.Tag
 	}
 	cfg := d.clusterConfig(r.Context(), w.Cluster)
+	if w.Offering != "" {
+		return d.offeringRequest(r, req, w, cmp.Or(off, &dashboard.OfferingInput{}), cfg)
+	}
+	if t := w.Template; t != nil {
+		// A golden path reads no workload: the one cluster, when there is
+		// one, gives the installation signer policy.
+		req.Service, req.Template, req.TemplateSubject, req.Observed = t.Name, t, w.Key, nil
+		if cfg != nil {
+			req.Dynamic, _ = d.client(r, cfg)
+		}
+		return req, nil
+	}
 	if id, ok := claimOf(w); ok {
-		req.Service, req.Owner, req.Name = fleet.ExternalSubjectPrefix+id, claim.Owner, cmp.Or(claim.Name, claimerName(w.View, id))
+		req.Service, req.Owner, req.Name, req.Offering = fleet.ExternalSubjectPrefix+id, claim.Owner, cmp.Or(claim.Name, claimerName(w.View, id)), claim.Offering
+		// An offering's providers are read from the viewer's own view, never
+		// with the dashboard's registry credentials; with none they are
+		// unknown.
+		req.Fleet = &fleet.FleetSnapshot{Completeness: fleet.CompletenessPartial}
+		if w.View != nil {
+			req.Fleet = w.View.SnapshotForSerialization()
+		}
 		// No workload is read: the one cluster, when there is one, gives
 		// the installation signer policy a baseline is judged by.
 		if cfg != nil {
@@ -144,6 +179,23 @@ func (d *dashboardDeclarer) request(r *http.Request, w dashboard.DeclareWorkload
 	dyn, err := d.client(r, cfg)
 	req.Dynamic = dyn
 	return req, err
+}
+
+// offeringRequest is req accepting the inferred offering w names, from the
+// verified record the viewer's fleet shows (never one the page names), into
+// the dashboard's registry or a path below it. The cluster that advertised
+// it, when the dashboard reads it, verifies the record with the detection.
+func (d *dashboardDeclarer) offeringRequest(r *http.Request, req app.DeclareRequest, w dashboard.DeclareWorkload, off *dashboard.OfferingInput, cfg *rest.Config) (app.DeclareRequest, error) {
+	req.Service, req.Observed = fleet.OfferingSubjectPrefix+cmp.Or(off.Name, w.Offering), nil
+	req.Version, req.Owner, req.From, req.Detected = off.Version, off.Owner, w.From, d.detected
+	if reg := off.Registry; reg != "" && reg != d.registry && !strings.HasPrefix(reg, d.registry+"/") {
+		return req, &app.DeclareError{Code: string(pactomcp.RefusalNotAllowed), Message: "the dashboard publishes only under " + d.registry + ", not " + reg + ": run the command"}
+	}
+	req.Registry = cmp.Or(off.Registry, d.registry)
+	if cfg != nil {
+		req.Dynamic, _ = d.client(r, cfg)
+	}
+	return req, nil
 }
 
 // client is a cluster client of cfg reading as the person behind r: their
@@ -196,8 +248,13 @@ func (d *dashboardDeclarer) offer(r *http.Request, w dashboard.DeclareWorkload) 
 	if !ans.Write.Available {
 		ans.Write.Reason = noPushCredential
 	}
-	if _, claim := claimOf(w); claim && !d.id.auth.Local() {
+	_, claim := claimOf(w)
+	switch {
+	case d.id.auth.Local():
+	case claim:
 		ans.NoDraft = noClaimDraft
+	case w.Offering != "":
+		ans.NoDraft = noOfferingDraft
 	}
 	return ans
 }
@@ -205,18 +262,21 @@ func (d *dashboardDeclarer) offer(r *http.Request, w dashboard.DeclareWorkload) 
 // Plan implements dashboard.Declarer.
 func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, in dashboard.DeclareInput) (*dashboard.DeclareAnswer, error) {
 	ans := d.offer(r, w)
-	fresh := ans.Signing.Mode == signModeFreshLogin
-	if fresh && d.signedIn(r, in.IntentDigest) {
-		// Back from a live signing login: the plan is the one the login was
-		// started for, whatever the page asks.
-		ans.SignedIn = true
-		if acc := d.accepted(r, in.IntentDigest); acc != nil {
-			in.Accept = acc
-		}
+	if refusal, err := d.templateGate(r.Context(), w); err != nil || refusal != nil {
+		ans.Refusal = refusal
+		return ans, err
 	}
-	req, err := d.request(r, w, in.Accept, in.FromDraft, in.ClaimInput)
+	fresh := ans.Signing.Mode == signModeFreshLogin
+	if fresh {
+		d.resumeLogin(r, ans, &in)
+	}
+	req, err := d.request(r, w, in.Accept, in.FromDraft, in.ClaimInput, in.OfferingAcceptance)
 	if err != nil {
-		return nil, err
+		ans.Refusal, err = dashRefusal(err)
+		if err != nil {
+			return nil, err
+		}
+		return ans, nil
 	}
 	if fresh || in.FromDraft != nil {
 		// The plan shows the declared version a person's login will sign:
@@ -227,12 +287,7 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 	}
 	p, decl, err := d.svc.PlanDeclare(r.Context(), req)
 	ans.Command = declareCommand(req, "")
-	if refusal := claimRedacted(w, req, p, err); refusal != nil {
-		ans.Refusal = refusal
-		return ans, nil
-	}
-	if refusal, err := dashRefusal(err); err != nil || refusal != nil {
-		ans.Refusal = refusal
+	if ans.Refusal, err = d.planRefusal(w, req, p, err, fresh); err != nil || ans.Refusal != nil {
 		return ans, err
 	}
 	listed := len(p.Drafts)
@@ -242,13 +297,52 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 	ans.Plan, ans.Drafts = planView(p, decl), draftViews(p.Drafts)
 	ans.DraftsTotal = p.DraftsTotal - (listed - len(p.Drafts))
 	ans.Command = declareCommand(req, p.IntentDigest)
-	// The pull request runs only where the person's Git token is (513 D7);
-	// a --pr plan binds its target into a new intent, so none is replayed.
-	ans.PRCLI = declareCommand(req, "") + " --pr"
+	ans.PRCLI = prCommand(w, req)
 	if fresh && p.Unchanged == "" {
 		ans.SignTicket = d.ticket(r, p.IntentDigest, in.Accept)
 	}
 	return ans, nil
+}
+
+// planRefusal is the refusal a plan of w answers, in order: a claim or an
+// acceptance whose repository holds what the viewer may not see, the
+// planner's own refusal, then on a fresh login a claim that would be a
+// draft. Nil with a nil error when the plan stands.
+func (d *dashboardDeclarer) planRefusal(w dashboard.DeclareWorkload, req app.DeclareRequest, p *app.DeclarePlan, err error, fresh bool) (*dashboard.DeclareRefusal, error) {
+	if refusal := claimRedacted(w, req, p, err); refusal != nil {
+		return refusal, nil
+	}
+	if refusal, err := dashRefusal(err); err != nil || refusal != nil {
+		return refusal, err
+	}
+	if fresh {
+		return d.claimDraft(w, req, p), nil
+	}
+	return nil, nil
+}
+
+// resumeLogin marks ans signed in when the person is back from a live
+// signing login: the plan is the one the login was started for, whatever
+// the page asks.
+func (d *dashboardDeclarer) resumeLogin(r *http.Request, ans *dashboard.DeclareAnswer, in *dashboard.DeclareInput) {
+	if !d.signedIn(r, in.IntentDigest) {
+		return
+	}
+	ans.SignedIn = true
+	if acc := d.accepted(r, in.IntentDigest); acc != nil {
+		in.Accept = acc
+	}
+}
+
+// prCommand is the pacto declare that opens w's repository pull request:
+// only where the person's Git token is (513 D7), and since a --pr plan binds
+// its target into a new intent, none is replayed. A golden path and an
+// offering acceptance name no source repository to open one in.
+func prCommand(w dashboard.DeclareWorkload, req app.DeclareRequest) string {
+	if w.Template != nil || w.Offering != "" {
+		return ""
+	}
+	return declareCommand(req, "") + " --pr"
 }
 
 // ownView keeps p to what w's own bundle repository says about w: that
@@ -259,7 +353,7 @@ func (d *dashboardDeclarer) Plan(r *http.Request, w dashboard.DeclareWorkload, i
 func ownView(p *app.DeclarePlan, w dashboard.DeclareWorkload, from *dashboard.DraftRef) *dashboard.DeclareRefusal {
 	self := selfFrom(w)
 	switch {
-	case from != nil && p.InferredFrom != self:
+	case from != nil && !sameSource(p.InferredFrom, self):
 		return refused("DraftNotFound", "no draft "+from.Tag+" of "+w.Name+" here", "")
 	case p.Baseline != nil && foreign(p.Baseline.From, self, p.Cluster):
 		return refused("NotAllowed", p.BundleRepo+" holds the declarations of another workload named "+w.Name+", so Pacto shows and writes nothing there", "")
@@ -275,19 +369,43 @@ func claimOf(w dashboard.DeclareWorkload) (string, bool) {
 }
 
 // selfFrom is the inferredFrom a declaration of w records: the external
-// system a claim names, else the workload.
+// system a claim names, nothing for a golden path, else the workload.
 func selfFrom(w dashboard.DeclareWorkload) string {
+	if w.Template != nil {
+		return ""
+	}
 	if id, ok := claimOf(w); ok {
 		return contract.ExternalInferredFrom(id)
+	}
+	if w.Offering != "" {
+		repo, _, digest := contract.SplitOCIRef(w.From)
+		producer, _ := contract.ContributionRef(repo)
+		return contract.OfferingInferredFrom(producer, w.Name, digest)
 	}
 	return fleet.K8sCaller("", w.Namespace, w.Kind, w.Name)
 }
 
-// claimRedacted is the one refusal a claim of w answers when the repository
-// it writes to holds what the viewer's restricted view hides: it names no
-// service, version, inferredFrom or tag. Nil for a workload, or when the
-// viewer may read everything there.
+// claimRedacted is the one refusal a claim or an offering acceptance of w
+// answers when the repository it writes to holds what the viewer's
+// restricted view hides: it names no service, version, inferredFrom or tag.
+// A golden path's baseline refusal is redacted the same way. Nil for a
+// workload, or when the viewer may read everything there.
 func claimRedacted(w dashboard.DeclareWorkload, req app.DeclareRequest, p *app.DeclarePlan, err error) *dashboard.DeclareRefusal {
+	if offer, ok := strings.CutPrefix(req.Service, fleet.OfferingSubjectPrefix); ok {
+		if offeringHidden(w.View, req.Registry, offer, p, err) {
+			return refused(string(pactomcp.RefusalNotAllowed), offeringHiddenMessage, declareCommand(req, ""))
+		}
+		return nil
+	}
+	if t := w.Template; t != nil {
+		// The registry holds a name the person's view does not show: the
+		// refusal names nothing it holds.
+		if baselineRefusal(err) && !showsService(w.View, t.Name) {
+			refusal, _ := dashRefusal(hiddenRefusal(t.Name, err))
+			return refusal
+		}
+		return nil
+	}
 	id, ok := claimOf(w)
 	if !ok || !claimHidden(w.View, id, cmp.Or(req.Name, inferredcontract.ServiceName(fleet.ExternalKey(id))), p, err) {
 		return nil
@@ -298,7 +416,20 @@ func claimRedacted(w dashboard.DeclareWorkload, req app.DeclareRequest, p *app.D
 // foreign reports whether f names a workload other than from, or the same
 // one in a cluster other than cluster.
 func foreign(f app.Declared, from, cluster string) bool {
-	return f.InferredFrom != "" && (f.InferredFrom != from || f.Cluster != "" && cluster != "" && f.Cluster != cluster)
+	return f.InferredFrom != "" && (!sameSource(f.InferredFrom, from) || f.Cluster != "" && cluster != "" && f.Cluster != cluster)
+}
+
+// sameSource reports whether two inferredFrom values name one source. Two
+// offering forms name one when their producer and service match: the record
+// digest changes with every change of the source object, so a re-acceptance
+// is never another's (Decision 17).
+func sameSource(a, b string) bool {
+	pa, sa, _, oa := contract.InferredFromOffering(a)
+	pb, sb, _, ob := contract.InferredFromOffering(b)
+	if oa && ob {
+		return pa == pb && sa == sb
+	}
+	return a == b
 }
 
 // plannedLogin stands for the person's fresh login while a plan is made: a
@@ -308,7 +439,13 @@ func plannedLogin(context.Context) (string, error) { return "", errors.New("a pl
 // declareCommand is the pacto declare a person runs for req: accepting its
 // draft with the ranges it accepts, or the plan replayed with intent.
 func declareCommand(req app.DeclareRequest, intent string) string {
+	if strings.HasPrefix(req.Service, fleet.OfferingSubjectPrefix) {
+		return req.Command(intent)
+	}
 	cmd := "pacto declare " + req.Service + " --namespace " + req.Namespace + " --registry " + req.Registry
+	if req.TemplateSubject != "" {
+		cmd = "pacto declare " + req.TemplateSubject + " --backstage-url " + cmp.Or(req.BackstageURL, "<backstage-url>") + " --registry " + req.Registry
+	}
 	if id, ok := fleet.ParseExternalSubject(req.Service); ok {
 		cmd = "pacto claim " + string(id)
 		if req.Owner != "" || req.FromDraft == "" {
@@ -316,6 +453,9 @@ func declareCommand(req app.DeclareRequest, intent string) string {
 		}
 		if req.Name != "" {
 			cmd += " --name " + req.Name
+		}
+		if req.Offering != "" && req.FromDraft == "" {
+			cmd += " --offering " + req.Offering
 		}
 		cmd += " --registry " + req.Registry
 	}
@@ -370,6 +510,7 @@ func planView(p *app.DeclarePlan, decl declarationTexts) *dashboard.DeclarePlan 
 type declarationTexts interface {
 	Contract() []byte
 	Record() []byte
+	Files() map[string][]byte
 }
 
 // draftViews are the drafts as the dashboard answers them.
@@ -388,12 +529,16 @@ func draftViews(in []app.DraftView) []dashboard.DeclareDraft {
 // write.
 func (d *dashboardDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload, in dashboard.DeclareAcceptInput) (*dashboard.DeclareAcceptAnswer, error) {
 	ctx := r.Context()
+	if refusal, err := d.templateGate(ctx, w); err != nil || refusal != nil {
+		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, err
+	}
 	if refusal := d.mayAccept(ctx, w, in); refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
 	}
-	req, err := d.request(r, w, in.Accept, in.FromDraft, in.ClaimInput)
+	req, err := d.request(r, w, in.Accept, in.FromDraft, in.ClaimInput, in.OfferingAcceptance)
 	if err != nil {
-		return nil, err
+		refusal, err := dashRefusal(err)
+		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, err
 	}
 	req.IntentDigest = in.IntentDigest
 	if refusal := d.signer(r, &req, in); refusal != nil {
@@ -414,7 +559,7 @@ func (d *dashboardDeclarer) Accept(r *http.Request, w dashboard.DeclareWorkload,
 	if req.Draft {
 		return writeServerDraft(ctx, d.svc, req, p, decl, who, "dashboard")
 	}
-	if refusal := ownedBy(p); refusal != nil {
+	if refusal := cmp.Or(d.claimDraft(w, req, p), ownedBy(p)); refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, nil
 	}
 	if refusal := d.login(r, &req); refusal != nil {
@@ -430,13 +575,13 @@ func runDeclare(ctx context.Context, svc *app.Service, req app.DeclareRequest, v
 	if refusal, err := dashRefusal(err); err != nil || refusal != nil {
 		return &dashboard.DeclareAcceptAnswer{Refusal: refusal}, err
 	}
-	auditDeclare(ctx, via, who, req.Service, res.Plan.Service, res.Tag, res.Published)
+	auditDeclare(ctx, via, who, req, res.Plan.Service, res.Tag, res.Published)
 	return &dashboard.DeclareAcceptAnswer{Published: res.Published, Tag: res.Tag, Draft: res.Draft, Signed: res.Signed, Command: res.Plan.AcceptCLI}, nil
 }
 
 // stale is the PlanStale refusal with the fresh plan.
 func (d *dashboardDeclarer) stale(r *http.Request, w dashboard.DeclareWorkload, in dashboard.DeclareAcceptInput, p *app.DeclarePlan) (*dashboard.DeclareAcceptAnswer, error) {
-	fresh, err := d.Plan(r, w, dashboard.DeclareInput{ServiceKey: in.ServiceKey, Accept: in.Accept, FromDraft: in.FromDraft, ClaimInput: in.ClaimInput})
+	fresh, err := d.Plan(r, w, dashboard.DeclareInput{ServiceKey: in.ServiceKey, Accept: in.Accept, FromDraft: in.FromDraft, ClaimInput: in.ClaimInput, OfferingAcceptance: in.OfferingAcceptance})
 	return &dashboard.DeclareAcceptAnswer{Plan: fresh, Refusal: refused("PlanStale", "the plan changed since intent "+in.IntentDigest+
 		" was reviewed; it is now "+p.IntentDigest+": review the new plan", "")}, err
 }
@@ -477,14 +622,100 @@ func (d *dashboardDeclarer) login(r *http.Request, req *app.DeclareRequest) *das
 // credential for any signed-in viewer, and the owner rule the person's login
 // runs before the push is its gate.
 func (d *dashboardDeclarer) mayAccept(ctx context.Context, w dashboard.DeclareWorkload, in dashboard.DeclareAcceptInput) *dashboard.DeclareRefusal {
+	if w.Offering != "" {
+		return d.mayAcceptOffering(ctx, w, in)
+	}
 	id, ok := claimOf(w)
 	switch {
+	case w.Template != nil:
+		return nil // templateGate asked
 	case !ok:
 		return d.mayUpdate(ctx, w, "declaring "+w.Name)
 	case in.Mode == "draft" && !d.id.auth.Local():
 		return refused("DraftNotOffered", noClaimDraft, "pacto claim "+id+" --owner "+cmp.Or(in.Owner, "<team>")+" --draft")
 	}
 	return nil
+}
+
+// noTemplateSource is why a template a detected catalog lists is never
+// accepted: anyone could have created the Service it was read from.
+const noTemplateSource = "the template was read from a detected catalog: set dashboard.backstage.url to accept templates from this catalog"
+
+// templateGate is, for a golden path a catalog holds, the checks before
+// any plan, draft or accept: on a shared host update pactos in the
+// installation namespace (a 403 that writes nothing), then a catalog the
+// installation configured and a name no service holds. Nil for any other
+// subject.
+func (d *dashboardDeclarer) templateGate(ctx context.Context, w dashboard.DeclareWorkload) (*dashboard.DeclareRefusal, error) {
+	t := w.Template
+	if t == nil {
+		return nil, nil
+	}
+	if err := d.mayDeclareTemplate(ctx); err != nil {
+		return nil, err
+	}
+	return templateRefusal(t, w.Key), nil
+}
+
+// templateRefusal refuses a template t a person may not accept: one a
+// detected catalog lists, or one whose name a golden path or another service
+// the person's view shows already holds.
+func templateRefusal(t *fleet.InferredTemplate, subject string) *dashboard.DeclareRefusal {
+	switch {
+	case !t.Acceptable:
+		return refused(string(pactomcp.RefusalTemplateSourceUnverified), noTemplateSource, "")
+	case t.DeclaredAs != "":
+		return refused(string(pactomcp.RefusalTemplateNameTaken), "the golden path "+t.DeclaredAs+" already holds the name "+t.Name+": "+subject+" is its link, never accepted again", "")
+	case t.NameTaken:
+		return refused(string(pactomcp.RefusalTemplateNameTaken), "a service already holds the name "+t.Name+": "+subject+" is never accepted under it", "")
+	}
+	return nil
+}
+
+// installNamespace is the namespace Pacto is installed in, as the
+// dashboard knows it: the one its delivery identity policy is read from.
+func (d *dashboardDeclarer) installNamespace() string {
+	return cmp.Or(d.id.policyNS, delivery.PolicyNamespace)
+}
+
+// mayDeclareTemplate asks, on a shared host, whether the person may update
+// pactos in the installation namespace (Decision 17: a template has no
+// cluster object of its own); a 403 when not, or when nobody can tell. A
+// local host acts with the person's own kubeconfig.
+func (d *dashboardDeclarer) mayDeclareTemplate(ctx context.Context) error {
+	if d.id.auth.Local() {
+		return nil
+	}
+	ns := d.installNamespace()
+	if d.id.viewer == nil {
+		return dashboard.Refuse(http.StatusForbidden, "NotAllowed", "this dashboard reviews nobody, so it accepts no golden path: run pacto declare")
+	}
+	ok, err := d.id.viewer.MayUpdatePactos(ctx, d.id.state(ctx).Person, ns)
+	switch {
+	case errors.Is(err, authn.ErrClusterNotReviewable):
+		return dashboard.Refuse(http.StatusForbidden, "ClusterNotReviewable", "Pacto cannot review you in the cluster it is installed in, so it accepts no golden path")
+	case err != nil:
+		return dashboard.Refuse(http.StatusForbidden, "ReviewFailed", "asking whether you may update pactos in "+ns+" failed: "+err.Error())
+	case !ok:
+		return dashboard.Refuse(http.StatusForbidden, "NotAllowed", "accepting a golden path needs update pactos in "+ns)
+	}
+	return nil
+}
+
+// MayDeclareTemplate implements dashboard.Declarer.
+func (d *dashboardDeclarer) MayDeclareTemplate(ctx context.Context) bool {
+	return d.mayDeclareTemplate(ctx) == nil
+}
+
+// claimDraft refuses, on a shared host, a claim to be signed whose plan is a
+// draft all the same (it joins an offering other teams provide): the draft
+// would go with the dashboard's own push credential for any signed-in
+// viewer. Nil for a workload, a local host or a declared plan.
+func (d *dashboardDeclarer) claimDraft(w dashboard.DeclareWorkload, req app.DeclareRequest, p *app.DeclarePlan) *dashboard.DeclareRefusal {
+	if _, ok := claimOf(w); !ok || d.id.auth.Local() || p.State == contract.DeclarationDeclared {
+		return nil
+	}
+	return refused("DraftNotOffered", noClaimDraft+": this claim is written as a draft another team accepts, so run it in a terminal", declareCommand(req, ""))
 }
 
 // mayUpdate asks, on a shared host, whether the person may update the
@@ -496,15 +727,82 @@ func (d *dashboardDeclarer) mayUpdate(ctx context.Context, w dashboard.DeclareWo
 		return nil
 	}
 	ok, err := d.id.viewer.MayUpdateWorkload(ctx, d.id.state(ctx).Person, w.Cluster, w.Namespace, w.Kind, w.Name)
+	return reviewRefusal(ok, err, "the cluster that runs "+w.Name, what, w.Kind+" "+w.Namespace+"/"+w.Name)
+}
+
+// reviewRefusal is the refusal a review of update on object in the cluster
+// where names answers, nil when it allowed it. what names the write.
+func reviewRefusal(ok bool, err error, where, what, object string) *dashboard.DeclareRefusal {
 	switch {
 	case errors.Is(err, authn.ErrClusterNotReviewable):
-		return refused("ClusterNotReviewable", "Pacto cannot review you in the cluster that runs "+w.Name+", so it writes nothing there", "")
+		return refused("ClusterNotReviewable", "Pacto cannot review you in "+where+", so it writes nothing there", "")
 	case err != nil:
-		return refused("ReviewFailed", "asking whether you may update "+w.Kind+" "+w.Namespace+"/"+w.Name+" failed: "+err.Error(), "")
+		return refused("ReviewFailed", "asking whether you may update "+object+" failed: "+err.Error(), "")
 	case !ok:
-		return refused("NotAllowed", what+" needs update on "+w.Kind+" "+w.Namespace+"/"+w.Name, "")
+		return refused("NotAllowed", what+" needs update on "+object, "")
 	}
 	return nil
+}
+
+// mayAcceptOffering is the per-viewer check before an offering acceptance
+// reads the registry (Decision 13). A shared host only signs one, since a
+// draft would go with the dashboard's own push credential. An offering an
+// installation advertised needs update on the source object its record
+// cites, in that cluster; one a producer the trust config grants cites no
+// cluster, so the owner rule the person's login runs is its gate. A local
+// host acts with the person's own kubeconfig.
+func (d *dashboardDeclarer) mayAcceptOffering(ctx context.Context, w dashboard.DeclareWorkload, in dashboard.DeclareAcceptInput) *dashboard.DeclareRefusal {
+	switch {
+	case d.id.auth.Local():
+		return nil
+	case in.Mode == "draft":
+		return refused("DraftNotOffered", noOfferingDraft, "")
+	case w.Cluster == "":
+		return nil
+	case w.Source == nil:
+		return refused("NotAllowed", "Pacto could not read the source object of "+w.Offering+" ("+w.SourceUnread+"), so it writes nothing: run the command", "")
+	}
+	where := "the cluster that advertised " + w.Offering
+	cfg := d.clusterConfig(ctx, w.Cluster)
+	if cfg == nil {
+		return refused("ClusterNotReviewable", "Pacto cannot review you in "+where+", so it writes nothing there", "")
+	}
+	src := *w.Source
+	object := src.Kind + " " + path.Join(src.Namespace, src.Name)
+	res, ns, ok := sourceResource(cfg, src)
+	if !ok {
+		return refused("NotAllowed", "Pacto cannot tell which resource "+src.APIVersion+" "+object+" is in "+where+", so it writes nothing there", "")
+	}
+	allowed, err := d.id.viewer.MayUpdate(ctx, d.id.state(ctx).Person, w.Cluster, ns, res)
+	return reviewRefusal(allowed, err, where, "accepting "+w.Offering, object)
+}
+
+// sourceResource is update on src, mapped to its resource with cfg's API
+// discovery, and the namespace a namespaced src is in; false when discovery
+// maps no resource, or a namespaced src names no namespace: never true for an
+// object Pacto cannot name. ponytail: one discovery read per acceptance; a
+// cached mapper per cluster if accepts ever get frequent.
+func sourceResource(cfg *rest.Config, src fleet.SourceObject) (authn.ResourceAttributes, string, bool) {
+	gv, err := schema.ParseGroupVersion(src.APIVersion)
+	if err != nil {
+		return authn.ResourceAttributes{}, "", false
+	}
+	dc, err := discovery.NewDiscoveryClientForConfig(cfg)
+	if err != nil {
+		return authn.ResourceAttributes{}, "", false
+	}
+	m, err := restmapper.NewDeferredDiscoveryRESTMapper(memory.NewMemCacheClient(dc)).RESTMapping(schema.GroupKind{Group: gv.Group, Kind: src.Kind}, gv.Version)
+	if err != nil {
+		return authn.ResourceAttributes{}, "", false
+	}
+	ns := ""
+	if m.Scope.Name() == meta.RESTScopeNameNamespace {
+		if src.Namespace == "" {
+			return authn.ResourceAttributes{}, "", false
+		}
+		ns = src.Namespace
+	}
+	return authn.ResourceAttributes{Group: m.Resource.Group, Resource: m.Resource.Resource, Verb: "update", Name: src.Name}, ns, true
 }
 
 // ownedBy refuses a bundle repository whose baseline or drafts were inferred
@@ -538,13 +836,21 @@ func pushWriter(push gcrauthn.Keychain, repo string) publish.Registry {
 	return publish.NewScopedClient(push, oci.NewPushScope("", repo), nil, oci.EnvInsecureRegistries()...)
 }
 
-// auditDeclare logs one declaration write: who, what and where. subject is
-// the request's: a claim (external:<identity>) logs claim as its verb.
-func auditDeclare(ctx context.Context, via, who, subject, service, tag, published string) {
-	verb := "declare"
+// auditDeclare logs one declaration write: who, what and where. The subject
+// is the request's: a claim (external:<identity>) logs claim as its verb. The
+// namespace is the workload's, or for a create the one the caller was
+// reviewed in.
+func auditDeclare(ctx context.Context, via, who string, req app.DeclareRequest, service, tag, published string) {
+	subject, namespace, verb := req.Service, req.Namespace, "declare"
+	if req.Create != nil {
+		namespace, verb = req.Create.Namespace, "create"
+	}
 	if _, ok := fleet.ParseExternalSubject(subject); ok {
 		verb = "claim"
 	}
-	logging.LoggerFromContext(ctx).Info("declaration written", slog.String("via", via), slog.String("verb", verb), slog.String("actor", who),
-		slog.String("service", service), slog.String("tag", tag), slog.String("published", published))
+	if strings.HasPrefix(subject, fleet.OfferingSubjectPrefix) {
+		verb = "accept-offering"
+	}
+	logging.LoggerFromContext(ctx).Info("declaration written", slog.String("via", via), slog.String("verb", verb), slog.String("subject", subject), slog.String("actor", who),
+		slog.String("service", service), slog.String("namespace", namespace), slog.String("tag", tag), slog.String("published", published))
 }

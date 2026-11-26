@@ -1,13 +1,19 @@
 package fleetsrc
 
 import (
+	"cmp"
 	"context"
+	"crypto/ed25519"
+	"crypto/x509"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -16,6 +22,7 @@ import (
 	"k8s.io/client-go/dynamic"
 
 	"github.com/trianalab/pacto/v4/pkg/detect"
+	"github.com/trianalab/pacto/v4/pkg/evidenceingest"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
@@ -31,6 +38,11 @@ type DetectionSource struct {
 	now  func() time.Time
 	// fixed is a Result already read, reported as is.
 	fixed *detect.Result
+	// Contributions reads the inferred offerings the installation
+	// advertises, verified with its installation key; nil reads none.
+	Contributions ContributionReader
+	// Freshness is the producer row's freshness window; 0 checks no age.
+	Freshness time.Duration
 }
 
 // errDetectionInvalid and errDetectionForeign are the classes of a Result
@@ -83,6 +95,37 @@ func configMapKey(dyn dynamic.Interface, namespace, name, key, manager string) f
 	}
 }
 
+// ClustersReader reads the candidate clusters beside the detection at ref
+// on each call: k8s:<namespace>/<name> reads the clusters.json key of that
+// ConfigMap with dyn under the rule detected.json is trusted by; a file ref
+// reads the clusters.json file beside it. An absent key or file is no
+// candidates and no error (an operator that predates them, or runs no
+// inventory); an unreadable, foreign or future-dated document is an error
+// that says why without its raw text.
+func ClustersReader(dyn dynamic.Interface, ref string, now func() time.Time) func(context.Context) (detect.Clusters, error) {
+	read := func(context.Context) ([]byte, error) {
+		return os.ReadFile(filepath.Join(filepath.Dir(ref), detect.ClustersConfigMapKey))
+	}
+	if rest, ok := strings.CutPrefix(ref, "k8s:"); ok {
+		ns, name, _ := strings.Cut(rest, "/")
+		read = configMapKey(dyn, ns, name, detect.ClustersConfigMapKey, detect.FieldManager)
+	}
+	return func(ctx context.Context) (detect.Clusters, error) {
+		data, err := read(ctx)
+		if errors.Is(err, fs.ErrNotExist) {
+			return detect.Clusters{}, nil
+		}
+		if err == nil {
+			var c detect.Clusters
+			if c, err = detect.DecodeClusters(data); err == nil && !c.AsOf.After(now().Add(detect.MaxFutureSkew)) {
+				return c, nil
+			}
+			err = errDetectionInvalid
+		}
+		return detect.Clusters{}, errors.New(detectionError(err).Message)
+	}
+}
+
 // NewDetectionResultSource reports res, already read, through the same
 // mapping as [DetectionSource.Collect]: the dashboard reads the Result once,
 // hands the entries a live edge source takes to that source and the rest to
@@ -109,8 +152,92 @@ func (s *DetectionSource) Collect(ctx context.Context) (*fleet.Collection, error
 	col := &fleet.Collection{Advisory: true, State: &state}
 	if state.Status != fleet.SourceUnavailable {
 		col.Providers = detect.ProviderRows(res, s.id, s.now())
+		s.offerings(ctx, res, col)
+		col.ManagedResources, col.SecretRefs = stampManaged(res)
+		col.Limitations = append(col.Limitations, detect.CappedLimitations(res, s.id)...)
+		col.Notes = append(col.Notes, fleet.UnclassifiedNotes(res.ManagedResourcesUnclassified, s.id)...)
 	}
 	return col, nil
+}
+
+// offerings reads the inferred offerings res's installation advertises into
+// col: through s.Contributions, only from the installation's own repository
+// (see [detect.Result.OfferingsRepository]) and verified only with the
+// installation key it advertises, as one producer row. Every revision read
+// is marked with the cluster it was advertised in. A repository that is not
+// the installation's own is never read and says so; a partial advertisement
+// makes the producer row partial. Without an advertisement, or a reader,
+// nothing changes.
+func (s *DetectionSource) offerings(ctx context.Context, res detect.Result, col *fleet.Collection) {
+	if s.Contributions == nil || res.Installation == nil || res.Installation.Offerings == nil {
+		return
+	}
+	inst, o := res.Installation, res.Installation.Offerings
+	obs := fleet.OfferingObservation{Producer: o.Producer, Cluster: res.Cluster, Observed: slices.Clone(o.Observed), AsOf: o.AsOf, Partial: o.Partial}
+	repo, ok := res.OfferingsRepository()
+	if !ok {
+		obs.Unread = "the advertised repository is not this installation's own"
+		col.Offerings = append(col.Offerings, obs)
+		col.Notes = append(col.Notes, fleet.Limitation{Code: fleet.LimitationContributionUnread, Source: s.id,
+			Message: "the inferred offerings the installation advertises were not read: " + obs.Unread})
+		return
+	}
+	f := fleet.ProducerFacts{Producer: o.Producer}
+	c := evidenceingest.ProducerContributor{Producer: o.Producer, Repository: repo}
+	if raw, ok := rawEd25519(inst.SnapshotKey); ok {
+		c.Keys = []evidenceingest.ContributorKey{{KeyID: inst.SnapshotKeyID, PublicKey: raw}}
+	}
+	revs, lims := s.Contributions.Read(ctx, s.id, c, &f)
+	for i := range revs {
+		revs[i].Contributor.Cluster = res.Cluster
+	}
+	// Unread is only what the reader could not read; a partial run is
+	// obs.Partial already.
+	if len(lims) > 0 {
+		obs.Unread = lims[0].Message
+	}
+	if o.Partial != "" {
+		f.Problems = append(f.Problems, "the producer's last run stopped short: "+o.Partial)
+		lims = append(lims, fleet.Limitation{Code: fleet.LimitationContributionUnread, Source: s.id,
+			Message: "the inferred offerings of " + o.Producer + " are partial: " + o.Partial})
+	}
+	col.Revisions = append(col.Revisions, revs...)
+	col.Notes = append(col.Notes, lims...)
+	col.Offerings = append(col.Offerings, obs)
+	if row, ok := fleet.ProducerRow(f, s.now(), s.Freshness); ok {
+		row.Cluster, row.ClusterID = cmp.Or(res.ClusterName, res.Cluster), res.Cluster
+		col.Providers = append(col.Providers, row)
+	}
+}
+
+// rawEd25519 is the base64 of the raw Ed25519 public key whose PKIX DER
+// encoded is the base64 of, as a contribution reader takes it; false for
+// any other key.
+func rawEd25519(encoded string) (string, bool) {
+	der, err := base64.StdEncoding.DecodeString(encoded)
+	if err != nil {
+		return "", false
+	}
+	pub, err := x509.ParsePKIXPublicKey(der)
+	if err != nil {
+		return "", false
+	}
+	ed, ok := pub.(ed25519.PublicKey)
+	return base64.StdEncoding.EncodeToString(ed), ok
+}
+
+// stampManaged is the managed resources and Secret refs of res, each stamped
+// with the cluster the Result was read in: whatever cluster an entry names
+// in the ConfigMap is overwritten, so a restricted view places it correctly.
+func stampManaged(res detect.Result) ([]fleet.RawManagedResource, []fleet.RawSecretRef) {
+	resources, refs := slices.Clone(res.ManagedResources), slices.Clone(res.SecretRefs)
+	for i := range resources {
+		resources[i].Cluster, resources[i].ClusterName = res.Cluster, res.ClusterName
+	}
+	for i := range refs {
+		refs[i].Cluster, refs[i].ClusterName = res.Cluster, res.ClusterName
+	}
+	return resources, refs
 }
 
 // Read is the decoded Result with the source's state: unavailable with why

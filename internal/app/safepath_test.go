@@ -3,6 +3,7 @@ package app
 import "testing"
 
 func TestSafeOutputName(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name    string
 		wantErr bool

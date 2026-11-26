@@ -99,7 +99,7 @@ func TestSourcesEgressRowsFollowViewerRestriction(t *testing.T) {
 
 func TestSourcesEgressStaleRow(t *testing.T) {
 	crd := fleet.Provider{ID: fleet.ProviderPactoCRD, Name: "Pacto CRD", Evidence: "served", UsedFor: []string{fleet.UseDeclaredTargets}}
-	got := egressSources(egressQuery(t, kernelEgress(fleet.SourceStale, "shop-svc"), crd))
+	got := providerSources(egressQuery(t, kernelEgress(fleet.SourceStale, "shop-svc"), crd))
 	if len(got) != 3 {
 		t.Fatalf("a row that reads no egress is listed: %+v", got)
 	}
@@ -107,7 +107,7 @@ func TestSourcesEgressStaleRow(t *testing.T) {
 	if i < 0 || got[i].Enabled || got[i].Coverage != "unavailable" {
 		t.Fatalf("stale row = %+v", got)
 	}
-	if egressSources(nil) != nil {
+	if providerSources(nil) != nil {
 		t.Error("a nil query has egress rows")
 	}
 }
@@ -156,11 +156,34 @@ func TestSourcesEgressRowsNameTheirCluster(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := map[string]string{}
-	for _, s := range egressSources(fleet.NewQuery(snap)) {
+	for _, s := range providerSources(fleet.NewQuery(snap)) {
 		got[s.Source+"/"+s.Cluster] = s.Coverage
 	}
 	want := map[string]string{"k8s-prod/prod": "complete", "k8s-edge/edge": "partial"}
 	if len(got) != 2 || got["k8s-prod/prod"] != want["k8s-prod/prod"] || got["k8s-edge/edge"] != want["k8s-edge/edge"] {
 		t.Fatalf("egress rows by source/cluster = %v, want %v", got, want)
+	}
+}
+
+// TestSourcesProjectManagedRows: a detected managed-resources row is
+// projected with resources set, its coverage and the evidence that names the
+// missing read access; a resources row is no egress row and no data source.
+func TestSourcesProjectManagedRows(t *testing.T) {
+	res := detect.Result{AsOf: egressAsOf, Entries: []detect.Entry{{Kind: fleet.ProviderManagedResources, Value: "3 kinds read",
+		Evidence: "unread rds.services.k8s.aws/dbinstances", Completeness: detect.Partial, Reason: "run helm upgrade"}}}
+	q := egressQuery(t, detect.ProviderRows(res, "operator", egressAsOf)...)
+	rows := getSourceRows(t, Options{Fleet: fleetOf(q)})
+	i := slices.IndexFunc(rows, func(s SourceInfo) bool { return s.Type == fleet.ProviderManagedResources })
+	want := SourceInfo{Type: fleet.ProviderManagedResources, Enabled: true, Reason: "3 kinds read unread rds.services.k8s.aws/dbinstances (from operator)",
+		Resources: true, Coverage: "partial", Source: "k8s"}
+	if i < 0 || rows[i] != want {
+		t.Fatalf("rows = %+v\nwant %+v", rows, want)
+	}
+	if len(egressRows(rows)) != 2 {
+		t.Errorf("a resources row is counted as egress: %+v", egressRows(rows))
+	}
+	out, err := NewServer(Options{Fleet: fleetOf(q)}).metrics(context.Background(), nil)
+	if err != nil || out.Body.SourceCount != 1 {
+		t.Errorf("source count = %d, %v", out.Body.SourceCount, err)
 	}
 }

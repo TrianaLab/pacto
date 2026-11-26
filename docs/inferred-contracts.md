@@ -1,8 +1,8 @@
 # Inferred contracts for external systems
 
-This page describes the inferred contracts Pacto publishes for the
-[external systems](external-catalog-reference.md) your services call, such as
-Stripe or a legacy host, that nobody in your organization declares. A consumer can point a dependency
+Pacto publishes inferred contracts for the
+[external systems](external-catalog-reference.md) your services call that
+nobody in your organization declares, such as Stripe or a legacy host. A consumer can point a dependency
 at it, and Pacto never checks a version range against it.
 
 ## What the operator publishes
@@ -24,7 +24,7 @@ The operator publishes every 5 minutes and needs no flag, other chart key or
 Git access. Without `registry`, or with a bare host such as `zot:5000`, it
 publishes nothing and logs why: readers would take
 `zot:5000/pacto-inferred/stripe` for an organization named `pacto-inferred`.
-The log reports each run, and the metrics
+The metrics
 `pacto_inferred_contracts_published_total` and
 `pacto_inferred_contracts_publish_errors_total` count pushes and errors.
 
@@ -81,8 +81,7 @@ metadata:
 ```
 
 Only [`pacto fleet publish-inferred --external-catalog`](#publish-without-an-operator)
-writes the link. The operator classifies with the default catalog, which
-links nothing, and keeps a link it finds in the last revision it signed.
+writes the link; the operator keeps the link of the last revision it signed.
 
 The bundle never names a consumer. Who calls the system stays in the fleet,
 where [restricted views](operational-graph-reference.md#query-semantics) apply.
@@ -91,7 +90,8 @@ The version is a count of surface changes and never a vendor version.
 ## When a revision is published
 
 A new `0.0.<n>` tag is pushed only when a host, port or client is added or
-removed, or when the digest of the linked OpenAPI document moves. A document
+removed, when the digest of the linked OpenAPI document moves or when a
+[managed resource's](#managed-resources) observed engine moves. A document
 re-hosted under the same digest publishes nothing, and neither does a new
 caller (a new source) or a change of sources, times, `asOf` or
 `completeness`. Tags are never overwritten.
@@ -188,24 +188,43 @@ claiming services (retract all but one) or an unreadable newest revision
 links nothing and adds `INFERRED_LINK_IGNORED`. A claiming service with no
 verified owner keeps `UNOWNED_EXTERNAL`.
 
-The dashboard's External page shows the inferred contract in a collapsed
-block after Consumers: what its signature check established, when the surface
-was computed, whether that run was partial and when each value was last seen,
-up to 12 values per list.
+The External page shows the inferred contract in a collapsed block after
+Consumers.
 
 ## A change between revisions
 
 When the provider has two revisions, its `change` says what moved between the
 two shown first: `from` and `to` (their versions), `at`, the
-surface values `added` and `removed`, and `openapiFrom` and `openapiTo` when the
-link's digest moved. `checked` is `true` only when this installation's operator
+surface values `added` and `removed`, `openapiFrom` and `openapiTo` when the
+link's digest moved, and `engineFrom` and `engineTo` when the observed engine
+moved. `checked` is `true` only when this installation's operator
 signed both revisions. An unchecked change is shown as such and raises no
 attention, because anyone with push access to the registry could
-have written either revision. A checked change of the OpenAPI digest or the
+have written either revision. A checked change of the OpenAPI digest, from one engine to another or of the
 clients raises [`EXTERNAL_CHANGED`](impact-what-if.md#an-external-system-changes-or-goes-down);
 host and port moves raise nothing, since they are your own calls. A restricted
-view drops `added` and `removed` and keeps the link. The External page shows
+view drops `added`, `removed` and the engines and keeps the link. The External page shows
 the change as one **Changed** line.
+
+## Managed resources
+
+A `managed-cloud` external system, such as `aws/rds`, lists under `resources`
+the managed resources Pacto read for it, each inferred with its source,
+cluster and read time. Pacto never changes one.
+
+| Source | What Pacto reads | Row |
+|---|---|---|
+| Crossplane, ACK, Config Connector and ASO objects | The [`crossplane` kinds](external-catalog-reference.md#catalog-format) of the default catalog, listed by the [operator](integrations/kubernetes/detection.md#managed-resources) | `managed-resources` |
+| Terraform or OpenTofu state | The remote states `controller.terraformStates` lists, or a local file `pacto fleet --tf-state` names | `terraform` |
+| Cloud inventory | The catalog's `inventory` types, once `controller.cloudInventory` names the cloud | `cloud-inventory` |
+| Connection Secret | The name of a resource's connection Secret in a workload's pod spec, which makes the workload a consumer through an inferred `connectionSecret` use | none |
+
+Pacto keeps only a resource's type, name, account, region and engine, and
+reads no Secret. Each resource is
+[through an offering or outside contract](operational-graph-tallies.md#resources-through-offerings).
+Its observed engine, such as `postgres 16`, goes into
+`run.pacto.external.engine` metadata; a requested engine alone publishes
+nothing.
 
 ## Publish without an operator
 
@@ -226,15 +245,11 @@ contracts: agents never sign as the installation.
 
 ## Records a producer contributes
 
-Besides the operator's `<identity>` repositories, a tool the Evidence
-Server's trust config grants writes one of its own,
-`<registry>/pacto-inferred/<producer>/services`: one signed record per service it knows about, such as
-`ghcr.io/acme/pacto-inferred/my-idp/services:checkout_0.1.0`. Readers show each
-as a [contributed service](operational-graph-inferred.md#contributed-services).
-A dependency pinned at a record never names a service and its range reads
-`unknown`. The organization index refuses
-an entry for any bundle under `pacto-inferred`. See
-[Write a source](write-a-source.md).
+A producer the Evidence Server's trust config grants writes
+[its own records](write-a-source.md) under
+`<registry>/pacto-inferred/<producer>/services`. A dependency pinned at a record
+names no service and its range reads `unknown`. The organization index
+refuses any bundle under `pacto-inferred`.
 
 ## Evidence
 

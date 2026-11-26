@@ -222,6 +222,7 @@ the note says where that answer lives instead.
 | What did Pacto catch and deliver? | `pacto stats` | `pacto_stats` | `GET /api/stats` | Unsigned statistics; the dashboard reads the repository `pacto dashboard --stats-registry` names |
 | Which run records are behind this number? | - | - | `GET /api/stats/records` | The Metrics page lists them; the CLI and MCP answer totals |
 | Which member clusters joined this hub, and which wait for approval? | `pacto cluster list` | `pacto_cluster_list` | `GET /api/fleet/clusters` | Approved members always; pending and removed rows only for people who may approve `clusterjoins` |
+| How do I install Pacto on every cluster my GitOps engine reaches? | `pacto cluster install` | - | `GET /api/fleet/clusters/install` | A person installs members; agents read candidate clusters with `pacto_cluster_list`. The dashboard download never sets `hub.url` |
 | What does this server serve? | - | `pacto_capabilities` | `GET /api/capabilities` | The CLI runs every command as the local user |
 | Who am I to delivery? | `pacto delivery caller` | `pacto_delivery_caller` | `GET /api/delivery/caller` | |
 | What waits on me? | `pacto delivery inbox` | `pacto_delivery_inbox` | `GET /api/delivery/inbox` | |
@@ -252,6 +253,7 @@ the note says where that answer lives instead.
 | What may a contract say? | - | `pacto_schema` | - | The JSON Schema is published with the docs |
 | Declare a running service | `pacto declare`, `pacto declare --draft` | `pacto_declare`, with `draft` over stdio | `POST /api/fleet/declare`, `POST /api/fleet/declare/accept` | An agent writes a draft a person accepts with `pacto declare --from-draft`; `--draft` writes a person's own draft unsigned; over HTTP the tool writes a draft only with a registry and a push credential of its own, else it plans; the dashboard plans for the signed-in person, signs with their fresh login or saves a draft |
 | Accept proposed ranges or a break | `pacto accept` | `pacto_accept` | `POST /api/fleet/accept`, `POST /api/fleet/accept/execute` | An agent writes an acceptance draft a person signs with `pacto accept --draft`; the tool is served over stdio only; the dashboard accepts every proposed range: it plans for the signed-in person, signs with their fresh login or saves an acceptance draft, and lists the drafts waiting |
+| Create a service from a golden path | `pacto init --from`, then `pacto publish` | `pacto_create_service`, over HTTP with a registry | `POST /api/fleet/services`, `POST /api/fleet/services/accept` | Infrastructure only through offerings, every value planned and checked against the offering's closed parameter space before it applies; an agent writes a draft a person reviews and signs in the dashboard, and the dashboard signs `0.1.0` with the person's fresh login after a review of `create` on `services.pacto.trianalab.io` |
 
 For one fleet, the three surfaces return the same `asOf`, `completeness`,
 `limitations` and unknown counts. The dashboard, and MCP with `--dashboard-url`,

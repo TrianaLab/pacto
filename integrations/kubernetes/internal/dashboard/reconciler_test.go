@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"

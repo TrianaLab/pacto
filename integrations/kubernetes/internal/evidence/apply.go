@@ -8,8 +8,8 @@ See LICENSE file in the project root for full license text.
 package evidence
 
 import (
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/kubecluster"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"

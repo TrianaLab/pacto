@@ -47,10 +47,11 @@
   const clustered = $derived(new Set(rows.map((r) => r.cluster).filter(Boolean)).size > 1);
   const list = cap(5);
   const words = (t) => t.replaceAll('-', ' ');
-  // A detected egress row's sentence is followed by the external-egress token, a selection key only.
+  // A detected egress or managed-resource row's sentence is followed by its token, a selection key only.
+  const selectionTokens = new Set(['external-egress', 'managed-resources']);
   const usedText = (r) => {
     const u = r.usedFor ?? [];
-    return (u.length > 1 ? u.filter((t) => t !== 'external-egress') : u).map(words).join(', ');
+    return (u.length > 1 ? u.filter((t) => !selectionTokens.has(t)) : u).map(words).join(', ');
   };
   const why = (r) => r.status !== 'available' && r.limitations?.length;
 </script>

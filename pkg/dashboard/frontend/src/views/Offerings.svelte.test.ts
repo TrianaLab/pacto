@@ -14,6 +14,7 @@ vi.mock('../lib/api.ts', async (importOriginal) => {
 
 // @ts-expect-error — Svelte component has no declaration file
 import FleetOfferingsView from './FleetOfferingsView.svelte';
+import { formatDateTime } from '../lib/dateFormat.ts';
 
 const meta = { schemaVersion: 'pacto.dev/fleet-product/v1', snapshotId: 'x', asOf: '2026-11-04T10:00:00Z', completeness: 'complete', sources: [] };
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- test fixture
@@ -143,6 +144,260 @@ describe('FleetOfferingsView', () => {
     await vi.waitFor(() => expect(entitiesFn).toHaveBeenCalled());
     await new Promise((r) => setTimeout(r, 20));
     expect(target.textContent).not.toContain('No contract declares a platform offering yet.');
+    done();
+  });
+
+  const inferredRef = (slug: string) => ({
+    kind: 'service', key: `ghcr.io/acme/pacto-inferred/crossplane-6f1c/services/${slug}`, label: slug, declaration: 'inferred',
+    href: `/fleet/services/ghcr.io%2Facme%2Fpacto-inferred%2Fcrossplane-6f1c%2Fservices%2F${slug}`,
+    inferredOffering: {
+      producer: 'crossplane-6f1c', offering: slug, from: `CompositeResourceDefinition x${slug}s.storage.acme.io`, generation: 2,
+      classes: ['small', 'large'], asOf: '2026-11-23T10:02:00Z',
+    },
+  });
+
+  it('keeps the inferred switch off by default and points at the inferred offerings beside the declared count', async () => {
+    entitiesFn.mockResolvedValue({ ...listResp([offeringRef('postgresql', 1, 3)]), inferredTotal: 2 });
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-list"]')).not.toBeNull());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.not.objectContaining({ declaration: 'inferred' }));
+    const box = target.querySelector('[data-testid="offering-inferred-filter"]') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    // The header count stays declared-only; the inferred ones are a note beside it.
+    expect(target.querySelector('h1')?.parentElement?.parentElement?.textContent).toContain('1 offering');
+    const note = target.querySelector('[data-testid="offering-inferred-total"]') as HTMLAnchorElement;
+    expect(note.textContent?.trim()).toBe('+2 inferred');
+    expect(note.classList.contains('t-meta')).toBe(true);
+    expect(note.getAttribute('href')).toBe('#/fleet/offerings?inferred=1');
+    box.checked = true;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/offerings?inferred=1');
+    done();
+  });
+
+  it('switches the same list to the inferred offerings, muted, with one mark and the accept hint in place of the numbers', async () => {
+    entitiesFn.mockResolvedValue(listResp([inferredRef('xbucket')]));
+    const { target, done } = mountView({ inferred: '1' });
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="offering-list"] tbody tr').length).toBe(1));
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['offering'], declaration: 'inferred' }));
+    expect((target.querySelector('[data-testid="offering-inferred-filter"]') as HTMLInputElement).checked).toBe(true);
+    expect(target.querySelector('.filter-chips')?.textContent).toContain('Shows:');
+    expect(target.querySelector('.filter-chips')?.textContent).toContain('inferred');
+    const row = target.querySelector('[data-testid="offering-list"] tbody tr') as HTMLElement;
+    expect(row.classList.contains('ot-inferred')).toBe(true);
+    expect(row.getAttribute('style') ?? '').not.toMatch(/opacity|filter/);
+    expect(row.querySelectorAll('[data-testid="offering-inferred"]').length).toBe(1);
+    (row.querySelector('[data-testid="offering-inferred"] .help-btn') as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(row.querySelector('[data-testid="offering-inferred"] .prov-tip')).not.toBeNull());
+    const tip = row.querySelector('[data-testid="offering-inferred"] .prov-tip')!.textContent ?? '';
+    for (const w of ['crossplane-6f1c', 'CompositeResourceDefinition xxbuckets.storage.acme.io generation 2', 'small, large', `as of ${formatDateTime('2026-11-23T10:02:00Z')}`]) expect(tip).toContain(w);
+    expect(tip).not.toContain('2026-11-23T10:02:00Z');
+    // One cell replaces lifecycle, availability, consumers, failed and observed targets.
+    const cells = row.querySelectorAll('td');
+    expect(cells.length).toBe(1);
+    expect(cells[0].getAttribute('colspan')).toBe('6');
+    expect(cells[0].textContent).toContain('Inferred from CompositeResourceDefinition xxbuckets.storage.acme.io, classes small, large; accept to make it consumable');
+    // Primary click opens the contributed service page.
+    expect(row.querySelector('a.entity-link')?.getAttribute('href')).toBe('#/fleet/services/ghcr.io%2Facme%2Fpacto-inferred%2Fcrossplane-6f1c%2Fservices%2Fxbucket');
+    expect(row.querySelector('bdi')).not.toBeNull();
+    const box = target.querySelector('[data-testid="offering-inferred-filter"]') as HTMLInputElement;
+    box.checked = false;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/offerings');
+    done();
+  });
+
+  it('names the declared offering an accepted inferred one became, instead of the accept hint', async () => {
+    const accepted = inferredRef('objectstore');
+    (accepted.inferredOffering as Record<string, unknown>).acceptedAs = { kind: 'offering', key: 'objectstore', label: 'objectstore', href: '/fleet/offerings/objectstore' };
+    entitiesFn.mockResolvedValue(listResp([accepted]));
+    const { target, done } = mountView({ inferred: '1' });
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="offering-list"] tbody tr').length).toBe(1));
+    const cell = target.querySelector('[data-testid="offering-list"] tbody td') as HTMLElement;
+    expect(cell.textContent?.replace(/\s+/g, ' ')).toContain('accepted as objectstore');
+    expect(cell.textContent).not.toContain('accept to make it consumable');
+    expect(cell.querySelector('[data-testid="offering-inferred-accepted"] a.entity-link')).not.toBeNull();
+    done();
+  });
+
+  it('drops the failed and lifecycle filters on the way to the inferred list, which no inferred row can match', async () => {
+    entitiesFn.mockResolvedValue({ ...listResp([offeringRef('postgresql', 1, 3)]), inferredTotal: 2 });
+    const { target, done } = mountView({ failed: '1', lifecycle: 'deprecated', text: 'redis' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-inferred-total"]')).not.toBeNull());
+    const want = '#/fleet/offerings?text=redis&inferred=1';
+    expect(target.querySelector('[data-testid="offering-inferred-total"]')?.getAttribute('href')).toBe(want);
+    const box = target.querySelector('[data-testid="offering-inferred-filter"]') as HTMLInputElement;
+    box.checked = true;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe(want);
+    done();
+  });
+
+  it('hides the failed and lifecycle filters while the inferred list shows', async () => {
+    entitiesFn.mockResolvedValue(listResp([inferredRef('xbucket')]));
+    const { target, done } = mountView({ inferred: '1' });
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="offering-list"] tbody tr').length).toBe(1));
+    expect(target.querySelector('[data-testid="offering-failed-filter"]')).toBeNull();
+    expect(target.querySelector('.ov-filters')?.textContent).not.toContain('Lifecycle');
+    done();
+  });
+
+  it('keeps the none-declared state with 0 declared offerings and links the inferred ones', async () => {
+    entitiesFn.mockResolvedValue({ ...listResp([]), inferredTotal: 3 });
+    const { target, done } = mountView();
+    await vi.waitFor(() => expect(target.textContent).toContain('No contract declares a platform offering yet.'));
+    expect(target.querySelector('.ov-empty [data-testid="offering-inferred-total"]')?.getAttribute('href')).toBe('#/fleet/offerings?inferred=1');
+    done();
+  });
+
+  it('shows the limitation notice on a partial inferred answer', async () => {
+    entitiesFn.mockResolvedValue(listResp([inferredRef('xbucket')], { ...meta, completeness: 'partial', limitations: [{ code: 'SourceUnavailable', message: 'detection unread' }] }));
+    const { target, done } = mountView({ inferred: '1' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-list"]')).not.toBeNull());
+    expect(target.querySelector('.knowledge')).not.toBeNull();
+    done();
+  });
+
+  const consumableRef = (name: string, providers: Record<string, unknown>[], total = providers.length) => ({
+    ...offeringRef(name, total, 0), consumable: { providers, providersTotal: total, providersTruncated: total > providers.length },
+  });
+  const provider = (version: string, classes: string[], params: [string, string][], publisher = 'https://github.com/acme/pg/.github/workflows/publish.yml@refs/heads/main') => ({
+    service: { kind: 'service', key: 'ghcr.io%2Facme/pg', label: 'pg' }, version, classes, publisher, acceptance: 'publisher', digest: 'sha256:4c1e5a', lifecycle: 'supported',
+    parameters: params.map(([path, tier]) => ({ configuration: 'provisioning', path, tier, required: true, sensitive: false })),
+    parametersTotal: params.length, parametersTruncated: false, guarantees: [], schemaPaths: [],
+  });
+
+  it('consumable filter sets the query and chip', async () => {
+    entitiesFn.mockResolvedValue(listResp([offeringRef('postgresql', 1, 3)]));
+    const { target, done } = mountView({ consumable: '1' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-list"]')).not.toBeNull());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.objectContaining({ kinds: ['offering'], consumable: true }));
+    expect(entitiesFn).toHaveBeenCalledWith(expect.not.objectContaining({ declaration: 'inferred' }));
+    expect((target.querySelector('[data-testid="offering-consumable-filter"]') as HTMLInputElement).checked).toBe(true);
+    expect(target.querySelector('.filter-chips')?.textContent).toContain('Consumable');
+    expect(target.querySelector('.filter-chips')?.textContent).toContain('yes');
+    done();
+  });
+
+  it('writes consumable=1 to the URL when the consumable box is checked', async () => {
+    entitiesFn.mockResolvedValue(listResp([offeringRef('postgresql', 1, 3)]));
+    const { target, done } = mountView({ failed: '1' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-list"]')).not.toBeNull());
+    expect(entitiesFn).toHaveBeenCalledWith(expect.not.objectContaining({ consumable: true }));
+    const box = target.querySelector('[data-testid="offering-consumable-filter"]') as HTMLInputElement;
+    expect(box.checked).toBe(false);
+    expect(box.parentElement?.textContent?.trim()).toBe('Only offerings you may consume');
+    box.checked = true;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/offerings?failed=1&consumable=1');
+    done();
+  });
+
+  it('consumable and inferred filters are exclusive', async () => {
+    entitiesFn.mockResolvedValue(listResp([offeringRef('postgresql', 1, 3)]));
+    const a = mountView({ inferred: '1', text: 'pg' });
+    await vi.waitFor(() => expect(a.target.querySelector('[data-testid="offering-consumable-filter"]')).not.toBeNull());
+    const box = a.target.querySelector('[data-testid="offering-consumable-filter"]') as HTMLInputElement;
+    box.checked = true;
+    box.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/offerings?text=pg&consumable=1');
+    a.done();
+    const b = mountView({ consumable: '1', text: 'pg' });
+    await vi.waitFor(() => expect(b.target.querySelector('[data-testid="offering-inferred-filter"]')).not.toBeNull());
+    const inf = b.target.querySelector('[data-testid="offering-inferred-filter"]') as HTMLInputElement;
+    inf.checked = true;
+    inf.dispatchEvent(new Event('change', { bubbles: true }));
+    expect(location.hash).toBe('#/fleet/offerings?text=pg&inferred=1');
+    b.done();
+  });
+
+  it('consumable row shows version classes and tunable names', async () => {
+    entitiesFn.mockResolvedValue(listResp([
+      consumableRef('postgresql', [provider('17.0.0', ['small', 'large'], [['engine', 'contract'], ['class', 'contract'], ['storageGB', 'tunable'], ['backupRetentionDays', 'tunable']])], 3),
+      offeringRef('redis', 1, 0),
+    ]));
+    const { target, done } = mountView({ consumable: '1' });
+    await vi.waitFor(() => expect(target.querySelectorAll('[data-testid="offering-list"] tbody tr').length).toBe(2));
+    const [pg, rd] = Array.from(target.querySelectorAll('[data-testid="offering-list"] tbody tr'));
+    const line = pg.querySelector('[data-testid="offering-consumable"]') as HTMLElement;
+    expect(line.classList.contains('t-meta')).toBe(true);
+    expect(line.textContent?.trim()).toBe('pg 17.0.0 · classes small, large · tunable storageGB, backupRetentionDays · +2 more providers');
+    // The count says how many of the providers you may consume, never the total alone.
+    expect(pg.querySelector('[data-testid="offering-providers"]')?.textContent).toBe('3 of 3 providers you may consume');
+    const title = line.getAttribute('title') ?? '';
+    expect(title).toContain('publisher https://github.com/acme/pg/.github/workflows/publish.yml@refs/heads/main');
+    expect(title).toContain(`as of ${formatDateTime(meta.asOf)}`);
+    expect(rd.querySelector('[data-testid="offering-consumable"]')).toBeNull();
+    // No new column: the line lives in the Offering cell.
+    expect(target.querySelectorAll('[data-testid="offering-list"] thead th').length).toBe(7);
+    done();
+  });
+
+  it('consumable line names a sensitive or optional tunable field by path and never shows a value', async () => {
+    const p = provider('1.0.0', [], [['storageGB', 'tunable']]);
+    (p.parameters as Record<string, unknown>[]).push(
+      { configuration: 'provisioning', path: 'adminPassword', tier: 'tunable', required: false, sensitive: true, default: 'hunter2' },
+      { configuration: 'provisioning', path: 'replicas', tier: 'tunable', required: false, sensitive: false, default: 3 },
+    );
+    entitiesFn.mockResolvedValue(listResp([consumableRef('postgresql', [p])]));
+    const { target, done } = mountView({ consumable: '1' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-consumable"]')).not.toBeNull());
+    const line = target.querySelector('[data-testid="offering-consumable"]') as HTMLElement;
+    expect(line.textContent?.trim()).toBe('pg 1.0.0 · tunable storageGB, adminPassword, replicas');
+    expect(line.getAttribute('title')).not.toContain('hunter2');
+    done();
+  });
+
+  it('long consumable line is clipped with a title', async () => {
+    const long = 'v'.repeat(200);
+    entitiesFn.mockResolvedValue(listResp([consumableRef('postgresql', [provider(long, ['c'.repeat(80)], [['t'.repeat(90), 'tunable']])])]));
+    const { target, done } = mountView({ consumable: '1' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-consumable"]')).not.toBeNull());
+    const line = target.querySelector('[data-testid="offering-consumable"]') as HTMLElement;
+    expect(line.classList.contains('cell-clip')).toBe(true);
+    expect(line.getAttribute('title')).toContain(line.textContent!.trim());
+    expect(line.getAttribute('title')).toContain(long);
+    done();
+  });
+
+  it('consumable line says a cut parameter or class list is cut and counts only consumable providers', async () => {
+    const p = { ...provider('1.0.0', ['small', 'large'], [['size', 'tunable']]), parametersTotal: 60, parametersTruncated: true, classesTotal: 52, classesTruncated: true };
+    entitiesFn.mockResolvedValue(listResp([{ ...consumableRef('postgresql', [p]), services: 2 }]));
+    const { target, done } = mountView({ consumable: '1' });
+    await vi.waitFor(() => expect(target.querySelector('[data-testid="offering-consumable"]')).not.toBeNull());
+    const line = target.querySelector('[data-testid="offering-consumable"]') as HTMLElement;
+    expect(line.textContent?.trim()).toBe('pg 1.0.0 · classes small, large +50 more · tunable size · +59 more fields');
+    expect(target.querySelector('[data-testid="offering-providers"]')?.textContent).toBe('1 of 2 providers you may consume');
+    done();
+  });
+
+  it('a complete consumable answer names the providers it left out', async () => {
+    const msg = 'Not consumable, not accepted: 1 provider of an offering you may see (redis); fix';
+    entitiesFn.mockResolvedValue(listResp([], { ...meta, limitations: [{ code: 'OFFERING_NOT_CONSUMABLE', message: msg }] }));
+    const { target, done } = mountView({ consumable: '1' });
+    await vi.waitFor(() => expect(target.textContent).toContain('No matching offerings you may consume'));
+    const left = target.querySelector('[data-testid="offering-consumable-left-out"]') as HTMLElement;
+    expect(left.textContent).toBe(msg);
+    expect(left.getAttribute('title')).toBe(msg);
+    done();
+  });
+
+  it('empty partial consumable answer shows the copy and the knowledge banner', async () => {
+    entitiesFn.mockResolvedValue(listResp([], { ...meta, completeness: 'partial', limitations: [{ code: 'OFFERING_ACCEPTANCE_UNKNOWN', message: 'read the offerings from a registry source that checks signatures' }] }));
+    const { target, done } = mountView({ consumable: '1' });
+    await vi.waitFor(() => expect(target.textContent).toContain('No matching offerings you may consume'));
+    expect(target.querySelector('.knowledge')).not.toBeNull();
+    expect(target.textContent).not.toContain('No contract declares a platform offering yet.');
+    done();
+  });
+
+  it('removing the consumable chip clears it from the URL', async () => {
+    entitiesFn.mockResolvedValue(listResp([offeringRef('postgresql', 1, 3)]));
+    const { target, done } = mountView({ consumable: '1', text: 'pg' });
+    await vi.waitFor(() => expect(target.querySelector('.filter-chips')).not.toBeNull());
+    const chip = Array.from(target.querySelectorAll('.filter-chips button')).find((b) => (b.getAttribute('aria-label') ?? b.textContent ?? '').includes('Consumable')) as HTMLButtonElement;
+    chip.click();
+    expect(location.hash).toBe('#/fleet/offerings?text=pg');
     done();
   });
 });

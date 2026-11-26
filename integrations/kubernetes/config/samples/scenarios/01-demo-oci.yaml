@@ -8,7 +8,7 @@
 #
 # Prerequisites: push contracts first — cd ../pacto-demo && make push
 ---
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: api
@@ -20,7 +20,7 @@ spec:
   contractRef:
     oci: ghcr.io/trianalab/pacto/api
 ---
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: inference
@@ -32,7 +32,7 @@ spec:
   contractRef:
     oci: ghcr.io/trianalab/pacto/inference
 ---
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata:
   name: runtime

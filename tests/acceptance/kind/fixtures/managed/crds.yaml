@@ -1,0 +1,76 @@
+# The four APIs the managed-resources scenario serves, applied AFTER the chart
+# is installed so the operator first reads them unread. No Crossplane runs:
+# the operator reads only these objects, never what a controller would do.
+#   - compositeresourcedefinitions.apiextensions.crossplane.io: the XRD API at
+#     v1, cut to the fields the operator reads (spec.group, spec.names,
+#     spec.claimNames, spec.versions);
+#   - instances.rds.aws.upbound.io: the catalog's Crossplane RDS kind, with a
+#     status subresource so status.atProvider is written the way a provider
+#     writes it;
+#   - xpostgresqlinstances / postgresqlinstances.platform.example.org: the
+#     composite and claim kinds a Crossplane XRD generates.
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: compositeresourcedefinitions.apiextensions.crossplane.io
+spec:
+  group: apiextensions.crossplane.io
+  names:
+    kind: CompositeResourceDefinition
+    listKind: CompositeResourceDefinitionList
+    plural: compositeresourcedefinitions
+    singular: compositeresourcedefinition
+    shortNames: [xrd, xrds]
+  scope: Cluster
+  versions:
+    - name: v1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema: {type: object, x-kubernetes-preserve-unknown-fields: true}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: instances.rds.aws.upbound.io
+spec:
+  group: rds.aws.upbound.io
+  names: {kind: Instance, listKind: InstanceList, plural: instances, singular: instance}
+  scope: Cluster
+  versions:
+    - name: v1beta1
+      served: true
+      storage: true
+      subresources: {status: {}}
+      schema:
+        openAPIV3Schema: {type: object, x-kubernetes-preserve-unknown-fields: true}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: xpostgresqlinstances.platform.example.org
+spec:
+  group: platform.example.org
+  names: {kind: XPostgreSQLInstance, listKind: XPostgreSQLInstanceList, plural: xpostgresqlinstances, singular: xpostgresqlinstance}
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema: {type: object, x-kubernetes-preserve-unknown-fields: true}
+---
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: postgresqlinstances.platform.example.org
+spec:
+  group: platform.example.org
+  names: {kind: PostgreSQLInstance, listKind: PostgreSQLInstanceList, plural: postgresqlinstances, singular: postgresqlinstance}
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema: {type: object, x-kubernetes-preserve-unknown-fields: true}

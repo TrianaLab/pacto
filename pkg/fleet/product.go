@@ -80,7 +80,7 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 		return []EntityKind{KindTarget}
 	case f.SourceKind != "" || f.SourceHealth != "":
 		return []EntityKind{KindSource}
-	case f.Class != "":
+	case f.externalOnly():
 		return []EntityKind{KindExternal}
 	case f.Service != "" || f.Domain != "" || f.Source != "" || f.Cluster != "":
 		return nil
@@ -91,6 +91,10 @@ func ListKinds(kind string, f EntityFilter) []EntityKind {
 	}
 	return out
 }
+
+// externalOnly reports whether f filters on a field only external systems
+// carry: their class or a managed resource outside contract.
+func (f EntityFilter) externalOnly() bool { return f.Class != "" || f.OutsideContract }
 
 // EntityKinds are every entity kind, in the order an entity detail lists them.
 func EntityKinds() []string {
@@ -189,6 +193,9 @@ type EntityRef struct {
 	// ContributedBy is the producer whose contribution alone describes an
 	// inferred service, empty for any other.
 	ContributedBy string `json:"contributedBy,omitempty" doc:"On an inferred service only a producer's contribution describes: that producer"`
+	// InferredOffering is set on the rows of an inferred offering list
+	// (kind offering, declaration inferred).
+	InferredOffering *InferredOfferingFacts `json:"inferredOffering,omitempty" doc:"On a row of the inferred offering list: the producer, source object, generation, classes and asOf"`
 	// NameInferred is where a SERVICE reference's name comes from when no
 	// revision declares it (see ServiceRecord.NameInferred).
 	NameInferred *contract.Inferred `json:"nameInferred,omitempty"`
@@ -224,6 +231,8 @@ type EntityRef struct {
 	// HiddenProviders counts the providers the viewer may not see: Owner,
 	// Consumers and FailedRequests then speak only for the visible ones.
 	HiddenProviders int `json:"hiddenProviders,omitempty"`
+	// Consumable is set only on a consumable list (EntityFilter.Consumable).
+	Consumable *ConsumableOffering `json:"consumable,omitempty" doc:"Set only when the list asks for consumable offerings: the providers an agent may consume, each with its version, digest, publisher and a snippet"`
 	// Availability is the offering's availability roll-up (see [Availability]),
 	// and AvailabilityProvenance the provenance of the environment that sets
 	// its worst state: observed, inferred or unknown.
@@ -352,17 +361,34 @@ type ClusterSummary struct {
 	Access     string       `json:"access,omitempty" enum:"no-access,review-failed,not-reviewable" doc:"Why a restricted view shows nothing of this cluster; empty when it shows what you may read."`
 	Targets    int          `json:"targets" doc:"The targets of this cluster the answer shows."`
 	Link       *ClusterLink `json:"link,omitempty" doc:"The member's outbound channel to this hub and the identity model per token issuer. Absent when the cluster has no channel."`
+	AsOf       *time.Time   `json:"asOf,omitempty" doc:"The oldest last successful read among the sources that reported the cluster. Absent when none was ever read."`
 }
 
 // clusterSummaries is the per-cluster status of s, nil when s knows no
 // cluster, capped at MaxMetaClusters (least healthy kept first).
 func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
-	if len(s.Clusters) == 0 {
-		return nil, false
+	out := allClusterSummaries(s)
+	if len(out) <= MaxMetaClusters {
+		return out, false
 	}
-	status := map[string]SourceStatus{}
+	sort.SliceStable(out, func(i, j int) bool { return sourceHealthRank(out[i].Status) < sourceHealthRank(out[j].Status) })
+	return out[:MaxMetaClusters], true
+}
+
+// ClusterSummaries is the status of every cluster the snapshot knows,
+// uncapped, so a reader of one cluster's status (impact's stale-cluster
+// rule) never loses it to the meta cap.
+func (q *Query) ClusterSummaries() []ClusterSummary { return allClusterSummaries(q.snap) }
+
+// allClusterSummaries is the per-cluster status of s, nil when s knows no
+// cluster.
+func allClusterSummaries(s *FleetSnapshot) []ClusterSummary {
+	if len(s.Clusters) == 0 {
+		return nil
+	}
+	byID := map[string]SourceState{}
 	for _, st := range s.Sources {
-		status[st.ID] = st.Status
+		byID[st.ID] = st
 	}
 	targets := map[string]int{}
 	for _, t := range s.Targets {
@@ -374,7 +400,9 @@ func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
 		sum := ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable, Access: c.Access, Targets: targets[c.ID], Link: c.Link}
 		for _, src := range c.Sources {
 			named[src] = true
-			sum.Status = worseStatus(sum.Status, status[src])
+			st := byID[src]
+			sum.Status = worseStatus(sum.Status, st.Status)
+			sum.AsOf = olderSync(sum.AsOf, st.LastSuccessfulSync)
 		}
 		at[c.ID] = len(out)
 		out = append(out, sum)
@@ -388,14 +416,18 @@ func clusterSummaries(s *FleetSnapshot) ([]ClusterSummary, bool) {
 			// cluster's status.
 			out = foldFailedSource(out, at, st)
 		case st.Kind == SourceKindKubernetes:
-			out = append(out, ClusterSummary{Name: st.ID, Status: st.Status})
+			out = append(out, ClusterSummary{Name: st.ID, Status: st.Status, AsOf: copyTime(st.LastSuccessfulSync)})
 		}
 	}
-	if len(out) <= MaxMetaClusters {
-		return out, false
+	return out
+}
+
+// olderSync is the older of a and b, a copy; nil only when both are nil.
+func olderSync(a, b *time.Time) *time.Time {
+	if b == nil || (a != nil && a.Before(*b)) {
+		return a
 	}
-	sort.SliceStable(out, func(i, j int) bool { return sourceHealthRank(out[i].Status) < sourceHealthRank(out[j].Status) })
-	return out[:MaxMetaClusters], true
+	return copyTime(b)
 }
 
 // worseStatus is the less healthy of a and b.
@@ -416,6 +448,7 @@ func foldFailedSource(out []ClusterSummary, at map[string]int, st SourceState) [
 		out = append(out, ClusterSummary{ID: c.ID, Name: cmp.Or(c.Name, c.ID), NameSource: c.NameSource, Status: SourceAvailable})
 	}
 	out[i].Status = worseStatus(out[i].Status, st.Status)
+	out[i].AsOf = olderSync(out[i].AsOf, st.LastSuccessfulSync)
 	return out
 }
 
@@ -932,7 +965,7 @@ func (q *Query) Overview() *Overview {
 		sum.Knowledge.addService(q, s)
 	}
 	sum.Knowledge.finish()
-	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention()) + len(q.externalChangedAttention())
+	sum.KnowledgeItems = len(q.knowledgeAttention()) + len(q.inferredProviderAttention()) + len(q.externalChangedAttention()) + len(q.managedGroupAttention())
 	sum.Externals, sum.HiddenExternals = len(q.snap.Externals), q.snap.hiddenExternals
 	sum.UnownedExternals = len(q.unownedExternalAttention())
 
@@ -980,6 +1013,11 @@ func (q *Query) Overview() *Overview {
 
 	sum.LifecycleConsumers, sum.lifecycleSeverity = q.lifecycleTally()
 	sum.Match = q.Match()
+	// The Overview's match tile says the managed-resource share under it.
+	sum.Match.Resources = q.resourceCoverage()
+	if sum.Match.Resources != nil && q.resourcesIncomplete() != nil {
+		sum.Match.Completeness = partialOf(sum.Match.Completeness)
+	}
 	// The lead tile and the attention preview read ONE collection, so the tile
 	// counts exactly the services of the list it opens. The preview carries the
 	// TRUE matched total (al.Total), not the 10-item page size.
@@ -1461,6 +1499,7 @@ func (q *Query) gatherAttention() []AttentionItem {
 	items = append(items, q.knowledgeAttention()...)
 	items = append(items, q.inferredProviderAttention()...)
 	items = append(items, q.externalChangedAttention()...)
+	items = append(items, q.managedGroupAttention()...)
 	items = append(items, q.unownedAttention()...)
 	items = append(items, q.unownedExternalAttention()...)
 	items = append(items, q.undeclaredAttention()...)

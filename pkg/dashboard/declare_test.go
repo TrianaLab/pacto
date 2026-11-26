@@ -21,6 +21,8 @@ type fakeDeclarer struct {
 	accept  func(DeclareAcceptInput) (*DeclareAcceptAnswer, error)
 	err     error
 	targets []AcceptTarget
+	// mayTemplate is what MayDeclareTemplate answers.
+	mayTemplate bool
 }
 
 func (f *fakeDeclarer) Plan(_ *http.Request, w DeclareWorkload, in DeclareInput) (*DeclareAnswer, error) {
@@ -39,6 +41,8 @@ func (f *fakeDeclarer) Accept(_ *http.Request, w DeclareWorkload, in DeclareAcce
 }
 
 func (f *fakeDeclarer) CanWrite() bool { return f.write }
+
+func (f *fakeDeclarer) MayDeclareTemplate(context.Context) bool { return f.mayTemplate }
 
 func (f *fakeDeclarer) AcceptOffer(_ *http.Request, intent string) AcceptExecuteOffer {
 	return AcceptExecuteOffer{Signing: DeclareSigning{Mode: "fresh-login", Identity: "ana@acme.com"}, Write: DeclareWrite{Available: f.write}, SignTicket: "ticket-" + intent}
@@ -251,7 +255,7 @@ func TestOpenAPIDeclareSchemas(t *testing.T) {
 	if _, err := s.Accept(nil, DeclareWorkload{}, DeclareAcceptInput{}); err == nil {
 		t.Error("the schema declarer accepts nothing")
 	}
-	if _, err := s.AcceptRanges(nil, AcceptTarget{}, AcceptExecuteInput{}); err == nil || s.AcceptOffer(nil, "") != (AcceptExecuteOffer{}) {
+	if _, err := s.AcceptRanges(nil, AcceptTarget{}, AcceptExecuteInput{}); err == nil || s.AcceptOffer(nil, "") != (AcceptExecuteOffer{}) || s.MayDeclareTemplate(t.Context()) {
 		t.Error("the schema declarer executes nothing")
 	}
 }

@@ -16,9 +16,9 @@ import (
 // tag, so TestDemoInferredStripeProvider builds a snapshot from it on the
 // host; buildDemoFleet (wasm only) feeds it to the browser demo.
 
-// demoInferredRepository is where an installation's operator would publish
-// stripe's inferred contract.
-const demoInferredRepository = "registry.pacto.demo/demo/pacto-inferred/stripe"
+// demoInferredRoot is where an installation's operator would publish the
+// inferred contracts of external systems, one repository per identity.
+const demoInferredRoot = "registry.pacto.demo/demo/pacto-inferred"
 
 // demoStripeOpenAPI is the vendor OpenAPI document each inferred revision
 // links, by version: the digest moved between 0.0.1 and 0.0.2.
@@ -71,20 +71,27 @@ func demoInferredRevisions() []fleet.RawRevision {
 
 // demoInferredRevision is stripe's inferred contract at version.
 func demoInferredRevision(version string) fleet.RawRevision {
-	s, raw := demoInferredSurface(version), demoInferredYAML(version)
+	return demoInferredRawRevision("stripe", version, demoInferredYAML(version), demoInferredSurface(version))
+}
+
+// demoInferredRawRevision is the inferred contract raw of the external
+// identity at version, as the registry mirror reads it under
+// demoInferredRoot.
+func demoInferredRawRevision(identity, version, raw string, s contract.InferredSurface) fleet.RawRevision {
 	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Fields: []contract.Inferred{}, Surface: &s,
 		Inputs: contract.InferredInputs{Pacto: "demo", Discovery: "1", Sources: []contract.InferredSourceFile{}}}
 	c, err := contract.Parse(strings.NewReader(raw))
 	if err != nil {
-		panic(err) // a constant: TestDemoInferredStripeProvider fails first
+		panic(err) // a constant: TestDemoInferredMatchesPublisher fails first
 	}
 	b := &contract.Bundle{Contract: c, RawYAML: []byte(raw), FS: fstest.MapFS{
 		"pacto.yaml": {Data: []byte(raw)}, contract.InferredRecordFile: {Data: rec.Marshal()},
 	}}
 	sum := sha256.Sum256(b.RawYAML)
 	digest := "sha256:" + hex.EncodeToString(sum[:])
+	repo := demoInferredRoot + "/" + identity
 	return fleet.RawRevision{
-		Bundle: b, Domain: "registry.pacto.demo/demo/pacto-inferred",
-		RequestedRef: "oci://" + demoInferredRepository + ":" + version, ResolvedRef: "oci://" + demoInferredRepository + "@" + digest, Digest: digest,
+		Bundle: b, Domain: demoInferredRoot,
+		RequestedRef: "oci://" + repo + ":" + version, ResolvedRef: "oci://" + repo + "@" + digest, Digest: digest,
 	}
 }

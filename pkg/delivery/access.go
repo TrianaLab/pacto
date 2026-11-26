@@ -74,8 +74,12 @@ type StageAccess func(ctx context.Context, ns, stage string) WorkloadAccess
 // unverified and never asked.
 // ponytail: the lock is held across the review, so concurrent callers wait
 // on one; per-key waiting if many workloads are asked at once.
+// stages are of one cluster: ask reviews in that cluster only.
 func AccessMemo(stages []StageObject, ask func(ctx context.Context, ns string, w WorkloadRef) WorkloadAccess) StageAccess {
-	byStage := StagesByName(stages)
+	byStage := map[string]*StageObject{}
+	for i := range stages {
+		byStage[stages[i].Metadata.Namespace+"/"+stages[i].Metadata.Name] = &stages[i]
+	}
 	var mu sync.Mutex
 	seen := map[string]WorkloadAccess{}
 	return func(ctx context.Context, ns, stage string) WorkloadAccess {

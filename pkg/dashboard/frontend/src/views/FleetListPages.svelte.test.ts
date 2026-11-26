@@ -27,7 +27,7 @@ providersFn.mockResolvedValue({
   meta: { schemaVersion: 'pacto.dev/fleet-product/v1', completeness: 'complete', sources: [{ id: 'k8s', kind: 'kubernetes', status: 'available' }] },
   total: 2, kubernetesSources: 1, notRead: [], notReadTotal: 0,
   providers: [
-    { id: 'pacto-crd', source: 'k8s', name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1alpha1)', usedFor: ['declared-targets'], status: 'available' },
+    { id: 'pacto-crd', source: 'k8s', name: 'Pacto CRD', evidence: 'served (pacto.trianalab.io/v1)', usedFor: ['declared-targets'], status: 'available' },
     { id: 'kubernetes-workloads', source: 'k8s', name: 'Kubernetes workloads', evidence: '2 Deployments', usedFor: ['inferred-services'], status: 'available' },
   ],
 });

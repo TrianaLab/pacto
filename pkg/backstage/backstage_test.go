@@ -409,7 +409,7 @@ func goldenSources() []*fleet.Collection {
 	checkout := rev("ghcr.io/acme", "checkout", "2.1.0", team("commerce"), bizDomain("commerce"), deprecated, func(c *contract.Contract) {
 		c.Service.Summary = "Takes the order and the money"
 		c.Dependencies = []contract.Dependency{
-			{Name: "payments", Required: true, Requires: []contract.Requirement{{Interface: "rest"}}},
+			{Name: "payments", Required: true, Compatibility: "^1", Requires: []contract.Requirement{{Interface: "rest"}}},
 			{Name: "stripe", External: true, Version: "2024-06-20"},
 		}
 	})

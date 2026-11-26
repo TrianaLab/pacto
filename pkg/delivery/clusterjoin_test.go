@@ -76,6 +76,15 @@ func TestSnapshotJoinCheck(t *testing.T) {
 		{"source non-ASCII", func(j *delivery.SnapshotJoin) { j.Environments[0].Source = "the cluster name eu\u2011prod" }, "source"},
 		{"source over 200", func(j *delivery.SnapshotJoin) { j.Environments[0].Source = strings.Repeat("a", 201) }, "source"},
 		{"source empty", func(j *delivery.SnapshotJoin) { j.Environments[0].Source = "" }, "source"},
+		{"takes requests", func(j *delivery.SnapshotJoin) {
+			j.Requests = &delivery.JoinRequests{Issuers: []string{"https://dex.example"}, Environments: []string{"production"}}
+		}, ""},
+		{"requests issuer not a URL", func(j *delivery.SnapshotJoin) {
+			j.Requests = &delivery.JoinRequests{Issuers: []string{"dex"}}
+		}, "requests issuer"},
+		{"requests environment not a label", func(j *delivery.SnapshotJoin) {
+			j.Requests = &delivery.JoinRequests{Environments: []string{"Prod"}}
+		}, "requests environment"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

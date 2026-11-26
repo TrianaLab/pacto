@@ -1,6 +1,7 @@
 package detect
 
 import (
+	"encoding/json"
 	"os"
 	"slices"
 	"strings"
@@ -248,5 +249,116 @@ func TestResultDeclared(t *testing.T) {
 	}
 	if d := (Result{Installation: &Installation{}}).Declared("x"); d.Profile != nil {
 		t.Errorf("a block with no profile declared %v", d.Profile)
+	}
+}
+
+// TestInstallationChartVersionRoundTrips: the chart version an installation
+// hands out survives Encode and Decode, cleaned; anything longer than 64 bytes
+// or outside the semver characters is dropped.
+func TestInstallationChartVersionRoundTrips(t *testing.T) {
+	for in, want := range map[string]string{
+		"6.4.0": "6.4.0", "6.4.0-rc.1+build.7": "6.4.0-rc.1+build.7", "6.4.0\u202e": "6.4.0",
+		"6.4.0; rm -rf /": "", "6.4.0 ": "", strings.Repeat("1", 65): "", strings.Repeat("1", 64): strings.Repeat("1", 64),
+	} {
+		inst := installation(pushed)
+		inst.ChartVersion = in
+		data, err := Encode(Result{AsOf: asOf, Installation: inst})
+		if err != nil {
+			t.Fatal(err)
+		}
+		res, err := Decode(data)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := res.Installation.ChartVersion; got != want {
+			t.Errorf("chart version %q = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// offeringsAd is an installation's advertised inferred offerings.
+func offeringsAd() *OfferingsAd {
+	at := asOf
+	return &OfferingsAd{Producer: "crossplane-6f1c", Repository: "ghcr.io/acme/pacto-inferred/crossplane-6f1c/services",
+		Observed: []string{"xbucket", "xdatabase"}, AsOf: &at, Partial: "stopped at the item bound (200)"}
+}
+
+func TestInstallationOfferingsRoundTrip(t *testing.T) {
+	inst := installation(pushed)
+	inst.Offerings = offeringsAd()
+	inst.Offerings.Partial = "a\u202eb"
+	data, err := Encode(Result{AsOf: asOf, Installation: inst})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if inst.Offerings.Partial != "a\u202eb" {
+		t.Error("Encode changed its input")
+	}
+	res, err := Decode(data)
+	o := res.Installation.Offerings
+	if err != nil || o == nil || o.Producer != "crossplane-6f1c" || o.Repository != "ghcr.io/acme/pacto-inferred/crossplane-6f1c/services" ||
+		!slices.Equal(o.Observed, []string{"xbucket", "xdatabase"}) || o.AsOf == nil || !o.AsOf.Equal(asOf) || o.Partial != "ab" {
+		t.Fatalf("round trip = %+v, %v", o, err)
+	}
+	// Encode refuses more slugs than a reader keeps; Decode caps them.
+	over := installation(nil)
+	over.Offerings = &OfferingsAd{Observed: make([]string, MaxObservedOfferings+1)}
+	if _, err := Encode(Result{Installation: over}); err == nil {
+		t.Error("Encode wrote more offerings than a reader keeps")
+	}
+	res, err = Decode(mustJSON(t, Result{SchemaVersion: SchemaVersion, Installation: over}))
+	if err != nil || len(res.Installation.Offerings.Observed) != MaxObservedOfferings {
+		t.Errorf("Decode kept %d offerings, %v", len(res.Installation.Offerings.Observed), err)
+	}
+	// Without an advertisement nothing is written.
+	if data, _ := Encode(Result{Installation: installation(nil)}); strings.Contains(string(data), "offerings") {
+		t.Error("an installation with no offerings wrote the key")
+	}
+}
+
+// olderInstallation is the Installation an older reader knows, without
+// Offerings.
+type olderInstallation struct {
+	Registry string `json:"registry"`
+	Inferred string `json:"inferred,omitempty"`
+}
+
+func TestOlderDetectionReaderIgnoresOfferings(t *testing.T) {
+	inst := installation(nil)
+	inst.Offerings = offeringsAd()
+	var older struct {
+		Installation *olderInstallation `json:"installation"`
+	}
+	if err := json.Unmarshal(mustJSON(t, Result{SchemaVersion: SchemaVersion, Installation: inst}), &older); err != nil ||
+		older.Installation == nil || older.Installation.Registry != "ghcr.io/acme" || older.Installation.Inferred != "ghcr.io/acme/pacto-inferred" {
+		t.Fatalf("older reader = %+v, %v", older.Installation, err)
+	}
+}
+
+func TestInstallationOfferingsRepositoryMustBeOwn(t *testing.T) {
+	own := func() Result {
+		return Result{Cluster: "c1", Installation: &Installation{Registry: "ghcr.io/acme",
+			Offerings: &OfferingsAd{Producer: "idp-c1", Repository: "ghcr.io/acme/pacto-inferred/idp-c1/services"}}}
+	}
+	if repo, ok := own().OfferingsRepository(); !ok || repo != "ghcr.io/acme/pacto-inferred/idp-c1/services" {
+		t.Fatalf("own repository = %q %v", repo, ok)
+	}
+	for name, edit := range map[string]func(*Result){
+		"no installation":    func(r *Result) { r.Installation = nil },
+		"no offerings":       func(r *Result) { r.Installation.Offerings = nil },
+		"no registry":        func(r *Result) { r.Installation.Registry = "" },
+		"no cluster":         func(r *Result) { r.Cluster = "" },
+		"other cluster":      func(r *Result) { r.Cluster = "c2" },
+		"other registry":     func(r *Result) { r.Installation.Registry = "ghcr.io/other" },
+		"other producer":     func(r *Result) { r.Installation.Offerings.Producer = "idp-c1x" },
+		"producer mismatch":  func(r *Result) { r.Installation.Offerings.Repository = "ghcr.io/acme/pacto-inferred/x-c1/services" },
+		"no contribution":    func(r *Result) { r.Installation.Offerings.Repository = "ghcr.io/acme/idp-c1" },
+		"nested under other": func(r *Result) { r.Installation.Offerings.Repository = "ghcr.io/acme/x/pacto-inferred/idp-c1/services" },
+	} {
+		r := own()
+		edit(&r)
+		if repo, ok := r.OfferingsRepository(); ok {
+			t.Errorf("%s: read %q", name, repo)
+		}
 	}
 }

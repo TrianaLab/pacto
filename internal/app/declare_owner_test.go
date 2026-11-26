@@ -63,6 +63,7 @@ func (e *declareEnv) dirReq(dir string) DeclareRequest {
 }
 
 func TestDeclareRefusesBeforePush(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.login(personToken("eve@acme.com"))
@@ -76,6 +77,7 @@ func TestDeclareRefusesBeforePush(t *testing.T) {
 }
 
 func TestDeclareFirstOwnerNeedsDefaultApprover(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	p, _ := e.plan(t, e.dirReq(e.ownedDir(t, "billing")))
@@ -90,6 +92,7 @@ func TestDeclareFirstOwnerNeedsDefaultApprover(t *testing.T) {
 }
 
 func TestDeclareAttestedOwnerRefusalMatchesUX(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.attestedBaseline(t)
 	e.withOwnerPolicy(t)
@@ -103,6 +106,7 @@ func TestDeclareAttestedOwnerRefusalMatchesUX(t *testing.T) {
 }
 
 func TestDeclareDeclaredOwnerMemberAllowed(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t) // declared team billing
 	e.withOwnerPolicy(t)
@@ -114,6 +118,7 @@ func TestDeclareDeclaredOwnerMemberAllowed(t *testing.T) {
 }
 
 func TestDeclareDefaultApproverAllowed(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	e.withOwnerPolicy(t)
@@ -124,6 +129,7 @@ func TestDeclareDefaultApproverAllowed(t *testing.T) {
 }
 
 func TestDeclareNoPolicyIsUnverified(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	e.login(personToken("admin@acme.com"))
@@ -136,6 +142,7 @@ func TestDeclareNoPolicyIsUnverified(t *testing.T) {
 // TestDeclareReadsPolicyWithItsTrust: the request's trust config verifies
 // the owner policy's snapshots, not only $PACTO_DELIVERY_TRUST.
 func TestDeclareReadsPolicyWithItsTrust(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	e.login(personToken("admin@acme.com"))
@@ -148,6 +155,7 @@ func TestDeclareReadsPolicyWithItsTrust(t *testing.T) {
 }
 
 func TestDeclareOwnerUnchangedNeedsNoRight(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	e.login(personToken("eve@acme.com")) // no policy, no membership: the owner does not change
@@ -157,6 +165,7 @@ func TestDeclareOwnerUnchangedNeedsNoRight(t *testing.T) {
 }
 
 func TestDeclareClusterLabelStaysInferred(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	p, d := e.plan(t, e.req())
@@ -170,6 +179,7 @@ func TestDeclareClusterLabelStaysInferred(t *testing.T) {
 // read changes no owner: the declaration keeps payments, with no owner check
 // and no removal.
 func TestDeclareClusterKeepsEffectiveOwner(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	e.withOwnerPolicy(t)
@@ -192,6 +202,7 @@ func TestDeclareClusterKeepsEffectiveOwner(t *testing.T) {
 // TestKeepCurrentOwnerAttested: over an attested owner the declaration
 // names none, which leaves the attested owner as it is.
 func TestKeepCurrentOwnerAttested(t *testing.T) {
+	t.Parallel()
 	pl := &declarePlanner{plan: &DeclarePlan{}, raw: []byte("service:\n  name: invoices\n  owner:\n    team: billing\n")}
 	raw, err := pl.keepCurrentOwner(delivery.OwnerClaim{Owner: contract.Owner{Team: "payments"}, Provenance: "attested"}, contract.Owner{Team: "billing"})
 	if err != nil || strings.Contains(string(raw), "owner") || pl.plan.Owner != "" || !strings.HasSuffix(pl.plan.Notes[0], "so the declaration names none") {
@@ -200,6 +211,7 @@ func TestKeepCurrentOwnerAttested(t *testing.T) {
 }
 
 func TestDeclareOwnerRemovalIsSetting(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	e.withOwnerPolicy(t)
@@ -212,6 +224,7 @@ func TestDeclareOwnerRemovalIsSetting(t *testing.T) {
 }
 
 func TestOnBehalfOfNeverGrantsOwner(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	req := e.dirReq(e.ownedDir(t, "billing"))
@@ -230,6 +243,7 @@ func TestOnBehalfOfNeverGrantsOwner(t *testing.T) {
 }
 
 func TestDeclareCISignerCannotSetOwner(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.login(ciWorkflowToken())
@@ -249,6 +263,7 @@ func TestDeclareCISignerCannotSetOwner(t *testing.T) {
 // them is unknown and the plan is refused as unverified, never as an
 // unreadable registry.
 func TestDeclareLongOwnerHistory(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	for i := range maxOwnerHistory {
@@ -270,6 +285,7 @@ func TestDeclareLongOwnerHistory(t *testing.T) {
 }
 
 func TestDeclareOwnerHistoryPullFails(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withBaseline(t)
 	e.faulty(&faultyRegistry{failPull: 2}) // the baseline reads once, then its owner history

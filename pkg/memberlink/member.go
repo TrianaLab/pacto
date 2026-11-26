@@ -11,6 +11,7 @@ import (
 	"math/rand/v2"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/websocket"
@@ -135,8 +136,14 @@ func (m *Member) session(ctx context.Context, u *url.URL) (linked bool, err erro
 	}
 	m.last = ""
 	m.opts.Logger.Info("member link up", "hub", m.opts.URL)
-	go m.ping(ctx, w, pingInterval)
-	return true, m.answer(ctx, w)
+	// The pinger stops before session returns, so nothing of this link
+	// outlives it.
+	var pinger sync.WaitGroup
+	pinger.Go(func() { m.ping(ctx, w, pingInterval) })
+	err = m.answer(ctx, w)
+	cancel()
+	pinger.Wait()
+	return true, err
 }
 
 // hello answers the hub's challenge with the signed nonce.

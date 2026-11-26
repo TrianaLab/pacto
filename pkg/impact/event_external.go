@@ -107,7 +107,28 @@ func analyzeExternalEvent(snap *fleet.FleetSnapshot, q *fleet.Query, opts Option
 	res.Pin = pinFor(snap, key, rec, res.Consumers)
 	res.collectOwnersAndTargets(snap)
 	res.noteStaleConsumers()
+	res.attributeClusters(snap, q, q.ProductMeta(), sourceClusters(snap, rec.Sources))
 	return res
+}
+
+// sourceClusters is the clusters of an external answer's consumer: those of
+// the targets its uses were observed on, and of every target it runs on for
+// a use its contract declares. The external system itself keeps no cluster.
+func sourceClusters(snap *fleet.FleetSnapshot, sources []fleet.ExternalSource) func(AffectedConsumer) []string {
+	return func(c AffectedConsumer) []string {
+		key := fleet.NewServiceKeyDomain(c.Domain, c.Service)
+		var targets []string
+		for _, s := range sources {
+			switch {
+			case s.Service != key:
+			case s.Target == "":
+				targets = append(targets, c.Targets...)
+			default:
+				targets = append(targets, string(s.Target))
+			}
+		}
+		return consumerClusters(snap, targets)
+	}
 }
 
 // sortedExternalSources are sources with the declared ones first, required

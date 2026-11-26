@@ -564,7 +564,9 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"(observed, inferred or unknown), consumers, hiddenConsumers, failedRequests and targetsUnknown; aggregate.offeringPhases " +
 			"tallies their requests by phase. lifecycle keeps offerings or services that are deprecated or sunset, and failed keeps " +
 			"offerings with a failed provisioning request. kind=external lists the external systems contracts name (vendors, " +
-			"managed services, legacy hosts), each keyed by its canonical identity; class keeps one class. Read-only.",
+			"managed services, legacy hosts), each keyed by its canonical identity; class keeps one class. consumable=true lists the " +
+			"offerings you may consume, each row's consumable naming per provider the version, digest, publisher, parameters, " +
+			"guarantees and a snippet to add to a contract; acceptance covers the listed digest; run pacto lock to pin it. Read-only.",
 		InputSchema: inputSchema(map[string]property{
 			"text":              {Type: "string", Description: "Substring over name, key and owner"},
 			"kind":              {Type: "string", Description: "Entity kind (empty lists services, owners, domains and offerings)", Enum: fleet.EntityKinds()},
@@ -579,8 +581,8 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"ownership":         {Type: "string", Description: "How ownership is declared on a service; conflicting means owners disagree: targets run different owners, or one version declares two (an older version's owner is a handover, not a conflict); unknown is a service with no owner claim whose contract Pacto cannot read, unidentified every service with no single canonical owner", Enum: []string{fleet.OwnershipConsistent, fleet.OwnershipConflicting, fleet.OwnershipUnowned, fleet.OwnershipUnknown, fleet.OwnershipUnidentified}},
 			"gap":               {Type: "string", Description: "Services whose contracts leave this out (not-deployed: run nowhere while every source reporting targets is complete; unverified-capability: an extension capability no evaluator or trusted producer checks), or unknown for those whose knowledge Pacto cannot judge", Enum: fleet.GapFilterValues()},
 			"status":            {Type: "string", Description: "Canonical compliance status", Enum: fleet.CanonicalStatuses()},
-			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
-			"declaration":       {Type: "string", Description: "inferred: keep only the services Pacto infers from workloads no contract describes and, with no kind, list services only; declared: leave them out. Empty lists every service, inferred ones marked", Enum: []string{fleet.DeclarationDeclared, fleet.DeclarationInferred}},
+			"template":          {Type: "string", Description: "only: keep only golden paths and, with no kind, list services only; the answer's inferredTemplates lists golden paths a catalog holds, inferred, never offered for creation until a person accepts one (pacto_declare service template:<namespace>/<name>); exclude: leave golden paths and their revisions out", Enum: []string{fleet.TemplateOnly, fleet.TemplateExclude}},
+			"declaration":       {Type: "string", Description: "inferred: keep only the services Pacto infers from workloads no contract describes and, with no kind, list services only; with kind offering, list only the inferred offerings producers contribute, as service rows with their producer, source object, classes and asOf, never consumable; declared: leave them out. Empty lists every service, inferred ones marked; with template only, inferred lists the golden paths a catalog holds (inferredTemplates) and declared leaves them out", Enum: []string{fleet.DeclarationDeclared, fleet.DeclarationInferred}},
 			"group":             {Type: "string", Description: "Keep the inferred services the cluster groups under this key (workload.group.key on an inferred service)"},
 			"created_from":      {Type: "string", Description: "Services created from this golden path, by service key; " + fleet.NoOrigin + " for no declared origin or " + fleet.UnresolvedOrigin + " for an origin that resolves to no golden path"},
 			"sort":              {Type: "string", Description: "Order: by name, least healthy first, owners with the most services first, owners and domains with the most non-compliant services first or with the highest share of them first, golden paths that created the most services first, offerings with the most consumers with a failed provisioning request or the most declared consumers first, or owners and domains with the most services that leave knowledge out first", Enum: []string{fleet.SortName, fleet.SortHealth, fleet.SortServices, fleet.SortNonCompliant, fleet.SortRate, fleet.SortCreated, fleet.SortFailed, fleet.SortConsumers, fleet.SortGaps}},
@@ -595,7 +597,9 @@ func fleetEntitiesTool() *mcpsdk.Tool {
 			"source_health":     {Type: "string", Description: "Sources by health (incomplete: partial, stale or unavailable)", Enum: []string{"available", "partial", "stale", "unavailable", "incomplete"}},
 			"lifecycle":         {Type: "string", Description: "Offerings whose worst provider lifecycle (each provider's newest revision a target runs, else its newest readable one), or services whose newest revision, is this", Enum: []string{fleet.LifecycleDeprecated, fleet.LifecycleSunset}},
 			"failed":            {Type: "boolean", Description: "With kind offering: offerings with at least one failed provisioning request"},
+			"consumable":        {Type: "boolean", Description: "Only the offerings you may consume (implies kind=offering): accepted, closed parameter schema, visible to you. Each row's consumable lists providers with version, digest, publisher, classes, parameters (tier contract: set once; tunable: may differ per environment; bounds), guarantees and a snippet to add to a contract. A partial answer means a missing offering is unknown"},
 			"class":             {Type: "string", Description: "External systems of this class (lists kind external when kind is empty)", Enum: fleet.ExternalClasses()},
+			"outside_contract":  {Type: "boolean", Description: "External systems with a managed resource no offering produced (lists kind external when kind is empty)"},
 			"limit":             {Type: "integer", Description: "Maximum results (bounded)"},
 			"offset":            {Type: "integer", Description: "Number of results to skip, for paging"},
 		}, nil),
@@ -632,7 +636,9 @@ type fleetEntitiesArgs struct {
 	SourceHealth    string `json:"source_health"`
 	Lifecycle       string `json:"lifecycle"`
 	Failed          bool   `json:"failed"`
+	Consumable      bool   `json:"consumable"`
 	Class           string `json:"class"`
+	OutsideContract bool   `json:"outside_contract"`
 	Limit           int    `json:"limit"`
 	Offset          int    `json:"offset"`
 }
@@ -650,7 +656,10 @@ func fleetEntitiesHandler(q *fleet.Query, link bool) mcpsdk.ToolHandlerFor[fleet
 			Template: a.Template, Declaration: a.Declaration, Group: a.Group, CreatedFrom: a.CreatedFrom,
 			HasNonCompliant: a.HasNonCompliant, SourceKind: a.SourceKind, Lifecycle: a.Lifecycle, Failed: a.Failed,
 			Capability: a.Capability, Domain: a.Domain, Service: a.Service, Source: a.Source,
-			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth, Class: a.Class,
+			Scope: a.Scope, Readiness: a.Readiness, SourceHealth: a.SourceHealth, Class: a.Class, OutsideContract: a.OutsideContract, Consumable: a.Consumable,
+		}
+		if a.Consumable && a.Kind == "" {
+			a.Kind = string(fleet.KindOffering) // ListKinds stays as is; validateConsumable refuses any other kind
 		}
 		f.Kinds = fleet.ListKinds(a.Kind, f)
 		return productResult(link, productview.ToEntityList)(q.Entities(f))

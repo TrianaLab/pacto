@@ -216,6 +216,7 @@ nav:
       - Provision infrastructure through contracts: provision-infrastructure.md
       - Create a service from a golden path: golden-paths.md
       - Export services to Backstage: backstage.md
+      - Sit on top of any IDP: any-idp.md
       - Export from the registry offline: backstage-registry.md
       - Read owners from your Backstage catalog: backstage-catalog.md
       - Example contracts: examples/index.md
@@ -241,6 +242,7 @@ nav:
       - Clusters and target keys: operational-graph-clusters.md
       - Multi-cluster: multi-cluster.md
       - Member clusters: member-clusters.md
+      - Install members: install-members.md
       - Inferred services: operational-graph-inferred.md
       - Detected providers: operational-graph-providers.md
       - Calls that leave the cluster: operational-graph-egress.md
@@ -248,6 +250,7 @@ nav:
       - External catalog reference: external-catalog-reference.md
       - Inferred contracts: inferred-contracts.md
       - Platform offerings reference: platform-offerings.md
+      - Inferred offerings: inferred-offerings.md
       - Offering availability and lifecycle: offering-availability.md
       - Golden paths reference: golden-paths-reference.md
       - MCP reference:
@@ -276,7 +279,8 @@ nav:
           - Status, progress and lifecycle: integrations/kubernetes/delivery-status.md
           - Health checks: integrations/kubernetes/delivery-health.md
           - Eval providers: integrations/kubernetes/delivery-evals.md
-          - Appliers and several clusters: integrations/kubernetes/delivery-reach.md
+          - Appliers: integrations/kubernetes/delivery-reach.md
+          - Several clusters: integrations/kubernetes/delivery-members.md
           - Security model: integrations/kubernetes/delivery-security.md
       - Contract reference:
           - contract-reference/index.md

@@ -21,7 +21,8 @@ import (
 // DaemonSets and CronJobs of a cluster. Each becomes an inferred service
 // carrying only its image, ports and probes; [fleet.Build] leaves out every
 // workload a Pacto targets. It only lists, and reads no environment value,
-// Secret or ConfigMap.
+// Secret or ConfigMap; of a Secret it reports only the names pod templates
+// reference, as [fleet.Collection.SecretRefs].
 type WorkloadSource struct {
 	id         string
 	cluster    *fleet.Cluster // nil when the cluster identity could not be read
@@ -286,12 +287,27 @@ func (s *WorkloadSource) listKind(ctx context.Context, col *fleet.Collection, ns
 			in.Group = toFleetGroup(workloadmanager.Group(groupingObject(k8sclient.WorkloadGVRs[kind], kind, in.Namespace, in.Name, meta)))
 			s.notePromoted(promoted, in, meta)
 			col.InferredServices = append(col.InferredServices, in)
+			col.SecretRefs = append(col.SecretRefs, s.secretRefs(kind, in, item)...)
 		}
 		if next == "" {
 			return nil
 		}
 		token = next
 	}
+}
+
+// secretRefs is one ref per Secret name the pod template of item, the
+// workload in, references, on the source's cluster: names only.
+func (s *WorkloadSource) secretRefs(kind string, in fleet.RawInferredService, item map[string]any) []fleet.RawSecretRef {
+	var cluster, name string
+	if s.cluster != nil {
+		cluster, name = s.cluster.ID, s.cluster.Name
+	}
+	var refs []fleet.RawSecretRef
+	for _, secret := range workloadshape.SecretNames(kind, item) {
+		refs = append(refs, fleet.RawSecretRef{Cluster: cluster, ClusterName: name, Namespace: in.Namespace, Kind: kind, Name: in.Name, Secret: secret})
+	}
+	return refs
 }
 
 // normalizeNamespaces sorts and deduplicates a namespace list, dropping "".

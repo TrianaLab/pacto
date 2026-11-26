@@ -16,6 +16,7 @@ import (
 )
 
 func TestDeclareDraftFlagSkipsLogin(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	calls := e.login(personToken("ana@acme.com"))
 	req := e.req("ledger")
@@ -67,6 +68,7 @@ func (e *declareEnv) draftsOf(t *testing.T, n int) string {
 }
 
 func TestPlanListsDraftsNewestFirst(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	digest := e.draftsOf(t, 3)
 	e.pushImage(t, e.host+"/acme/invoices", "draft-x") // no draft number: never listed
@@ -87,6 +89,7 @@ func TestPlanListsDraftsNewestFirst(t *testing.T) {
 }
 
 func TestPlanDraftsBounded(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.draftsOf(t, 25)
 	p, _ := e.plan(t, e.req())
@@ -96,6 +99,7 @@ func TestPlanDraftsBounded(t *testing.T) {
 }
 
 func TestPlanUnreadableDraftListed(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.draftsOf(t, 1)
 	e.pushImage(t, e.host+"/acme/invoices", "draft-2")
@@ -107,6 +111,7 @@ func TestPlanUnreadableDraftListed(t *testing.T) {
 }
 
 func TestPlanDraftTagOrSignatureUnreadable(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.draftsOf(t, 1)
 	pl := &declarePlanner{s: e.svc, req: e.req(), reg: failingHead{e.reg}, plan: &DeclarePlan{Service: "invoices"}}
@@ -138,6 +143,7 @@ func (failingHead) Head(context.Context, string) (*publish.Remote, error) {
 }
 
 func TestPlanVisibleHidesNamespace(t *testing.T) {
+	t.Parallel()
 	hidden := func(ns string) bool { return ns != "billing" }
 	listedIn := func(e *declareEnv, ns string) bool {
 		return slices.ContainsFunc(e.dyn.Actions(), func(a k8stesting.Action) bool {
@@ -176,6 +182,7 @@ func TestPlanVisibleHidesNamespace(t *testing.T) {
 }
 
 func TestDeclareRequestLoginCountsAsLogin(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	calls := e.login(personToken("bob@acme.com"))
 	req := e.req()
@@ -222,6 +229,7 @@ func (c *countingStore) Tags(ctx context.Context, repo string) ([]string, error)
 }
 
 func TestDeclareRequestStoreAndTexts(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	store := &countingStore{Registry: e.reg}
 	req := e.req("ledger")
@@ -248,5 +256,39 @@ func TestDraftSignedOnlyByItsAsker(t *testing.T) {
 	ana := contract.InferredSigner{Subject: "ana@acme.com", Issuer: "https://accounts.google.com", Class: contract.SignerClassHuman}
 	if signed, why := pl.draftSigned(t.Context(), digest, ana, e.ss.Root, nil); signed || !strings.Contains(why, "does not prove") {
 		t.Fatalf("%v %q", signed, why)
+	}
+}
+
+// TestClusterDraftWithOriginStaysClusterDraft: a cluster draft keeps its
+// cluster input, so a service.origin never makes it a created draft: the
+// CLI accepts it as before.
+func TestClusterDraftWithOriginStaysClusterDraft(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.agentDraft(t)
+	origin := "service:\n  origin:\n    ref: oci://r.io/acme/paths/go-http@sha256:" + strings.Repeat("a", 64) + "\n    digest: sha256:" + strings.Repeat("a", 64) + "\n"
+	files := e.draftFiles(t, "draft-1", func(raw string, _ *contract.InferredRecord) string {
+		return strings.Replace(raw, "service:\n", origin, 1)
+	})
+	e.publishBundle(t, e.host+"/acme/invoices", "draft-2", files, nil)
+	b, rec := e.pulled(t, "draft-2")
+	if b.Contract.Service.Origin == nil || createdDraft(rec, b.Contract) {
+		t.Fatalf("%s", b.RawYAML)
+	}
+	e.login(personToken("ana@acme.com"))
+	if res := e.declare(t, e.fromDraft("draft-2")); res.Tag != firstDeclaration || res.Draft {
+		t.Fatalf("%+v", res)
+	}
+}
+
+// TestClusterDraftAcceptUnchanged: accepting a plain cluster draft with a
+// person's login publishes the first declaration exactly as before created
+// drafts existed: no draft and no accept URL.
+func TestClusterDraftAcceptUnchanged(t *testing.T) {
+	e := newDeclareEnv(t)
+	e.agentDraft(t)
+	e.login(personToken("ana@acme.com"))
+	res := e.declare(t, e.fromDraft("draft-1"))
+	if res.Tag != firstDeclaration || res.Draft || res.Plan.AcceptURL != "" {
+		t.Fatalf("%+v", res)
 	}
 }

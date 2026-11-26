@@ -22,7 +22,7 @@ spec:
     name: orders
   path: ./staging
   healthCheckExprs:
-    - apiVersion: pacto.trianalab.io/v1alpha1
+    - apiVersion: pacto.trianalab.io/v1
       kind: Pacto
       failed: status.contractStatus in ['NonCompliant', 'Invalid']
       current: status.contractStatus in ['Compliant', 'Reference', 'Warning']

@@ -9,7 +9,9 @@ See LICENSE file in the project root for full license text.
 // pods, nodes, HTTPRoutes, Ingresses, Services and API discovery, infers
 // with pkg/detect and writes the result into one ConfigMap. Detection is
 // inert: nothing in the operator reads that ConfigMap back, and nothing it
-// finds sets a value, an argument or a grant.
+// finds sets a value, an argument or a grant. It also lists the managed
+// resources of the catalog kinds the chart granted, asking a
+// SelfSubjectAccessReview (which creates no object) for each kind first.
 package detection
 
 import (
@@ -17,8 +19,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
@@ -34,8 +38,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/component"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/component"
 	"github.com/trianalab/pacto/v4/pkg/detect"
+	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
 
 // Nodes list is the one grant detection adds, cluster-wide installs only; the
@@ -94,6 +99,9 @@ type Detector struct {
 	// attempt, nil before the first one.
 	Installation *detect.Installation
 	LastPush     func() *detect.PushResult
+	// Offerings, set when the operator runs the inferred-offering publisher,
+	// reads its advertisement on every run.
+	Offerings func() *detect.OfferingsAd
 	// Wake, when set, runs a detection at once: the snapshot publisher sends
 	// on it after every push, so lastPush is advertised without waiting for
 	// the next Interval.
@@ -103,18 +111,43 @@ type Detector struct {
 	// Pieces are the profile idp rows (the Evidence Server and the recorder),
 	// read on every run; nil outside idp.
 	Pieces func() []detect.Entry
+	// Inventory is the cluster inventory a person turned on; off, the
+	// Detector only proposes the namespaces to grant.
+	Inventory InventoryConfig
+	// HTTP is the client of the state and inventory reads and Getenv reads
+	// the identity webhooks' environment; nil uses the defaults.
+	HTTP   *http.Client
+	Getenv func(string) string
 
 	owner       *metav1ac.OwnerReferenceApplyConfiguration
 	warnedOwner bool
+	// reads are the state and inventory reads of the last Interval.
+	reads map[string]remoteRead
+	// last is the Result of the last run, nil before the first.
+	last atomic.Pointer[detect.Result]
 }
+
+// Last is the Result of the last run, nil before the first. The inferred
+// publisher reads it in process: the ConfigMap is writable by others in the
+// operator namespace, so it never feeds what the operator signs.
+func (d *Detector) Last() *detect.Result { return d.last.Load() }
 
 // Readers is what the operator reads beside detection, fixed at its start: the
 // controller.egressGatewayLogs mode (auto, on or off), whether kernel evidence
 // is on (gateway logs are read with it) and whether the ServiceEntry and
-// Cilium policy readers run (each needs its API served at startup).
+// Cilium policy readers run (each needs its API served at startup). Managed,
+// when set, reports the catalog's managed kinds discovery serves (see
+// [ManagedFor]): the managed-resources entry is read only with it.
+// TerraformStates are the controller.terraformStates locations,
+// CloudInventory the cloud controller.cloudInventory names ("off" or empty
+// for none) and WorkloadIdentity the --workload-identity <cloud>=<value> the
+// chart renders from the ServiceAccount annotation.
 type Readers struct {
 	GatewayLogs                                    string
 	KernelEvidence, ServiceEntries, CiliumPolicies bool
+	Managed                                        func(context.Context) (map[string][]metav1.APIResource, error)
+	TerraformStates                                []string
+	CloudInventory, WorkloadIdentity               string
 }
 
 // readerOff is e partial when its API is served but the operator's reader did
@@ -157,8 +190,12 @@ func (d *Detector) Sync(ctx context.Context) error {
 		}
 		d.owner = owner
 	}
-	data, err := detect.Encode(d.detect(ctx))
+	res, clusters := d.detect(ctx)
+	d.last.Store(&res)
+	keys, err := encodeKeys(res, clusters)
 	if err == nil {
+		// One apply writes both keys: with the inventory off, clusters.json
+		// is left out, so server-side apply removes the key this manager wrote.
 		err = d.Writer.Apply(ctx, corev1ac.ConfigMap(d.Name, d.Namespace).
 			WithLabels(map[string]string{
 				"app.kubernetes.io/part-of":   "pacto",
@@ -166,13 +203,30 @@ func (d *Detector) Sync(ctx context.Context) error {
 				detect.ManagedByLabel:         detect.ManagedBy,
 			}).
 			WithOwnerReferences(d.owner).
-			WithData(map[string]string{detect.ConfigMapKey: string(data)}),
+			WithData(keys),
 			client.FieldOwner(detect.FieldManager), client.ForceOwnership)
 	}
 	if err != nil {
 		log.Error(err, "Writing the detection ConfigMap failed", "configMap", d.Name, "reason", reason(err))
 	}
 	return nil
+}
+
+// encodeKeys are the ConfigMap keys of res and, when the inventory ran,
+// clusters.
+func encodeKeys(res detect.Result, clusters *detect.Clusters) (map[string]string, error) {
+	data, err := detect.Encode(res)
+	if err != nil {
+		return nil, err
+	}
+	keys := map[string]string{detect.ConfigMapKey: string(data)}
+	if clusters != nil {
+		// EncodeClusters cuts to its bound and fails only where json.Marshal
+		// could, which plain strings, maps and times never do.
+		c, _ := detect.EncodeClusters(*clusters)
+		keys[detect.ClustersConfigMapKey] = string(c)
+	}
+	return keys, nil
 }
 
 // OwnerRef is the owner reference of the operator Deployment namespace/name,
@@ -186,8 +240,9 @@ func OwnerRef(ctx context.Context, r client.Reader, namespace, name string) (*me
 	return metav1ac.OwnerReference().WithAPIVersion("apps/v1").WithKind("Deployment").WithName(deploy.Name).WithUID(deploy.UID), nil
 }
 
-// detect reads the cluster and runs every rule.
-func (d *Detector) detect(ctx context.Context) detect.Result {
+// detect reads the cluster and runs every rule; the candidate clusters are
+// nil unless the inventory is on.
+func (d *Detector) detect(ctx context.Context) (detect.Result, *detect.Clusters) {
 	scoped := len(d.Namespaces) > 0
 	var watched []string // nil: every namespace is read
 	if scoped {
@@ -197,7 +252,12 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 
 	res.Installation = d.installation()
 
-	ws, sampled, wsErr := d.workloads(ctx)
+	ws, refs, sampled, wsErr := d.workloads(ctx)
+	res.SecretRefs, res.SecretRefsTotal = refs.out, refs.total
+	if sampled {
+		// A sampled run did not read every pod: at least one ref is unread.
+		res.SecretRefsTotal++
+	}
 	reg := or(wsErr, "registry", func() detect.Entry { return detect.Registries(ws, sampled, !scoped) })
 	res.Entries = append(res.Entries, reg)
 	if ps := detect.PullSecret(ws, reg, sampled, !scoped); ps.Kind != "" {
@@ -254,7 +314,11 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 	if e, ok := detect.Applier(fluxServed || helmServed, argoServed, classed(errors.Join(fluxErr, helmErr, argoErr)), idp); ok {
 		res.Entries = append(res.Entries, e)
 	}
+	inv, clusters := d.inventory(ctx, argoServed, fluxServed, helmServed, argoErr, errors.Join(fluxErr, helmErr))
+	res.Entries = append(res.Entries, inv...)
 	res.Entries = append(res.Entries, d.crossplane(ctx))
+	d.managed(ctx, &res)
+	d.remote(ctx, &res)
 	if d.Pieces != nil {
 		res.Entries = append(res.Entries, d.Pieces()...)
 	}
@@ -280,7 +344,7 @@ func (d *Detector) detect(ctx context.Context) detect.Result {
 			res.Entries = append(res.Entries, sampledEntry(e, scoped, scopedReason))
 		}
 	}
-	return res
+	return res, clusters
 }
 
 // installation is a copy of the configured installation with the last push
@@ -294,6 +358,9 @@ func (d *Detector) installation() *detect.Installation {
 	if p := d.LastPush(); p != nil {
 		last := *p
 		inst.LastPush = &last
+	}
+	if d.Offerings != nil {
+		inst.Offerings = d.Offerings()
 	}
 	return &inst
 }
@@ -412,20 +479,24 @@ func (d *Detector) scopes() []string {
 }
 
 // workloads reads running pods page by page, at most MaxPods, outside the
-// skipped namespaces, grouped by controller owner.
-func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, bool, error) {
+// skipped namespaces, grouped by controller owner, and the Secret names each
+// owner's pods reference (names only, at most detect.MaxSecretRefs, with
+// their total; one unread on a failed list).
+func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, secretRefs, bool, error) {
 	byID, order, seen := map[string]*detect.Workload{}, []string{}, 0
+	refs := secretRefs{seen: map[fleet.RawSecretRef]bool{}, cluster: d.Cluster, name: d.ClusterName}
 	for _, ns := range d.scopes() {
 		next := ""
 		for {
 			l := &corev1.PodList{}
 			if err := d.Reader.List(ctx, l, client.InNamespace(ns), client.MatchingFields{"status.phase": string(corev1.PodRunning)},
 				client.Limit(pageSize), client.Continue(next)); err != nil {
-				return nil, false, err
+				// No pod read in full: the refs are unknown, never none.
+				return nil, secretRefs{total: 1}, false, err
 			}
 			for i := range l.Items {
 				if seen == detect.MaxPods {
-					return collect(byID, order), true, nil
+					return collect(byID, order), refs, true, nil
 				}
 				seen++
 				p := &l.Items[i]
@@ -437,6 +508,7 @@ func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, bool, erro
 				if o := metav1.GetControllerOf(p); o != nil {
 					id, owner = string(o.UID), ownerObject(p, o)
 				}
+				refs.add(owner, p)
 				w, ok := byID[id]
 				if !ok {
 					w = &detect.Workload{ID: id, Namespace: p.Namespace, Owner: owner}
@@ -456,7 +528,7 @@ func (d *Detector) workloads(ctx context.Context) ([]detect.Workload, bool, erro
 			}
 		}
 	}
-	return collect(byID, order), false, nil
+	return collect(byID, order), refs, false, nil
 }
 
 // ownerObject is the controller o of p as a detect object: a ReplicaSet

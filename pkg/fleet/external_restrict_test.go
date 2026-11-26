@@ -3,6 +3,7 @@ package fleet
 import (
 	"context"
 	"fmt"
+	"maps"
 	"reflect"
 	"slices"
 	"testing"
@@ -271,7 +272,63 @@ func TestRestrictHidesRepositoryExternalOfHiddenService(t *testing.T) {
 		{Kind: ExternalSourceContract, Service: "pay", Provenance: ProvenanceDeclared},
 	}}
 	out.Services["pay"] = &ServiceRecord{}
-	if r := restrictExternal(out, rec); r == nil || r.HiddenConsumers != 1 || !reflect.DeepEqual(r.Consumers, []ServiceKey{"pay"}) {
+	if r := restrictExternal(out, rec, func(string, string) bool { return true }); r == nil || r.HiddenConsumers != 1 || !reflect.DeepEqual(r.Consumers, []ServiceKey{"pay"}) {
 		t.Errorf("restricted = %+v", r)
+	}
+}
+
+// twoClusterStripe: checkout in eu-prod and ledger in us-prod both use stripe.
+func twoClusterStripe(t *testing.T) *Query {
+	t.Helper()
+	use := func(svc, ns string) RawExternalUse {
+		return RawExternalUse{Service: svc, Namespace: ns, Identity: "stripe", Class: "vendor-api", Confidence: "likely", Kind: "env",
+			Where: "deployment/" + svc + " env STRIPE_API_BASE", Host: "api.stripe.com"}
+	}
+	col := func(c *Cluster, svc, ns string) *Collection {
+		return &Collection{Cluster: c, ExternalUses: []RawExternalUse{use(svc, ns)},
+			Revisions: []RawRevision{{Bundle: bundleOf(extContract(svc, "1.0.0")), Digest: "sha256:" + svc}},
+			Targets:   []RawTarget{{Scope: ns, Kind: SourceKindKubernetes, Name: svc, Service: svc, Digest: "sha256:" + svc, Compliance: StatusCompliant}}}
+	}
+	return NewQuery(buildClusterSnap(t,
+		NewMemorySource("eu", SourceKindKubernetes, col(clusterOf(clusterA, "eu-prod", ClusterNameFromContext), "checkout", "shop")),
+		NewMemorySource("us", SourceKindKubernetes, col(clusterOf(clusterB, "us-prod", ClusterNameFromContext), "ledger", "prod"))))
+}
+
+// TestExternalKeyCarriesNoCluster: one external system across two clusters
+// is one key; each use keeps its consumer's cluster-qualified target.
+func TestExternalKeyCarriesNoCluster(t *testing.T) {
+	snap := twoClusterStripe(t).SnapshotForSerialization()
+	if len(snap.Externals) != 1 || snap.Externals["stripe"] == nil {
+		t.Fatalf("externals %v", slices.Collect(maps.Keys(snap.Externals)))
+	}
+	var clusters []string
+	for _, s := range snap.Externals["stripe"].Sources {
+		c, _, _, _, ok := ParseTargetKey(s.Target)
+		if !ok || c == "" {
+			t.Fatalf("source target %q has no cluster", s.Target)
+		}
+		clusters = append(clusters, c)
+	}
+	slices.Sort(clusters)
+	if !slices.Equal(clusters, []string{clusterB, clusterA}) {
+		t.Errorf("clusters %v", clusters)
+	}
+}
+
+// TestExternalVisibleToReaderOfOneConsumer: a reader of eu-prod alone sees
+// stripe through checkout; us-prod's ledger is counted, never named.
+func TestExternalVisibleToReaderOfOneConsumer(t *testing.T) {
+	v, err := twoClusterStripe(t).Restrict(clusterOrScope(clusterA), nil).GetExternal("stripe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := v.External
+	if len(e.Consumers) != 1 || e.Consumers[0] != NewServiceKey("checkout") || e.HiddenConsumers != 1 {
+		t.Fatalf("stripe %+v", e)
+	}
+	for _, s := range e.Sources {
+		if c, _, _, _, _ := ParseTargetKey(s.Target); c != clusterA {
+			t.Errorf("a us-prod use reached the view: %+v", s)
+		}
 	}
 }

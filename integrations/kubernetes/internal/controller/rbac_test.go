@@ -16,7 +16,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/nodeagent"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/nodeagent"
 )
 
 // TestClusterRole_ConfigMapVerbs guards the RBAC needed to observe ConfigMap-backed
@@ -324,7 +324,8 @@ func inventoryDocs(inv inventory) map[string][]map[string]any {
 }
 
 // TestNoClusterRoleGrantsSecrets fails on any ClusterRole rule naming Secrets in any template, read with
-// every feature on: Secrets are read only where a namespaced Role grants them.
+// every feature on: Secrets are read only where a namespaced Role grants them. A managed kind whose
+// objects hold secret values (secretBearingKinds) is refused the same way, in a rule or a managed kind.
 func TestNoClusterRoleGrantsSecrets(t *testing.T) {
 	checked := 0
 	for _, tpl := range rbacTemplates(t) {
@@ -343,6 +344,13 @@ func TestNoClusterRoleGrantsSecrets(t *testing.T) {
 					if slices.Contains(r.Resources, "secrets") {
 						t.Errorf("%s: a ClusterRole grants %v on secrets", tpl, r.Verbs)
 					}
+					for _, g := range r.APIGroups {
+						for _, res := range r.Resources {
+							if slices.Contains(secretBearingKinds[g], res) {
+								t.Errorf("%s: a ClusterRole grants %v on %s/%s, whose objects hold secret values", tpl, r.Verbs, g, res)
+							}
+						}
+					}
 				}
 			}
 		}
@@ -350,6 +358,8 @@ func TestNoClusterRoleGrantsSecrets(t *testing.T) {
 	if checked == 0 {
 		t.Fatal("no ClusterRole was checked")
 	}
+	// The managed rules render from the helper's kinds, so the kinds are checked too.
+	managedKindsGrantNoSecrets(t)
 }
 
 // ruleInclude is a whole-line include of a named template, indented with nindent: how the chart pulls

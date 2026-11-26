@@ -134,7 +134,16 @@ export function installScaleFixture(): void {
     if (meta && meta.sourceCounts) meta.sourceCounts = { ...SOURCE_COUNTS };
     if (route === '/api/capabilities' && statsMode() !== 'engine') doc.stats = statsMode() !== 'off';
     // A host that plans no declaration (513-S6): the inferred page says the command.
-    if (route === '/api/capabilities' && (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare) doc.declare = false;
+    // A host that declares nothing for this caller accepts no golden path either.
+    if (route === '/api/capabilities' && (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare) { doc.declare = false; doc.declareTemplate = false; }
+    // Create service (515-S6): 'off' is a host that creates nothing (no registry), the
+    // golden path page as it always was; 'portal' adds a configured portal; any other
+    // mode creates here.
+    const createMode = (window as unknown as { __pactoCreateService?: CreateServiceMode }).__pactoCreateService;
+    if (route === '/api/capabilities' && createMode) {
+      doc.createService = createMode !== 'off';
+      if (createMode === 'portal') doc.portalCreateURL = `https://${longName('backstage')}.example.com/create`;
+    }
     // 510-S9: `sessionStorage['fixture.mcp'] = 'served'` answers as a token sign-in dashboard that
     // serves /mcp (a signed-in pacto-viewer), so the Connect an agent line shows its URL and
     // snippet instead of the demo's text. `issuer` answers as an issuer-only dashboard: /mcp at
@@ -146,7 +155,7 @@ export function installScaleFixture(): void {
     // A narrowed list (a domain, an owner, a status, a service, an offering's consumers)
     // keeps the engine's total: the fixture leaves the tallies that link to it (an
     // offering's phases, the non-compliant rankings) alone.
-    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class', 'declaration', 'cluster'].some((k) => q.get(k));
+    const narrowed = ['businessDomain', 'service', 'consumes', 'ownerKey', 'owner', 'status', 'ownership', 'sourceHealth', 'text', 'createdFrom', 'failed', 'lifecycle', 'gap', 'class', 'declaration', 'cluster', 'consumable'].some((k) => q.get(k));
     // The golden path list keeps the engine's paths: a fleet has a handful.
     if (route === '/api/fleet/entities' && Number(q.get('limit') || 25) > 1 && !narrowed && q.get('template') !== 'only') {
       const total = LIST_TOTAL[q.get('kinds') || ''];
@@ -176,7 +185,7 @@ export function installScaleFixture(): void {
       });
       const ag = doc.aggregate as Record<string, unknown> | undefined;
       // Only the bare failed list is the figure's: a failed list narrowed further keeps the engine's answer.
-      if (q.get('failed') && !q.get('lifecycle') && !q.get('text')) {
+      if (q.get('failed') && !q.get('lifecycle') && !q.get('text') && !q.get('consumable')) {
         const n = FAILED_OFFERINGS.length + FAILED_BEYOND;
         // The figure's failed offerings are made up, so the engine lists none of them:
         // stand-ins fill the page and the total is what the Failed station lists.
@@ -192,6 +201,50 @@ export function installScaleFixture(): void {
       } else if (ag && !narrowed && Number(q.get('limit') || 25) > 1) {
         offeringAgg(ag, LIST_TOTAL.offering);
       }
+    }
+    // 515-S9: consumable offering rows at their longest, a 200-character version, long
+    // classes, tunable fields and publisher, and more providers than the row lists. Stand-ins
+    // fill an empty page. A consumable row is never
+    // past sunset and lists only the providers you may see.
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'offering' && q.get('consumable')) {
+      let ents = doc.entities as Record<string, unknown>[];
+      if (!ents.length) {
+        ents = Array.from({ length: 4 }, (_, i) => ({ kind: 'offering', key: `load-consumable-${i}`, label: longName(`load-consumable-${i}`), offering: `load-consumable-${i}`,
+          owner: longName(`owner-${i}`), services: 14, consumers: 30 + i, failedRequests: 0, availability: 'available', availabilityProvenance: 'observed', href: `/fleet/offerings/load-consumable-${i}` }));
+        doc.entities = ents;
+        doc.count = ents.length;
+        page(doc, ents.length);
+      }
+      ents.forEach((r, i) => {
+        r.lifecycle = i % 2 ? 'deprecated' : 'supported';
+        for (const k of ['hiddenConsumers', 'hiddenProviders', 'targetsUnknown']) delete r[k];
+        const version = `17.0.0-${'rc.'.repeat(70)}`.slice(0, 200);
+        r.consumable = { providersTotal: 14, providersTruncated: true, providers: [{
+          service: { kind: 'service', key: `load-provider-${i}`, label: longName(`load-provider-${i}`) }, version, digest: `sha256:${'4c1e5a'.repeat(11)}`, acceptance: 'publisher', lifecycle: r.lifecycle,
+          publisher: `${signer.subject}-${i}`,
+          classes: Array.from({ length: 6 }, (_, j) => longName(`class-${i}-${j}`).slice(0, 63)),
+          parameters: Array.from({ length: 8 }, (_, j) => ({ configuration: 'provisioning', path: longName(`spec.parameters.tunable-field-${j}`), tier: j % 2 ? 'contract' : 'tunable', required: true, sensitive: false })),
+          parametersTotal: 8, parametersTruncated: false, guarantees: [], schemaPaths: ['configuration/provisioning.schema.json'],
+        }] };
+      });
+    }
+    // 515-S4: the inferred offering rows at their longest, a 63-character offering read
+    // from a long source object with a dozen classes; and, behind a flag, no declared
+    // offering at all beside the inferred ones (the empty state keeps its inferred link).
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'offering' && q.get('declaration') === 'inferred') {
+      (doc.entities as Record<string, unknown>[]).forEach((r, i) => {
+        const f = r.inferredOffering as Record<string, unknown> | undefined;
+        if (!f) return;
+        const slug = `x${'bucket-replicated-'.repeat(5)}`.slice(0, 61).replace(/-+$/, '') + `-${i}`;
+        Object.assign(f, { offering: slug, from: `CompositeResourceDefinition ${longName(slug)}.storage.acme.io`, generation: 1234567,
+          classes: Array.from({ length: 12 }, (_, j) => longName(`class-${j}`).slice(0, 63).replace(/-+$/, '')) });
+      });
+    }
+    if (route === '/api/fleet/entities' && q.get('kinds') === 'offering' && !q.get('declaration') && (window as unknown as { __offeringsOnlyInferred?: boolean }).__offeringsOnlyInferred) {
+      Object.assign(doc, { entities: [], count: 0, total: 0, truncated: false, inferredTotal: 2 });
+      delete doc.nextOffset;
+      const ag = doc.aggregate as Record<string, unknown> | undefined;
+      if (ag) Object.assign(ag, { matched: 0, offeringCount: 0 });
     }
     // The non-compliant rankings at fleet scale (389 of 5,000 across 300 owners and
     // domains, names up to 200 characters), and every list a lane links to holds exactly
@@ -241,7 +294,7 @@ export function installScaleFixture(): void {
     }
     // The inferred population at fleet scale (509-S1): 12,400 workloads no contract
     // describes, each row's image a digest reference with no break point.
-    if (route === '/api/fleet/entities' && q.get('declaration') === 'inferred' && Number(q.get('limit') || 25) > 1
+    if (route === '/api/fleet/entities' && q.get('declaration') === 'inferred' && Number(q.get('limit') || 25) > 1 && q.get('template') !== 'only'
       && !['text', 'ownerKey', 'owner', 'status', 'ownership', 'gap', 'lifecycle', 'businessDomain'].some((k) => q.get(k))) {
       page(doc, 12400);
       const ag = doc.aggregate as Record<string, unknown> | undefined;
@@ -254,6 +307,25 @@ export function installScaleFixture(): void {
         r.group = { ...g, label: `Argo CD Application ${longName(`group-${String(r.key)}`)}`.padEnd(200, 'x').slice(0, 200) };
         r.repository = `https://github.com/${longName(`repository-${String(r.key)}`)}`.padEnd(300, 'y').slice(0, 300);
       }
+    }
+    // Inferred golden paths a catalog holds (515-S7): 30 rows with names near 63
+    // characters, long titles, 200-character summaries and long hosts, half with a link,
+    // a few from an unverified catalog and one whose name a service holds (shown without
+    // Show more); one template
+    // linked by name to the first declared path; partial with three long reasons.
+    if (route === '/api/fleet/entities' && q.get('template') === 'only' && q.get('declaration') !== 'declared') {
+      const host = (i: number) => `${longName(`catalog-host-${i % 3}`).replace(/[^a-z0-9-]/g, '').slice(0, 60)}.example.com`;
+      const items = Array.from({ length: 30 }, (_, i) => {
+        const name = `${`template-${i}-`}${'springboot-service-'.repeat(4)}`.slice(0, 63).replace(/-+$/, '');
+        return { name, entity: `template:${'n'.repeat(40)}/${name}`, from: `Backstage (${host(i)})`, source: 'backstage-catalog', provenance: 'inferred',
+          title: longName(`template-title-${i}`), summary: `Scaffold a service ${longName(`summary-${i}`)}`.padEnd(200, 's').slice(0, 200),
+          owner: `group:default/${longName(`owner-${i}`)}`, observedAt: new Date(Date.now() - 60_000).toISOString(),
+          acceptable: i % 7 !== 3, nameTaken: i === 2 || undefined, url: i % 2 ? undefined : `https://${host(i)}/create/templates/default/${name}` };
+      });
+      const first = (doc.entities as Record<string, unknown>[] | undefined)?.[0];
+      const declared = first ? [{ ...items[0], name: String(first.label), entity: `template:default/${String(first.label)}`, declaredAs: String(first.key), url: `https://${host(0)}/create/templates/default/${String(first.label)}` }] : [];
+      doc.inferredTemplates = { completeness: 'partial', asOf: new Date(Date.now() - 60_000).toISOString(), total: items.length, items, declared,
+        limitations: [1, 2, 3].map((i) => ({ code: 'SOURCE_PARTIAL', source: 'backstage-catalog', message: `the catalog read stopped at page ${i}: ${longName(`catalog-limitation-${i}`)}` })) };
     }
     // Detected providers at scale (509-S2): 30 rows from 4 sources in 3 clusters, long
     // names and evidence, 20 objects, two partial rows with reasons, and 6 Kubernetes
@@ -339,6 +411,14 @@ export function installScaleFixture(): void {
         objects: [{ kind: 'Service', namespace: 'n'.repeat(63), name: longName('otel-collector-service') }],
         hint: `exporters: {otlphttp/pacto: {endpoint: "http://pacto-dashboard.${'n'.repeat(63)}:4318", encoding: json}}`,
         limitations: [{ code: 'EDGE_SOURCE_PARTIAL', source: 'otlp-receiver', message: `not exporting to pacto-dashboard.${'n'.repeat(63)}:4318; ${longName('requests-used-protobuf-set-encoding-json')}` }],
+      });
+      // The Backstage catalog row when no Backstage runs in a watched namespace (515-S7):
+      // not detected, partial, with the invisible-external reason.
+      (doc.providers as Record<string, unknown>[]).push({
+        id: 'backstage', source: 'cluster-detection', provenance: 'inferred', asOf: new Date(Date.now() - 4 * 60_000).toISOString(), name: 'Backstage catalog',
+        evidence: `not detected no Backstage image runs in a watched namespace (from running pods and Services, cluster ${clusters[0]})`,
+        status: 'partial', cluster: clusters[0], usedFor: ['set dashboard.backstage.url to read its owners and golden paths; nothing is read'],
+        limitations: [{ code: 'DETECTION_BACKSTAGE_PARTIAL', source: 'cluster-detection', message: 'an external Backstage is invisible to the cluster: set dashboard.backstage.url to read its owners and templates' }],
       });
       // A producer's row (509-S11): a 200-character producer id and a 300-character
       // contribution repository, stale with its reason, both uses at once.
@@ -508,6 +588,35 @@ export function installScaleFixture(): void {
       // 517-S5: a claim by a service the viewer cannot see.
       rec.claim = { hidden: true };
     }
+    // 'external entity resources at scale, hidden and truncated' (517-S7): the Resources
+    // block at its longest, 20 cards (the answer's cap) of 500, 7 hidden, every one outside
+    // the contract with both claim actions, names, addresses, clusters and engines at 200
+    // characters, across the three reader groups.
+    // 'external entity resources, every one hidden': a declared source keeps the record while
+    // every resource sits where the viewer cannot read, so the answer carries none and only
+    // the hidden count (resourcesTotal counts the visible ones, so it is omitted).
+    const managed = (window as unknown as { __managedResources?: boolean | 'hidden' }).__managedResources;
+    if (route === '/api/fleet/entities/external' && managed === 'hidden') {
+      const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
+      delete rec.resources; delete rec.resourcesTotal;
+      rec.hiddenResources = 7;
+    } else if (route === '/api/fleet/entities/external' && managed) {
+      const rec = (doc.external as Record<string, unknown>).external as Record<string, unknown>;
+      const long = (seed: string) => `${seed}-${'orders-db-replica-'.repeat(12)}`.slice(0, 200).replace(/-+$/, '');
+      const sources = ['crossplane', 'terraform', 'aws-resource-explorer'];
+      rec.resources = Array.from({ length: 20 }, (_, i) => {
+        const source = sources[i % 3];
+        return {
+          source, provenance: 'inferred', contract: 'outside', observedAt: '2026-07-29T12:00:00Z',
+          type: source === 'crossplane' ? 'rds.aws.upbound.io/Instance' : source === 'terraform' ? 'aws_db_instance' : 'rds:db',
+          name: source === 'terraform' ? `aws_db_instance.${long(`r${i}`).replace(/-/g, '_')}` : long(`r${i}`),
+          cluster: `5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a${String(i).padStart(2, '0')}`, clusterName: long(`cluster-${i}`),
+          ...(source === 'terraform' ? { location: `s3://${long('acme-tf')}/prod.tfstate?region=eu-west-1` } : {}),
+          ...(i % 2 ? { engineRequested: `postgres ${long('16')}`.slice(0, 200) } : { engine: `postgres ${long('16')}`.slice(0, 200) }),
+        };
+      });
+      Object.assign(rec, { resourcesTotal: 500, hiddenResources: 7 });
+    }
     // 'external entity, claimed' (517-S5): the Owner block at its longest, a 63-character
     // owner and claiming service.
     // 'external entity, claimed, no verified owner': the same claim with no owner.
@@ -633,6 +742,18 @@ export function installScaleFixture(): void {
       }
       for (const t of [cons?.phases, cons?.phaseConsumers]) if (t?.ready) t.readyUnsigned = Math.floor(t.ready / 2);
     }
+    // 515-S4: the provider block's drift line, as the API sends OfferingProvider.drift:
+    // drifted on the first provider, unknown with a long reason on the next.
+    if (route === '/api/fleet/entities/offering' && (window as unknown as { __offeringDrift?: boolean }).__offeringDrift) {
+      const items = ((doc.offering as Record<string, unknown> | undefined)?.providers as { items?: Record<string, unknown>[] } | undefined)?.items ?? [];
+      const producer = 'crossplane-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11';
+      items.forEach((p, i) => {
+        p.drift = i % 2 === 0
+          ? { state: 'drifted', producer, acceptedDigest: `sha256:${'4c'.repeat(32)}`, newestRef: `ghcr.io/${longName('acme')}/pacto-inferred/${producer}/services@sha256:${'9d'.repeat(32)}`,
+            newestVersion: '0.0.0-inferred.1234567.89', asOf: '2026-11-23T10:02:00Z', reason: 'source object changed since accepted (now generation 1234567)' }
+          : { state: 'unknown', producer, acceptedDigest: `sha256:${'4c'.repeat(32)}`, reason: `the producer's last run stopped short: ${longName('the run stopped at 200 source objects')}` };
+      });
+    }
     // A checked range's answer carries the provider's successor at its longest ref.
     if (route === '/api/fleet/versions') {
       for (const pr of (doc.providers as { versions?: Record<string, unknown> }[] | undefined) ?? []) {
@@ -689,7 +810,7 @@ export function installScaleFixture(): void {
         r.applier = { manager: state === 'Unknown' ? 'unsupported' : 'argocd', owner: longName(`Application ${String(r.namespace)}/${String(r.service)}`),
           evidence: 'tracking annotation', display: longName(`Argo CD (Application ${String(r.service)}, tracking annotation)`), state,
           message: state === 'Adopted' ? '' : longName(`${state} manager owns Deployment ${String(r.service)}`), completeness: 'complete',
-          asOf: state === 'Unknown' ? '2026-11-08T08:00:00Z' : fresh };
+          asOf: state === 'Unknown' ? '2026-11-08T08:00:00Z' : fresh, values: `overlays/${longName('production-eu-west')}` };
         if (q.get('service') && longName(String(r.service)) === q.get('service')) r.service = q.get('service');
         if (flags.__pactoLongPropose) {
           for (const k of ['namespace', 'stage', 'candidateVersion']) if (typeof r[k] === 'string' && r[k]) r[k] = longName(r[k] as string);
@@ -709,6 +830,21 @@ export function installScaleFixture(): void {
           placement: { namespace: longName(`namespace-${i}`), provenance: 'inferred', source: 'inferred-from' }, reason: longName(`namespace refused ${i}`) }));
         // and more hidden in namespaces the reader cannot list, counted under the list.
         doc.unplacedHidden = 1234;
+      }
+      // The Members block at its longest (514-S6): the last environment placed on 40
+      // members with long names in every state, a long reason and next command on each,
+      // members left out and hidden, and a partial read.
+      const plans = doc.members as Record<string, unknown>[] | undefined;
+      if (plans?.length) {
+        const states = ['applied', 'held', 'refused', 'stale', 'unknown', 'waiting', 'raised', 'concluded', 'failed', 'no request'];
+        const p = plans[plans.length - 1];
+        const members = Array.from({ length: 40 }, (_, i) => ({ uid: `${String(i).padStart(8, '0')}-3b7d-4e19-a2c5-6d8f0b1e7a34`, name: longName(`member-${i}`),
+          state: states[i % 10] === 'stale' ? 'waiting' : states[i % 10], stale: states[i % 10] === 'stale' || undefined,
+          digest: `sha256:${String(i).padStart(64, 'e')}`, reason: longName(`member reason ${i}`), asOf: '2026-11-21T10:00:00Z',
+          next: i % 3 ? undefined : `pacto delivery approve --intent ${longName(`registry.example/acme/pacto-targets@sha256-${i}`)} --registry registry.example/acme` }));
+        Object.assign(p, { members, completeness: 'partial', notes: [longName('a member stream could not be read')], hidden: 7, hiddenReason: longName('hidden reason'),
+          placement: { ...(p.placement as object), clusters: members.map((m) => ({ uid: m.uid, name: m.name, evidence: longName(`evidence ${m.name}`) })),
+            unplaced: Array.from({ length: 5 }, (_, i) => ({ uid: `${String(i).padStart(8, 'f')}-3b7d-4e19-a2c5-6d8f0b1e7a34`, name: longName(`unplaced-member-${i}`), reason: longName(`unplaced reason ${i}`) })) } });
       }
     }
     // The Why card at its longest: many reasons, each with a long message and fix.
@@ -1016,6 +1152,12 @@ export function installScaleFixture(): void {
           : { service: at63(`orders-reconciliation-${i}`), version: `1.9.${i}`, check: 'version', requiredBump: 'major', baseline: `1.8.${i}`,
             reason: 'the change is BREAKING, so it needs a major bump', actor: `system:serviceaccount:agents:${at63('pay-agent')}`,
             at: `2026-11-21T10:${String(59 - i).padStart(2, '0')}:00Z`, verified: false })) });
+      // Every fifth row a member's refusal (514-S6), its member name at its longest.
+      for (const [i, r] of (doc.refusals as Record<string, unknown>[]).entries()) {
+        // ... and one an unhyphenated 63-character DNS label, which breaks at no hyphen.
+        if (i % 5 === 4) Object.assign(r, { check: 'member', cluster: i === 4 ? 'productioneuropewestclusterzeroonefortheledgerservicesandothers' : longName(`member-${i}`), code: i % 10 === 4 ? 'Rejected' : 'OutsideAllowlist',
+          requiredBump: undefined, baseline: undefined, reason: longName(`member refusal ${i}`) });
+      }
     }
     // A version's lifecycle at its longest: long environment, Stage and record names, a
     // long note and the newest 50 events on every Stage.
@@ -1369,7 +1511,7 @@ export function installScaleFixture(): void {
   // multiCluster (514-S2) answers every entities list as a view over three clusters with
   // 63-character names: the demo's own cluster, one the reader may not read and one whose
   // review failed, so the Cluster filter, its caption and the Clusters block render.
-  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' | 'external'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off'; __pactoInspected?: boolean };
+  const flags = window as unknown as { __pactoNewSigner?: boolean; __pactoLongPropose?: boolean; __pactoStalePropose?: boolean; __pactoAmbiguousTarget?: boolean; __pactoInferredUnreadable?: boolean; __pactoAccept?: 'plan' | 'refused' | 'breaks' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed'; __pactoNoDeclare?: boolean; __pactoClusterFacts?: boolean | 'dropped' | 'notAllowed' | 'external'; __pactoMultiCluster?: boolean; __pactoDeclare?: DeclareMode; __pactoClusterJoin?: boolean | 'viewer' | 'off' | 'candidates' | 'candidates-zero' | 'candidates-fail'; __pactoInspected?: boolean; __pactoDeliveryClusters?: boolean; __pactoCreateService?: CreateServiceMode };
   const shortOf = (v: unknown) => [...memo].find(([, l]) => l === v)?.[0] ?? v;
   const engineBody = (path: string, body: string | null): string | null => {
     if (!flags.__pactoLongPropose || !body || !/^\/api\/delivery\/(plan|operations)$/.test(path)) return body;
@@ -1750,9 +1892,43 @@ export function installScaleFixture(): void {
   // unreadable) and a draft's own plan with what nothing backs; a refusal with the
   // command; and the page back from a signing login, Publish one click away.
   const DECLARE_INTENT = `sha256:${'b3'.repeat(32)}`;
+  const CREATE_INTENT = `sha256:${'c5'.repeat(32)}`;
+  const CREATE_PATH = `oci://ghcr.io/${longName('acme')}/http-service@sha256:${'7c'.repeat(32)}`;
+  type CreateParameter = { configuration: string; path: string; type: string; tier: string; enum?: string[]; default?: string; minimum?: number; maximum?: number; sensitive?: boolean };
+  type CreateGuarantee = { interface: string; guarantees: Record<string, string>; text: string };
+  const CREATE_OFFERINGS: { offering: string; version: string; requested: boolean; classes: string[]; parameters: CreateParameter[]; guarantees?: CreateGuarantee[] }[] = [
+    { offering: 'postgresql', version: '17.0.0', requested: true, classes: ['standard', 'premium', `regional-${'replicated-'.repeat(4)}`],
+      parameters: [
+        { configuration: 'provisioning', path: 'size', type: 'string', tier: 'contract', enum: ['small', 'medium', 'large'], default: 'small' },
+        { configuration: 'provisioning', path: 'storageGi', type: 'integer', tier: 'tunable', minimum: 10, maximum: 500 },
+        { configuration: 'provisioning', path: 'backups.retentionDays', type: 'integer', tier: 'tunable', minimum: 1, maximum: 35 },
+        { configuration: 'provisioning', path: `maintenance.${'preferredWindow'.repeat(4)}`, type: 'integer', tier: 'contract', minimum: 0, maximum: 23 },
+        { configuration: 'provisioning', path: `credentials.${'administratorPassword'.repeat(3)}`, type: 'string', tier: 'contract', sensitive: true },
+      ],
+      guarantees: [{ interface: longName('sql'), guarantees: { timeout: '5s', availability: '99.95%' }, text: 'availability 99.95%, timeout 5s' }] },
+    ...[0, 1, 2].map((i) => ({ offering: `objectstore-${'archive-'.repeat(6)}${i}`.slice(0, 63), version: `1.${i}.0`, requested: false, classes: [],
+      parameters: [{ configuration: 'bucket', path: 'retentionDays', type: 'integer', tier: 'contract', minimum: 1, maximum: 3650 }] })),
+  ];
   const declareAnswer = (body: string | null) => {
     const mode = flags.__pactoDeclare;
-    const b = JSON.parse(body || '{}') as { fromDraft?: { tag?: string } };
+    const b = JSON.parse(body || '{}') as { fromDraft?: { tag?: string }; serviceKey?: string };
+    // A golden path a catalog holds (515-S7): a long name, a 200-character summary, its
+    // three notes at their longest, and no workload or cluster section.
+    if (b.serviceKey?.startsWith('template:')) {
+      const tname = b.serviceKey.split('/').pop() ?? '';
+      const tsummary = `Scaffold a service ${longName('template-summary')}`.padEnd(200, 's').slice(0, 200);
+      const trepo = `ghcr.io/${longName('acme')}/${tname}`;
+      const tcommand = `pacto declare ${b.serviceKey} --backstage-url https://${longName('catalog')}.example.com --registry ghcr.io/${longName('acme')}`;
+      return { plan: { service: tname, version: '0.1.0', bundleRepo: trepo, state: 'draft', ranges: [], intentDigest: DECLARE_INTENT,
+        signer: { subject: `${longName('ana')}@acme.example`, class: 'human', source: 'login' },
+        notes: [`drafted from ${b.serviceKey} in Backstage (${longName('catalog')}.example.com), read 2026-11-23T09:00:00Z`,
+          'the golden path holds the contract only: Backstage keeps the template\'s steps and skeleton; open it there to scaffold code',
+          `Backstage names group:default/${longName('platform-team')} as owner: declare service.owner in a later version`],
+        contract: { text: `pactoVersion: "2.5"\nservice:\n  name: ${tname}\n  version: 0.1.0\n  summary: "${tsummary}"\n  template: {}\n` },
+        record: { text: 'format: pacto.inferred/v1\nfields: []\n' } },
+        command: `${tcommand} --intent ${DECLARE_INTENT}`, signing: { mode: 'none', reason: longName('a token sign-in signs nothing') }, write: { available: true },
+        ...(mode === 'signed' ? { signing: { mode: 'fresh-login', identity: `${longName('ana')}@acme.example` }, signTicket: 't'.repeat(43), signedIn: true } : {}) };
+    }
     const name = longName('legacy-billing');
     const repo = `ghcr.io/${longName('acme')}/${name}`;
     const who = `${longName('ana')}@acme.example`;
@@ -1789,6 +1965,62 @@ export function installScaleFixture(): void {
     return { plan, drafts, draftsTotal: drafts ? 27 : undefined, command: `${command} --intent ${DECLARE_INTENT}`, prCli: `${command} --pr`,
       signing: signed ? { mode: 'fresh-login', identity: who } : { mode: 'none', reason: longName('a token sign-in signs nothing') },
       write, signTicket: signed ? 't'.repeat(43) : undefined, signedIn: mode === 'signed' };
+  };
+  // Create service (515-S6) at its longest: a 64-hex digest-pinned path, four offerings
+  // (the requested one tiered, with classes and a long field), long identities and
+  // revision; every number over a field's maximum refused at its field with the clamped
+  // value and both fixes; 'forbidden' is the 403 a SubjectAccessReview denial gives and
+  // 'refused' a taken name; 'draftlink' lists the person's draft-1, which a review link
+  // opens, and 'pull' publishes more files than a zip carries.
+  const createServiceAnswer = (body: string | null) => {
+    const mode = flags.__pactoCreateService;
+    const b = JSON.parse(body || '{}') as { name?: string; owner?: string; namespace?: string; offerings?: { offering: string; values?: Record<string, unknown> }[]; fromDraft?: { tag: string } };
+    const name = b.name || 'invoices';
+    const init = `pacto init ${name} --from ${CREATE_PATH} --owner ${b.owner || 'billing'} --registry ghcr.io/${longName('acme')}`;
+    if (mode === 'forbidden') return { status: 403, body: { status: 403, title: 'Forbidden', code: 'NotAllowed', detail: `alice may not create services in ${b.namespace || 'team-billing'}` } };
+    const signing = { mode: 'fresh-login', identity: 'alice@acme.io' };
+    const base = { offerings: CREATE_OFFERINGS, signing, write: { available: true } };
+    if (mode === 'refused') {
+      return { status: 200, body: { ...base, refusal: { code: 'ServiceExists', message: `${name} is already taken in this registry: pick another name, or adopt your own service with pacto declare`, command: init } } };
+    }
+    // The values as dotted paths, the way the offering's fields name them.
+    const flat = (o: Record<string, unknown>, at = ''): [string, unknown][] => Object.entries(o).flatMap(([k, v]) => v && typeof v === 'object' ? flat(v as Record<string, unknown>, `${at}${k}.`) : [[`${at}${k}`, v] as [string, unknown]]);
+    const refusals = (b.offerings ?? []).flatMap((o) => flat(o.values ?? {}).flatMap(([k, v]) => {
+      const p = CREATE_OFFERINGS.find((x) => x.offering === o.offering)?.parameters.find((x) => x.path === k);
+      if (!p || typeof v !== 'number' || p.maximum === undefined || v <= p.maximum) return [];
+      return [{ code: 'ParameterOutOfRange', field: `configurations[database].values.${k}`, message: `${k} is ${v}, above the maximum ${p.maximum} the offering allows`, closest: p.maximum,
+        cli: `${init} --set 'configurations[0].values.${k}=${p.maximum}'`, mcp: JSON.stringify({ offerings: [{ offering: o.offering, values: k.split('.').reduceRight<unknown>((v, part) => ({ [part]: v }), p.maximum) }] }) }];
+    }));
+    if (refusals.length) return { status: 200, body: { ...base, refusals } };
+    const repo = `ghcr.io/${longName('acme')}/${name}`;
+    const drafts = mode === 'draftlink' ? [{ tag: 'draft-1', digest: `sha256:${'d1'.repeat(32)}`, state: 'draft', onBehalfOf: 'alice@acme.io', signed: false, asker: { subject: '', issuer: 'none', class: 'agent' } }] : undefined;
+    const valuesFile = { path: 'pacto-create-values.yaml', text: `configurations:\n  - name: database\n    values: {storageGi: 50, ${'note: a-long-value-'.repeat(8)}}\n` };
+    return { status: 200, body: { ...base, drafts, draftsTotal: drafts?.length, signTicket: 't'.repeat(43), signedIn: mode === 'published' || mode === 'pull', consumableCompleteness: 'partial', consumableAsOf: '2026-11-25T09:00:00Z',
+      plan: { service: name, version: '0.1.0', bundleRepo: repo, state: 'declared', owner: b.owner || undefined, intentDigest: CREATE_INTENT,
+        signer: { subject: 'alice@acme.io', class: 'human', source: 'login' }, path: CREATE_PATH, pathName: 'http-service', pathVersion: '1.0.0',
+        signature: { step: 'signature', status: 'unknown', detail: 'signature not checked: no trust config names a template key; pass --trust or add a role: template key to PACTO_DELIVERY_TRUST' },
+        namespace: b.namespace || 'team-billing', revision: `pacto-create:alice@acme.io:2026-11-25T09:00:00Z`, initCli: `${init} --values pacto-create-values.yaml`, valuesFile,
+        files: [{ path: `environments/${longName('production')}.yaml`, text: `database:\n  storageGi: 200\n` }], filesTotal: 1, consumableAsOf: '2026-11-25T09:00:00Z', consumableCompleteness: 'partial',
+        notes: [`a created service: every value comes from the golden path ${CREATE_PATH} and the values you set; review pacto.yaml`],
+        contract: { text: `pactoVersion: "2.5"\nservice:\n  name: ${name}\n  version: 0.1.0\n  origin:\n    ref: ${CREATE_PATH}\n  summary: ${'An HTTP API on the platform runtime '.repeat(6)}\n` },
+        record: { text: 'format: pacto.inferred/v1\nfields: []\n' } } } };
+  };
+  const createServiceAcceptAnswer = (body: string | null) => {
+    const b = JSON.parse(body || '{}') as { name?: string; mode?: string };
+    const name = b.name || 'invoices';
+    const repo = `ghcr.io/${longName('acme')}/${name}`;
+    const init = `pacto init ${name} --from ${CREATE_PATH} --owner billing --registry ghcr.io/${longName('acme')}`;
+    if (b.mode !== 'sign') return { published: `${repo}@sha256:${'e8'.repeat(32)}`, tag: 'draft-1', draft: true, acceptUrl: `#/fleet/services/http-service?create=${name}&draft=draft-1` };
+    const valuesFile = { path: 'pacto-create-values.yaml', text: 'configurations:\n  - name: database\n    values: {storageGi: 50}\n' };
+    if (flags.__pactoCreateService === 'pull') {
+      return { published: `${repo}@sha256:${'e7'.repeat(32)}`, tag: '0.1.0', signed: true, initCli: `${init} --values pacto-create-values.yaml`, valuesFile,
+        pullCli: `pacto pull oci://${repo}@sha256:${'e7'.repeat(32)}`, index: `not indexed in ghcr.io/${longName('acme')}/pacto-index: ${longName('denied')}`, filesTotal: 70,
+        files: [{ path: 'pacto.yaml', text: 'x' }, { path: 'gradle/wrapper/gradle-wrapper.jar', text: '', truncated: true }] };
+    }
+    return { published: `${repo}@sha256:${'e7'.repeat(32)}`, tag: '0.1.0', signed: true, initCli: init, gitCli: `gh repo create <org>/${name} --private --clone && cd ${name} && ${init}`,
+      pullCli: `pacto pull oci://${repo}@sha256:${'e7'.repeat(32)}`, appearsWithin: 'It shows in the fleet within a minute',
+      index: `indexed in ghcr.io/${longName('acme')}/pacto-index`, filesTotal: 2,
+      files: [{ path: 'pacto.yaml', text: `pactoVersion: "2.5"\nservice:\n  name: ${name}\n  version: 0.1.0\n` }, { path: 'interfaces/openapi.yaml', text: 'openapi: 3.1.0\n' }] };
   };
   const declareAcceptAnswer = (body: string | null) => {
     const b = JSON.parse(body || '{}') as { mode?: string };
@@ -1896,9 +2128,86 @@ export function installScaleFixture(): void {
       { uid: '7fab4e20-7f1a-4c55-9d1e-2b8a4e6f0a24', name: n63('retired-ap-south-1'), nameSource: 'uid', state: 'removed', keyID: key('e5f6'), approver: `oidc:${longName('alice')}@acme.example`, approvedAt: '2026-11-18T09:00:00Z' },
     ];
     const viewer = flags.__pactoClusterJoin === 'viewer';
+    const zero = flags.__pactoClusterJoin === 'candidates-zero';
+    const withCandidates = zero || flags.__pactoClusterJoin === 'candidates' || flags.__pactoClusterJoin === 'candidates-fail';
     return { hub: { uid: '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a10', name: 'hub' }, repository: 'ghcr.io/acme/pacto-targets', asOf: '2026-11-22T10:00:00Z',
-      completeness: 'complete', clusters: viewer ? rest.filter((r) => r.state === 'approved') : [...pending, ...rest],
-      hidden: viewer ? 3 : 0, otherHubs: 1, canApprove: !viewer };
+      completeness: 'complete', clusters: zero ? [] : viewer ? rest.filter((r) => r.state === 'approved') : [...pending, ...rest],
+      hidden: viewer ? 3 : 0, otherHubs: zero ? 0 : 1, canApprove: !viewer,
+      ...(withCandidates ? { candidates: candidateAnswer(), candidatesAsOf: '2026-11-22T10:00:00Z', candidatesCompleteness: 'complete' } : {}) };
+  };
+  // 514-S5: the candidate clusters the hub's GitOps and cluster managers know. The matched
+  // one states the UID of the demo's approved member eu-prod, whose chip it opens, under a
+  // 63-character member name; the rest carry 63-character names and long label runs, and the
+  // Cluster API one a long first label followed by three more.
+  const candidateAnswer = () => {
+    const n63 = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
+    const euProd = '9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34';
+    return [
+      { source: 'argocd', kind: 'Secret', namespace: 'argocd', name: 'eu-prod', labels: { env: 'prod', region: 'eu-north-1', tier: 'gold', 'topology.kubernetes.io/zone': 'eu-north-1a' },
+        uid: euProd, uidSource: 'annotation pacto.trianalab.io/cluster-uid', match: 'matched', member: { uid: euProd, name: n63('production-eu-north-1') } },
+      { source: 'argocd', kind: 'Secret', namespace: 'argocd', name: 'ap-dev', labels: { env: 'dev' }, uid: 'e7b3d915-4a2c-4f8e-b6d1-0c9a5f3e2b17',
+        uidSource: 'annotation pacto.trianalab.io/cluster-uid', match: 'same-uid', reason: 'the cluster reports this UID about itself; a person has not approved it under this key' },
+      { source: 'argocd', kind: 'Secret', namespace: 'argocd', name: n63('production-sa-east-1'), labels: { [`team.acme.example/${'owner'.repeat(8)}`]: n63('payments') },
+        match: 'unmatched', reason: 'the candidate states no cluster UID' },
+      { source: 'flux', kind: 'Secret', namespace: 'flux-system', name: 'us-lab-kubeconfig', match: 'unmatched', reason: 'the candidate states no cluster UID' },
+      { source: 'capi', kind: 'Cluster', namespace: 'fleet', name: n63('capi-workload-eu-west-2'),
+        labels: { 'cluster.x-k8s.io/cluster-name': n63('capi-workload-eu-west-2'), env: 'prod', region: 'eu', tier: 'gold' },
+        match: 'unmatched', reason: 'the candidate states no cluster UID' },
+    ];
+  };
+  // 514-S7: answers read from three clusters. The dashboard's own is complete; a member
+  // with a 63-character name is stale and hides two namespaces; another failed its review
+  // and shows nothing; one more is hidden from the reader. Its rows repeat the first ones
+  // under the same Stage names, so two same-named Stages stand side by side.
+  const CL_HOME = '5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11';
+  const CL_LONG = '9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34';
+  const CL_FAILED = 'c2d8a6f0-5e1b-4a73-9c4d-8b2f6e0a1d95';
+  const clName = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
+  const ago = (min: number) => new Date(Date.now() - min * 60_000).toISOString().replace(/\.\d+Z$/, 'Z');
+  const deliveryClusterListing = () => [
+    { id: CL_HOME, name: 'production', completeness: 'complete', asOf: ago(0) },
+    { id: CL_LONG, name: clName('production-eu-central-1'), completeness: 'partial', asOf: ago(14), hidden: 2,
+      unreadable: [`${longName('payments')}: the member's snapshot is 14m old`] },
+    { id: CL_FAILED, name: clName('production-us-east-2'), completeness: 'partial', why: 'the review of your access took longer than 5s' },
+  ];
+  const twin = <T extends Record<string, unknown>>(rows: unknown, extra: Record<string, unknown> = {}): T[] | undefined => {
+    if (!Array.isArray(rows) || !rows.length) return undefined;
+    return [...rows, ...rows.slice(0, 2).map((r) => ({ ...(r as T), cluster: CL_LONG, ...extra }))] as T[];
+  };
+  const deliveryClusters = (route: string, doc: Record<string, unknown>, cluster: string) => {
+    // A one-Stage history of another cluster names only that cluster beside the dashboard's own, as the server does.
+    if (route === '/api/delivery/history' && cluster) {
+      Object.assign(doc, { clusters: [deliveryClusterListing()[0], { id: cluster, name: clName('production-eu-central-1'), completeness: 'complete', asOf: ago(0) }] });
+    } else if (route === '/api/delivery/inbox' || route === '/api/delivery/environments' || route === '/api/delivery/history') {
+      Object.assign(doc, { clusters: deliveryClusterListing(), hiddenClusters: 1, completeness: 'partial' });
+    }
+    if (route === '/api/delivery/inbox') {
+      const next = { readOnly: true, next: `kubectl config use-context ${clName('production-eu-central-1')} && pacto delivery approve ${longName('payments-promote')} -n prod` };
+      doc.held = twin(doc.held, next) ?? doc.held;
+      doc.errored = twin(doc.errored, next) ?? doc.errored;
+      doc.frozen = twin(doc.frozen) ?? doc.frozen;
+    }
+    if (route === '/api/delivery/environments') doc.environments = twin(doc.environments) ?? doc.environments;
+    if (route === '/api/delivery/history') {
+      doc.histories = cluster ? (doc.histories as Record<string, unknown>[]).map((h) => ({ ...h, cluster })) : twin(doc.histories) ?? doc.histories;
+    }
+    // Change analysis: every consumer runs in two clusters, one of them stale.
+    const cs = doc.consumers as { items?: Record<string, unknown>[]; highlights?: Record<string, unknown>[] } | undefined;
+    if (route === '/api/fleet/impact' && cs) {
+      const meta = (doc.meta ??= {}) as Record<string, unknown>;
+      meta.clusters = [
+        { id: CL_HOME, name: 'production', nameSource: 'context', status: 'available', targets: 40, asOf: ago(0) },
+        { id: CL_LONG, name: clName('production-eu-central-1'), nameSource: 'node-label', status: 'stale', targets: 40, asOf: ago(14) },
+      ];
+      for (const c of [...(cs.items ?? []), ...(cs.highlights ?? [])]) {
+        const ts = (c.targets as Record<string, unknown>[] | undefined) ?? [];
+        c.targets = ts.map((t, i) => {
+          const key = `${i % 2 ? CL_LONG : CL_HOME}/prod/Deployment/${longName(`consumer-target-${i}`)}`;
+          return { ...t, key, label: `prod/Deployment/${longName(`consumer-target-${i}`)}`, href: `/fleet/targets/${encodeURIComponent(key)}` };
+        });
+        c.clusters = [CL_HOME, CL_LONG];
+      }
+    }
   };
   const wrapped: Serve = async (method, path, body) => {
     body = engineBody(path, body);
@@ -1906,6 +2215,14 @@ export function installScaleFixture(): void {
     if (flags.__pactoClusterJoin && method === 'GET' && route === '/api/fleet/clusters') {
       if (flags.__pactoClusterJoin === 'off') return { status: 404, contentType: 'application/problem+json', body: JSON.stringify({ status: 404, title: 'Not Found' }) };
       return { status: 200, contentType: 'application/json', body: JSON.stringify(clusterJoinAnswer()) };
+    }
+    if (flags.__pactoClusterJoin === 'candidates-fail' && method === 'GET' && route === '/api/fleet/clusters/install') {
+      return { status: 422, contentType: 'application/problem+json', body: JSON.stringify({ status: 422, title: 'Unprocessable Entity',
+        detail: "the hub's operator advertises no chart version: run pacto cluster install --from argocd --chart-version <version>" }) };
+    }
+    if (flags.__pactoClusterJoin && method === 'GET' && route === '/api/fleet/clusters/install') {
+      const from = new URLSearchParams(path.split('?')[1] ?? '').get('from');
+      return { status: 200, contentType: 'application/yaml', body: `# The member install for ${from}\nregistry: ghcr.io/acme\n` };
     }
     if (method === 'GET' && (route === '/api/stats' || route === '/api/stats/records') && statsMode() !== 'engine') {
       if (statsMode() === 'off') return { status: 404, contentType: 'application/problem+json', body: JSON.stringify({ status: 404, title: 'Not Found' }) };
@@ -1915,6 +2232,20 @@ export function installScaleFixture(): void {
       const plan = await (real as Serve)('POST', '/api/delivery/plan', body);
       return { status: 409, contentType: 'application/json', body: JSON.stringify({ status: 409, code: 'PlanStale',
         detail: 'the Stage moved since you planned; review the fresh plan and propose again', plan: JSON.parse(plan.body) }) };
+    }
+    // 515-S4: an inferred offering whose parameters are open, refused with every open path.
+    if ((window as unknown as { __offeringSchemaOpen?: boolean }).__offeringSchemaOpen && method === 'POST' && route === '/api/fleet/declare') {
+      const paths = Array.from({ length: 8 }, (_, i) => `provisioning: schema.properties.${longName(`parameters-${i}`).replace(/[^a-z0-9-]/g, '')}`);
+      return { status: 200, contentType: 'application/json', body: JSON.stringify({ signing: { mode: 'none', reason: 'the demo has no sign-in' }, write: { available: true },
+        refusal: { code: 'OfferingSchemaOpen', message: `the offering's parameters are not a closed space, open at ${paths.join(', ')}: close each path in a folder (additionalProperties: false, a type, a class enum) and accept it with --dir`,
+          command: `pacto declare offering:xbucket --from oci://ghcr.io/acme/pacto-inferred/crossplane-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11/services@sha256:${'4c'.repeat(32)} --registry demo.pacto.local --version 1.0.0` } }) };
+    }
+    if (flags.__pactoCreateService && flags.__pactoCreateService !== 'off' && method === 'POST' && route === '/api/fleet/services') {
+      const a = createServiceAnswer(body);
+      return { status: a.status, contentType: a.status === 200 ? 'application/json' : 'application/problem+json', body: JSON.stringify(a.body) };
+    }
+    if (flags.__pactoCreateService && flags.__pactoCreateService !== 'off' && method === 'POST' && route === '/api/fleet/services/accept') {
+      return { status: 200, contentType: 'application/json', body: JSON.stringify(createServiceAcceptAnswer(body)) };
     }
     if (flags.__pactoDeclare && method === 'POST' && route === '/api/fleet/declare') {
       return { status: 200, contentType: 'application/json', body: JSON.stringify(declareAnswer(body)) };
@@ -1956,7 +2287,10 @@ export function installScaleFixture(): void {
     // and amend renames it.
     const asked = route === '/api/fleet/entities/external' && new URLSearchParams(path.split('?')[1] ?? '').get('key') === 'stripe'
       ? path.replace('key=stripe', 'key=parcel-carrier') : engineName(path);
-    const res = await (real as Serve)(method, asked, body);
+    // One Stage of another cluster: the demo reads only its own, so the fixture asks
+    // for the Stage there and names the cluster on the answer.
+    const askedCluster = flags.__pactoDeliveryClusters && route === '/api/delivery/history' ? new URLSearchParams(path.split('?')[1] ?? '').get('cluster') ?? '' : '';
+    const res = await (real as Serve)(method, askedCluster ? asked.replace(/[?&]cluster=[^&]*/, (m) => (m[0] === '?' ? '?' : '')).replace('?&', '?') : asked, body);
     if (res.status !== 200 || !(res.contentType || '').includes('json')) return res;
     let doc: Record<string, unknown>;
     try { doc = JSON.parse(res.body); } catch { return res; }
@@ -1971,10 +2305,15 @@ export function installScaleFixture(): void {
       return res;
     }
     if (declared) clusterFacts(doc);
+    if (flags.__pactoDeliveryClusters) deliveryClusters(route, doc, askedCluster);
     if (flags.__pactoInspected && method === 'POST' && route === '/api/delivery/plan' && Array.isArray(doc.verdicts)) {
       const refused = [`ClusterRoleBinding ${longName('orders-admin')} is cluster-scoped`, `Deployment ${longName('orders')} is in ${longName('kube-system')}, outside prod`];
-      doc.verdicts.push({ gate: 'pacto.manifests', phase: 'pre', result: 'Fail', message: `the version reaches outside prod: ${refused.join('; ')}`,
-        citation: { artifact: 'manifests', objects: `${Array.from({ length: 50 }, (_, i) => `Deployment ${longName(`orders-${i}`)}`).join(', ')} and 12 more`, refused: refused.join('; ') } });
+      // The fixture's verdict stands in for the demo's own (an inspected Stage plans one).
+      const verdicts = (doc.verdicts as Record<string, unknown>[]).filter((v) => v.gate !== 'pacto.manifests');
+      doc.verdicts = verdicts;
+      verdicts.push({ gate: 'pacto.manifests', phase: 'pre', result: 'Fail', message: `the version reaches outside prod: ${refused.join('; ')}`,
+        citation: { artifact: 'manifests', objects: `${Array.from({ length: 50 }, (_, i) => `Deployment ${longName(`orders-${i}`)}`).join(', ')} and 12 more`, refused: refused.join('; '),
+          valuesFile: `${longName('values-production-eu-west')}/values_production_eu_west_1_settlement_reconciliation_ledger_export_partner_feed.yaml`, valuesDigest: 'sha256:' + 'e'.repeat(64) } });
     }
     if (flags.__pactoMultiCluster && method === 'GET' && route === '/api/fleet/entities' && doc.meta) {
       const n63 = (s: string) => `${s}-${'x'.repeat(63)}`.slice(0, 63);
@@ -2516,6 +2855,38 @@ export const claimRoute = (mode: '' | 'refused') => async (page: Page) => {
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
 };
 
+/** The contributed xbucket's page (515-S4), its key as the fleet routes it. */
+export const XBUCKET = `#/fleet/services/${encodeURIComponent('ghcr.io%2Facme%2Fpacto-inferred%2Fcrossplane-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11/xbucket')}`;
+
+/** The Offerings list on its inferred offerings, by deep link and again after a reload;
+ *  `onlyInferred` answers with no declared offering, so the empty state carries the link. */
+export const inferredOfferingsRoute = (onlyInferred: boolean) => async (page: Page) => {
+  if (onlyInferred) {
+    await page.addInitScript(() => { (window as unknown as { __offeringsOnlyInferred?: boolean }).__offeringsOnlyInferred = true; });
+    await page.goto('/#/fleet/offerings');
+    await page.reload();
+    await expect(page.getByTestId('offering-inferred-total').first()).toBeVisible({ timeout: 30_000 });
+    return;
+  }
+  await page.goto('/#/fleet/offerings?inferred=1');
+  await page.reload();
+  await expect(page.getByTestId('offering-inferred').first()).toBeVisible({ timeout: 30_000 });
+};
+
+/** xbucket's Accept panel planned with a 63-character owner, or refused for an open schema. */
+export const acceptOfferingRoute = (open: boolean) => async (page: Page) => {
+  if (open) await page.addInitScript(() => { (window as unknown as { __offeringSchemaOpen?: boolean }).__offeringSchemaOpen = true; });
+  await page.goto(`/${XBUCKET}?declare=1`);
+  await page.reload();
+  const panel = page.getByTestId('declare');
+  await panel.getByTestId('offering-version').fill('1.0.0');
+  await panel.getByTestId('offering-owner').fill(`team-${'storage-'.repeat(9)}`.slice(0, 63).replace(/-+$/, ''));
+  await panel.getByTestId('offering-plan').click();
+  await expect(panel.getByTestId(open ? 'offering-open-paths' : 'declare-signer').first()).toBeVisible({ timeout: 30_000 });
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
 export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden' | 'execute' | 'drafts' | 'nowrite' | 'nosign' | 'signed') => async (page: Page) => {
   const flag = (m: string) => { (window as unknown as { __pactoAccept?: string }).__pactoAccept = m; };
   await page.addInitScript(flag, mode);
@@ -2541,6 +2912,81 @@ export const acceptPlanRoute = (mode: 'plan' | 'refused' | 'forbidden' | 'execut
     await expect(block.getByTestId('accept-drafts').locator('li').first()).toBeVisible({ timeout: 30_000 });
   }
   await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
+export type CreateServiceMode = 'plan' | 'published' | 'pull' | 'draftlink' | 'forbidden' | 'refused' | 'parameter' | 'portal' | 'off';
+export const CREATE_INTENT = `sha256:${'c5'.repeat(32)}`;
+/** The longest valid service name and namespace the Create service routes type. */
+export const CREATE_NAME = `invoices-${'reconciliation-'.repeat(4)}`.slice(0, 63).replace(/-+$/, '');
+const CREATE_NAMESPACE = `team-${'billing-'.repeat(8)}`.slice(0, 63).replace(/-+$/, '');
+
+/** Opens the http-service golden path page through the Golden paths list, its Create
+ *  service panel in the fixture's mode: planned (pacto.yaml open), refused for a taken
+ *  name, denied by the review, refused at three fields, led by the portal, or back from a
+ *  signing login (the inputs kept as the panel keeps them) and published. Reload: the
+ *  flag is read per answer and the init script runs only on a new document. */
+export const createServiceRoute = (mode: Exclude<CreateServiceMode, 'off'>, name = CREATE_NAME, namespace = CREATE_NAMESPACE) => async (page: Page) => {
+  await page.addInitScript((m) => { (window as unknown as { __pactoCreateService?: string }).__pactoCreateService = m; }, mode);
+  const signedBack = mode === 'published' || mode === 'pull';
+  if (signedBack) {
+    const kept = JSON.stringify({ name, owner: 'billing', namespace, repository: '', revision: '', once: {}, perEnv: {}, env: '', draft: null });
+    await page.addInitScript(([k, v]) => sessionStorage.setItem(k, v), [`pacto-create:${CREATE_INTENT}`, kept]);
+  }
+  await page.goto('/#/fleet/golden-paths');
+  const a = page.locator('main a[href*="/fleet/services/http-service"]').first();
+  await expect(a).toBeVisible({ timeout: 30_000 });
+  const query = signedBack ? `?create=1&signed=${encodeURIComponent(CREATE_INTENT)}` : mode === 'draftlink' ? `?create=${name}&draft=draft-1` : '';
+  await page.goto(`/${await a.getAttribute('href')}${query}`);
+  await page.reload();
+  const panel = page.getByTestId('create-service');
+  if (mode === 'portal') {
+    await expect(panel.getByTestId('create-open-portal')).toBeVisible({ timeout: 30_000 });
+  } else if (mode === 'draftlink') {
+    await expect(panel.getByTestId('create-draft-link')).toBeVisible({ timeout: 30_000 });
+  } else if (signedBack) {
+    await panel.getByTestId('create-publish').click({ timeout: 30_000 });
+    await expect(panel.getByTestId('create-result')).toBeVisible({ timeout: 30_000 });
+  } else {
+    await panel.getByTestId('create-name').fill(name, { timeout: 30_000 });
+    await panel.getByTestId('create-owner').fill('billing');
+    await panel.getByTestId('create-namespace').fill(namespace);
+    await panel.getByTestId('create-review').click();
+    await expect(panel.getByTestId(mode === 'plan' || mode === 'parameter' ? 'create-plan' : 'refusal').first()).toBeVisible({ timeout: 30_000 });
+    if (mode === 'plan') {
+      await panel.getByTestId('create-contract').locator('> summary').click();
+      await panel.getByTestId('create-guarantees').first().locator('> summary').click();
+    }
+    if (mode === 'parameter') {
+      const param = (path: string) => panel.locator(`[data-testid="create-param"][data-field="${path}"] input`).first();
+      await param('storageGi').fill('900');
+      await param('backups.retentionDays').fill('99');
+      await param(`maintenance.${'preferredWindow'.repeat(4)}`).fill('99');
+      await panel.getByTestId('create-review').click();
+      await expect(panel.getByTestId('create-refusal')).toHaveCount(3, { timeout: 30_000 });
+    }
+  }
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
+/** Opens Golden paths with Create service open on the list. */
+const createServiceListRoute = async (page: Page) => {
+  await page.addInitScript(() => { (window as unknown as { __pactoCreateService?: string }).__pactoCreateService = 'plan'; });
+  await page.goto('/#/fleet/golden-paths');
+  await page.reload();
+  await page.getByTestId('create-service-toggle').click({ timeout: 30_000 });
+  await expect(page.getByTestId('golden-path-create-service').getByTestId('create-form')).toBeVisible({ timeout: 30_000 });
+  await page.mouse.move(0, 0);
+  await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+};
+
+/** The first golden path page on a host that creates nothing: the commands open, as on main. */
+const goldenPathNoCreate = async (page: Page) => {
+  await page.addInitScript(() => { (window as unknown as { __pactoCreateService?: string }).__pactoCreateService = 'off'; });
+  await firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/')(page);
+  await page.reload(); // the init script runs only on a new document
+  await expect(page.getByTestId('golden-path-create')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByTestId('create-form')).toHaveCount(0);
 };
 
 /** Opens a service page and waits for its Delivery rows, so an error page fails the route. */
@@ -2798,6 +3244,37 @@ function openClusterJoin(approve: boolean): (page: Page) => Promise<void> {
   };
 }
 
+// 514-S5: Data sources under the candidate fixture, optionally with the disclosure open
+// (and, in 'candidates-fail', the Argo CD download refused, its error under the button).
+function openCandidates(mode: 'candidates' | 'candidates-zero' | 'candidates-fail', open: boolean): (page: Page) => Promise<void> {
+  return async (page) => {
+    await page.evaluate((m) => { (window as unknown as { __pactoClusterJoin?: string }).__pactoClusterJoin = m; }, mode);
+    await page.goto('/#/fleet/sources');
+    const det = page.getByTestId('cluster-candidates');
+    await expect(det).toBeVisible({ timeout: 30_000 });
+    if (open) {
+      await det.evaluate((d) => { (d as HTMLDetailsElement).open = true; });
+      await expect(det.getByTestId('cluster-candidate').first()).toBeVisible();
+    }
+    if (mode === 'candidates-fail') {
+      await det.getByRole('button', { name: 'Get ApplicationSet' }).click();
+      await expect(det.getByTestId('cluster-candidate-error')).toBeVisible();
+    }
+    await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+  };
+}
+
+// 514-S7: the three-cluster delivery and impact fixture, then a delivery list under it.
+const deliveryClustersOn = (page: Page) => page.evaluate(() => { (window as unknown as { __pactoDeliveryClusters?: boolean }).__pactoDeliveryClusters = true; });
+function deliveryClustersRoute(hash: string, ready: string): (page: Page) => Promise<void> {
+  return async (page) => {
+    await deliveryClustersOn(page);
+    await page.goto(`/${hash}`);
+    await expect(page.locator(ready).first()).toBeVisible({ timeout: 30_000 });
+    await page.evaluate(() => window.scrollTo(0, 0));
+  };
+}
+
 export const ROUTES: Route[] = [
   { name: 'overview', hash: '#/fleet' },
   { name: 'overview watched namespaces', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __scoped?: boolean }).__scoped = true; }); await page.goto('/#/fleet'); await page.reload(); } }, // reload: the init script only runs on a new document
@@ -2807,6 +3284,7 @@ export const ROUTES: Route[] = [
   { name: 'offerings', list: true, hash: '#/fleet/offerings' },
   { name: 'offerings failed', list: true, hash: '#/fleet/offerings?failed=1' },
   { name: 'offerings deprecated', list: true, hash: '#/fleet/offerings?lifecycle=deprecated' },
+  { name: 'offerings consumable', list: true, hash: '#/fleet/offerings?consumable=1' },
   { name: 'sources', list: true, hash: '#/fleet/sources' },
   // 509-S12: Needs attention is the rail beside the Overview's map; its links land filtered.
   { name: 'overview attention filtered', hash: '#/fleet/attention?category=health' },
@@ -3133,6 +3611,35 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
+  // 517-S7: orders-db's Resources block (examples/demo/source_managed.go), the externals
+  // list narrowed to the systems with a resource outside the contract, and the block at
+  // scale behind the __managedResources fixture above.
+  { name: 'external entity with resources', open: async (page) => { await page.goto('/#/fleet/externals/aws/rds/123456789012/eu-west-1/orders-db'); await expect(page.getByTestId('external-resource').first()).toBeVisible({ timeout: 30_000 }); await page.evaluate(() => window.scrollTo(0, 0)); } },
+  { name: 'externals outside contract', list: true, hash: '#/fleet/externals?outsideContract=1' },
+  {
+    name: 'external entity resources at scale, hidden and truncated',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __managedResources?: boolean }).__managedResources = true; });
+      await page.goto('/#/fleet/externals/aws/rds/123456789012/eu-west-1/orders-db');
+      await page.reload(); // the init script only runs on a new document
+      await expect(page.getByTestId('external-resource')).toHaveCount(20, { timeout: 30_000 });
+      await expect(page.getByTestId('external-resources-more')).toHaveText('and 480 more');
+      await expect(page.getByTestId('resource-claim-join')).toHaveCount(20);
+      await expect(page.getByTestId('resource-claim-propose')).toHaveCount(20);
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
+  {
+    name: 'external entity resources, every one hidden',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __managedResources?: boolean | 'hidden' }).__managedResources = 'hidden'; });
+      await page.goto('/#/fleet/externals/aws/rds/123456789012/eu-west-1/orders-db');
+      await page.reload(); // the init script only runs on a new document
+      await expect(page.getByTestId('external-resources-caption')).toHaveText('7 managed resources read for it, none of which you can see.', { timeout: 30_000 });
+      await expect(page.getByTestId('external-resource')).toHaveCount(0);
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   { name: 'graph external focus', hash: '#/fleet/graph/external/parcel-carrier' },
   { name: 'source entity', hash: '#/fleet/sources/edge-cluster' },
   {
@@ -3146,8 +3653,17 @@ export const ROUTES: Route[] = [
     },
   },
   { name: 'golden paths', list: true, hash: '#/fleet/golden-paths' },
-  { name: 'golden path entity', open: firstLink('#/fleet/golden-paths?sort=name', '/fleet/services/') },
+  { name: 'golden path entity', open: goldenPathNoCreate },
   { name: 'service created from a golden path', open: createdService },
+  { name: 'golden paths, create service open', open: createServiceListRoute },
+  { name: 'golden path entity, create service plan', open: createServiceRoute('plan') },
+  { name: 'golden path entity, create service refused', open: createServiceRoute('refused') },
+  { name: 'golden path entity, create service parameter refused', open: createServiceRoute('parameter') },
+  { name: 'golden path entity, create service portal', open: createServiceRoute('portal') },
+  { name: 'golden path entity, create service published', open: createServiceRoute('published') },
+  { name: 'golden path entity, create service published, pull and not indexed', open: createServiceRoute('pull') },
+  { name: 'golden path entity, create service draft review link', open: createServiceRoute('draftlink') },
+  { name: 'golden path entity, create service forbidden', open: createServiceRoute('forbidden') },
   { name: 'delivery inbox', list: true, hash: '#/delivery/inbox' },
   {
     name: 'delivery inbox, new signer',
@@ -3159,6 +3675,32 @@ export const ROUTES: Route[] = [
   },
   { name: 'delivery environments', list: true, hash: '#/delivery/environments' },
   { name: 'delivery environments of one service', hash: '#/delivery/environments?service=payments' },
+  {
+    // A warning applier line clamps to two lines; tabbing into its values mark lifts the
+    // clamp, and neither the mark nor its tip is clipped.
+    name: 'delivery environments, a warning applier keeps its values mark reachable',
+    open: async (page) => {
+      await page.goto('/#/delivery/environments?service=payments');
+      const line = page.locator('.ev-ready[data-testid="env-applier"]').first();
+      await expect(line).toBeVisible({ timeout: 30_000 });
+      await line.focus();
+      await page.keyboard.press('Tab');
+      const button = line.getByRole('button');
+      await expect(button).toBeFocused();
+      const tip = line.locator('.help-body');
+      await expect(tip).toBeVisible({ timeout: 30_000 });
+      for (const el of [button, tip]) {
+        expect(await el.evaluate((e) => {
+          e.scrollIntoView({ block: 'nearest' });
+          const r = e.getBoundingClientRect();
+          const at = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+          return !!at && (at === e || e.contains(at));
+        }), 'the values mark and its tip are not clipped').toBe(true);
+      }
+      await page.keyboard.press('Escape');
+      await page.evaluate(() => window.scrollTo(0, 0));
+    },
+  },
   { name: 'delivery history', list: true, hash: '#/delivery/history' },
   { name: 'delivery stage history', hash: '#/delivery/history?namespace=prod&stage=payments' },
   {
@@ -3376,6 +3918,20 @@ export const ROUTES: Route[] = [
       const verdict = panel.getByTestId('plan-verdicts').locator('li.vl-item').filter({ hasText: 'pacto.manifests' });
       await verdict.locator('summary').click();
       await expect(verdict.locator('.vl-cite dt', { hasText: 'objects' })).toBeVisible({ timeout: 30_000 });
+      // The values line wraps a path with no hyphen or space by its own style, wherever it
+      // renders (DeliveryChangeView's checks have no wrapping ancestor): a copy in a phone-wide
+      // box that wraps nothing stays inside it.
+      const values = verdict.getByTestId('verdict-values');
+      await expect(values).toBeVisible();
+      expect(await values.evaluate((e) => {
+        const box = document.createElement('div');
+        box.style.cssText = 'width: 300px; overflow-wrap: normal; word-break: normal';
+        box.append(e.cloneNode(true));
+        document.body.append(box);
+        const fits = box.scrollWidth <= 301;
+        box.remove();
+        return fits;
+      }), 'the values line wraps').toBe(true);
       await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
     },
   },
@@ -3542,6 +4098,11 @@ export const ROUTES: Route[] = [
   // 514-S3: pending members and the [Approve] hand-off inside the Clusters block.
   { name: 'sources, cluster-join', list: true, open: openClusterJoin(false) },
   { name: 'sources, cluster-join approve open', list: true, open: openClusterJoin(true) },
+  // 514-S5: the candidate clusters on a hub with no member yet, collapsed, and with the
+  // members and every source group open.
+  { name: 'sources, candidates', list: true, open: openCandidates('candidates-zero', false) },
+  { name: 'sources, candidates open', list: true, open: openCandidates('candidates', true) },
+  { name: 'sources, candidates install refused', list: true, open: openCandidates('candidates-fail', true) },
   // 514-S4: the eu-prod chip's tip opened, so the gate measures the long issuer URL.
   {
     name: 'sources, member-links tip open',
@@ -3585,6 +4146,22 @@ export const ROUTES: Route[] = [
   { name: 'external entity, unclaimed with claim', open: async (page) => { await page.goto('/#/fleet/externals/stripe'); await expect(page.getByTestId('external-claim')).toBeVisible({ timeout: 30_000 }); } },
   { name: 'external entity, claim panel', open: claimRoute('') },
   { name: 'external entity, claim refused', open: claimRoute('refused') },
+  // 515-S4: the Offerings list switched to its inferred offerings (a deep link that
+  // survives a reload), the list with no declared offering beside them, the contributed
+  // xbucket's Accept panel planned and refused for an open schema, and a provider's drift.
+  { name: 'offerings, inferred shown', list: true, open: inferredOfferingsRoute(false) },
+  { name: 'offerings, only inferred', list: true, open: inferredOfferingsRoute(true) },
+  { name: 'inferred offering page, accept panel', open: acceptOfferingRoute(false) },
+  { name: 'inferred offering page, schema open', open: acceptOfferingRoute(true) },
+  {
+    name: 'offering page, drift',
+    open: async (page) => {
+      await page.addInitScript(() => { (window as unknown as { __offeringDrift?: boolean }).__offeringDrift = true; });
+      await page.goto('/#/fleet/offerings/postgresql');
+      await page.reload();
+      await expect(page.getByTestId('provider-drift').first()).toBeVisible({ timeout: 30_000 });
+    },
+  },
   // 511-S5: the installation ladder proposal opened as a person who may confirm it (the
   // default persona is an agent, which sees no Confirm), with the long command shown.
   {
@@ -3612,6 +4189,32 @@ export const ROUTES: Route[] = [
       await page.evaluate(() => window.scrollTo(0, 0));
     },
   },
+  // 515-S7: inferred golden paths a catalog holds, muted rows in the Golden paths table;
+  // Accept opens the Declare panel on the page; a signing login comes back to it.
+  { name: 'golden paths, inferred from a catalog', list: true, open: async (page) => { await page.goto('/#/fleet/golden-paths?declaration=inferred'); await expect(page.locator('[data-testid=golden-path-list] tbody tr').first()).toHaveClass(/gp-inferred/, { timeout: 30_000 }); } },
+  { name: 'golden paths, accept an inferred path', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __pactoDeclare?: string }).__pactoDeclare = 'panel'; }); await page.goto('/#/fleet/golden-paths'); await page.reload(); await page.getByTestId('inferred-accept').first().click(); await expect(page.getByTestId('golden-path-accept').getByTestId('declare-command')).toBeVisible({ timeout: 30_000 }); await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0)); } }, // reload: the init script only runs on a new document
+  { name: 'golden paths, back from a signing login', open: async (page) => { await page.addInitScript(() => { (window as unknown as { __pactoDeclare?: string }).__pactoDeclare = 'signed'; }); await page.goto(`/#/fleet/golden-paths?declare=${encodeURIComponent(`template:default/${'springboot-service-'.repeat(4).slice(0, 63).replace(/-+$/, '')}`)}&signed=${encodeURIComponent(DECLARE_INTENT)}`); await page.reload(); await expect(page.getByTestId('golden-path-accept').getByTestId('declare-signed-return')).toBeVisible({ timeout: 30_000 }); await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0)); } },
+  // Every inferred row expanded on a host that declares nothing for this caller: the
+  // longest no-accept line (the CLI command with a long subject) and Show fewer.
+  { name: 'golden paths, inferred expanded, no declare', list: true, open: async (page) => { await page.addInitScript(() => { (window as unknown as { __pactoNoDeclare?: boolean }).__pactoNoDeclare = true; }); await page.goto('/#/fleet/golden-paths?declaration=inferred'); await page.reload(); await page.getByTestId('inferred-more').click(); await expect(page.getByTestId('inferred-more')).toHaveText('Show fewer inferred', { timeout: 30_000 }); await expect(page.getByText('Accept it from a terminal: pacto declare').first()).toBeVisible({ timeout: 30_000 }); await page.mouse.move(0, 0); await page.evaluate(() => window.scrollTo(0, 0)); } },
+  // 514-S7: answers read from several clusters (the three-cluster fixture above): cluster
+  // prefixes on consumer targets and delivery rows, and the per-cluster partial line.
+  {
+    name: 'change analysis cluster',
+    open: async (page) => {
+      await deliveryClustersOn(page);
+      await page.goto('/#/fleet/changes/payments-service');
+      await chooseRevision(page, '#impact-old-rev', '1.0.0');
+      await chooseRevision(page, '#impact-new-rev', '2.0.1');
+      await page.getByRole('button', { name: /Compare revisions/ }).click();
+      await page.locator('#sec-affected-consumers > summary').click({ timeout: 30_000 });
+      await expect(page.getByTestId('consumer-target-cluster-stale').first()).toBeVisible({ timeout: 30_000 });
+      await page.evaluate(() => window.scrollTo(0, 0)); // the gate reads from the top
+    },
+  },
+  { name: 'delivery clusters environments', list: true, open: deliveryClustersRoute('#/delivery/environments', '[data-testid="listing-clusters"]') },
+  { name: 'delivery clusters inbox', list: true, open: deliveryClustersRoute('#/delivery/inbox', '[data-testid="listing-clusters"]') },
+  { name: 'delivery clusters history', list: true, open: deliveryClustersRoute('#/delivery/history?namespace=prod&stage=payments&cluster=9f1c4e2a-3b7d-4e19-a2c5-6d8f0b1e7a34', 'h1:has-text("production-eu-central-1")') },
 ];
 
 /** Flips the sidebar with its "[" shortcut and returns the state it lands in. */

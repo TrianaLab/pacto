@@ -91,7 +91,7 @@ func newKeypair(t *testing.T) *signing.Keypair {
 
 func newCtbEnv(t *testing.T) *ctbEnv {
 	t.Helper()
-	srv := httptest.NewServer(registry.New(registry.Logger(log.New(io.Discard, "", 0))))
+	srv := probedServer(t, registry.New(registry.Logger(log.New(io.Discard, "", 0))))
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 	kc := authn.NewMultiKeychain()
@@ -179,6 +179,7 @@ func hasProblem(f fleet.ProducerFacts, part string) bool {
 // each service whose record holds its tag's name and version; a tag that
 // replays another digest is refused and counted, and other tags ignored.
 func TestContributionReaderReadsNewestPerService(t *testing.T) {
+	t.Parallel()
 	e := newCtbEnv(t)
 	created := readNow().Add(-time.Hour).Format(time.RFC3339)
 	old := e.push(t, "ledger-sync_0.1.0", "ledger-sync", "0.1.0", created, e.mine)
@@ -218,6 +219,7 @@ func (e *ctbEnv) versions(t *testing.T, revs []fleet.RawRevision) map[string]str
 // TestContributionReaderAsOfFromManifest: AsOf is the signed manifest's
 // created time, zero when it carries none.
 func TestContributionReaderAsOfFromManifest(t *testing.T) {
+	t.Parallel()
 	e := newCtbEnv(t)
 	made := readNow().Add(-3 * time.Hour)
 	e.push(t, "dated_1.0.0", "dated", "1.0.0", made.Format(time.RFC3339), e.mine)
@@ -234,6 +236,7 @@ func TestContributionReaderAsOfFromManifest(t *testing.T) {
 // TestContributionReaderFutureAsOfIsUnknown: a record dated past the clock
 // skew has an unknown age, said on the row; one within it keeps its time.
 func TestContributionReaderFutureAsOfIsUnknown(t *testing.T) {
+	t.Parallel()
 	e := newCtbEnv(t)
 	near := readNow().Add(time.Minute)
 	e.push(t, "ahead_1.0.0", "ahead", "1.0.0", readNow().AddDate(1, 0, 0).Format(time.RFC3339), e.mine)
@@ -249,6 +252,7 @@ func TestContributionReaderFutureAsOfIsUnknown(t *testing.T) {
 // cannot rebuild under one of its roots for the advertised producer is
 // never listed or pulled.
 func TestContributionReaderRefusesForeignRepository(t *testing.T) {
+	t.Parallel()
 	e := newCtbEnv(t)
 	for name, repo := range map[string]string{
 		"another host":     "evil.example/acme/pacto-inferred/my-idp/services",
@@ -270,6 +274,7 @@ func TestContributionReaderRefusesForeignRepository(t *testing.T) {
 // registry roots, one the reader is configured for, is one partial row that
 // names both repositories and why the other was not read.
 func TestContributionReaderOneRowPerProducer(t *testing.T) {
+	t.Parallel()
 	e := newCtbEnv(t)
 	e.push(t, "ledger-sync_1.0.0", "ledger-sync", "1.0.0", readNow().Add(-time.Hour).Format(time.RFC3339), e.mine)
 	other := e.contributor()
@@ -285,6 +290,7 @@ func TestContributionReaderOneRowPerProducer(t *testing.T) {
 // TestContributionReaderDropsUnsigned: an unsigned record is refused and
 // counted; the source is not partial.
 func TestContributionReaderDropsUnsigned(t *testing.T) {
+	t.Parallel()
 	e := newCtbEnv(t)
 	e.push(t, "ledger-sync_1.0.0", "ledger-sync", "1.0.0", "", nil)
 	revs, f, lims := e.read(e.contributor())
@@ -297,6 +303,7 @@ func TestContributionReaderDropsUnsigned(t *testing.T) {
 // signed is refused, and an older one my-idp signed is read instead, naming
 // the newer version refused.
 func TestContributionReaderDropsForeignKey(t *testing.T) {
+	t.Parallel()
 	e := newCtbEnv(t)
 	e.push(t, "ledger-sync_1.0.0", "ledger-sync", "1.0.0", "", e.mine)
 	e.push(t, "ledger-sync_2.0.0", "ledger-sync", "2.0.0", "", e.other)
@@ -309,6 +316,7 @@ func TestContributionReaderDropsForeignKey(t *testing.T) {
 // TestContributionReaderBounds: at most maxContributedServices services per
 // producer, charged before any read, and at most fleetsrc.MaxContributors producers.
 func TestContributionReaderBounds(t *testing.T) {
+	t.Parallel()
 	reg := &countingReads{headErr: errors.New("connection refused")}
 	for i := range maxContributedServices + 1 {
 		reg.extraTags = append(reg.extraTags, fmt.Sprintf("svc-%03d_1.0.0", i))
@@ -337,7 +345,8 @@ func TestContributionReaderBounds(t *testing.T) {
 // registry refuses to list makes the source partial, with a reason that
 // echoes no credential.
 func TestContributionReaderUnlistedRepoIsPartialSource(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
+	t.Parallel()
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusUnauthorized) }))
 	defer srv.Close()
 	host := strings.TrimPrefix(srv.URL, "http://")
 	kc := authn.NewMultiKeychain()
@@ -353,6 +362,7 @@ func TestContributionReaderUnlistedRepoIsPartialSource(t *testing.T) {
 // TestContributionReaderNoTagRow: a repository that does not exist yet
 // reads as a partial row and an available source.
 func TestContributionReaderNoTagRow(t *testing.T) {
+	t.Parallel()
 	e := newCtbEnv(t)
 	col := collectContributors(t, []evidenceingest.ProducerContributor{e.contributor()}, e.reader)
 	if len(col.Limitations) != 0 || len(col.Providers) != 1 || col.Providers[0].Status != fleet.SourcePartial ||
@@ -364,6 +374,7 @@ func TestContributionReaderNoTagRow(t *testing.T) {
 // TestContributionReaderMemoisesVerified: a second read verifies nothing it
 // already verified.
 func TestContributionReaderMemoisesVerified(t *testing.T) {
+	t.Parallel()
 	e := newCtbEnv(t)
 	e.push(t, "ledger-sync_1.0.0", "ledger-sync", "1.0.0", "", e.mine)
 	if revs, _, _ := e.read(e.contributor()); len(revs) != 1 {
@@ -390,6 +401,7 @@ func TestContributionReaderMemoisesVerified(t *testing.T) {
 // TestContributionReaderStopsOnReadError: a registry error while reading a
 // record stops that service, makes the source partial and is counted.
 func TestContributionReaderStopsOnReadError(t *testing.T) {
+	t.Parallel()
 	e := newCtbEnv(t)
 	e.push(t, "ledger-sync_1.0.0", "ledger-sync", "1.0.0", "", e.mine)
 	e.reg.extraTags = []string{"ghost_1.0.0"}
@@ -440,7 +452,7 @@ func servedEvidence(t *testing.T, targets string, producers evidenceingest.Produ
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET "+evidenceingest.TargetsPath, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write([]byte(targets)) })
 	mux.HandleFunc("GET "+evidenceingest.ProducersPath, func(w http.ResponseWriter, _ *http.Request) { _, _ = w.Write(body) })
-	srv := httptest.NewServer(mux)
+	srv := probedServer(t, mux)
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -448,6 +460,7 @@ func servedEvidence(t *testing.T, targets string, producers evidenceingest.Produ
 // TestContributionAgingUnreadHeadIsNotAging: a record whose head cannot be
 // read says nothing about its age, so the unchanged push stays a no-op.
 func TestContributionAgingUnreadHeadIsNotAging(t *testing.T) {
+	t.Parallel()
 	reg := &countingReads{headErr: errors.New("boom")}
 	svc := &Service{sys: sysDeps{publishRegistry: func() publish.Registry { return reg }}}
 	if svc.contributionAging(context.Background(), "host/acme/x:y") || reg.heads != 1 {

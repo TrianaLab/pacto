@@ -54,6 +54,34 @@ being named. `unreadable` names a namespace that refused the list, and without
 `--fleet` the inbox names `owners` there, since no owner is known and every
 Stage is shown as the caller's.
 
+### Delivery in other clusters
+
+When the server reads more than one kubeconfig context, or a hub's approved
+members, the inbox and environments answers read every one of those clusters
+the caller may see. A member is read from the Stage records it signs.
+Each item carries its `cluster`, `listing.clusters` says how completely each
+cluster was read and `listing.hiddenClusters` counts the clusters the caller
+may not see, never naming one. An item of another cluster is `readOnly`, with
+`next`, the command that acts in its own cluster. Pass that `cluster` to
+`pacto_delivery_get`, `pacto_delivery_explain`, `pacto_delivery_history`,
+`pacto_delivery_blame`, `pacto_delivery_record_get` or
+`pacto_delivery_undo_plan` to read one Stage or change there. A history walk
+(no `stage`) reads the server's own cluster only.
+
+## Plans over a hub's members
+
+On a hub, `pacto_delivery_operation_plan` takes `service`, `environment` and
+a `sha256:` digest in `to` in place of `namespace` and `stage`, and optionally
+`members`. Its `members` answer is the placement over the hub's members (from
+a signed placement rule, confirmed by a person's signed request or only the
+environments they take requests for), each member's state with `asOf` and
+completeness, and `next`, the command a person runs to sign the requests.
+Only a person signs a member request: `pacto_delivery_operation_propose`
+refuses member mode with `MemberRequestNeedsPerson` and that command.
+`pacto_delivery_refusals` lists the requests members refused, or whose promote
+their gates rejected, as rows with `check: member` and the member's name. See
+[Deliver through a member](integrations/kubernetes/delivery-members.md#deliver-through-a-member).
+
 ## Candidates, plans and history
 
 `pacto_delivery_candidates` lists the versions a Stage may take, with their
@@ -85,7 +113,10 @@ verdict its record signed, and the answer's `revisions` map each artifact
 digest to its revision key. `at` (same time forms, without `since`, `until`,
 `cause` or `correlation_id`) answers which revision each Stage ran at that
 time instead, with each Stage `known`, `partial` or `unknown`.
-`pacto_delivery_blame` adds the digest's `revision`. Every revision key on
+`pacto_delivery_blame` adds the digest's `revision`. `pacto_delivery_history`,
+`pacto_delivery_blame` and `pacto_delivery_undo_plan` take `cluster`, a
+cluster id as the inbox names it, to read one Stage or change of another
+cluster, reviewed for the caller there. Every revision key on
 these tools is derived from the contract's digest and name, not checked
 against a fleet.
 [Status, progress and lifecycle](integrations/kubernetes/delivery-status.md)

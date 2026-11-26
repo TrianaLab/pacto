@@ -248,7 +248,7 @@ function parseFleet(path: string, query: string): Route {
   }
 
   // The external-system list narrows by class.
-  if (rest === 'externals') return { view: 'fleet-externals', params: pick(query, ['text', 'class', 'offset', 'limit', 'sort']) };
+  if (rest === 'externals') return { view: 'fleet-externals', params: pick(query, ['text', 'class', 'outsideContract', 'offset', 'limit', 'sort']) };
 
   // Bare /fleet/owners and /fleet/sources are the product owner/source LISTS. They
   // must be matched before the entity-detail regex (which needs a trailing key).
@@ -259,8 +259,15 @@ function parseFleet(path: string, query: string): Route {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
-    // Only the offerings list narrows by lifecycle and by a failed request.
-    for (const k of rest === 'offerings' ? ['lifecycle', 'failed'] : []) {
+    // Only the offerings list narrows by lifecycle, by a failed request and to the
+    // offerings the viewer may consume, and switches to the inferred offerings; only
+    // the golden paths list by declaration, with the inferred path whose Declare panel
+    // is open (declare) and the intent a signing login came back with (signed).
+    const own: Record<string, string[]> = {
+      offerings: ['lifecycle', 'failed', 'inferred', 'consumable'],
+      'golden-paths': ['declaration', 'declare', 'signed'],
+    };
+    for (const k of own[rest] ?? []) {
       const v = qs.get(k);
       if (v) params[k] = v;
     }
@@ -275,10 +282,11 @@ function parseFleet(path: string, query: string): Route {
     const params: Record<string, string> = { kind: PLURAL_KIND[ent[1]], key: decodeURIComponent(ent[2]) };
     // A service page also keeps its Changes section's filter, page and scroll target,
     // and whether its Declare panel is open (declare=1) and the intent a signing
-    // login came back with (signed); an external system page keeps the same two for
-    // its Claim panel (517-S5).
+    // login came back with (signed), for its Create service panel when create=1
+    // (515-S6), or the created draft a review link names (create=<name>, draft and
+    // repository); an external system page keeps the same two for its Claim panel (517-S5).
     const qs = new URLSearchParams(query);
-    const own = ent[1] === 'services' ? ['changesKind', 'changesOffset', 'changesLimit', 'section', 'declare', 'signed'] : ent[1] === 'externals' ? ['declare', 'signed'] : [];
+    const own = ent[1] === 'services' ? ['changesKind', 'changesOffset', 'changesLimit', 'section', 'declare', 'create', 'signed', 'draft', 'repository'] : ent[1] === 'externals' ? ['declare', 'signed'] : [];
     for (const k of ['correlationID', ...own]) {
       const v = qs.get(k);
       if (v) params[k] = v;
@@ -311,7 +319,7 @@ export function metricsUrl(q: Partial<Record<(typeof METRICS_QUERY)[number], str
 }
 
 // The URL state of a delivery list: which Stage, which page and the filter.
-const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'state', 'signed', 'level', 'except', 'since', 'until', 'timed', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain', 'cause', 'correlationID', 'at'];
+const DELIVERY_QUERY = ['namespace', 'stage', 'offset', 'limit', 'q', 'environment', 'tier', 'state', 'signed', 'level', 'except', 'since', 'until', 'timed', 'held', 'frozen', 'errored', 'blockers', 'show', 'service', 'domain', 'cause', 'correlationID', 'at', 'cluster'];
 
 function parseDelivery(path: string, query: string): Route {
   const rest = path.slice('delivery'.length).replace(/^\//, '');
@@ -326,7 +334,7 @@ function parseDelivery(path: string, query: string): Route {
     if (v) params[k] = v;
   }
   // One Stage's history needs both halves of its name.
-  if (!params.namespace || !params.stage) { delete params.namespace; delete params.stage; }
+  if (!params.namespace || !params.stage) { delete params.namespace; delete params.stage; delete params.cluster; }
   // A domain only narrows an exact service.
   if (!params.service) delete params.domain;
   const views: Record<string, Route['view']> = {
@@ -547,31 +555,40 @@ export function fleetDomainsUrl(opts: { text?: string; hasNonCompliant?: boolean
   return str ? `#/fleet/domains?${str}` : '#/fleet/domains';
 }
 
-export function fleetOfferingsUrl(opts: { text?: string; lifecycle?: string; failed?: boolean } & ListPaging = {}): string {
+export function fleetOfferingsUrl(opts: { text?: string; lifecycle?: string; failed?: boolean; inferred?: boolean; consumable?: boolean } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.lifecycle) qs.set('lifecycle', opts.lifecycle);
   if (opts.failed) qs.set('failed', '1');
+  if (opts.inferred) qs.set('inferred', '1');
+  if (opts.consumable) qs.set('consumable', '1');
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/offerings?${str}` : '#/fleet/offerings';
 }
 
-// fleetExternalsUrl builds the external-system list route, narrowed by class.
-export function fleetExternalsUrl(opts: { text?: string; class?: string } & ListPaging = {}): string {
+// fleetExternalsUrl builds the external-system list route, narrowed by class and to
+// the systems with a managed resource outside the contract.
+export function fleetExternalsUrl(opts: { text?: string; class?: string; outsideContract?: boolean } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
   if (opts.class) qs.set('class', opts.class);
+  if (opts.outsideContract) qs.set('outsideContract', '1');
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/externals?${str}` : '#/fleet/externals';
 }
 
 // fleetGoldenPathsUrl builds the Golden paths list route: services whose contract
-// declares service.template and that run nowhere.
-export function fleetGoldenPathsUrl(opts: { text?: string } & ListPaging = {}): string {
+// declares service.template and that run nowhere. declaration narrows it to the
+// declared or the inferred ones; declare opens the Declare panel of an inferred one
+// (template:<namespace>/<name>) and signed is the intent a signing login came back with.
+export function fleetGoldenPathsUrl(opts: { text?: string; declaration?: string; declare?: string; signed?: string } & ListPaging = {}): string {
   const qs = new URLSearchParams();
   if (opts.text) qs.set('text', opts.text);
+  if (opts.declaration) qs.set('declaration', opts.declaration);
+  if (opts.declare) qs.set('declare', opts.declare);
+  if (opts.signed) qs.set('signed', opts.signed);
   setPaging(qs, opts);
   const str = qs.toString();
   return str ? `#/fleet/golden-paths?${str}` : '#/fleet/golden-paths';
@@ -636,6 +653,12 @@ export function serviceChangesUrl(key: string, opts: { changesKind?: string; cha
 // ride on the login's ticket.
 export function serviceDeclareUrl(key: string, opts: { signed?: string } = {}): string {
   return pagedHash(fleetEntityUrl('service', key), { declare: '1', signed: opts.signed });
+}
+
+// goldenPathDeclareUrl is the Golden paths list with the Declare panel of an inferred
+// golden path (template:<namespace>/<name>) open, where its signing login comes back.
+export function goldenPathDeclareUrl(key: string, opts: { signed?: string } = {}): string {
+  return fleetGoldenPathsUrl({ declare: key, signed: opts.signed });
 }
 
 // serviceAcceptSignedUrl is a service page a signing login for its accept plan comes

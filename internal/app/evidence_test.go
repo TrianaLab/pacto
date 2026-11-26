@@ -57,6 +57,7 @@ func writeEvidenceFile(t *testing.T, dir string, set evidence.EvidenceSet) strin
 }
 
 func TestGenerateKey_DefaultKeyID(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	kp, err := (&Service{}).GenerateKey(dir, "", "", false)
 	if err != nil {
@@ -81,6 +82,7 @@ func TestGenerateKey_DefaultKeyID(t *testing.T) {
 }
 
 func TestGenerateKey_ExplicitKeyID(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	kp, err := (&Service{}).GenerateKey(dir, "", "mykey", false)
 	if err != nil {
@@ -95,6 +97,7 @@ func TestGenerateKey_ExplicitKeyID(t *testing.T) {
 }
 
 func TestGenerateKey_WithProducer(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	kp, err := (&Service{}).GenerateKey(dir, "prod-eu", "k1", false)
 	if err != nil {
@@ -119,6 +122,7 @@ func TestGenerateKey_WithProducer(t *testing.T) {
 }
 
 func TestLoadTrustStore_DuplicateKeyID(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	kp, err := (&Service{}).GenerateKey(dir, "", "k1", false) // k1.pub (bare → producer k1)
 	if err != nil {
@@ -139,6 +143,7 @@ func TestLoadTrustStore_DuplicateKeyID(t *testing.T) {
 }
 
 func TestGenerateKey_RandError(t *testing.T) {
+	t.Parallel()
 	if _, err := (&Service{sys: sysDeps{rand: errReader{}}}).GenerateKey(t.TempDir(), "", "", false); err == nil {
 		t.Fatal("expected error from failing entropy source")
 	}
@@ -149,6 +154,7 @@ type errReader struct{}
 func (errReader) Read([]byte) (int, error) { return 0, errors.New("no entropy") }
 
 func TestGenerateKey_MkdirError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	file := filepath.Join(dir, "afile")
 	if err := os.WriteFile(file, []byte("x"), 0o644); err != nil {
@@ -161,6 +167,7 @@ func TestGenerateKey_MkdirError(t *testing.T) {
 }
 
 func TestGenerateKey_WriteErrors(t *testing.T) {
+	t.Parallel()
 	// Private-key write fails.
 	svc := &Service{sys: sysDeps{writeFile: func(string, []byte, os.FileMode) error { return errors.New("disk full") }}}
 	if _, err := svc.GenerateKey(t.TempDir(), "", "", false); err == nil {
@@ -224,6 +231,7 @@ func signAndWrite(t *testing.T, opts SignOptions) (KeyPair, string) {
 }
 
 func TestSignVerify_Roundtrip(t *testing.T) {
+	t.Parallel()
 	kp, envPath := signAndWrite(t, SignOptions{})
 	res, err := (&Service{}).VerifyEnvelope(VerifyOptions{EnvelopePath: envPath, TrustPath: filepath.Dir(kp.PublicKeyPath)})
 	if err != nil {
@@ -238,6 +246,7 @@ func TestSignVerify_Roundtrip(t *testing.T) {
 }
 
 func TestSignVerify_SingleFileTrust(t *testing.T) {
+	t.Parallel()
 	kp, envPath := signAndWrite(t, SignOptions{})
 	res, err := (&Service{}).VerifyEnvelope(VerifyOptions{EnvelopePath: envPath, TrustPath: kp.PublicKeyPath})
 	if err != nil {
@@ -249,6 +258,7 @@ func TestSignVerify_SingleFileTrust(t *testing.T) {
 }
 
 func TestSignEvidence_DeterministicID(t *testing.T) {
+	t.Parallel()
 	// Explicit id + issued-at + ttl 0 => a fully deterministic, always-fresh envelope.
 	fixed := time.Date(2020, 1, 1, 0, 0, 0, 0, time.UTC)
 	_, envPath := signAndWrite(t, SignOptions{ID: "env-1", IssuedAt: fixed, TTL: 0})
@@ -259,6 +269,7 @@ func TestSignEvidence_DeterministicID(t *testing.T) {
 }
 
 func TestSignEvidence_Sequence(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := &Service{}
 	kp, _ := svc.GenerateKey(dir, "", "", false)
@@ -277,6 +288,7 @@ func TestSignEvidence_Sequence(t *testing.T) {
 // A structured trust config populates the per-key subject and contract-repo
 // allowlists the filename-only loader can never express (review section S11).
 func TestLoadStructuredTrustStore_Valid(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := (&Service{}).GenerateKey(dir, "", "edgekey", false); err != nil {
 		t.Fatal(err)
@@ -330,6 +342,7 @@ keys:
 // is a symlink into a ..data directory. Pointing --trust at the config key must
 // load it and resolve publicKeyFile against the sibling keys.
 func TestLoadStructuredTrustStore_SecretVolumeLayout(t *testing.T) {
+	t.Parallel()
 	mount := t.TempDir()
 	data := filepath.Join(mount, "..2026_11_06")
 	if err := os.Mkdir(data, 0o755); err != nil {
@@ -362,6 +375,7 @@ func TestLoadStructuredTrustStore_SecretVolumeLayout(t *testing.T) {
 }
 
 func TestLoadStructuredTrustStore_Rejects(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := (&Service{}).GenerateKey(dir, "", "edgekey", false); err != nil {
 		t.Fatal(err)
@@ -421,6 +435,7 @@ func TestLoadStructuredTrustStore_Rejects(t *testing.T) {
 }
 
 func TestValidateKeyIdent(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		in   string
@@ -452,6 +467,7 @@ func TestValidateKeyIdent(t *testing.T) {
 // A key id or producer that could escape the output directory must be rejected
 // before any file is written, on both Unix and Windows path syntaxes (S12).
 func TestGenerateKey_RejectsUnsafeIdentifiers(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := &Service{}
 	for _, tc := range []struct{ producer, keyID string }{
@@ -475,6 +491,7 @@ func TestGenerateKey_RejectsUnsafeIdentifiers(t *testing.T) {
 // Regenerating over an existing key must fail (protecting the private seed) unless
 // --force is given (S12).
 func TestGenerateKey_NoSilentOverwrite(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := &Service{}
 	kp, err := svc.GenerateKey(dir, "", "k1", false)
@@ -501,6 +518,7 @@ func TestGenerateKey_NoSilentOverwrite(t *testing.T) {
 // a producer's id must change with its sequence, while re-signing the same
 // (producer, sequence, evidence) stays stable (review section S9).
 func TestSignEvidence_DefaultIDProducerSafe(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := &Service{}
 	kp, _ := svc.GenerateKey(dir, "", "", false)
@@ -529,6 +547,7 @@ func TestSignEvidence_DefaultIDProducerSafe(t *testing.T) {
 }
 
 func TestSignEvidence_ContentHashID(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := &Service{}
 	kp, _ := svc.GenerateKey(dir, "", "", false)
@@ -549,6 +568,7 @@ func TestSignEvidence_ContentHashID(t *testing.T) {
 }
 
 func TestSignEvidence_Errors(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := &Service{}
 	kp, _ := svc.GenerateKey(dir, "", "", false)
@@ -573,6 +593,7 @@ func TestSignEvidence_Errors(t *testing.T) {
 }
 
 func TestSignEvidence_BadEvidenceJSON(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := &Service{}
 	kp, _ := svc.GenerateKey(dir, "", "", false)
@@ -596,6 +617,7 @@ func TestSignEvidence_BadEvidenceJSON(t *testing.T) {
 }
 
 func TestVerifyEnvelope_UnknownKey(t *testing.T) {
+	t.Parallel()
 	// Sign with a Producer.KeyID that is absent from the trust store.
 	kp, envPath := signAndWrite(t, SignOptions{KeyID: "ghost"})
 	res, err := (&Service{}).VerifyEnvelope(VerifyOptions{EnvelopePath: envPath, TrustPath: filepath.Dir(kp.PublicKeyPath)})
@@ -611,6 +633,7 @@ func TestVerifyEnvelope_UnknownKey(t *testing.T) {
 }
 
 func TestVerifyEnvelope_OperationalErrors(t *testing.T) {
+	t.Parallel()
 	kp, envPath := signAndWrite(t, SignOptions{})
 	trustDir := filepath.Dir(kp.PublicKeyPath)
 	svc := &Service{}
@@ -633,6 +656,7 @@ func TestVerifyEnvelope_OperationalErrors(t *testing.T) {
 }
 
 func TestLoadTrustStore_DirVariants(t *testing.T) {
+	t.Parallel()
 	kp, _ := signAndWrite(t, SignOptions{})
 	trustDir := filepath.Dir(kp.PublicKeyPath)
 	// Add a subdirectory and a non-.pub file — both must be skipped.
@@ -652,12 +676,14 @@ func TestLoadTrustStore_DirVariants(t *testing.T) {
 }
 
 func TestLoadTrustStore_EmptyDir(t *testing.T) {
+	t.Parallel()
 	if _, err := loadTrustStore(t.TempDir()); err == nil {
 		t.Fatal("expected error for empty trust store")
 	}
 }
 
 func TestLoadTrustStore_BadPubInDir(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "bad.pub"), []byte("!!!notbase64"), 0o644); err != nil {
 		t.Fatal(err)
@@ -668,6 +694,7 @@ func TestLoadTrustStore_BadPubInDir(t *testing.T) {
 }
 
 func TestLoadKey_LengthAndDecodeErrors(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 
 	shortSeed := filepath.Join(dir, "short.key")
@@ -705,6 +732,7 @@ func TestLoadKey_LengthAndDecodeErrors(t *testing.T) {
 // return its contract — and the refusal is what proves the branch is gone
 // rather than merely unreached by the shapes a test happened to pick.
 func TestEvidenceResolver_RefusesEveryLocalPathShape(t *testing.T) {
+	t.Parallel()
 	bundleDir := t.TempDir()
 	body := "pactoVersion: \"2.0\"\nservice:\n  name: svc-a\n  version: \"1.0.0\"\n"
 	if err := os.WriteFile(filepath.Join(bundleDir, "pacto.yaml"), []byte(body), 0o644); err != nil {
@@ -762,8 +790,7 @@ func referrersRegistry(t *testing.T) (host string, stop func()) {
 // serves no Referrers API.
 func referrersRegistryWith(t *testing.T, opts testutil.ReferrersOptions) (host string, stop func()) {
 	t.Helper()
-	freshProbes(t)
-	srv := httptest.NewServer(testutil.NewReferrersRegistry(opts))
+	srv := probedServer(t, testutil.NewReferrersRegistry(opts))
 	var once sync.Once
 	stop = func() { once.Do(srv.Close) }
 	t.Cleanup(stop)
@@ -881,6 +908,7 @@ func waitForHTTP(t *testing.T, url string) {
 }
 
 func TestServeEvidence_EndToEnd(t *testing.T) {
+	t.Parallel()
 	f := serveTestFixtures(t)
 	base := serveEvidence(t, f.svc, f.serveOptions())
 
@@ -922,6 +950,7 @@ func TestServeEvidence_EndToEnd(t *testing.T) {
 // ready, ingestion refused, and the read reported unavailable. Serving 200 with an
 // empty target list would claim every environment is gone.
 func TestServeEvidence_RegistryOutage(t *testing.T) {
+	t.Parallel()
 	host, stopRegistry := referrersRegistry(t)
 	f := evidenceFixtureOn(t, host)
 	base := serveEvidence(t, f.svc, f.serveOptions())
@@ -966,6 +995,7 @@ func TestServeEvidence_RegistryOutage(t *testing.T) {
 // keeps answering throughout — a wedged registry takes the host out of rotation,
 // it never restarts it.
 func TestServeEvidence_ReadinessIsBounded(t *testing.T) {
+	t.Parallel()
 	budget := 500 * time.Millisecond
 
 	// Two concurrent probes — a kubelet's and a producer's, say. Each must be
@@ -977,8 +1007,7 @@ func TestServeEvidence_ReadinessIsBounded(t *testing.T) {
 		arrived:   make(chan struct{}, probes),
 		cancelled: make(chan struct{}, probes),
 	}
-	freshProbes(t)
-	srv := httptest.NewServer(reg)
+	srv := probedServer(t, reg)
 	t.Cleanup(srv.Close)
 	f := evidenceFixtureOn(t, srv.Listener.Addr().String())
 	f.svc.sys.readinessTimeout = budget
@@ -1045,6 +1074,7 @@ func await(t *testing.T, ch <-chan struct{}, n int, patience time.Duration, what
 // can only do if the preflight is parented on the request rather than on the
 // server's lifetime.
 func TestServeEvidence_ReadinessFollowsTheCaller(t *testing.T) {
+	t.Parallel()
 	// A budget far longer than anything this test waits for, so only the caller's
 	// disconnect can be what ends the registry request.
 
@@ -1053,8 +1083,7 @@ func TestServeEvidence_ReadinessFollowsTheCaller(t *testing.T) {
 		arrived:   make(chan struct{}, 1),
 		cancelled: make(chan struct{}, 1),
 	}
-	freshProbes(t)
-	srv := httptest.NewServer(reg)
+	srv := probedServer(t, reg)
 	t.Cleanup(srv.Close)
 	f := evidenceFixtureOn(t, srv.Listener.Addr().String())
 	f.svc.sys.readinessTimeout = 10 * time.Second
@@ -1124,6 +1153,7 @@ func readAllClose(resp *http.Response) string {
 }
 
 func TestServeEvidenceOnListener_AssemblyError(t *testing.T) {
+	t.Parallel()
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -1139,6 +1169,7 @@ func TestServeEvidenceOnListener_AssemblyError(t *testing.T) {
 }
 
 func TestServeEvidenceOnListener_ServeError(t *testing.T) {
+	t.Parallel()
 	f := serveTestFixtures(t)
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -1153,6 +1184,7 @@ func TestServeEvidenceOnListener_ServeError(t *testing.T) {
 // Configuration is validated before the server listens, so a misconfigured
 // Evidence Server fails to start rather than accepting evidence it cannot store.
 func TestBuildEvidenceHost_Errors(t *testing.T) {
+	t.Parallel()
 	svc := &Service{}
 	f := serveTestFixtures(t)
 	digest := "sha256:" + strings.Repeat("a", 64)
@@ -1180,13 +1212,14 @@ func TestBuildEvidenceHost_Errors(t *testing.T) {
 }
 
 func TestSendEvidence(t *testing.T) {
+	t.Parallel()
 	envPath := serveTestFixtures(t).envPath
 	svc := &Service{}
 
 	// 2xx. A BASE host URL (the documented form) must be POSTed to the standard
 	// envelope endpoint path, not verbatim to "/".
 	var gotPath string
-	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	ok := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotPath = r.URL.Path
 		w.WriteHeader(http.StatusAccepted)
 		_, _ = w.Write([]byte(`{"ok":true}`))
@@ -1211,7 +1244,7 @@ func TestSendEvidence(t *testing.T) {
 	}
 
 	// Non-2xx is reported without error.
-	bad := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	bad := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "boom", http.StatusInternalServerError)
 	}))
 	defer bad.Close()
@@ -1232,7 +1265,7 @@ func TestSendEvidence(t *testing.T) {
 
 	// Body-read error: a response promising more bytes than it delivers makes
 	// io.ReadAll fail with an unexpected EOF.
-	truncated := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	truncated := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		conn, _, err := w.(http.Hijacker).Hijack()
 		if err != nil {
 			return
@@ -1246,7 +1279,7 @@ func TestSendEvidence(t *testing.T) {
 	}
 
 	// Transport error: point at a closed server.
-	closed := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	closed := probedServer(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
 	closedURL := closed.URL
 	closed.Close()
 	if _, err := svc.SendEvidence(context.Background(), closedURL, envPath); err == nil {
@@ -1257,6 +1290,7 @@ func TestSendEvidence(t *testing.T) {
 // TestVerify_UsesEnvelopePackage guards the wiring: an envelope signed here must
 // decode + verify through the frozen package with the same trust store.
 func TestVerify_UsesEnvelopePackage(t *testing.T) {
+	t.Parallel()
 	kp, envPath := signAndWrite(t, SignOptions{})
 	data, _ := os.ReadFile(envPath)
 	env, err := evidenceenvelope.Decode(data)
@@ -1273,6 +1307,7 @@ func TestVerify_UsesEnvelopePackage(t *testing.T) {
 }
 
 func TestSignEvidenceSetAndPostEnvelope(t *testing.T) {
+	t.Parallel()
 	svc := &Service{}
 	kp, err := svc.GenerateKey(t.TempDir(), "", "", false)
 	if err != nil {
@@ -1288,7 +1323,7 @@ func TestSignEvidenceSetAndPostEnvelope(t *testing.T) {
 	}
 
 	var got []byte
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got, _ = io.ReadAll(r.Body)
 		w.WriteHeader(http.StatusAccepted)
 	}))
@@ -1310,10 +1345,11 @@ func TestSignEvidenceSetAndPostEnvelope(t *testing.T) {
 // TestPostEnvelope_BoundedClient: the sender neither hangs on a host that never
 // answers nor reads an unbounded answer into memory.
 func TestPostEnvelope_BoundedClient(t *testing.T) {
+	t.Parallel()
 	if (&Service{}).env().httpClient.Timeout == 0 {
 		t.Fatal("the evidence client must carry a timeout")
 	}
-	big := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	big := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = w.Write(bytes.Repeat([]byte("x"), maxSendResponse+10))
 	}))
 	defer big.Close()
@@ -1323,7 +1359,7 @@ func TestPostEnvelope_BoundedClient(t *testing.T) {
 	}
 
 	stall := make(chan struct{})
-	slow := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-stall }))
+	slow := probedServer(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { <-stall }))
 	defer slow.Close()
 	defer close(stall)
 	svc := &Service{sys: sysDeps{httpClient: &http.Client{Timeout: 50 * time.Millisecond}}}
@@ -1333,6 +1369,7 @@ func TestPostEnvelope_BoundedClient(t *testing.T) {
 }
 
 func TestSignEvidenceStdin(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	svc := &Service{}
 	kp, _ := svc.GenerateKey(dir, "", "", false)
@@ -1366,6 +1403,7 @@ func provisionedFixture() (*Service, func(func(*ProvisionedOptions)) Provisioned
 }
 
 func TestProvisionedEvidence(t *testing.T) {
+	t.Parallel()
 	svc, with := provisionedFixture()
 	set, err := svc.ProvisionedEvidence(with(func(o *ProvisionedOptions) { o.Environment = "production" }))
 	if err != nil {
@@ -1392,6 +1430,7 @@ func TestProvisionedEvidence(t *testing.T) {
 }
 
 func TestProvisionedEvidence_DependencyAndOverrides(t *testing.T) {
+	t.Parallel()
 	svc, with := provisionedFixture()
 	earlier := provisionedAt.Add(-time.Hour)
 	set, err := svc.ProvisionedEvidence(with(func(o *ProvisionedOptions) {
@@ -1414,6 +1453,7 @@ func TestProvisionedEvidence_DependencyAndOverrides(t *testing.T) {
 }
 
 func TestProvisionedEvidence_Rejects(t *testing.T) {
+	t.Parallel()
 	svc, with := provisionedFixture()
 	for name, opts := range map[string]ProvisionedOptions{
 		"both names":                    with(func(o *ProvisionedOptions) { o.Dependency = "postgresql" }),
@@ -1436,6 +1476,7 @@ func TestProvisionedEvidence_Rejects(t *testing.T) {
 // A scope narrows provisioning reports, so a key that cannot send them is a
 // contradiction: the load refuses it instead of granting nothing in silence.
 func TestTrustConfigProviderReposNeedKind(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := (&Service{}).GenerateKey(dir, "", "edgekey", false); err != nil {
 		t.Fatal(err)
@@ -1457,6 +1498,7 @@ func TestTrustConfigProviderReposNeedKind(t *testing.T) {
 }
 
 func TestUnscopedProvisioningKeys(t *testing.T) {
+	t.Parallel()
 	grant := []string{string(evidence.ResourceProvisioned)}
 	ts := evidenceenvelope.MapTrustStore{
 		"bare":     {},
@@ -1638,6 +1680,7 @@ func provisioningKeys(t *testing.T, base string) map[string]string {
 }
 
 func TestServeEvidence_WarnsUnscopedProvisioningKey(t *testing.T) {
+	t.Parallel()
 	f := newScopedFixture(t, testutil.ReferrersOptions{})
 	var buf bytes.Buffer
 	ctx := logging.WithLogger(context.Background(), logging.New(&buf, false))
@@ -1658,6 +1701,7 @@ func TestServeEvidence_WarnsUnscopedProvisioningKey(t *testing.T) {
 // trust store); a change to that behavior changes this test and the docs
 // together.
 func TestServeEvidence_ProviderScopedProvisioning(t *testing.T) {
+	t.Parallel()
 	f := newScopedFixture(t, testutil.ReferrersOptions{})
 	host := strings.TrimPrefix(strings.SplitN(f.contractRef, "/orders@", 2)[0], "oci://")
 	pg, redis := host+"/platform/postgresql", host+"/platform/redis"
@@ -1694,6 +1738,7 @@ func TestServeEvidence_ProviderScopedProvisioning(t *testing.T) {
 // report under a subject prefix is stored as a write-once tag and reads Ready
 // through the fleet source, never Unknown.
 func TestServeEvidenceProvisionedReadsReadyWithoutReferrers(t *testing.T) {
+	t.Parallel()
 	f := newScopedFixture(t, testutil.ReferrersOptions{Unsupported: true})
 	host := strings.TrimPrefix(strings.SplitN(f.contractRef, "/orders@", 2)[0], "oci://")
 	f.prefixes = []string{"oci://" + host + "/"}
@@ -1713,6 +1758,7 @@ func TestServeEvidenceProvisionedReadsReadyWithoutReferrers(t *testing.T) {
 // TestTrustConfigRefusesInferredProviderRepo: no key may be scoped to an
 // inferred contract repository, the prefix or one identity below it.
 func TestTrustConfigRefusesInferredProviderRepo(t *testing.T) {
+	t.Parallel()
 	for _, p := range []string{"ghcr.io/acme/pacto-inferred", "ghcr.io/acme/pacto-inferred/stripe", "zot:5000/pacto-inferred/stripe"} {
 		err := validateProviderScope(trustConfigKey{AllowedProviderRepos: []string{p}, AllowedObservationKinds: []string{string(evidence.ResourceProvisioned)}})
 		if err == nil || !strings.Contains(err.Error(), "claim the external first") {
@@ -1780,6 +1826,7 @@ func (f prefixFixture) post(t *testing.T, base, contractRef string, seq uint64) 
 }
 
 func TestServeEvidencePrefixAcceptsNewDigestWithoutRestart(t *testing.T) {
+	t.Parallel()
 	f := newPrefixFixture(t)
 	base := serveEvidence(t, f.svc, f.opts(""))
 	if code := getStatus(t, base+"/api/evidence/v1/ready"); code != http.StatusOK {
@@ -1812,6 +1859,7 @@ func TestServeEvidencePrefixAcceptsNewDigestWithoutRestart(t *testing.T) {
 }
 
 func TestServeEvidencePrefixRefusesTagAndOutside(t *testing.T) {
+	t.Parallel()
 	f := newPrefixFixture(t)
 	base := serveEvidence(t, f.svc, f.opts(""))
 	digest := "@sha256:" + strings.Repeat("a", 64)
@@ -1842,6 +1890,7 @@ func (f prefixFixture) trustYAML(t *testing.T, contractRepos string) string {
 }
 
 func TestServeEvidencePrefixStillNarrowedByTrust(t *testing.T) {
+	t.Parallel()
 	f := newPrefixFixture(t)
 	base := serveEvidence(t, f.svc, f.opts(f.trustYAML(t, f.host+"/acme/payments")))
 	invoices := "oci://" + f.host + "/acme/invoices@sha256:" + strings.Repeat("a", 64)
@@ -1851,6 +1900,7 @@ func TestServeEvidencePrefixStillNarrowedByTrust(t *testing.T) {
 }
 
 func TestServeEvidenceWarnsContractUnscopedKeysWithPrefix(t *testing.T) {
+	t.Parallel()
 	f := newPrefixFixture(t)
 	const warning = "has no allowedContractRepos: it may report on every revision under the subject prefixes"
 	logged := func(opts ServeOptions) string {
@@ -1873,6 +1923,7 @@ func TestServeEvidenceWarnsContractUnscopedKeysWithPrefix(t *testing.T) {
 // The Evidence Server advertises each producer the trust config grants its
 // contribution repository, with that producer's public keys, on /producers.
 func TestServeEvidenceWiresContributors(t *testing.T) {
+	t.Parallel()
 	f := serveTestFixtures(t)
 	dir := t.TempDir()
 	kp, err := (&Service{}).GenerateKey(dir, "", "idp-key", false)

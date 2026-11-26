@@ -13,6 +13,7 @@ import (
 )
 
 func TestGenerate_Success(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
@@ -73,6 +74,7 @@ func TestGenerate_DefaultOutputDir(t *testing.T) {
 }
 
 func TestGenerate_NilRunner(t *testing.T) {
+	t.Parallel()
 	svc := NewService(nil, nil)
 	_, err := svc.Generate(context.Background(), GenerateOptions{
 		Path:   ".",
@@ -84,6 +86,7 @@ func TestGenerate_NilRunner(t *testing.T) {
 }
 
 func TestGenerate_PluginError(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	runner := &mockPluginRunner{
@@ -103,6 +106,7 @@ func TestGenerate_PluginError(t *testing.T) {
 }
 
 func TestGenerate_ResolveError(t *testing.T) {
+	t.Parallel()
 	runner := &mockPluginRunner{}
 	svc := NewService(nil, runner)
 	_, err := svc.Generate(context.Background(), GenerateOptions{
@@ -115,6 +119,7 @@ func TestGenerate_ResolveError(t *testing.T) {
 }
 
 func TestGenerate_OutputDirError(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	runner := &mockPluginRunner{}
 	svc := NewService(nil, runner)
@@ -129,6 +134,7 @@ func TestGenerate_OutputDirError(t *testing.T) {
 }
 
 func TestGenerate_PrepareBundleDirError(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
 	store := &mockBundleStore{
@@ -151,6 +157,7 @@ func TestGenerate_PrepareBundleDirError(t *testing.T) {
 }
 
 func TestGenerate_WriteFileError(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
@@ -180,6 +187,7 @@ func TestGenerate_WriteFileError(t *testing.T) {
 }
 
 func TestGenerate_OCIRef(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
 	store := &mockBundleStore{}
@@ -199,6 +207,7 @@ func TestGenerate_OCIRef(t *testing.T) {
 }
 
 func TestGenerate_WriteFileError_FlatPath(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
@@ -228,6 +237,7 @@ func TestGenerate_WriteFileError_FlatPath(t *testing.T) {
 }
 
 func TestGenerate_PathTraversalBlocked(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
@@ -255,6 +265,7 @@ func TestGenerate_PathTraversalBlocked(t *testing.T) {
 }
 
 func TestGenerate_AbsPathError(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
@@ -277,6 +288,7 @@ func TestGenerate_AbsPathError(t *testing.T) {
 }
 
 func TestGenerate_PathTraversalDotDot(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")
@@ -307,6 +319,7 @@ func TestGenerate_PathTraversalDotDot(t *testing.T) {
 }
 
 func TestGenerate_MkdirTempError(t *testing.T) {
+	t.Parallel()
 	mkdirTempHook := func(string, string) (string, error) {
 		return "", fmt.Errorf("temp failed")
 	}
@@ -328,6 +341,7 @@ func TestGenerate_MkdirTempError(t *testing.T) {
 // TestGenerate_AbsolutePluginPathRejected proves an absolute plugin file path is
 // refused outright rather than silently re-rooted under the output directory.
 func TestGenerate_AbsolutePluginPathRejected(t *testing.T) {
+	t.Parallel()
 	bundleDir := writeTestBundle(t)
 	dir := t.TempDir()
 	outputDir := filepath.Join(dir, "gen-output")

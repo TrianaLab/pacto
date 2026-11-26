@@ -47,6 +47,35 @@ rules:
   - get
   - list
 - apiGroups:
+  - apiextensions.crossplane.io
+  resources:
+  - compositeresourcedefinitions
+  - compositions
+  verbs:
+  - get
+  - list
+  - watch
+- apiGroups:
+  - apiextensions.k8s.io
+  resourceNames:
+  - noderuntimeobservations.pacto.trianalab.io
+  - pactorevisions.pacto.trianalab.io
+  - pactos.pacto.trianalab.io
+  resources:
+  - customresourcedefinitions
+  verbs:
+  - get
+- apiGroups:
+  - apiextensions.k8s.io
+  resourceNames:
+  - noderuntimeobservations.pacto.trianalab.io
+  - pactorevisions.pacto.trianalab.io
+  - pactos.pacto.trianalab.io
+  resources:
+  - customresourcedefinitions/status
+  verbs:
+  - patch
+- apiGroups:
   - apps
   resources:
   - daemonsets
@@ -83,6 +112,19 @@ rules:
   resources:
   - ciliumclusterwidenetworkpolicies
   - ciliumnetworkpolicies
+  verbs:
+  - list
+- apiGroups:
+  - cluster.open-cluster-management.io
+  resources:
+  - managedclusters
+  verbs:
+  - list
+- apiGroups:
+  - cluster.x-k8s.io
+  - management.cattle.io
+  resources:
+  - clusters
   verbs:
   - list
 - apiGroups:
@@ -155,6 +197,12 @@ rules:
   - get
   - list
   - watch
+- apiGroups:
+  - pacto.trianalab.io
+  resources:
+  - noderuntimeobservations/status
+  verbs:
+  - patch
 - apiGroups:
   - pacto.trianalab.io
   resources:

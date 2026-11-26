@@ -74,16 +74,27 @@ func workerExternalEdges(snap *fleet.FleetSnapshot) (observed, declared, inferre
 // inferred edges from the repository, and no contract declares either.
 func TestDemoNewsletterExternalsInferred(t *testing.T) {
 	assertNewsletterRecordExternals(t)
-	snap := demoFleet(t)
-	for _, l := range snap.Limitations {
-		if l.Code == fleet.LimitationExternalCatalogMismatch {
-			t.Errorf("the demo records a catalog the snapshot lacks: %+v", l)
-		}
-	}
-	got := newsletterExternalEdges(t, snap)
+	got := newsletterExternalEdges(t, demoFleet(t))
 	want := map[fleet.ExternalKey]string{"stripe": "likely helmValues,sdk", "aws/sqs": "possible terraform"}
 	if !maps.Equal(got, want) {
 		t.Errorf("newsletter-service inferred external edges = %v, want %v", got, want)
+	}
+}
+
+// TestDemoNewsletterCatalogMismatch: newsletter-service's published record
+// names the default catalog digest it was classified with, and that bundle is
+// immutable; a later default catalog changes the digest, so the demo shows
+// how a catalog change reads: exactly one EXTERNAL_CATALOG_MISMATCH, about
+// newsletter-service's revision.
+func TestDemoNewsletterCatalogMismatch(t *testing.T) {
+	var got []fleet.Limitation
+	for _, l := range demoFleet(t).Limitations {
+		if l.Code == fleet.LimitationExternalCatalogMismatch {
+			got = append(got, l)
+		}
+	}
+	if len(got) != 1 || !strings.Contains(got[0].Message, "newsletter-service") {
+		t.Fatalf("catalog mismatches = %+v, want exactly one naming newsletter-service", got)
 	}
 }
 

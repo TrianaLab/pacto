@@ -243,6 +243,7 @@ actor, approver, note, message, citation or correlation id.
 | `SERVICE_NOT_IN_FLEET` | `unverified` |
 | `SERVICE_NAME_INFERRED` | `unverified` |
 | `ANSWER_PARTIAL` | `unverified` |
+| `CLUSTERS_UNREAD` | `unverified` |
 | `CONSUMERS_UNCHECKED` | `unverified` |
 | `INFERRED_PROVIDER` | `unverified` |
 | `RUNNING_UNREAD` | `unverified` |

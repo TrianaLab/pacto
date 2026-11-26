@@ -16,7 +16,7 @@ import (
 )
 
 func stage(name string) *unstructured.Unstructured {
-	return obj("delivery.pacto.trianalab.io/v1alpha1", "Stage", name, nil, map[string]any{
+	return obj("delivery.pacto.trianalab.io/v1", "Stage", name, nil, map[string]any{
 		"service": map[string]any{"name": "payments"}, "environment": "prod",
 		"applyRef": map[string]any{"name": "payments"}})
 }

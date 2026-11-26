@@ -14,9 +14,12 @@ import (
 // sourcedUse pairs a raw external use with the id of the source that
 // reported it. A use an inferred record names (see recordExternalUses) also
 // carries the revision of that record and every catalog digest it recorded.
+// A use joined through a connection Secret names its consumer by svc, empty
+// when no service runs the workload.
 type sourcedUse struct {
 	use      RawExternalUse
 	source   string
+	svc      ServiceKey
 	revision RevisionKey
 	catalogs []string
 }
@@ -49,7 +52,10 @@ func foldExternalUses(snap *FleetSnapshot, uses []sourcedUse) {
 	edges := map[inferredKey]*Relationship{}
 	for _, su := range uses {
 		u := su.use
-		svc := NewServiceKeyDomain(u.Domain, u.Service)
+		svc := su.svc
+		if u.Kind != kindConnectionSecret {
+			svc = NewServiceKeyDomain(u.Domain, u.Service)
+		}
 		id, err := externalid.Parse(u.Identity)
 		if snap.namespaceShortForm(externalcatalog.Match{Kind: inferredMatch(u), Host: u.Host, Entry: u.Entry}) {
 			continue // an in-cluster name of a namespace the snapshot knows
@@ -170,7 +176,7 @@ func inferredMatch(u RawExternalUse) string {
 	switch {
 	case u.Kind == externalcatalog.KindSDK:
 		return externalcatalog.KindSDK
-	case u.Kind == "terraform" || u.Kind == "crossplane":
+	case u.Kind == "terraform" || u.Kind == "crossplane" || u.Kind == kindConnectionSecret:
 		return externalcatalog.KindResource
 	case u.Host != "":
 		return externalcatalog.KindHost

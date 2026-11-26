@@ -74,6 +74,8 @@ func newScheme() *runtime.Scheme {
 	_ = clientgoscheme.AddToScheme(s)
 	s.AddKnownTypeWithName(gvkPacto, &unstructured.Unstructured{})
 	s.AddKnownTypeWithName(gvkPactoList, &unstructured.UnstructuredList{})
+	s.AddKnownTypeWithName(gvkStageList.GroupVersion().WithKind("Stage"), &unstructured.Unstructured{})
+	s.AddKnownTypeWithName(gvkStageList, &unstructured.UnstructuredList{})
 	return s
 }
 

@@ -20,8 +20,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/loader"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/loader"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/oci"
 )
@@ -45,13 +45,13 @@ func TestRevisionMirrorSkipsDraftTags(t *testing.T) {
 			t.Fatalf("push %s: %v", tag, err)
 		}
 	}
-	pacto := &pactov1alpha1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "invoices", Namespace: "default", UID: "invoices-uid"}}
+	pacto := &pactov1.Pacto{ObjectMeta: metav1.ObjectMeta{Name: "invoices", Namespace: "default", UID: "invoices-uid"}}
 	r := newReconciler(pacto)
 	r.Loader = loader.New()
 	if err := r.syncAllRevisions(t.Context(), pacto, "oci://"+host+"/acme/invoices", nil); err != nil {
 		t.Fatalf("syncAllRevisions: %v", err)
 	}
-	revs := &pactov1alpha1.PactoRevisionList{}
+	revs := &pactov1.PactoRevisionList{}
 	if err := r.List(t.Context(), revs, client.InNamespace("default")); err != nil {
 		t.Fatal(err)
 	}

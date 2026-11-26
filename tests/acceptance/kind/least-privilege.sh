@@ -132,7 +132,7 @@ apply_pacto() { # NS NAME [PULL_SECRET] — a pull secret makes it an OCI ref (f
       state: {type: stateless, persistence: {scope: local, durability: ephemeral}, dataCriticality: low}"
   fi
   kubectl apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $2, namespace: $1}
 spec:

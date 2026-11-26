@@ -12,8 +12,8 @@ import (
 	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
-	"github.com/trianalab/pacto/integrations/kubernetes/v6/internal/observer"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
+	"github.com/trianalab/pacto/integrations/kubernetes/v7/internal/observer"
 )
 
 // TestObserveNamespaceLabel proves, against a real apiserver, that under --enable-probing=auto a Pacto is
@@ -25,7 +25,7 @@ func TestObserveNamespaceLabel(t *testing.T) {
 		ifaces: []ifaceSpec{{name: "api"}},
 		caps:   []capSpec{{typ: "health", iface: "api", path: "/healthz"}},
 	})
-	target := pactov1alpha1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
+	target := pactov1.TargetRef{ServiceName: "svc", InterfaceBindings: apiBinding("api")}
 	auto := reconcileOpts{probing: observer.ModeAuto, metrics: observer.ModeAuto}
 
 	// setup creates a health-capable service in a fresh namespace carrying the given observe label (none when
@@ -45,8 +45,8 @@ func TestObserveNamespaceLabel(t *testing.T) {
 			}
 			w.WriteHeader(http.StatusOK)
 		})
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: healthContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: healthContract}, Target: target})
 		return ns, &hits
 	}
 
@@ -99,14 +99,14 @@ func TestObserveNamespaceLabel(t *testing.T) {
 		createService(t, ns, "svc", port)
 		createEndpointSlice(t, ns, "svc", port, 1)
 		startProbeServer(t, ns, "svc", port, promMetrics)
-		createPacto(t, "p", ns, pactov1alpha1.PactoSpec{
-			ContractRef: pactov1alpha1.ContractRef{Inline: metricsContract}, Target: target})
+		createPacto(t, "p", ns, pactov1.PactoSpec{
+			ContractRef: pactov1.ContractRef{Inline: metricsContract}, Target: target})
 
-		requireStatus(t, reconcile(t, "p", ns, auto).pacto, pactov1alpha1.ContractStatusUnknown)
+		requireStatus(t, reconcile(t, "p", ns, auto).pacto, pactov1.ContractStatusUnknown)
 
 		setObserveLabel(t, ns, "metrics")
 		p := reconcile(t, "p", ns, auto).pacto
-		requireStatus(t, p, pactov1alpha1.ContractStatusCompliant)
+		requireStatus(t, p, pactov1.ContractStatusCompliant)
 		requireCoverage(t, p, 2, 2)
 	})
 }
@@ -126,13 +126,13 @@ func setObserveLabel(t *testing.T, ns, value string) {
 	}
 }
 
-func requireRuntimeObservedMessage(t *testing.T, p *pactov1alpha1.Pacto, want string) {
+func requireRuntimeObservedMessage(t *testing.T, p *pactov1.Pacto, want string) {
 	t.Helper()
-	c := apimeta.FindStatusCondition(p.Status.Conditions, pactov1alpha1.ConditionRuntimeObserved)
+	c := apimeta.FindStatusCondition(p.Status.Conditions, pactov1.ConditionRuntimeObserved)
 	if c == nil {
-		t.Fatalf("no %s condition on %s/%s", pactov1alpha1.ConditionRuntimeObserved, p.Namespace, p.Name)
+		t.Fatalf("no %s condition on %s/%s", pactov1.ConditionRuntimeObserved, p.Namespace, p.Name)
 	}
 	if !strings.Contains(c.Message, want) {
-		t.Fatalf("%s message = %q, want it to contain %q", pactov1alpha1.ConditionRuntimeObserved, c.Message, want)
+		t.Fatalf("%s message = %q, want it to contain %q", pactov1.ConditionRuntimeObserved, c.Message, want)
 	}
 }

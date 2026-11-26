@@ -129,13 +129,18 @@ var errApproveOne = errors.New("pass an operation name or --intent <record refer
 // approveIntent approves the operation an intent record names, with no
 // cluster: the intent must verify with --trust, and the decision is signed
 // keyless with a fresh login under a signer --signers names.
-func approveIntent(cmd *cobra.Command, v *viper.Viper, d deps, ref, decision, note string) error {
+func approveIntent(cmd *cobra.Command, v *viper.Viper, d deps, svc *app.Service, ref, decision, note string) error {
 	if keyless, _ := cmd.Flags().GetBool("keyless"); !keyless {
 		return errors.New("--intent always signs keyless, with no cluster to record in; drop --keyless=false or approve with a kubeconfig by operation name")
 	}
 	c, err := recordClient(cmd, d)
 	if err != nil {
 		return err
+	}
+	if registry, _ := cmd.Flags().GetString("registry"); registry != "" && trustPath(cmd) == "" {
+		if err := memberIntentTrust(cmd, d, svc, c, ref); err != nil {
+			return err
+		}
 	}
 	in, err := c.IntentAt(cmd.Context(), ref)
 	if err != nil {

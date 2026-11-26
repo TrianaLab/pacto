@@ -471,6 +471,14 @@ const dirReadsNoWorkload = "--dir reads no workload"
 // only when no earlier rung answers.
 func (pl *declarePlanner) collectRepoInputs(ctx context.Context, given givenRepo) repoInputs {
 	in := repoInputs{Given: given, Baseline: pl.baseSigner}
+	if pl.req.Template != nil {
+		in.GitOpsWhy, in.ImageWhy, in.LabelWhy = templateReadsNoWorkload, templateReadsNoWorkload, templateReadsNoWorkload
+		return in
+	}
+	if pl.req.Create != nil {
+		in.GitOpsWhy, in.ImageWhy, in.LabelWhy = noWorkloadYet, noWorkloadYet, noWorkloadYet
+		return in
+	}
 	if pl.req.Dir != "" && pl.req.draft == "" {
 		in.GitOpsWhy, in.ImageWhy, in.LabelWhy = dirReadsNoWorkload, dirReadsNoWorkload, dirReadsNoWorkload
 		return in

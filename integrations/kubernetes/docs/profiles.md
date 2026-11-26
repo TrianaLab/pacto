@@ -186,6 +186,22 @@ kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations -o jso
   xargs kubectl delete
 ```
 
+### Inferred offerings
+
+Under every profile, a cluster-wide operator with `registry` set reads each
+XRD and the Compositions that select it and pushes it as an
+[inferred offering](../../inferred-offerings.md), signed with the installation
+key, to `<registry>/pacto-inferred/crossplane-<clusterID>/services`. Each
+installation, member clusters included, writes its own repository, so several
+installations can share one registry. The detection ConfigMap advertises that
+repository, the offerings the last complete run observed and when.
+
+For this the chart adds one read-only rule: `get`, `list` and `watch` on
+`compositeresourcedefinitions` and `compositions` in
+`apiextensions.crossplane.io`. Without Crossplane the
+operator reads nothing and checks again on the next run. Turn it off with
+`crossplane.offerings.enabled=false` (`--crossplane-offerings=false`).
+
 ## Combine hardened and idp
 
 Pass both names as a list:

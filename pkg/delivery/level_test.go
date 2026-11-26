@@ -18,7 +18,7 @@ func breakingInput(t *testing.T, level Level, class ActorClass) PlanInput {
 	old, breaking := bundle("payments", "1.0.0"), bundle("payments", "2.0.0")
 	old.Contract.Workload, breaking.Contract.Workload = "service", "job"
 	from, to := rev(dA, c1, old), rev(dB, c2, breaking)
-	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now)
+	snap, err := Snapshot(context.Background(), nil, nil, []Revision{from, to}, now, Members{})
 	if err != nil {
 		t.Fatal(err)
 	}

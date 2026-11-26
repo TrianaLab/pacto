@@ -5,7 +5,6 @@ import (
 	"errors"
 	"io/fs"
 	"net/http"
-	"net/http/httptest"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -34,7 +33,6 @@ type ciRepoEnv struct {
 
 func newCIRepo(t *testing.T) *ciRepoEnv {
 	t.Helper()
-	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 	host, reg := publishRegistry(t)
 	return &ciRepoEnv{root: t.TempDir(), host: host, reg: reg, svc: &Service{sys: sysDeps{publishRegistry: func() publish.Registry { return reg }}}}
 }
@@ -116,6 +114,7 @@ func row(t *testing.T, p *ci.Plan, dir string) ci.Row {
 const reportsV1 = "service:\n  name: reports\n  version: 1.0.0\n"
 
 func TestUnchangedIgnoresManifestLabelsAndPin(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1, "reports/openapi.yaml": "openapi: 3.0.0\n"})
 	e.publish(t, "reports", "acme/reports", "1.0.0", nil)
@@ -127,6 +126,7 @@ func TestUnchangedIgnoresManifestLabelsAndPin(t *testing.T) {
 }
 
 func TestUnchangedOnlyRecordDiffers(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1, "reports/compose.yaml": "services:\n  reports:\n    image: ghcr.io/acme/reports:1.0\n"})
 	e.publish(t, "reports", "acme/reports", "1.0.0", func(b *contract.Bundle) {
@@ -144,6 +144,7 @@ func TestUnchangedOnlyRecordDiffers(t *testing.T) {
 }
 
 func TestChangedFileContent(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1, "reports/notes.txt": "a\n"})
 	e.publish(t, "reports", "acme/reports", "1.0.0", nil)
@@ -160,6 +161,7 @@ func TestChangedFileContent(t *testing.T) {
 const ledgerDep = "dependencies:\n  - name: ledger\n    ref: oci://ghcr.io/acme/ledger\n    compatibility: \"^1.0.0\"\n"
 
 func TestChangedContractField(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1})
 	e.publish(t, "reports", "acme/reports", "1.0.0", nil)
@@ -171,6 +173,7 @@ func TestChangedContractField(t *testing.T) {
 }
 
 func TestChangedRecordSources(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1, "CODEOWNERS": "/reports/ @acme/reporting\n"})
 	e.publish(t, "reports", "acme/reports", "1.0.0", nil)
@@ -183,6 +186,7 @@ func TestChangedRecordSources(t *testing.T) {
 }
 
 func TestChangedStaleRecord(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1, "reports/compose.yaml": "services:\n  reports:\n    image: ghcr.io/acme/reports:1.0\n"})
 	e.publish(t, "reports", "acme/reports", "1.0.0", func(b *contract.Bundle) {
@@ -196,6 +200,7 @@ func TestChangedStaleRecord(t *testing.T) {
 }
 
 func TestCIUndeclaredVersionNoSpuriousChange(t *testing.T) {
+	t.Parallel()
 	base := &contract.Contract{PactoVersion: contract.Current(), Service: contract.Service{Name: "reports", Version: "1.0.0"}}
 	local := &contract.Contract{Service: contract.Service{Name: "reports"}}
 	for _, c := range diff.Compare(context.Background(), base, normalised(local, "1.0.0"), nil, nil).Changes {
@@ -206,6 +211,7 @@ func TestCIUndeclaredVersionNoSpuriousChange(t *testing.T) {
 }
 
 func TestCIFirstPublish(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1, "billing/pacto.yaml": "service: {name: billing}\n"})
 	p := e.plan(t)
@@ -221,6 +227,7 @@ func TestCIFirstPublish(t *testing.T) {
 }
 
 func TestCIFirstPublishInferredNameUnverified(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": "service: {version: 1.0.0}\n"})
 	r := row(t, e.plan(t), "reports")
@@ -267,6 +274,7 @@ func fakePlan(t *testing.T, root string, reg publish.Registry, env map[string]st
 func noTags(string) ([]string, error) { return nil, nil }
 
 func TestCIFirstPublishGuessedRegistryUnverified(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeCIFile(t, root, "reports/pacto.yaml", reportsV1)
 	reg := &fakeCIRegistry{tags: noTags}
@@ -286,8 +294,7 @@ func TestCIFirstPublishGuessedRegistryUnverified(t *testing.T) {
 func countingHost(t *testing.T) (string, *atomic.Int64) {
 	t.Helper()
 	var n atomic.Int64
-	freshProbes(t)
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	srv := probedServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		n.Add(1)
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -296,6 +303,7 @@ func countingHost(t *testing.T) (string, *atomic.Int64) {
 }
 
 func TestCIPublishBundleOutsideRegistryUnverified(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	other, hits := countingHost(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1 + "publish:\n  bundle: oci://" + other + "/x\n"})
@@ -307,6 +315,7 @@ func TestCIPublishBundleOutsideRegistryUnverified(t *testing.T) {
 }
 
 func TestCIPublishBundleOnRegistryIsRead(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1 + "publish:\n  bundle: oci://" + e.host + "/pacto/reports\n"})
 	e.publish(t, "reports", "pacto/reports", "1.0.0", nil)
@@ -316,6 +325,7 @@ func TestCIPublishBundleOnRegistryIsRead(t *testing.T) {
 }
 
 func TestCIImageRegistryNeverContacted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	img, hits := countingHost(t)
 	writeCIFile(t, root, "reports/pacto.yaml", reportsV1)
@@ -328,6 +338,7 @@ func TestCIImageRegistryNeverContacted(t *testing.T) {
 }
 
 func TestCIPolicyRefOutsideRegistryNotFetched(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	other, hits := countingHost(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": reportsV1 + "policies:\n  - name: p\n    ref: oci://" + other + "/policy:1.0.0\n"})
@@ -349,6 +360,7 @@ func TestCIPolicyRefOutsideRegistryNotFetched(t *testing.T) {
 }
 
 func TestHostFence(t *testing.T) {
+	t.Parallel()
 	inner := &bundleResolverAdapter{svc: &Service{}, base: "/repo"}
 	f := &hostFence{inner: inner, host: "r.example"}
 	if f.RootBase() != "/repo" {
@@ -367,6 +379,7 @@ func TestHostFence(t *testing.T) {
 }
 
 func TestCIBaselineSelection(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": "service: {name: reports, version: 1.4.2}\n"})
 	e.publish(t, "reports", "acme/reports", "1.4.2", nil)
@@ -393,6 +406,7 @@ const interfaceYAML = "interfaces:\n  - name: api\n    type: openapi\n    ref: o
 const openAPIFile = "openapi: 3.0.0\ninfo: {title: reports, version: \"1\"}\npaths: {}\n"
 
 func TestCIBaselinesMatchPublish(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": "service: {name: reports, version: 1.5.0}\n" + interfaceYAML, "reports/openapi.yaml": openAPIFile})
 	e.publish(t, "reports", "acme/reports", "1.5.0", nil)
@@ -417,6 +431,7 @@ func TestCIBaselinesMatchPublish(t *testing.T) {
 }
 
 func TestCIVersionDerived(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": "service: {name: reports, version: 1.4.2}\n" + interfaceYAML, "reports/openapi.yaml": openAPIFile})
 	e.publish(t, "reports", "acme/reports", "1.4.2", nil)
@@ -431,6 +446,7 @@ func TestCIVersionDerived(t *testing.T) {
 }
 
 func TestCIVersionRefused(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": "service: {name: reports, version: 1.4.2}\n" + interfaceYAML, "reports/openapi.yaml": openAPIFile})
 	e.publish(t, "reports", "acme/reports", "1.4.2", nil)
@@ -446,6 +462,7 @@ func TestCIVersionRefused(t *testing.T) {
 }
 
 func TestCICollisionBlocksBoth(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"services/pay/pacto.yaml": "service: {version: 1.0.0}\n", "apps/pay/pacto.yaml": "service: {version: 1.0.0}\n"})
 	p := e.plan(t)
@@ -459,6 +476,7 @@ func TestCICollisionBlocksBoth(t *testing.T) {
 }
 
 func TestCIDeclaredDuplicateBlocks(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"services/pay/pacto.yaml": "service: {name: pay}\n", "apps/pay/pacto.yaml": "service: {name: pay}\n", "billing/pacto.yaml": "service: {name: billing}\n"})
 	p := e.plan(t)
@@ -473,6 +491,7 @@ func TestCIDeclaredDuplicateBlocks(t *testing.T) {
 }
 
 func TestCIInvalidBlocks(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"bad/pacto.yaml": "service: {name: bad}\nworkload: nope\n", "reports/pacto.yaml": reportsV1})
 	p := e.plan(t)
@@ -485,6 +504,7 @@ func TestCIInvalidBlocks(t *testing.T) {
 }
 
 func TestCINoRegistryUnverified(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeCIFile(t, root, "reports/pacto.yaml", reportsV1)
 	writeCIFile(t, root, "billing/pacto.yaml", "service: {name: billing}\n")
@@ -500,6 +520,7 @@ func TestCINoRegistryUnverified(t *testing.T) {
 }
 
 func TestCIBaselineUnreadableUnverified(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeCIFile(t, root, "reports/pacto.yaml", reportsV1)
 	env := map[string]string{"GITLAB_CI": "true", "CI_REGISTRY_IMAGE": "r.example/acme"}
@@ -523,6 +544,7 @@ func TestCIBaselineUnreadableUnverified(t *testing.T) {
 }
 
 func TestCIBaseUnreadableInVersionCheck(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{"reports/pacto.yaml": "service: {name: reports, version: 1.5.0}\n"})
 	e.publish(t, "reports", "acme/reports", "1.5.0", nil)
@@ -553,6 +575,7 @@ func TestCIBaseUnreadableInVersionCheck(t *testing.T) {
 }
 
 func TestCIInferredCount(t *testing.T) {
+	t.Parallel()
 	e := newCIRepo(t)
 	e.write(t, map[string]string{
 		"reports/pacto.yaml":   reportsV1,
@@ -566,6 +589,7 @@ func TestCIInferredCount(t *testing.T) {
 }
 
 func TestCIExternalCatalogRefMalformed(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeCIFile(t, root, "reports/pacto.yaml", reportsV1)
 	if _, _, err := NewService(nil, nil).CIPlan(context.Background(), CIOptions{Root: root, Fleet: FleetOptions{ExternalCatalogRef: "not a ref"}}); err == nil {
@@ -574,12 +598,14 @@ func TestCIExternalCatalogRefMalformed(t *testing.T) {
 }
 
 func TestShortDigest(t *testing.T) {
+	t.Parallel()
 	if shortDigest("") != "" || shortDigest("sha256:9a1f77") != "sha256:9a1f…" {
 		t.Fatal(shortDigest("sha256:9a1f77"))
 	}
 }
 
 func TestCIExternalCatalogLimitationNoted(t *testing.T) {
+	t.Parallel()
 	reg := provenanceTestRegistry(t)
 	ref := pushOrgCatalog(t, reg, "apiVersion: v0\n")
 	root := t.TempDir()
@@ -594,6 +620,7 @@ func TestCIExternalCatalogLimitationNoted(t *testing.T) {
 // ci root as its repository, is the one --explain describes; a fresh read of
 // the folder would complete against the enclosing Git checkout instead.
 func TestCIBundlesFeedExplain(t *testing.T) {
+	t.Parallel()
 	top := t.TempDir()
 	writeCIFile(t, top, ".git/HEAD", "ref: refs/heads/main\n")
 	writeCIFile(t, top, "CODEOWNERS", "/sub/reports/ @acme/reporting\n")
@@ -622,6 +649,7 @@ func TestCIBundlesFeedExplain(t *testing.T) {
 // TestCIMigratedRowCountsRaisedRecord: a behind contract records nothing as
 // read; its row counts the inferred fields of the raised bundle it judges.
 func TestCIMigratedRowCountsRaisedRecord(t *testing.T) {
+	t.Parallel()
 	top := t.TempDir()
 	writeCIFile(t, top, ".git/HEAD", "ref: refs/heads/main\n")
 	writeCIFile(t, top, "CODEOWNERS", "/sub/reports/ @acme/reporting\n")
@@ -648,6 +676,7 @@ func (failFS) Open(string) (fs.File, error) { return nil, errors.New("disk gone"
 // TestUnchangedSaysWhatFailed: a content digest or a record that cannot be
 // read is named as such, never read as a difference.
 func TestUnchangedSaysWhatFailed(t *testing.T) {
+	t.Parallel()
 	c := &contract.Contract{Service: contract.Service{Name: "r", Version: "1.0.0"}}
 	ok := &contract.Bundle{Contract: c, FS: fstest.MapFS{"notes.txt": {Data: []byte("a")}}}
 	bad := &contract.Bundle{Contract: c, FS: failFS{}}

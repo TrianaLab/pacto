@@ -96,7 +96,7 @@ func TestDemoInferredMatchesPublisher(t *testing.T) {
 	for _, v := range []string{"0.0.1", "0.0.2"} {
 		got := demoInferredRevision(v).Bundle
 		want, err := inferredcontract.Bundle("stripe", demoInferredSurface(v), v,
-			contract.InferredInputs{Pacto: "demo", Discovery: inferredcontract.Version, Sources: []contract.InferredSourceFile{}}, demoStripeOpenAPI[v])
+			contract.InferredInputs{Pacto: "demo", Discovery: inferredcontract.Version, Sources: []contract.InferredSourceFile{}}, demoStripeOpenAPI[v], "")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -135,8 +135,8 @@ func TestDemoImpactChangedExternalStripe(t *testing.T) {
 		t.Fatalf("gate = %s, external = %+v, want unverified with an unchecked change", res.Gate, res.External)
 	}
 	// A demo consumer pins no range, so the answer offers the ref form over the inferred contract.
-	if !strings.Contains(res.Pin, "ref: oci://"+demoInferredRepository+"\n") {
-		t.Errorf("pin = %q, want the ref form over %s", res.Pin, demoInferredRepository)
+	if !strings.Contains(res.Pin, "ref: oci://"+demoInferredRoot+"/stripe"+"\n") {
+		t.Errorf("pin = %q, want the ref form over %s/stripe", res.Pin, demoInferredRoot)
 	}
 	want := map[string]bool{}
 	for _, s := range snap.Externals["stripe"].Sources {

@@ -49,6 +49,13 @@ const MaxExternalNodes = 200
 // for one external system; ConsumersTotal and SourcesTotal keep the counts.
 const MaxExternalSources = 50
 
+// MaxExternalResources caps the managed resources one answer lists for one
+// external system; ResourcesTotal keeps the count.
+//
+// ponytail: a fixed page of 20; a cursor over the rest if an external with
+// more resources needs them listed.
+const MaxExternalResources = 20
+
 // MaxExternalChangeAge is how long a checked change of an external system's
 // inferred contract raises EXTERNAL_CHANGED, measured from the newer
 // revision's surface time to the snapshot's.
@@ -61,6 +68,11 @@ const MaxExternalChangeAge = 7 * 24 * time.Hour
 // Past it the rest are not read and the source is partial
 // (LimitationInferredServicesCapped). Raise it here if a real cluster hits it.
 const MaxInferredServices = 5000
+
+// MaxInferredTemplates caps the inferred golden paths a snapshot lists
+// (those a declared golden path holds the name of are not counted). Past it
+// the rest are left out with LimitationInferredTemplatesCapped.
+const MaxInferredTemplates = 200
 
 // MaxInferredImageRunes and MaxInferredPathRunes bound the image and probe
 // path of an inferred service: anyone who may create a workload writes them
@@ -148,7 +160,7 @@ func BoundLimitations(ls []Limitation) ([]Limitation, bool) {
 // keptPastCap says whether l is about the whole answer and survives the cap.
 func keptPastCap(l Limitation) bool {
 	switch l.Code {
-	case LimitationHiddenByPermissions, LimitationK8sNamespaceScoped, LimitationK8sNamespaceUnreadable:
+	case LimitationHiddenByPermissions, LimitationK8sNamespaceScoped, LimitationK8sNamespaceUnreadable, LimitationClustersUnread:
 		return true
 	}
 	return false

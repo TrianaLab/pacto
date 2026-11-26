@@ -13,6 +13,7 @@
   // legacy-billing's page: the inferred service key, encoded as the services list links it.
   var BILLING = "#/fleet/services/k8s:5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%252Fshop%252FDeployment%252Flegacy-billing";
   var STRIPE = "#/fleet/externals/stripe";
+  var XBUCKET = "#/fleet/services/ghcr.io%252Facme%252Fpacto-inferred%252Fcrossplane-5b0c6c3e-7f1a-4c55-9d1e-2b8a4e6f0a11%2Fxbucket";
 
   var style = document.createElement("style");
   style.textContent =
@@ -249,9 +250,10 @@
     target: "#sec-observed-traffic-and-differences"
   }, {
     // Only something to read: the demo cluster is a hub, and its Clusters block lists
-    // the members that joined through the registry and the one waiting for a person.
+    // the members that joined through the registry, the one waiting for a person and
+    // the candidate clusters the hub's Argo CD and Cluster API know.
     title: "Which clusters report here?",
-    text: "This cluster is a hub: eu-prod and us-west joined it through the registry once a person approved their keys, and ap-dev waits under Clusters until someone who may approve it runs the command its Approve button shows.",
+    text: "This cluster is a hub: eu-prod and us-west joined it through the registry once a person approved their keys, and ap-dev waits under Clusters until someone who may approve it runs the command its Approve button shows, while Candidate clusters lists what Argo CD and Cluster API already know and Get ApplicationSet hands you the file that installs Pacto on each one.",
     hash: "#/fleet/sources",
     target: '[data-testid="source-clusters"]'
   }, {
@@ -335,6 +337,13 @@
     text: "stripe has consumers and no owner, so attention routes it to the installation's default approvers until a person presses Claim, names the owning team and signs.",
     hash: STRIPE,
     target: '[data-testid="external-owner"]'
+  }, {
+    // The cluster's operator maps each XRD to an inferred offering, listed muted and
+    // never consumable until a person accepts it as a declared offering (515-S4).
+    title: "Accept an inferred offering",
+    text: "The cluster's operator read xbucket from a Crossplane XRD, so it stays an inferred offering nobody can consume until a person sets its version and owner under Accept this offering and signs the plan.",
+    hash: XBUCKET,
+    target: '[data-testid="offering-accept"]'
   }, {
     title: "Recap",
     text: "You have now seen what runs, what state it is in, whether a change breaks anyone, what happens if a service goes away or regresses, who a change reaches, who owns a service and when its changes reached a Stage, what a provider promises, which clusters report here, where new services start, whether a platform offering is available and who can move off it, how a workload with no contract is declared and who owns an external system, all from contracts and observations.",

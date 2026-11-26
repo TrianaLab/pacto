@@ -14,6 +14,7 @@ import (
 )
 
 func TestExplainListsInferred(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	got, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
 	if err != nil {
@@ -26,6 +27,7 @@ func TestExplainListsInferred(t *testing.T) {
 }
 
 func TestExplainNeverPrintsValues(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	got, err := NewService(nil, nil).Explain(context.Background(), ExplainOptions{Path: dir})
 	if err != nil {
@@ -63,6 +65,7 @@ func registryBundle(t *testing.T, dir, record string) *mockBundleStore {
 }
 
 func TestExplainRegistryBundleRecord(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	record := completed(t, dir, commitA)
 	got, err := NewService(registryBundle(t, dir, record), nil).Explain(context.Background(), ExplainOptions{Path: "oci://ghcr.io/acme/app:1.0.0"})
@@ -76,6 +79,7 @@ func TestExplainRegistryBundleRecord(t *testing.T) {
 }
 
 func TestExplainUnreadableRecord(t *testing.T) {
+	t.Parallel()
 	dir := completionFolder(t, `pactoVersion: "2.5"`+"\n")
 	for name, record := range map[string]string{
 		"malformed": "format: other\n",

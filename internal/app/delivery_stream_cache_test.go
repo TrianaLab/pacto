@@ -17,6 +17,7 @@ import (
 // TestStreamCacheSharesAVerifiedStream: a stream whose head has not moved is
 // read once; a moved head reads the registry again.
 func TestStreamCacheSharesAVerifiedStream(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t, opFixture("ship", shipSpec(dlA), map[string]any{"phase": "Concluded", "outcome": "Succeeded", "seq": int64(2)}))
 	_, r2 := e.twoRecords()
 	e.d.Streams = &StreamCache{}
@@ -40,6 +41,7 @@ func TestStreamCacheSharesAVerifiedStream(t *testing.T) {
 }
 
 func TestStreamCacheKeepsOnlyCleanReads(t *testing.T) {
+	t.Parallel()
 	var c *StreamCache
 	c.put("k", &streamRead{}) // a nil cache is a no-op
 	if c.get("k") != nil {
@@ -69,6 +71,7 @@ func TestStreamCacheKeepsOnlyCleanReads(t *testing.T) {
 }
 
 func TestStreamKey(t *testing.T) {
+	t.Parallel()
 	d := &Delivery{}
 	if d.streamKey(delivery.Stream{Anchor: "a", ID: "s"}) != "" {
 		t.Error("no head, no key")

@@ -33,6 +33,7 @@ func writeFiles(t *testing.T, dir string, files map[string]string) {
 }
 
 func TestGitRevision(t *testing.T) {
+	t.Parallel()
 	sha256ID := strings.Repeat("ab", 32)
 	packed := "# pack-refs with: peeled fully-peeled sorted\n" + commitB + " refs/heads/other\n" + commitA + " refs/heads/main\n^" + commitB + "\n"
 	for name, files := range map[string]map[string]string{
@@ -77,6 +78,7 @@ func TestGitRevision(t *testing.T) {
 // TestGitRevisionFindsTheCheckout: a contract in a subdirectory, a linked
 // worktree (its own HEAD, refs shared through commondir) and a submodule.
 func TestGitRevisionFindsTheCheckout(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	writeFiles(t, root, map[string]string{
 		"main/.git/HEAD":                   "ref: refs/heads/main\n",
@@ -104,6 +106,7 @@ func TestGitRevisionFindsTheCheckout(t *testing.T) {
 // TestGitRevisionMatchesGit: on this very checkout (a linked worktree in
 // development) the reader agrees with git when git is installed.
 func TestGitRevisionMatchesGit(t *testing.T) {
+	t.Parallel()
 	out, err := exec.Command("git", "rev-parse", "HEAD").Output()
 	if err != nil {
 		t.Skip("no git checkout here")

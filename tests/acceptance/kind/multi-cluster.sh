@@ -61,7 +61,7 @@ trap 'rc=$?; [ $rc -ne 0 ] && dump_diag "$NS"; keep_or_teardown "$NS" "$CLUSTER"
 
 apply_pacto() { # CONTEXT NS NAME
   kubectl --context "$1" apply -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $3, namespace: $2}
 spec:

@@ -16,8 +16,8 @@ import (
 )
 
 func TestNewRegistryProbeOpensTheRefRepository(t *testing.T) {
-	freshProbes(t)
-	srv := httptest.NewServer(testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: true}))
+	t.Parallel()
+	srv := probedServer(t, testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: true}))
 	defer srv.Close()
 	host := strings.TrimPrefix(srv.URL, "http://")
 	repo, err := ocireferrer.Open(host+"/team/app", ocireferrer.Options{})
@@ -43,6 +43,7 @@ func TestNewRegistryProbeOpensTheRefRepository(t *testing.T) {
 }
 
 func TestFleetWiresRegistryProbe(t *testing.T) {
+	t.Parallel()
 	store := fakeFleetStore{bundles: map[string]*contract.Bundle{"ghcr.io/x/a:1.0.0": bundleForFleet("a")}}
 	var probed []string
 	opts := FleetOptions{OCIRefs: []string{"ghcr.io/x/a:1.0.0"}, RegistryProbe: func(_ context.Context, ref string) (capabilities.Capabilities, error) {
@@ -58,14 +59,20 @@ func TestFleetWiresRegistryProbe(t *testing.T) {
 	}
 }
 
-// TestFreshProbesForgetsAReusedPort: a test server that reuses the port of an
-// earlier one with native referrers must be probed again, or a publish
-// reading back its signature takes the earlier answer and fails (CI run
-// 44700352090, TestCIPublishRefusedKeepsThePlanModeNote).
-func TestFreshProbesForgetsAReusedPort(t *testing.T) {
-	probeOn := func(t *testing.T, h http.Handler, addr string) (string, capabilities.ReferrersMode) {
-		srv := httptest.NewUnstartedServer(h)
-		if addr != "" {
+// TestProbedServerNeverReusesAnAddress: a test server on the port of an
+// earlier one with native referrers would take that server's remembered
+// answer from the process prober, and a publish reading back its signature
+// fails (CI run 44700352090, TestCIPublishRefusedKeepsThePlanModeNote). So
+// probedServer drops a server on an address it already handed out.
+func TestProbedServerNeverReusesAnAddress(t *testing.T) {
+	t.Parallel()
+	first := probedServer(t, http.NotFoundHandler())
+	addr := first.Listener.Addr().String()
+	first.Close()
+	reused := 0
+	srv := uniqueServer(t, func() *httptest.Server {
+		srv := httptest.NewUnstartedServer(http.NotFoundHandler())
+		if reused == 0 {
 			l, err := net.Listen("tcp", addr)
 			if err != nil {
 				t.Skipf("the port was taken meanwhile: %v", err)
@@ -73,29 +80,13 @@ func TestFreshProbesForgetsAReusedPort(t *testing.T) {
 			_ = srv.Listener.Close()
 			srv.Listener = l
 		}
+		reused++
 		srv.Start()
-		defer srv.Close()
-		host := strings.TrimPrefix(srv.URL, "http://")
-		repo, _ := ocireferrer.Open(host+"/team/app", ocireferrer.Options{})
-		art := ocireferrer.Build("application/x-subject", "application/x-layer", []byte("s"), nil, nil)
-		if err := ocireferrer.Push(t.Context(), repo, art); err != nil {
-			t.Fatal(err)
-		}
-		c, err := ocireferrer.Probes.Probe(t.Context(), repo, art.ManifestDesc.Digest.String(), false)
-		if err != nil {
-			t.Fatal(err)
-		}
-		return host, c.Referrers
-	}
-	freshProbes(t)
-	host, mode := probeOn(t, testutil.NewReferrersRegistry(testutil.ReferrersOptions{}), "")
-	if mode != capabilities.ReferrersNative {
-		t.Fatalf("first server: %s", mode)
-	}
-	t.Run("reused", func(t *testing.T) {
-		freshProbes(t)
-		if _, mode := probeOn(t, testutil.NewReferrersRegistry(testutil.ReferrersOptions{Unsupported: true}), host); mode != capabilities.ReferrersWriteOnceTags {
-			t.Fatalf("the reused port kept the earlier answer: %s", mode)
-		}
+		return srv
 	})
+	// Parallel tests hand out addresses too, so the fresh server may itself
+	// land on one and be dropped: at least two starts, never the reused one.
+	if got := srv.Listener.Addr().String(); got == addr || reused < 2 {
+		t.Fatalf("probedServer handed out %s again (%d servers started)", got, reused)
+	}
 }

@@ -732,3 +732,66 @@ func TestPlanToolDescribesManifests(t *testing.T) {
 		t.Fatal("the instructions do not describe the pacto.manifests citation")
 	}
 }
+
+// TestPlanToolMemberMode: with service and environment and no stage, the
+// plan tool asks for a member plan and answers its members; a Stage and
+// members together, or neither, is StageOrMembers.
+func TestPlanToolMemberMode(t *testing.T) {
+	mp := &delivery.MemberPlan{Service: delivery.ServiceRef{Name: "billing"}, Environment: "production", Completeness: "complete",
+		Placement: delivery.MemberPlacementPlan{Source: delivery.PlacementUnconfirmed, Placed: []delivery.PlacedMember{{UID: "aaaa", Name: "eu-prod"}}}}
+	api := &stubDelivery{plan: delivery.PlanAnswer{Members: mp}}
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: false}})
+	var plan delivery.PlanAnswer
+	decode(t, callToolOn(t, server, "pacto_delivery_operation_plan", map[string]any{
+		"service": "billing", "environment": "production", "to": "sha256:ab", "members": []string{"aaaa"}}), &plan)
+	if plan.Members == nil || plan.Members.Placement.Source != delivery.PlacementUnconfirmed || !api.req.MemberMode() || api.req.Members[0] != "aaaa" {
+		t.Fatalf("member plan: %+v %+v", plan, api.req)
+	}
+	for _, args := range []map[string]any{
+		{"namespace": "prod", "stage": "s", "service": "billing"},
+		{"service": "billing"},
+		{"to": "sha256:ab"},
+		{"stage": "s"},
+	} {
+		res := callToolOn(t, server, "pacto_delivery_operation_plan", args)
+		if !res.IsError || !strings.Contains(resultText(t, res), delivery.RefusalStageOrMembers) {
+			t.Errorf("%v: %v", args, resultText(t, res))
+		}
+	}
+}
+
+// TestProposeToolRefusesMemberMode: an agent never signs a member request:
+// propose answers MemberRequestNeedsPerson with the command a person runs
+// and proposes nothing.
+func TestProposeToolRefusesMemberMode(t *testing.T) {
+	api := &stubDelivery{}
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: api, Writes: true}})
+	args := map[string]any{"service": "billing", "environment": "production", "to": "sha256:ab", "reason": "INC-42 hotfix"}
+	res := callToolOn(t, server, "pacto_delivery_operation_propose", args)
+	got := resultText(t, res)
+	if !res.IsError || !strings.HasPrefix(got, delivery.RefusalMemberRequestNeedsPerson+": ") ||
+		!strings.Contains(got, "pacto delivery propose --service billing --environment production --to sha256:ab") || !strings.Contains(got, "--confirm") {
+		t.Fatalf("%v %+v", got, api.req)
+	}
+	// The plan's own command carries the hub's registry and the reason.
+	next := "pacto delivery propose --service billing --environment production --to sha256:ab --reason 'INC-42 hotfix' --registry zot/acme --confirm"
+	api.plan = delivery.PlanAnswer{Members: &delivery.MemberPlan{Next: next}}
+	if res := callToolOn(t, server, "pacto_delivery_operation_propose", args); !res.IsError || !strings.HasSuffix(resultText(t, res), "a person runs: "+next) {
+		t.Fatalf("%v", resultText(t, res))
+	}
+	api.err = errors.New("DigestRequired: sha256:ab is not a sha256 manifest digest")
+	if res := callToolOn(t, server, "pacto_delivery_operation_propose", args); !res.IsError || !strings.HasPrefix(resultText(t, res), "DigestRequired") {
+		t.Fatalf("%v", resultText(t, res))
+	}
+}
+
+// TestStageToolsNeedTheStage: the Stage tools with no member mode keep
+// namespace and stage required.
+func TestStageToolsNeedTheStage(t *testing.T) {
+	server := mustNew("v", Authoring{}, Modes{Delivery: &DeliveryMode{API: &stubDelivery{}}})
+	for _, tool := range []string{"pacto_delivery_candidates", "pacto_delivery_blame"} {
+		if res := callToolOn(t, server, tool, map[string]any{"stage": "payments-prod"}); !res.IsError {
+			t.Errorf("%s: %v", tool, resultText(t, res))
+		}
+	}
+}

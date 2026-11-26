@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -33,8 +32,7 @@ func statsService(t *testing.T, wrap func(http.Handler) http.Handler, records ..
 	if wrap != nil {
 		h = wrap(h)
 	}
-	freshProbes(t)
-	srv := httptest.NewServer(h)
+	srv := probedServer(t, h)
 	t.Cleanup(srv.Close)
 	host := strings.TrimPrefix(srv.URL, "http://")
 	path := host + "/acme/pacto-stats"
@@ -81,6 +79,7 @@ func statsWindow() stats.Query {
 }
 
 func TestServiceStatsReadsAndTotals(t *testing.T) {
+	t.Parallel()
 	s, path := statsService(t, nil, diffRecord("payments"), diffRecord("orders"))
 	st, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Now: statsClock})
 	if err != nil {
@@ -113,6 +112,7 @@ func TestServiceStatsTimeout(t *testing.T) {
 }
 
 func TestServiceStatsOneServiceReadsOneAnchor(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var paths []string
 	s, path := statsService(t, func(inner http.Handler) http.Handler {
@@ -142,6 +142,7 @@ func TestServiceStatsOneServiceReadsOneAnchor(t *testing.T) {
 }
 
 func TestServiceStatsZeroNowUsesServiceClock(t *testing.T) {
+	t.Parallel()
 	s, path := statsService(t, nil, diffRecord("payments"))
 	s.sys.now = func() time.Time { return statsClock }
 	st, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow()})
@@ -162,6 +163,7 @@ func failReferrers(inner http.Handler) http.Handler {
 }
 
 func TestServiceStatsRestrictedAnchorErrorIsGeneric(t *testing.T) {
+	t.Parallel()
 	s, path := statsService(t, failReferrers, diffRecord("payments"))
 	_, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Scope: stats.Scope{Restricted: true, Names: []string{"payments"}}, Now: statsClock})
 	if err == nil || err.Error() != "reading run records from "+path+" failed" || strings.Contains(err.Error(), runrecord.AnchorTagPrefix) {
@@ -173,6 +175,7 @@ func TestServiceStatsRestrictedAnchorErrorIsGeneric(t *testing.T) {
 // service, such as a tag list page that starts after one: a restricted
 // caller gets none of it, and only a deadline or cancel stays apparent.
 func TestServiceStatsRestrictedReadErrorIsGeneric(t *testing.T) {
+	t.Parallel()
 	tag := runrecord.AnchorTag("payments-api")
 	req := StatsRequest{Registry: "reg/stats", Scope: stats.Scope{Restricted: true}}
 	raw := errors.New(`GET "https://reg/v2/stats/tags/list?last=` + tag + `&n=100": response status code 500`)
@@ -192,6 +195,7 @@ func TestServiceStatsRestrictedReadErrorIsGeneric(t *testing.T) {
 // A restricted caller reads only the anchors of the services in its view: a
 // hidden service's records are never listed, so they cannot use the bounds.
 func TestServiceStatsRestrictedReadsOnlyViewAnchors(t *testing.T) {
+	t.Parallel()
 	var mu sync.Mutex
 	var paths []string
 	s, path := statsService(t, func(inner http.Handler) http.Handler {
@@ -225,6 +229,7 @@ func TestServiceStatsRestrictedReadsOnlyViewAnchors(t *testing.T) {
 }
 
 func TestServiceStatsUnrestrictedAnchorErrorNamesTheAnchor(t *testing.T) {
+	t.Parallel()
 	s, path := statsService(t, failReferrers, diffRecord("payments"))
 	_, err := s.Stats(t.Context(), StatsRequest{Registry: path, Query: statsWindow(), Now: statsClock})
 	var anchor *registry.AnchorError
@@ -234,6 +239,7 @@ func TestServiceStatsUnrestrictedAnchorErrorNamesTheAnchor(t *testing.T) {
 }
 
 func TestServiceStatsOpenError(t *testing.T) {
+	t.Parallel()
 	s := NewService(nil, nil)
 	s.sys.statsRepo = func(string) (*remote.Repository, error) { return nil, errors.New("bad reference") }
 	_, err := s.Stats(t.Context(), StatsRequest{Registry: "::", Query: statsWindow(), Now: statsClock})
@@ -243,12 +249,14 @@ func TestServiceStatsOpenError(t *testing.T) {
 }
 
 func TestServiceStatsDefaultOpener(t *testing.T) {
+	t.Parallel()
 	if _, err := (&Service{}).env().statsRepo("reg.example/acme/pacto-stats"); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestServiceStatsOperationAccess(t *testing.T) {
+	t.Parallel()
 	s, path := statsService(t, nil, operationRecord(t, "0f6c2a1e-5b7d-4c3a-9e2f-00000000000a", "prod-a"), operationRecord(t, "0f6c2a1e-5b7d-4c3a-9e2f-00000000000b", "prod-b"), operationRecord(t, "0f6c2a1e-5b7d-4c3a-9e2f-00000000000c", "prod-a"), diffRecord("payments"))
 	var asked []string
 	access := func(_ context.Context, namespaces []string) (stats.OperationAccess, error) {
@@ -266,6 +274,7 @@ func TestServiceStatsOperationAccess(t *testing.T) {
 }
 
 func TestServiceStatsOperationAccessErrorIsAnError(t *testing.T) {
+	t.Parallel()
 	s, path := statsService(t, nil, operationRecord(t, "0f6c2a1e-5b7d-4c3a-9e2f-00000000000a", "prod-a"))
 	access := func(context.Context, []string) (stats.OperationAccess, error) {
 		return stats.OperationAccess{}, errors.New("forbidden")
@@ -279,6 +288,7 @@ func TestServiceStatsOperationAccessErrorIsAnError(t *testing.T) {
 // The dashboard's read and pacto stats open the repository through one
 // opener, and read every anchor when no service is named.
 func TestReadRunRecordsSharesOpener(t *testing.T) {
+	t.Parallel()
 	s, path := statsService(t, nil, diffRecord("payments"), diffRecord("orders"))
 	var opened []string
 	open := s.sys.statsRepo
@@ -302,6 +312,7 @@ func TestReadRunRecordsSharesOpener(t *testing.T) {
 // A restricted caller never reads the coverage anchor, yet is told coverage
 // is withheld from it, never that there is none.
 func TestServiceStatsRestrictedSaysCoverageWithheld(t *testing.T) {
+	t.Parallel()
 	asOf := statsClock.Add(-time.Hour)
 	cov := runrecord.CoverageRecord(runrecord.Coverage{SnapshotAsOf: asOf, Completeness: "complete"}, "dev", asOf)
 	s, path := statsService(t, nil, cov, diffRecord("orders"))

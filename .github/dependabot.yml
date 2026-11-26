@@ -88,3 +88,9 @@ updates:
       - dependency-name: "typescript"
         versions:
           - ">=6.0.0"
+      # svelte 5.58 grows the runtime chunk every page downloads first by
+      # about 11 KB, which puts the dashboard over its first-load script budget
+      # (TestFirstLoadBudget in pkg/dashboard). Lift this once a release fits.
+      - dependency-name: "svelte"
+        versions:
+          - ">=5.58.0"

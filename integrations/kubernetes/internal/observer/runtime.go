@@ -23,7 +23,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
-	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	unversioned "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 	"github.com/trianalab/pacto/v4/pkg/contract"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/probe"

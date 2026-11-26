@@ -52,10 +52,10 @@ func readDeps(tune func(*dynamicfake.FakeDynamicClient)) deps {
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
 		f := c.(*dynamicfake.FakeDynamicClient)
-		st := u("delivery.pacto.trianalab.io/v1alpha1", "Stage", "orders-staging", map[string]any{
+		st := u("delivery.pacto.trianalab.io/v1", "Stage", "orders-staging", map[string]any{
 			"spec": map[string]any{"service": map[string]any{"name": "orders"}, "applyRef": map[string]any{"name": "orders"}, "environment": "staging"}})
 		st.SetNamespace("staging")
-		_, _ = f.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}).
+		_, _ = f.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}).
 			Namespace("staging").Create(context.Background(), st, metav1.CreateOptions{})
 		if tune != nil {
 			tune(f)
@@ -519,4 +519,12 @@ func TestRemoteBundleThatCannotRegisterFailsAtStartup(t *testing.T) {
 		err := remoteCallerFor(cmd, app.NewService(nil, nil), "v", []string{writeCapabilityBundle(t)}, d, &s)
 		expect(t, err != nil && strings.Contains(err.Error(), "no base URL"), "%s: %v", name, err)
 	}
+}
+
+// A remote MCP server's delivery reads fan out over the contexts its fleet
+// reads, each caller reviewed per cluster.
+func TestRemoteDeliveryReadsFanOutReviewed(t *testing.T) {
+	cmd := newMCPCommand(app.NewService(nil, nil), "v", readDeps(nil))
+	id := remoteDeliveryIdentity(cmd, app.NewService(nil, nil), readDeps(nil), &rest.Config{Host: "https://hub"}, &app.Delivery{})
+	expect(t, id.entries != nil && id.viewer != nil, "entries %v viewer %v", id.entries != nil, id.viewer)
 }

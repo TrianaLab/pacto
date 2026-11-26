@@ -21,6 +21,9 @@
     DeliveryNotInstalled: 'Delivery is not installed on this cluster.',
     ClusterUnreachable: 'The dashboard cannot reach the cluster right now.',
     PlanStale: 'Something changed since the plan.',
+    OfferingSchemaOpen: 'Its parameters are not a closed space yet.',
+    OwnerRequired: 'Name the team that owns it first.',
+    OfferingSourceUnverified: 'Pacto could not verify who produced this offering.',
   };
 
   const code = $derived(error?.code || '');

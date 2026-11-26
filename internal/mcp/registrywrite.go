@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 
@@ -58,6 +59,15 @@ const (
 	RefusalExternalMismatch        WriteRefusal = "ExternalMismatch"
 	RefusalExternalUnknown         WriteRefusal = "ExternalUnknown"
 	RefusalClaimRepositoryInferred WriteRefusal = "ClaimRepositoryInferred"
+	// The offering acceptance codes: an open parameter schema, a source
+	// that is no contribution or that no producer key verified, a bundle
+	// that offers another name, and no version.
+	RefusalOfferingSchemaOpen       WriteRefusal = "OfferingSchemaOpen"
+	RefusalOfferingSourceInvalid    WriteRefusal = "OfferingSourceInvalid"
+	RefusalOfferingSourceUnverified WriteRefusal = "OfferingSourceUnverified"
+	RefusalOfferingMismatch         WriteRefusal = "OfferingMismatch"
+	RefusalVersionRequired          WriteRefusal = "VersionRequired"
+	RefusalOfferingInvalid          WriteRefusal = "OfferingInvalid"
 	// An HTTP server's draft write: the caller may not update the workload,
 	// writes on behalf of someone else or into another workload's
 	// repository (NotAllowed), or the review of the caller failed.
@@ -69,6 +79,33 @@ const (
 	RefusalBreakNotAnnounced        WriteRefusal = "BreakNotAnnounced"
 	RefusalNotPublished             WriteRefusal = "NotPublished"
 	RefusalPersonSigningUnavailable WriteRefusal = "PersonSigningUnavailable"
+	// The template:<namespace>/<name> codes: no such template, no catalog to
+	// read it from, a catalog that could not be read, a name no contract
+	// carries, a name a service already holds, and (an HTTP server's own) a
+	// catalog the installation did not configure.
+	RefusalTemplateNotFound           WriteRefusal = "TemplateNotFound"
+	RefusalTemplateCatalogUnset       WriteRefusal = "TemplateCatalogUnset"
+	RefusalTemplateCatalogUnavailable WriteRefusal = "TemplateCatalogUnavailable"
+	RefusalTemplateNameInvalid        WriteRefusal = "TemplateNameInvalid"
+	RefusalTemplateNameTaken          WriteRefusal = "TemplateNameTaken"
+	RefusalTemplateSourceUnverified   WriteRefusal = "TemplateSourceUnverified"
+	// The create-a-service codes: a name the registry already holds, a
+	// golden path the caller's view does not declare, a repository outside
+	// the installation registry, an offering the caller may not consume (or
+	// cannot be confirmed on a partial read), a value outside the offering's
+	// closed parameter space, and an environment the golden path does not
+	// declare.
+	RefusalServiceExists             WriteRefusal = "ServiceExists"
+	RefusalGoldenPathNotDeclared     WriteRefusal = "GoldenPathNotDeclared"
+	RefusalRepositoryOutsideRegistry WriteRefusal = "RepositoryOutsideRegistry"
+	RefusalOfferingNotConsumable     WriteRefusal = "OfferingNotConsumable"
+	RefusalOfferingUnknown           WriteRefusal = "OfferingUnknown"
+	RefusalParameterNotDeclared      WriteRefusal = "ParameterNotDeclared"
+	RefusalParameterOutOfRange       WriteRefusal = "ParameterOutOfRange"
+	RefusalParameterSensitive        WriteRefusal = "ParameterSensitive"
+	RefusalClassNotOffered           WriteRefusal = "ClassNotOffered"
+	RefusalTierNotTunable            WriteRefusal = "TierNotTunable"
+	RefusalEnvironmentNotDeclared    WriteRefusal = "EnvironmentNotDeclared"
 	// The owner rule's codes, defined once in pkg/delivery.
 	RefusalOwnerSignerNotPerson  WriteRefusal = delivery.OwnerSignerNotPerson
 	RefusalOwnerSignerNotAllowed WriteRefusal = delivery.OwnerSignerNotAllowed
@@ -84,7 +121,13 @@ var writeRefusals = []WriteRefusal{
 	RefusalBaselineNeedsMigration, RefusalBundleRepoMismatch, RefusalRepositoryUnknown, RefusalRepositoryUnconfirmed,
 	RefusalGitHostUnknown, RefusalGitTokenMissing, RefusalPullRequestFailed, RefusalPullRequestNeedsLocalToken, RefusalNotAllowed, RefusalReviewFailed, RefusalAcceptNothingProposed, RefusalFieldNotAcceptable,
 	RefusalBreakNotAnnounced, RefusalNotPublished, RefusalPersonSigningUnavailable,
-	RefusalOwnerRequired, RefusalExternalMismatch, RefusalExternalUnknown, RefusalClaimRepositoryInferred,
+	RefusalOwnerRequired, RefusalExternalMismatch, RefusalExternalUnknown, RefusalClaimRepositoryInferred, RefusalOfferingInvalid,
+	RefusalOfferingSchemaOpen, RefusalOfferingSourceInvalid, RefusalOfferingSourceUnverified, RefusalOfferingMismatch, RefusalVersionRequired,
+	RefusalTemplateNotFound, RefusalTemplateCatalogUnset, RefusalTemplateCatalogUnavailable, RefusalTemplateNameInvalid, RefusalTemplateNameTaken,
+	RefusalTemplateSourceUnverified,
+	RefusalServiceExists, RefusalGoldenPathNotDeclared, RefusalRepositoryOutsideRegistry, RefusalOfferingNotConsumable, RefusalOfferingUnknown,
+	RefusalParameterNotDeclared, RefusalParameterOutOfRange, RefusalParameterSensitive, RefusalClassNotOffered, RefusalTierNotTunable,
+	RefusalEnvironmentNotDeclared,
 	RefusalOwnerSignerNotPerson, RefusalOwnerSignerNotAllowed, RefusalOwnerPolicyUnverified, RefusalOwnerSignerUnverified,
 }
 
@@ -116,8 +159,9 @@ type PullRequest struct {
 
 // WriteResult is what a write tool answers: the plan and its intent digest,
 // whether anything was written, the draft it left, the command a person
-// accepts that draft with, or the refusal; with pr, the pull request it
-// opened after the write or why that failed (the write stays).
+// accepts that draft with (the dashboard page for a created service), or the
+// refusal; with pr, the pull request it opened after the write or why that
+// failed (the write stays).
 type WriteResult struct {
 	Plan             any          `json:"plan,omitempty"`
 	IntentDigest     string       `json:"intentDigest,omitempty"`
@@ -127,14 +171,17 @@ type WriteResult struct {
 	Refusal          *Refused     `json:"refusal,omitempty"`
 	PullRequest      *PullRequest `json:"pullRequest,omitempty"`
 	PullRequestError *Refused     `json:"pullRequestError,omitempty"`
+	// Refusals are every refused input of a pacto_create_service plan, each
+	// at its field with the closest valid value and the fixes.
+	Refusals json.RawMessage `json:"refusals,omitempty"`
 }
 
 // dryRun is whether a call only plans: an unset dry_run does.
 func dryRun(arg *bool) bool { return arg == nil || *arg }
 
-// requireIntent refuses a write whose caller passed no intent digest, or
+// RequireIntent refuses a write whose caller passed no intent digest, or
 // one that is not the fresh plan's.
-func requireIntent(planned, passed string) *Refused {
+func RequireIntent(planned, passed string) *Refused {
 	switch {
 	case passed == "":
 		return &Refused{Code: RefusalIntentRequired, Message: "writing needs the intent_digest of the plan you reviewed: call again with dry_run true, " +
@@ -166,6 +213,9 @@ func writeResultSchema() map[string]any {
 		"pullRequest": map[string]any{"type": "object", "properties": map[string]any{
 			"url": str, "login": str, "branch": str, "tokenSource": str}},
 		"pullRequestError": refusal,
+		"refusals": map[string]any{"type": "array", "items": map[string]any{"type": "object", "required": []string{"code", "message", "field"},
+			"properties": map[string]any{"code": map[string]any{"type": "string", "enum": codes}, "message": str, "field": str,
+				"closest": map[string]any{}, "allowed": map[string]any{"type": "array"}, "cli": str, "mcp": str}}},
 	}}
 }
 
@@ -188,15 +238,39 @@ type DeclareArgs struct {
 	Repository string `json:"repository"`
 	Folder     string `json:"folder"`
 	RepoMap    string `json:"repo_map"`
-	// Owner and Name are set only on a claim (service external:<identity>):
-	// the owning team and the service name the claim publishes under.
-	Owner string `json:"owner"`
-	Name  string `json:"name,omitempty"`
+	// Owner, Name and Offering are set only on a claim (service
+	// external:<identity>): the owning team, the service name the claim
+	// publishes under and the platform offering it intends to join. Owner
+	// also names the owner of an accepted offering.
+	Owner    string `json:"owner"`
+	Name     string `json:"name,omitempty"`
+	Offering string `json:"offering,omitempty"`
+	// Version and From are set only on an offering acceptance (service
+	// offering:<name>): the version it publishes and the inferred offering's
+	// contribution ref.
+	Version string `json:"version,omitempty"`
+	From    string `json:"from,omitempty"`
 }
+
+// serviceNameRE is serviceNamePattern, the name an offering acceptance
+// names.
+var serviceNameRE = regexp.MustCompile(serviceNamePattern)
 
 // Claim is the external system a claims and whether a is a claim.
 func (a DeclareArgs) Claim() (string, bool) {
 	return strings.CutPrefix(a.Service, fleet.ExternalSubjectPrefix)
+}
+
+// AcceptedOffering is the offering a accepts and whether a is an
+// acceptance (service offering:<name>).
+func (a DeclareArgs) AcceptedOffering() (string, bool) {
+	return strings.CutPrefix(a.Service, fleet.OfferingSubjectPrefix)
+}
+
+// template is whether a accepts a golden path a catalog holds
+// (service template:<namespace>/<name>).
+func (a DeclareArgs) template() bool {
+	return strings.HasPrefix(a.Service, fleet.TemplateSubjectPrefix)
 }
 
 // Verb is the command a person runs for a: pacto claim for a claim, else
@@ -210,23 +284,74 @@ func (a DeclareArgs) Verb() string {
 
 // ArgsRefused refuses, before any read, arguments a's subject does not
 // take: a claim takes owner, name, registry, draft and intent and names a
-// valid external identity; a workload takes no owner or name. Its command
-// carries only arguments the subject takes.
+// valid external identity; an offering acceptance takes owner, version,
+// from, registry, draft and intent; a workload takes no owner, name,
+// offering, version or from. Its command carries only arguments the subject
+// takes.
 func (a DeclareArgs) ArgsRefused() *Refused {
+	if name, ok := a.AcceptedOffering(); ok {
+		return a.offeringRefused(name)
+	}
 	id, claim := a.Claim()
 	switch {
-	case claim && (a.Namespace != "" || a.Dir != "" || len(a.Accept) > 0 || a.MaxItems != 0 || a.CallWindow != "" ||
-		a.PR || a.Repository != "" || a.Folder != "" || a.RepoMap != ""):
-		return &Refused{Code: RefusalFieldNotAcceptable, Message: "pacto claim takes owner, name, registry, draft and intent: " +
+	case a.Version != "" || a.From != "":
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "version and from are an offering acceptance's (service offering:<name>): " +
+			"call again without them", CLI: a.Command("")}
+	case claim && a.workloadArgs():
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "pacto claim takes owner, name, offering, registry, draft and intent: " +
 			"call again without namespace, dir, accept, max_items, call_window, pr, repository, folder and repo_map", CLI: a.Command("")}
 	case claim:
 		if _, err := externalid.Parse(id); err != nil {
 			return &Refused{Code: RefusalExternalUnknown, Message: "service external:<identity> names no external identity: " +
 				"find its identity with pacto fleet search", CLI: "pacto claim <identity> --owner <team> --registry <registry>"}
 		}
-	case a.Owner != "" || a.Name != "":
-		return &Refused{Code: RefusalFieldNotAcceptable, Message: "owner and name are a claim's (service external:<identity>): " +
-			"a workload's owner and name come from its contract", CLI: a.Command("")}
+	case a.template() && (a.workloadArgs() || a.claimArgs()):
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "a golden path a catalog holds takes registry, draft and intent: " +
+			"call again without namespace, dir, accept, max_items, call_window, pr, repository, folder, repo_map, owner, name and offering", CLI: a.Command("")}
+	case a.claimArgs():
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "owner, name and offering are a claim's (service external:<identity>): " +
+			"a workload's owner, name and offering come from its contract", CLI: a.Command("")}
+	}
+	return nil
+}
+
+// claimArgs is whether a sets an argument only a claim takes.
+func (a DeclareArgs) claimArgs() bool {
+	return a.Owner != "" || a.Name != "" || a.Offering != ""
+}
+
+// claimCommand is the pacto claim a person runs for a, a claim of id.
+func (a DeclareArgs) claimCommand(id, reg, intent string) string {
+	parts := []string{"pacto claim", id, "--owner", cmp.Or(a.Owner, "<team>")}
+	if a.Name != "" {
+		parts = append(parts, "--name", a.Name)
+	}
+	if a.Offering != "" {
+		parts = append(parts, "--offering", a.Offering)
+	}
+	parts = append(parts, "--registry", reg)
+	if intent != "" {
+		parts = append(parts, "--intent", intent)
+	}
+	return strings.Join(parts, " ")
+}
+
+// workloadArgs is whether a sets an argument only a workload takes.
+func (a DeclareArgs) workloadArgs() bool {
+	return a.Namespace != "" || a.Dir != "" || len(a.Accept) > 0 || a.MaxItems != 0 || a.CallWindow != "" ||
+		a.PR || a.Repository != "" || a.Folder != "" || a.RepoMap != ""
+}
+
+// offeringRefused refuses an acceptance of offering name that names no
+// offering, or sets an argument it takes not.
+func (a DeclareArgs) offeringRefused(name string) *Refused {
+	switch {
+	case !serviceNameRE.MatchString(name):
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "service offering:<name> names a lower-case offering of at most 63 characters: " +
+			"find its name with pacto_fleet_entities, kind offering and declaration inferred", CLI: "pacto fleet offerings --inferred"}
+	case a.workloadArgs() || a.Name != "" || a.Offering != "":
+		return &Refused{Code: RefusalFieldNotAcceptable, Message: "accepting an offering takes owner, version, from, registry, draft and intent: " +
+			"call again without namespace, dir, accept, max_items, call_window, pr, repository, folder, repo_map, name and offering", CLI: a.Command("")}
 	}
 	return nil
 }
@@ -237,18 +362,16 @@ func (a DeclareArgs) ArgsRefused() *Refused {
 // claim's command carries only the flags pacto claim defines.
 func (a DeclareArgs) Command(intent string) string {
 	reg := cmp.Or(a.Registry, "<registry>")
+	if _, ok := a.AcceptedOffering(); ok {
+		return a.offeringCommand(reg, intent)
+	}
 	if id, ok := a.Claim(); ok {
-		parts := []string{"pacto claim", id, "--owner", cmp.Or(a.Owner, "<team>")}
-		if a.Name != "" {
-			parts = append(parts, "--name", a.Name)
-		}
-		parts = append(parts, "--registry", reg)
-		if intent != "" {
-			parts = append(parts, "--intent", intent)
-		}
-		return strings.Join(parts, " ")
+		return a.claimCommand(id, reg, intent)
 	}
 	parts := []string{"pacto declare", a.Service}
+	if a.template() {
+		parts = append(parts, "--backstage-url", "<backstage-url>")
+	}
 	if a.Namespace != "" {
 		parts = append(parts, "--namespace", a.Namespace)
 	}
@@ -326,4 +449,20 @@ type declaredRun struct {
 	Repository *struct {
 		URL string `json:"url"`
 	} `json:"repository"`
+}
+
+// offeringCommand is the pacto declare offering:<name> a person runs for a,
+// with the flags that command defines. The --detected whose installation
+// key verifies from is the person's own: a stdio server's is its own
+// --detected, which a person's machine may not read.
+func (a DeclareArgs) offeringCommand(reg, intent string) string {
+	parts := []string{"pacto declare", a.Service, "--from", cmp.Or(a.From, "<contribution>"), "--detected", "k8s:<namespace>/<configmap>",
+		"--registry", reg, "--version", cmp.Or(a.Version, "<version>")}
+	if a.Owner != "" {
+		parts = append(parts, "--owner", a.Owner)
+	}
+	if intent != "" {
+		parts = append(parts, "--intent", intent)
+	}
+	return strings.Join(parts, " ")
 }

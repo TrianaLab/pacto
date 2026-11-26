@@ -1,0 +1,12 @@
+# The composite whose spec.claimRef names the claim shop/orders-db.
+apiVersion: platform.example.org/v1alpha1
+kind: XPostgreSQLInstance
+metadata:
+  name: orders-db-x7k2p
+  uid: xr-uid
+spec:
+  claimRef:
+    apiVersion: platform.example.org/v1alpha1
+    kind: PostgreSQLInstance
+    namespace: shop
+    name: orders-db

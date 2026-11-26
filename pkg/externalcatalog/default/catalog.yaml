@@ -7,8 +7,9 @@
 # beside it. A bare SDK module is a Go module path without its /vN major
 # suffix; "npm:<package>", "pypi:<normalized name>" and
 # "maven:<groupId>:<artifactId>" name the other ecosystems. Managed-cloud
-# entries list the Terraform resource types ("<type>:<id attribute>") and the
-# Crossplane kinds ("<api group>/<Kind>") that provision them. Hosts that put the
+# entries list the Terraform resource types ("<type>:<id attribute>"), the
+# Crossplane, ACK, Config Connector and ASO kinds ("<api group>/<Kind>") that
+# provision them and their cloud inventory types. Hosts that put the
 # region in the middle of the name (sqs.<region>.amazonaws.com) cannot be written
 # as a pattern, so those entries rely on their SDK modules and OTel values.
 apiVersion: catalog.pacto.trianalab.io/v1
@@ -137,6 +138,11 @@ entries:
     crossplane:
       - rds.aws.upbound.io/Instance # source: https://marketplace.upbound.io/providers/upbound/provider-aws-rds/latest/resources/rds.aws.upbound.io/Instance/v1beta1
       - rds.aws.upbound.io/Cluster # source: https://marketplace.upbound.io/providers/upbound/provider-aws-rds/latest/resources/rds.aws.upbound.io/Cluster/v1beta1
+      - rds.services.k8s.aws/DBInstance # source: https://aws-controllers-k8s.github.io/community/reference/rds/v1alpha1/dbinstance/
+      - rds.services.k8s.aws/DBCluster # source: https://aws-controllers-k8s.github.io/community/reference/rds/v1alpha1/dbcluster/
+    inventory:
+      - "rds:db" # source: https://docs.aws.amazon.com/resource-explorer/latest/userguide/supported-resource-types.html
+      - "rds:cluster" # source: https://docs.aws.amazon.com/resource-explorer/latest/userguide/supported-resource-types.html
   - identity: aws/sqs
     class: managed-cloud
     label: Amazon SQS
@@ -149,6 +155,9 @@ entries:
       - aws_sqs_queue:name # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sqs_queue
     crossplane:
       - sqs.aws.upbound.io/Queue # source: https://marketplace.upbound.io/providers/upbound/provider-aws-sqs/latest/resources/sqs.aws.upbound.io/Queue/v1beta1
+      - sqs.services.k8s.aws/Queue # source: https://aws-controllers-k8s.github.io/community/reference/sqs/v1alpha1/queue/
+    inventory:
+      - "sqs:queue" # source: https://docs.aws.amazon.com/resource-explorer/latest/userguide/supported-resource-types.html
   - identity: aws/sns
     class: managed-cloud
     label: Amazon SNS
@@ -161,6 +170,9 @@ entries:
       - aws_sns_topic:name # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/sns_topic
     crossplane:
       - sns.aws.upbound.io/Topic # source: https://marketplace.upbound.io/providers/upbound/provider-aws-sns/latest/resources/sns.aws.upbound.io/Topic/v1beta1
+      - sns.services.k8s.aws/Topic # source: https://aws-controllers-k8s.github.io/community/reference/sns/v1alpha1/topic/
+    inventory:
+      - "sns:topic" # source: https://docs.aws.amazon.com/resource-explorer/latest/userguide/supported-resource-types.html
   - identity: aws/s3
     class: managed-cloud
     label: Amazon S3
@@ -173,6 +185,9 @@ entries:
       - aws_s3_bucket:bucket # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/s3_bucket
     crossplane:
       - s3.aws.upbound.io/Bucket # source: https://marketplace.upbound.io/providers/upbound/provider-aws-s3/latest/resources/s3.aws.upbound.io/Bucket/v1beta1
+      - s3.services.k8s.aws/Bucket # source: https://aws-controllers-k8s.github.io/community/reference/s3/v1alpha1/bucket/
+    inventory:
+      - "s3:bucket" # source: https://docs.aws.amazon.com/resource-explorer/latest/userguide/supported-resource-types.html
   - identity: aws/dynamodb
     class: managed-cloud
     label: Amazon DynamoDB
@@ -185,6 +200,9 @@ entries:
       - aws_dynamodb_table:name # source: https://registry.terraform.io/providers/hashicorp/aws/latest/docs/resources/dynamodb_table
     crossplane:
       - dynamodb.aws.upbound.io/Table # source: https://marketplace.upbound.io/providers/upbound/provider-aws-dynamodb/latest/resources/dynamodb.aws.upbound.io/Table/v1beta1
+      - dynamodb.services.k8s.aws/Table # source: https://aws-controllers-k8s.github.io/community/reference/dynamodb/v1alpha1/table/
+    inventory:
+      - "dynamodb:table" # source: https://docs.aws.amazon.com/resource-explorer/latest/userguide/supported-resource-types.html
   - identity: aws/elasticache
     class: managed-cloud
     label: Amazon ElastiCache
@@ -199,6 +217,10 @@ entries:
     crossplane:
       - elasticache.aws.upbound.io/Cluster # source: https://marketplace.upbound.io/providers/upbound/provider-aws-elasticache/latest/resources/elasticache.aws.upbound.io/Cluster/v1beta1
       - elasticache.aws.upbound.io/ReplicationGroup # source: https://marketplace.upbound.io/providers/upbound/provider-aws-elasticache/latest/resources/elasticache.aws.upbound.io/ReplicationGroup/v1beta1
+      - elasticache.services.k8s.aws/CacheCluster # source: https://aws-controllers-k8s.github.io/community/reference/elasticache/v1alpha1/cachecluster/
+      - elasticache.services.k8s.aws/ReplicationGroup # source: https://aws-controllers-k8s.github.io/community/reference/elasticache/v1alpha1/replicationgroup/
+    inventory:
+      - "elasticache:cluster" # source: https://docs.aws.amazon.com/resource-explorer/latest/userguide/supported-resource-types.html
   - identity: gcp/cloudsql
     class: managed-cloud
     label: Google Cloud SQL
@@ -209,6 +231,9 @@ entries:
       - google_sql_database_instance:name # source: https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/sql_database_instance
     crossplane:
       - sql.gcp.upbound.io/DatabaseInstance # source: https://marketplace.upbound.io/providers/upbound/provider-gcp-sql/latest/resources/sql.gcp.upbound.io/DatabaseInstance/v1beta1
+      - sql.cnrm.cloud.google.com/SQLInstance # source: https://cloud.google.com/config-connector/docs/reference/resource-docs/sql/sqlinstance
+    inventory:
+      - sqladmin.googleapis.com/Instance # source: https://cloud.google.com/asset-inventory/docs/asset-types
   - identity: gcp/pubsub
     class: managed-cloud
     label: Google Cloud Pub/Sub
@@ -223,6 +248,9 @@ entries:
       - google_pubsub_topic:name # source: https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/pubsub_topic
     crossplane:
       - pubsub.gcp.upbound.io/Topic # source: https://marketplace.upbound.io/providers/upbound/provider-gcp-pubsub/latest/resources/pubsub.gcp.upbound.io/Topic/v1beta1
+      - pubsub.cnrm.cloud.google.com/PubSubTopic # source: https://cloud.google.com/config-connector/docs/reference/resource-docs/pubsub/pubsubtopic
+    inventory:
+      - pubsub.googleapis.com/Topic # source: https://cloud.google.com/asset-inventory/docs/asset-types
   - identity: gcp/gcs
     class: managed-cloud
     label: Google Cloud Storage
@@ -236,6 +264,9 @@ entries:
       - google_storage_bucket:name # source: https://registry.terraform.io/providers/hashicorp/google/latest/docs/resources/storage_bucket
     crossplane:
       - storage.gcp.upbound.io/Bucket # source: https://marketplace.upbound.io/providers/upbound/provider-gcp-storage/latest/resources/storage.gcp.upbound.io/Bucket/v1beta1
+      - storage.cnrm.cloud.google.com/StorageBucket # source: https://cloud.google.com/config-connector/docs/reference/resource-docs/storage/storagebucket
+    inventory:
+      - storage.googleapis.com/Bucket # source: https://cloud.google.com/asset-inventory/docs/asset-types
   - identity: azure/sql
     class: managed-cloud
     label: Azure SQL Database
@@ -245,6 +276,9 @@ entries:
       - azurerm_mssql_server:name # source: https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/mssql_server
     crossplane:
       - sql.azure.upbound.io/MSSQLServer # source: https://marketplace.upbound.io/providers/upbound/provider-azure-sql/latest/resources/sql.azure.upbound.io/MSSQLServer/v1beta1
+      - sql.azure.com/Server # source: https://azure.github.io/azure-service-operator/reference/sql/
+    inventory:
+      - microsoft.sql/servers/databases # source: https://learn.microsoft.com/en-us/azure/governance/resource-graph/reference/supported-tables-resources
   - identity: azure/servicebus
     class: managed-cloud
     label: Azure Service Bus
@@ -259,6 +293,9 @@ entries:
       - azurerm_servicebus_namespace:name # source: https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/servicebus_namespace
     crossplane:
       - servicebus.azure.upbound.io/ServiceBusNamespace # source: https://marketplace.upbound.io/providers/upbound/provider-azure-servicebus/latest/resources/servicebus.azure.upbound.io/ServiceBusNamespace/v1beta1
+      - servicebus.azure.com/Namespace # source: https://azure.github.io/azure-service-operator/reference/servicebus/
+    inventory:
+      - microsoft.servicebus/namespaces # source: https://learn.microsoft.com/en-us/azure/governance/resource-graph/reference/supported-tables-resources
   - identity: azure/storage
     class: managed-cloud
     label: Azure Storage
@@ -277,3 +314,6 @@ entries:
       - azurerm_storage_account:name # source: https://registry.terraform.io/providers/hashicorp/azurerm/latest/docs/resources/storage_account
     crossplane:
       - storage.azure.upbound.io/Account # source: https://marketplace.upbound.io/providers/upbound/provider-azure-storage/latest/resources/storage.azure.upbound.io/Account/v1beta1
+      - storage.azure.com/StorageAccount # source: https://azure.github.io/azure-service-operator/reference/storage/
+    inventory:
+      - microsoft.storage/storageaccounts # source: https://learn.microsoft.com/en-us/azure/governance/resource-graph/reference/supported-tables-resources

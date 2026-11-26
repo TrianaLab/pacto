@@ -25,12 +25,14 @@ func loadContributionTrust(t *testing.T, repo string) error {
 }
 
 func TestTrustConfigGrantsOwnContributionPath(t *testing.T) {
+	t.Parallel()
 	if err := loadContributionTrust(t, "ghcr.io/acme/pacto-inferred/my-idp"); err != nil {
 		t.Fatalf("own path: %v", err)
 	}
 }
 
 func TestTrustConfigRefusesForeignContributionPath(t *testing.T) {
+	t.Parallel()
 	for _, repo := range []string{"ghcr.io/acme/pacto-inferred/other-idp", "ghcr.io/acme/pacto-inferred", "ghcr.io/acme/pacto-inferred/my-idp/services", "ghcr.io/acme/pacto-inferred/my-idp/x"} {
 		err := loadContributionTrust(t, repo)
 		if err == nil || !strings.Contains(err.Error(), `"`+repo+`"`) || !strings.Contains(err.Error(), `key "idp-2026"`) {
@@ -42,6 +44,7 @@ func TestTrustConfigRefusesForeignContributionPath(t *testing.T) {
 // TestTrustConfigBarePubGrantsNothing: the directory-of-*.pub mode has no
 // allowlists, so no key of it contributes records.
 func TestTrustConfigBarePubGrantsNothing(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if _, err := (&Service{}).GenerateKey(dir, "", "my-idp", false); err != nil {
 		t.Fatal(err)

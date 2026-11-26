@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import { appReady } from './ready';
-import { acceptPlanRoute, declareRoute, installScaleFixture } from './layoutGate';
+import { acceptPlanRoute, declareRoute, installScaleFixture, DECLARE_INTENT } from './layoutGate';
 
 // Declare an inferred service from the dashboard (513-S6). The demo's own declarer
 // plans legacy-billing, signs nothing ("the demo has no sign-in") and keeps saved drafts
@@ -101,6 +101,18 @@ test.describe('declare an inferred service', () => {
       // A published version leaves nothing to sign or save.
       await expect(panel.getByTestId('declare-sign')).toHaveCount(0);
       await expect(panel.getByTestId('declare-save-draft')).toHaveCount(0);
+    });
+
+    // 515-S7: a template's signing login returns to Golden paths, never to a service page.
+    test('back from a signing login on a template reopens the panel on Golden paths', async ({ page }) => {
+      await page.addInitScript(() => { (window as unknown as { __pactoDeclare?: string }).__pactoDeclare = 'signed'; });
+      await page.goto(`/#/fleet/golden-paths?declare=${encodeURIComponent('template:default/springboot-service')}&signed=${encodeURIComponent(DECLARE_INTENT)}`);
+      await page.reload();
+      const block = page.getByTestId('golden-path-accept');
+      await expect(block.getByRole('heading', { name: 'Accept springboot-service as a golden path' })).toBeVisible({ timeout: T });
+      const panel = block.getByTestId('declare');
+      await expect(panel.getByTestId('declare-signed-return')).toContainText('Signed in again as', { timeout: T });
+      await expect(panel.getByRole('button', { name: 'Publish 0.1.0' })).toBeEnabled();
     });
 
     test('a refusal shows its message, the reason nothing writes and the command', async ({ page }) => {

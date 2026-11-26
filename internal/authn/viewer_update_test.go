@@ -86,3 +86,203 @@ func TestMayUpdateWorkloadUsesClusterReviewer(t *testing.T) {
 		t.Errorf("a Pacto: %v %v %v", ok, err, got)
 	}
 }
+
+func TestViewerMayUpdateReviewsResource(t *testing.T) {
+	var got []string
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"c1": func(_ context.Context, _ Person, ns string, res ResourceAttributes) (bool, error) {
+			got = append(got, ns+"/"+res.Group+"/"+res.Resource+"/"+res.Verb+"/"+res.Name)
+			return true, nil
+		}}
+	})
+	res := ResourceAttributes{Group: "example.io", Resource: "widgets", Verb: "update", Name: "xbuckets.storage.acme.io"}
+	if ok, err := v.MayUpdate(context.Background(), alice, "c1", "", res); !ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if len(got) != 1 || got[0] != "/example.io/widgets/update/xbuckets.storage.acme.io" {
+		t.Fatalf("reviews = %v", got)
+	}
+	if _, err := v.MayUpdate(context.Background(), alice, "edge", "", res); !errors.Is(err, ErrClusterNotReviewable) {
+		t.Fatalf("an unreviewed cluster: %v", err)
+	}
+}
+
+func TestViewerMayUpdateMemberClusterNotReviewable(t *testing.T) {
+	member := MemberReview(&fakeLink{uid: "m1"}, nil, nil)
+	failing := func(context.Context, Person, string, ResourceAttributes) (bool, error) {
+		return false, errors.New("boom")
+	}
+	v := NewViewer(func(context.Context) map[string]Review { return map[string]Review{"m1": member, "c2": failing} })
+	res := ResourceAttributes{Group: "example.io", Resource: "widgets", Verb: "update", Name: "x"}
+	if ok, err := v.MayUpdate(context.Background(), alice, "m1", "", res); ok || !errors.Is(err, ErrClusterNotReviewable) {
+		t.Fatalf("a member cluster answered %v %v", ok, err)
+	}
+	if ok, err := v.MayUpdate(context.Background(), alice, "c2", "", res); ok || err == nil || errors.Is(err, ErrClusterNotReviewable) {
+		t.Fatalf("a failed review answered %v %v", ok, err)
+	}
+}
+
+// TestMayUpdatePactosAsksTheSignInCluster: with several clusters, the right
+// is asked where Pacto is installed, the sign-in cluster.
+func TestMayUpdatePactosAsksTheSignInCluster(t *testing.T) {
+	var got []string
+	reviewIn := func(cluster string) Review {
+		return func(_ context.Context, _ Person, ns string, res ResourceAttributes) (bool, error) {
+			got = append(got, cluster+"/"+ns+"/"+res.Resource+"/"+res.Verb+"/"+res.Name)
+			return true, nil
+		}
+	}
+	reviews := func(context.Context) map[string]Review {
+		return map[string]Review{"prod": reviewIn("prod"), "dev": reviewIn("dev")}
+	}
+	ctx := context.Background()
+	if _, err := NewViewer(reviews).MayUpdatePactos(ctx, alice, "pacto-system"); !errors.Is(err, ErrClusterNotReviewable) {
+		t.Errorf("no sign-in cluster: %v", err)
+	}
+	home := func(cluster string) func(context.Context) (string, bool) {
+		return func(context.Context) (string, bool) { return cluster, true }
+	}
+	if _, err := NewViewer(reviews).SignInCluster(home("edge")).MayUpdatePactos(ctx, alice, "pacto-system"); !errors.Is(err, ErrClusterNotReviewable) {
+		t.Errorf("an unreviewed sign-in cluster: %v", err)
+	}
+	if ok, err := NewViewer(reviews).SignInCluster(home("prod")).MayUpdatePactos(ctx, alice, "pacto-system"); !ok || err != nil ||
+		len(got) != 1 || got[0] != "prod/pacto-system/pactos/update/" {
+		t.Errorf("%v %v %v", ok, err, got)
+	}
+}
+
+// TestViewerSeesAndReviewable: a member's own reviewer decides whether p
+// reads a namespace there; a member with no reviewer is not reviewable and
+// shows nothing; a failed review shows nothing.
+func TestViewerSeesAndReviewable(t *testing.T) {
+	var got []string
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"eu": func(_ context.Context, _ Person, ns string, res ResourceAttributes) (bool, error) {
+			got = append(got, ns+"/"+res.Resource+"/"+res.Verb)
+			if ns == "broken" {
+				return false, errors.New("down")
+			}
+			return ns == "billing", nil
+		}, "us": nil}
+	})
+	ctx := context.Background()
+	if !v.Reviewable(ctx, alice, "eu") || v.Reviewable(ctx, alice, "ap") {
+		t.Error("reviewable")
+	}
+	if !v.Sees(ctx, alice, "eu", "billing") || v.Sees(ctx, alice, "eu", "payments") || v.Sees(ctx, alice, "eu", "broken") || v.Sees(ctx, alice, "ap", "billing") {
+		t.Error("sees")
+	}
+	if len(got) != 3 || got[0] != "billing/pactos/" {
+		t.Errorf("reviews = %v", got)
+	}
+}
+
+func TestMayListCachedPerClusterResourceAndVerb(t *testing.T) {
+	var asked []string
+	review := func(cluster string) Review {
+		return func(_ context.Context, _ Person, ns string, res ResourceAttributes) (bool, error) {
+			asked = append(asked, cluster+"/"+ns+"/"+res.Resource+"/"+res.Verb+"/"+res.Name)
+			return res.Resource == "stages", nil
+		}
+	}
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"eu": review("eu"), "us": review("us")}
+	})
+	ctx := context.Background()
+	for range 2 {
+		if ok, err := v.MayList(ctx, alice, "eu", "prod", StageResource, "list"); !ok || err != nil {
+			t.Fatalf("list stages in eu = %v, %v", ok, err)
+		}
+	}
+	if ok, _ := v.MayList(ctx, alice, "eu", "prod", OperationResource, "list"); ok {
+		t.Error("operations allowed")
+	}
+	get := StageResource
+	get.Name = "payments"
+	_, _ = v.MayList(ctx, alice, "eu", "prod", get, "get")
+	_, _ = v.MayList(ctx, alice, "us", "prod", StageResource, "list")
+	want := []string{"eu/prod/stages/list/", "eu/prod/operations/list/", "eu/prod/stages/get/payments", "us/prod/stages/list/"}
+	if len(asked) != len(want) {
+		t.Fatalf("asked %v, want %v", asked, want)
+	}
+	for i := range want {
+		if asked[i] != want[i] {
+			t.Errorf("asked %v, want %v", asked, want)
+		}
+	}
+}
+
+func TestMayListNoReviewer(t *testing.T) {
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"eu": func(context.Context, Person, string, ResourceAttributes) (bool, error) { return true, nil }}
+	})
+	if _, err := v.MayList(context.Background(), alice, "us", "prod", StageResource, "list"); !errors.Is(err, ErrClusterNotReviewable) {
+		t.Errorf("err = %v, want ErrClusterNotReviewable", err)
+	}
+}
+
+func TestMayListFailureNotCached(t *testing.T) {
+	calls, fail := 0, true
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"eu": func(context.Context, Person, string, ResourceAttributes) (bool, error) {
+			calls++
+			if fail {
+				return false, errors.New("timeout")
+			}
+			return true, nil
+		}}
+	})
+	ctx := context.Background()
+	if _, err := v.MayList(ctx, alice, "eu", "prod", StageResource, "list"); err == nil {
+		t.Fatal("a failed review answered")
+	}
+	fail = false
+	if ok, err := v.MayList(ctx, alice, "eu", "prod", StageResource, "list"); !ok || err != nil || calls != 2 {
+		t.Errorf("after a failure = %v, %v after %d calls", ok, err, calls)
+	}
+}
+
+func TestMayCreateService(t *testing.T) {
+	var got []string
+	calls := 0
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"prod": func(_ context.Context, _ Person, ns string, res ResourceAttributes) (bool, error) {
+			calls++
+			got = append(got, ns+"/"+res.Group+"/"+res.Resource+"/"+res.Verb+"/"+res.Name)
+			return true, nil
+		}}
+	})
+	ctx := context.Background()
+	if ok, err := v.MayCreateService(ctx, alice, "", "team-billing", "invoices"); !ok || err != nil {
+		t.Fatalf("%v %v", ok, err)
+	}
+	if ok, _ := v.MayCreateService(ctx, alice, "prod", "team-billing", "invoices"); !ok || calls != 1 {
+		t.Errorf("a second ask of the same person and name is cached: %d reviews", calls)
+	}
+	if len(got) != 1 || got[0] != "team-billing/pacto.trianalab.io/services/create/invoices" {
+		t.Errorf("reviews = %v", got)
+	}
+	if _, err := v.MayCreateService(ctx, alice, "edge", "team-billing", "invoices"); !errors.Is(err, ErrClusterNotReviewable) {
+		t.Errorf("an unreviewed cluster: %v", err)
+	}
+}
+
+func TestMayCreateServiceNamesService(t *testing.T) {
+	var names []string
+	v := NewViewer(func(context.Context) map[string]Review {
+		return map[string]Review{"": func(_ context.Context, _ Person, _ string, res ResourceAttributes) (bool, error) {
+			names = append(names, res.Name)
+			return res.Name == "invoices", nil
+		}}
+	})
+	ctx := context.Background()
+	if ok, _ := v.MayCreateService(ctx, alice, "", "team-billing", "invoices"); !ok {
+		t.Error("invoices refused")
+	}
+	if ok, _ := v.MayCreateService(ctx, alice, "", "team-billing", "payments"); ok {
+		t.Error("a cached allow of invoices answered payments")
+	}
+	if len(names) != 2 || names[0] != "invoices" || names[1] != "payments" {
+		t.Errorf("reviewed names = %v", names)
+	}
+}

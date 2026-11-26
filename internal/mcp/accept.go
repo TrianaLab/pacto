@@ -112,7 +112,7 @@ func accept(ctx context.Context, acc Acceptor, a AcceptArgs) (*mcpsdk.CallToolRe
 		out.Plan = raw
 	}
 	if refused == nil && !dryRun(a.DryRun) {
-		refused = requireIntent(plan.IntentDigest, a.IntentDigest)
+		refused = RequireIntent(plan.IntentDigest, a.IntentDigest)
 	}
 	if refused != nil || dryRun(a.DryRun) {
 		return writeAnswer(out, refused, a.Command())

@@ -10,10 +10,12 @@ import (
 
 // TestAlphaPackagesSayTheyAreExperimental: delivery is Alpha, so the packages
 // it added to pkg/ must tell an importer their API is outside semver before a
-// rename after the release forces a major bump.
+// rename after the release forces a major bump. pkg/delivery is the exception:
+// the delivery CRDs embed its wire types, so it is stable
+// (TestDeliveryWireTypesAreStable).
 func TestAlphaPackagesSayTheyAreExperimental(t *testing.T) {
 	root := repoRoot(t)
-	for _, pkg := range []string{"delivery", "publish", "signing", "signing/testutil", "deliveryrecord", "ocireferrer", "runrecord", "runrecord/registry", "runrecord/stats"} {
+	for _, pkg := range []string{"publish", "signing", "signing/testutil", "deliveryrecord", "ocireferrer", "runrecord", "runrecord/registry", "runrecord/stats"} {
 		files, err := filepath.Glob(filepath.Join(root, "pkg", pkg, "*.go"))
 		if err != nil {
 			t.Fatal(err)

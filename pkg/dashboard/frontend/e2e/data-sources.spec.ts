@@ -44,7 +44,9 @@ const DEMO_SOURCES_LISTED = DEMO_SOURCES_TALLIED + DEMO_UNTALLIED.length;
  * data sources, one per source kind. The demo's four egress readers come back as rows
  * of their own with `egress` set, so they never add a pill. The hub's two members
  * share one target-snapshot pill, the Evidence Server adds an evidence-http pill and
- * the Backstage catalog a backstage-catalog pill.
+ * the Backstage catalog a backstage-catalog pill. The inferred offerings the cluster's
+ * operator contributes (515-S4) and the golden paths the catalog holds (515-S7) come
+ * through the existing detection and catalog pills.
  */
 const NAV_PILLS = 13;
 const EGRESS_ROWS = { 'kernel-egress': 'partial', 'istio-egress': 'complete', 'cilium-fqdn': 'unavailable', 'egress-gateway': 'partial' };
@@ -205,14 +207,16 @@ test.describe('the inventory says what Pacto detected', () => {
     const block = page.getByTestId('detected-providers');
     await expect(block.getByRole('heading', { level: 2, name: 'Detected providers' })).toBeVisible();
     const rows = block.getByTestId('provider-row');
-    // Sixteen reported rows (the Pacto CRD, the kernel-egress row,
+    // Eighteen reported rows (the Pacto CRD, the kernel-egress row,
     // Kubernetes workloads, the Argo CD, Flux and Helm rows that group the
     // inferred services, the Kargo promotion row, the Istio row of the mesh
-    // source, the demo and partner registries and five reporting adapter
-    // rows, one producer's signed and unsigned reports apart, and acme-idp's
-    // producer row from the Evidence Server), the operator's
-    // declared Installation row, the thirteen the cluster's operator detected
-    // (Datadog, three egress readers, Crossplane and the Backstage catalog among them) and the three trace
+    // source, the demo and partner registries and six reporting adapter
+    // rows, signed reports apart from unsigned ones, acme-idp's producer row
+    // from the Evidence Server and the producer row of the inferred offerings
+    // the cluster's operator contributes), the operator's
+    // declared Installation row, the sixteen the cluster's operator detected
+    // (Datadog, three egress readers, Crossplane, the Backstage catalog and the
+    // three managed-resource readers among them) and the three trace
     // backends their edge sources report: five show, the
     // reported and declared ones first and least healthy first, the rest
     // behind Show all, and no cluster is unread in the demo.
@@ -224,9 +228,9 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(istio).toContainText('observed edges');
     await istio.getByText('Why partial').click();
     await expect(istio.locator('.dp-why li')).toHaveText(['1 namespace without sidecars']);
+    await block.getByRole('button', { name: 'Show all 38 providers' }).click();
+    await expect(rows).toHaveCount(38);
     await expect(block).toContainText('Pacto CRD');
-    await block.getByRole('button', { name: 'Show all 33 providers' }).click();
-    await expect(rows).toHaveCount(33);
     await expect(block).toContainText('reports provisioning');
     await expect(block).toContainText('Kubernetes workloads');
     await expect(block).toContainText('service grouping, repository provenance');
@@ -235,8 +239,8 @@ test.describe('the inventory says what Pacto detected', () => {
     await expect(block).toContainText('Registry demo.pacto.local');
     await expect(block).toContainText('Registry partners.demo.pacto.local');
     await expect(block).toContainText('no Referrers, no _catalog');
-    await expect(rows.nth(16)).not.toHaveClass(/dp-inferred/);
-    await expect(rows.nth(17)).toHaveClass(/dp-inferred/);
+    await expect(rows.nth(18)).not.toHaveClass(/dp-inferred/);
+    await expect(rows.nth(19)).toHaveClass(/dp-inferred/);
     // The running Crossplane is one more inferred row in the same block: its
     // version, what it serves and one provenance mark, never a block of its own.
     const crossplane = rows.filter({ has: page.locator('.dp-name bdi[title="Crossplane"]') });
@@ -268,8 +272,10 @@ test.describe('the inventory says what Pacto detected', () => {
     // The external-egress token selects the reader; the cell shows the sentence alone.
     await expect(row('Istio egress').locator('.dp-used')).toHaveText('reads calls leaving the cluster; nothing is turned on');
     // /api/sources lists the readers apart from the data sources the nav counts.
-    const sources = await page.evaluate(async () => ((await (await fetch('/api/sources')).json()).sources as Array<{ type: string; egress?: boolean; coverage?: string }>));
-    expect(sources.filter((s) => !s.egress)).toHaveLength(NAV_PILLS);
+    // The managed-resource readers (517-S7) come back as rows of their own with resources set.
+    const sources = await page.evaluate(async () => ((await (await fetch('/api/sources')).json()).sources as Array<{ type: string; egress?: boolean; resources?: boolean; coverage?: string }>));
+    expect(sources.filter((s) => !s.egress && !s.resources)).toHaveLength(NAV_PILLS);
+    expect(Object.fromEntries(sources.filter((s) => s.resources).map((s) => [s.type, s.coverage]))).toEqual({ 'managed-resources': 'complete', terraform: 'complete', 'cloud-inventory': 'unavailable' });
     expect(Object.fromEntries(sources.filter((s) => s.egress).map((s) => [s.type, s.coverage]))).toEqual(EGRESS_ROWS);
   });
 
@@ -446,8 +452,9 @@ test.describe('a source page answers about itself', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
 
     // `edge-cluster` reports a failure and so has three sections -- enough for the
-    // navigator. `local` has two and gets none. Both must fill the row they are in.
-    for (const [source, expectRail] of [['edge-cluster', true], ['local', false]] as Array<[string, boolean]>) {
+    // navigator. `partner-registry` has two and gets none (`local` carries
+    // newsletter-service's catalog mismatch, a third). Both must fill the row they are in.
+    for (const [source, expectRail] of [['edge-cluster', true], ['partner-registry', false]] as Array<[string, boolean]>) {
       await boot(page, `#/fleet/sources/${source}`);
       const layout = page.locator('.page-toc-layout');
       await expect(layout).toBeVisible();

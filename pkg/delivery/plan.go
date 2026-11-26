@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/fs"
+	"path"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -404,8 +406,11 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	if !applierGate(in, p) {
 		return
 	}
+	var ins ManifestInspection // zero with the inspector off: no values were read
 	if in.InspectManifests && in.Manifests != nil {
-		ok, unread := manifestsGate(ctx, in, p, pub)
+		var ok bool
+		var unread string
+		ins, ok, unread = manifestsGate(ctx, in, p, pub)
 		if !ok {
 			return
 		}
@@ -417,6 +422,9 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 		}
 	}
 	if pub.Result == Unknown {
+		if offeringRefused(in, p) {
+			return
+		}
 		p.Floor = Floor{Human: true, Decision: AcceptUnknown}
 		p.Question = "Pacto cannot tell whether pacto publish published " + short(p.To) + ": " + pub.Message + ". Accept the unknown?"
 		return
@@ -428,6 +436,9 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 		p.Verdicts = append(p.Verdicts, Verdict{Gate: GateImpact, Phase: "pre", Result: Unknown,
 			Message: "impact needs the contracts the diff could not read"})
 		if diffV.Result == Unknown {
+			if offeringRefused(in, p) {
+				return
+			}
 			p.Floor = Floor{Human: true, Decision: AcceptUnknown}
 			p.Question = "Pacto cannot see enough to judge " + short(p.To) + ": " + diffV.Message + ". Accept the unknown?"
 		}
@@ -435,7 +446,9 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 	}
 	impactGate(ctx, in, p)
 	suitesGate(in, p)
-	environmentGate(in, p)
+	if !environmentGate(in, p, ins) {
+		return
+	}
 	ownerGate(in, p)
 }
 
@@ -447,19 +460,28 @@ func promoteGates(ctx context.Context, in PlanInput, p *Plan) {
 // Values Pacto could not check against a schema are Unknown, for a person to
 // accept. A contract that declares no environments is not judged: the gate
 // passes and says so. The check is pacto validate's environments stage, run on
-// the version's own bundle.
-func environmentGate(in PlanInput, p *Plan) {
+// the version's own bundle. Values outside a tiered offering's parameter
+// space (a parameter code) fail and nobody can approve them: the space is the
+// offering owner's, never the consuming team's. ins is what pacto.manifests
+// read: when the applier applies a chart values file that is not the values
+// the contract declares for the environment, Pacto has not checked the
+// values that run, so the gate is Unknown, for a person to accept. It
+// reports whether the promote may go on.
+func environmentGate(in PlanInput, p *Plan, ins ManifestInspection) bool {
 	c, env := in.To.Bundle.Contract, in.Stage.Environment
 	v := Verdict{Gate: GateEnvironment, Phase: "pre", Result: Pass, Citation: map[string]string{"environment": env, "contract": in.To.ContractRef}}
+	a := appliedValues(ins)
+	a.cite(v.Citation)
 	defer func() { p.Verdicts = append(p.Verdicts, v) }()
 	if len(c.Environments) == 0 {
 		v.Citation["applicable"] = "false"
-		v.Message = "not applicable: the contract of " + short(p.To) + " declares no environments"
-		return
+		v.Message = "not applicable: the contract of " + short(p.To) + " declares no environments" + a.clause()
+		return true
 	}
-	var errs, unverified []string
-	if i := slices.IndexFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env }); i >= 0 {
-		errs, unverified = environmentFindings(c, in.To.Bundle.FS, in.To.ConfigRefs, i)
+	var errs, codes, unverified []string
+	i := slices.IndexFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env })
+	if i >= 0 {
+		errs, codes, unverified = environmentFindings(c, in.To.Bundle.FS, in.To.ConfigRefs, i)
 	} else {
 		names := make([]string, len(c.Environments))
 		for j, e := range c.Environments {
@@ -468,7 +490,11 @@ func environmentGate(in PlanInput, p *Plan) {
 		errs = []string{fmt.Sprintf("version %s declares no environment %s for Stage %s (it declares %s)",
 			c.Service.Version, env, in.Spec.Stage, strings.Join(names, ", "))}
 	}
+	code, refused := parameterRefusal(codes)
 	switch {
+	case refused:
+		v.Result, v.Citation["code"], v.Message = Fail, code, strings.Join(errs, "; ")
+		return false
 	case len(errs) > 0:
 		v.Message = strings.Join(errs, "; ")
 		holdFor(p, Approve, v.Message, v.Message+". Approve shipping "+short(p.To)+" anyway?")
@@ -480,12 +506,153 @@ func environmentGate(in PlanInput, p *Plan) {
 	default:
 		v.Message = "the values of environment " + env + " satisfy the configuration schemas"
 	}
+	switch why := cmp.Or(a.unchecked(c, in.To.Bundle.FS, i, env), observedElsewhere(in, env)); {
+	case why != "":
+		v.Result, v.Message = Unknown, v.Message+"; "+why
+		holdFor(p, AcceptUnknown, why, "Pacto cannot verify the values of environment "+env+" in "+short(p.To)+": "+why+". Accept the unknown?")
+		askServiceTeam(in, p)
+	case a.chart:
+		v.Citation["checkedValues"] = fmt.Sprintf("environments[%d].file", i)
+		v.Message += "; Argo CD applies the same values as " + v.Citation["checkedValues"]
+	}
+	return true
+}
+
+// offeringRefused runs pacto.environment's refusal of values outside a tiered
+// offering's parameter space on its own, for a gate that stops before
+// environmentGate to ask a person to accept an unknown: nobody can accept
+// values past the offering owner's space, so a refusal ends the plan with a
+// Fail. It needs only the version's own bundle, and reports whether it
+// refused.
+func offeringRefused(in PlanInput, p *Plan) bool {
+	if in.To.Bundle == nil || in.To.Bundle.Contract == nil {
+		return false
+	}
+	c, env := in.To.Bundle.Contract, in.Stage.Environment
+	i := slices.IndexFunc(c.Environments, func(e contract.Environment) bool { return e.Name == env })
+	if i < 0 {
+		return false
+	}
+	errs, codes, _ := environmentFindings(c, in.To.Bundle.FS, in.To.ConfigRefs, i)
+	code, refused := parameterRefusal(codes)
+	if refused {
+		p.Verdicts = append(p.Verdicts, Verdict{Gate: GateEnvironment, Phase: "pre", Result: Fail, Message: strings.Join(errs, "; "),
+			Citation: map[string]string{"environment": env, "contract": in.To.ContractRef, "code": code}})
+	}
+	return refused
+}
+
+// observedElsewhere is why the values the applier selects, as the promoter
+// observed them on the applyRef object (status.applier.values), are another
+// selection than environment env's own, when pacto.manifests read nothing
+// itself; "" when they are env's own or nothing was observed.
+func observedElsewhere(in PlanInput, env string) string {
+	if in.InspectManifests && in.Manifests != nil || in.Status.Applier == nil {
+		return ""
+	}
+	v := in.Status.Applier.Values
+	if v == "" || v == "values-"+env+".yaml" || path.Base(path.Dir(v)) == "overlays" && path.Base(v) == env {
+		return ""
+	}
+	return "the applier selects " + v + " (observed as of " + in.Status.Applier.AsOf + ") for environment " + env + ", so Pacto has not checked the values that run"
+}
+
+// applied is the values file or overlay the applier applies, as
+// pacto.manifests read it from the version: chart says it is a chart's
+// values file, read and decoded into values, not an overlay.
+type applied struct {
+	file, digest string
+	values       map[string]any
+	chart        bool
+}
+
+// appliedValues is what ins read of the values the applier applies.
+func appliedValues(ins ManifestInspection) applied {
+	return applied{ins.ValuesFile, ins.ValuesDigest, ins.Values, ins.ValuesDigest != ""}
+}
+
+// cite records the applied values file and its digest in citation.
+func (a applied) cite(citation map[string]string) {
+	if a.file != "" {
+		citation["appliedValues"] = a.file
+	}
+	if a.digest != "" {
+		citation["appliedValuesDigest"] = a.digest
+	}
+}
+
+// clause says what the applier applies, "" for nothing read.
+func (a applied) clause() string {
+	switch {
+	case a.chart:
+		return "; the applier applies " + a.file + " (" + a.digest + ")"
+	case a.file != "":
+		return "; the applier applies " + a.file
+	}
+	return ""
+}
+
+// unchecked is why the chart values the applier applies are not the values c
+// declares for environment env (at index i, -1 for none), "" when they are
+// or when no chart values file was read. An overlay is a directory with no
+// Helm values: pacto.manifests judges its objects, and it is never
+// compared.
+func (a applied) unchecked(c *contract.Contract, fsys fs.FS, i int, env string) string {
+	if !a.chart {
+		return ""
+	}
+	lead, tail := "the applier applies "+a.file+" ("+a.digest+")", ", so Pacto has not checked the values that run"
+	if i < 0 {
+		return lead + ", and the contract declares no environment " + env + tail
+	}
+	e := c.Environments[i]
+	if e.File == "" {
+		return fmt.Sprintf("%s, and environments[%d] declares no file%s", lead, i, tail)
+	}
+	cfg, ok := chartConfiguration(c)
+	if !ok {
+		return lead + ", and no one configuration of the contract has the chart's values.schema.json as its schema" + tail
+	}
+	if _, values, err := contract.ReadEnvironmentValues(fsys, e); err != nil || !reflect.DeepEqual(values[cfg], any(a.values)) {
+		return fmt.Sprintf("%s, different values from environments[%d].file%s", lead, i, tail)
+	}
+	return ""
+}
+
+// chartConfiguration is the one configuration of c whose schema is a chart's
+// values.schema.json, the configuration a chart values file sets.
+// ponytail: matched by file name, since the contract names no chart
+// directory; two such configurations name none, and the gate asks a person.
+func chartConfiguration(c *contract.Contract) (string, bool) {
+	var names []string
+	for _, cfg := range c.Configurations {
+		if path.Base(cfg.Schema) == "values.schema.json" {
+			names = append(names, cfg.Name)
+		}
+	}
+	if len(names) != 1 {
+		return "", false
+	}
+	return names[0], true
+}
+
+// parameterRefusal is the first of codes that refuses values outside a tiered
+// offering's parameter space, and whether there is one.
+func parameterRefusal(codes []string) (string, bool) {
+	for _, c := range codes {
+		switch finding.Code(c) {
+		case finding.CodeTierNotTunable, finding.CodeParameterOutOfRange, finding.CodeParameterNotDeclared, finding.CodeClassNotOffered:
+			return c, true
+		}
+	}
+	return "", false
 }
 
 // environmentFindings runs the environments stage on a contract and returns
-// the errors, located in their values file, and the unverified warnings it
-// reports for its environment i, with refs the contract's configuration refs.
-func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.ConfigRefs, i int) (errs, unverified []string) {
+// the errors, located in their values file, with their codes, and the
+// unverified warnings it reports for its environment i, with refs the
+// contract's configuration refs.
+func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.ConfigRefs, i int) (errs, codes, unverified []string) {
 	at := fmt.Sprintf("environments[%d]", i)
 	under := func(path string) bool {
 		rest, ok := strings.CutPrefix(path, at)
@@ -498,7 +665,7 @@ func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.C
 			if e.Line > 0 {
 				loc += ":" + strconv.Itoa(e.Line)
 			}
-			errs = append(errs, loc+": "+e.Code+": "+e.Message)
+			errs, codes = append(errs, loc+": "+e.Code+": "+e.Message), append(codes, e.Code)
 		}
 	}
 	for _, w := range st.Warnings {
@@ -506,7 +673,7 @@ func environmentFindings(c *contract.Contract, bundleFS fs.FS, refs validation.C
 			unverified = append(unverified, w.Code+": "+w.Message)
 		}
 	}
-	return errs, unverified
+	return errs, codes, unverified
 }
 
 // holdFor asks a person to decide, adding why to a question already asked:
@@ -780,7 +947,7 @@ func impactGate(ctx context.Context, in PlanInput, p *Plan) {
 	citeCallers(in, res, v.Citation)
 	unseenConsumers := unseenConsumersOf(in, res, unknown)
 	unseen := slices.Clone(unseenConsumers)
-	if len(res.Consumers) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {
+	if localConsumers(in.Snapshot, res) == 0 && res.Classification != diff.NonBreaking.String() && !in.Stage.Gates.Impact.DeclaredConsumersOnly {
 		unseen = append(unseen, "no Pacto depends on "+in.Stage.Service.Name+", but a service with no contract can still call it")
 	}
 	unseen = append(unseen, versionDoubts(in, res)...)
@@ -925,7 +1092,9 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 	}
 	if res.Classification != diff.NonBreaking.String() {
 		out = append(out, callersUnseen(in.Snapshot, fleet.NewServiceKeyDomain(contract.OCIDomain(in.To.ContractRef), in.Stage.Service.Name))...)
+		out = append(out, unreadReason(in.Snapshot)...)
 	}
+	out = append(out, staleMemberReasons(in.Snapshot, res)...)
 	out = append(out, unresolvedConsumers(in.Snapshot, in.Stage.Service.Name)...)
 	consumers := map[string]bool{}
 	for _, c := range res.Consumers {
@@ -943,6 +1112,82 @@ func unseenConsumersOf(in PlanInput, res *impact.Result, unknown []impact.Affect
 		}
 	}
 	return out
+}
+
+// memberStates are the states of the members' sources by cluster id: every
+// source that names its cluster but the hub's own (whose Pactos sit in the
+// hub's cluster only once members exist, and never name it in their state).
+// Empty with no members.
+func memberStates(snap *fleet.FleetSnapshot) map[string]fleet.SourceState {
+	out := map[string]fleet.SourceState{}
+	for _, st := range snap.Sources {
+		if st.ID != SnapshotSourceID && st.Cluster != nil {
+			out[st.Cluster.ID] = st
+		}
+	}
+	return out
+}
+
+// targetCluster is the cluster of target key tk, "" when Pacto cannot tell.
+func targetCluster(snap *fleet.FleetSnapshot, tk string) string {
+	if t := snap.Targets[fleet.TargetKey(tk)]; t != nil {
+		return t.Cluster
+	}
+	return ""
+}
+
+// localConsumers counts the consumers with a target outside every member, or
+// no target: a consumer seen only in members never removes the doubt a
+// service with no contract leaves, since member data raises a gate and never
+// clears it. With no members every consumer counts.
+func localConsumers(snap *fleet.FleetSnapshot, res *impact.Result) int {
+	members, n := memberStates(snap), 0
+	for _, c := range res.Consumers {
+		if len(c.Targets) == 0 || slices.ContainsFunc(c.Targets, func(tk string) bool { _, member := members[targetCluster(snap, tk)]; return !member }) {
+			n++
+		}
+	}
+	return n
+}
+
+// staleMemberReasons names every consumer with a target in a member whose
+// snapshot is stale or could not be read: the instance there may run
+// another revision whose range refuses the change.
+func staleMemberReasons(snap *fleet.FleetSnapshot, res *impact.Result) []string {
+	members := memberStates(snap)
+	var out []string
+	for _, c := range res.Consumers {
+		for _, tk := range c.Targets {
+			st, member := members[targetCluster(snap, tk)]
+			if !member || st.Status != fleet.SourceStale && st.Status != fleet.SourceUnavailable {
+				continue
+			}
+			age := "could not be read"
+			if st.LastSuccessfulSync != nil {
+				age = "is " + ageWords(max(snap.GeneratedAt.Sub(*st.LastSuccessfulSync), 0)) + " old"
+			}
+			out = append(out, c.Service+" runs in cluster "+cmp.Or(st.Cluster.Name, st.Cluster.ID)+", whose snapshot "+age)
+			break
+		}
+	}
+	return out
+}
+
+// unreadReason says that clusters publish to this hub and are not members,
+// or that this cluster is a member whose hub reads the others, so consumers
+// there are unknown. It reads the typed count, never the
+// limitation prose a cap or a restricted view may drop.
+func unreadReason(snap *fleet.FleetSnapshot) []string {
+	switch n := snap.UnreadClusters; {
+	case n > 0 && slices.ContainsFunc(snap.Limitations, func(l fleet.Limitation) bool { return l.Source == MemberUnreadID }):
+		return []string{"this cluster is a member of a hub, so consumers in other clusters are unknown here: " +
+			"check the change on the hub (pacto impact --k8s) and approve it here (pacto delivery approve)"}
+	case n == 1:
+		return []string{"1 cluster publishes to this hub and is not a member, so consumers there are unknown: approve or remove it (pacto cluster list)"}
+	case n > 1:
+		return []string{strconv.Itoa(n) + " clusters publish to this hub and are not members, so consumers there are unknown: approve or remove them (pacto cluster list)"}
+	}
+	return nil
 }
 
 // requirementsUnseen says which direct consumers' requirements Pacto cannot

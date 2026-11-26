@@ -5,7 +5,7 @@
 
 Reference for [Pacto delivery](delivery.md). To pactify a service end to end,
 follow [Pactify a service](../../pactify.md) instead. The API group is
-`delivery.pacto.trianalab.io/v1alpha1` (alpha).
+`delivery.pacto.trianalab.io/v1` (alpha).
 Plans, approvals and who may do what are in
 [Delivery reference: plan, propose and approve](delivery-operations.md).
 
@@ -122,9 +122,12 @@ It emits `EnvironmentCreated` and `EnvironmentDeleted` on a Stage
 
 ## Upgrading
 
-[Upgrade the operator](upgrade.md) as usual: `helm upgrade` updates the
-delivery CRDs; `helm.sh/resource-policy: keep` keeps them, their history
-and `delivery.namespace` on [uninstall](installation.md#uninstall).
+- [Upgrade the operator](upgrade.md) as usual: `helm upgrade` updates the
+  delivery CRDs; `helm.sh/resource-policy: keep` keeps them, their history
+  and `delivery.namespace` on [uninstall](installation.md#uninstall).
+- The delivery API (`delivery.pacto.trianalab.io/v1` and the `pkg/delivery`
+  types it embeds) follows semantic versioning, while the promoter itself
+  stays Alpha.
 
 ## IDP mode
 
@@ -250,10 +253,12 @@ Flux Kustomization applies the apply `OCIRepository`, both carry the
 cluster-admin in a default install, and the levels judge only the contract;
 in IDP mode Pacto creates a namespaced deployer account for each service. On
 Argo CD it is `True` when the Application carries the label, has one source and sets no
-Kustomize images, patches or components, Helm parameters, values or value
-files, or plugin. Otherwise it is `False` and the reason
+Kustomize images, patches or components, Helm parameters or values, plugin or
+value file other than the Stage's [own](delivery-environments.md#values-per-environment).
+Otherwise it is `False` and the reason
 (`ApplyRefUnguarded`, `NoApplier`, `SeveralAppliers`, `ApplierUnguarded`,
-`ApplierUnscoped`, `ApplierOverrides`, `SeveralSources`) names what else decides what runs.
+`ApplierUnscoped`, `ApplierOverrides`, `SeveralSources`, `OtherEnvironmentValues`)
+names what else decides what runs.
 
 ### What only break-glass may change
 
@@ -356,7 +361,7 @@ in the operation's `status.message`. A downstream Stage takes only what its upst
 there, never one let through on an accepted unknown.
 
 ```yaml
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Stage
 metadata: {name: payments, namespace: prod}
 spec:

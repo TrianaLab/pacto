@@ -66,12 +66,12 @@ const template = (extra: Record<string, any> = {}) => ({
   ...extra,
 });
 
-async function render(d: unknown) {
+async function render(d: unknown, props: Record<string, unknown> = {}) {
   detailFn.mockResolvedValue(d);
   entitiesFn.mockResolvedValue({ entities: [], total: 0, truncated: false });
   const target = document.createElement('div');
   document.body.appendChild(target);
-  const component = mount(FleetEntityView, { target, props: { kind: 'service', entityKey: 'x', refreshTick: 0 } });
+  const component = mount(FleetEntityView, { target, props: { kind: 'service', entityKey: 'x', refreshTick: 0, ...props } });
   await vi.waitFor(() => expect(target.querySelector('.svc-entity')).toBeTruthy());
   flushSync();
   return { target, done: () => { unmount(component); target.remove(); } };
@@ -107,6 +107,33 @@ describe('ServiceEntity: a golden path', () => {
     expect(created.textContent).toContain('2 services you may not see');
     expect(Array.from(created.querySelectorAll('a')).map((a) => a.getAttribute('href')))
       .toContain('#/fleet/services?createdFrom=ghcr.io%2Facme%2Fhttp-service');
+    done();
+  });
+
+  it('shows the commands expanded and no form while the host cannot create (createService false)', async () => {
+    const { target, done } = await render(detail(PATH, 'http-service', { template: template() }, { template: true }));
+    const create = target.querySelector('[data-testid="golden-path-create"]')!;
+    expect(create.closest('details')).toBeNull();
+    expect(target.querySelector('[data-testid="create-form"]')).toBeNull();
+    done();
+  });
+
+  it('puts the commands under Run it yourself beside the Create service form when the host creates', async () => {
+    const { target, done } = await render(detail(PATH, 'http-service', { template: template() }, { template: true }), { createService: true });
+    expect(target.querySelector('[data-testid="create-form"]')?.textContent).toContain('http-service');
+    expect(target.querySelector('[data-testid="create-requested"]')?.textContent).toContain('postgresql');
+    const fold = target.querySelector<HTMLDetailsElement>('[data-testid="create-yourself"]')!;
+    expect(fold.open).toBe(false);
+    fold.open = true;
+    expect(fold.querySelector('[data-testid="golden-path-create"]')?.textContent).toContain(CLI);
+    done();
+  });
+
+  it('offers no form for a path with no digest-pinned reference, whatever the host', async () => {
+    const t = template({ instantiate: undefined, instantiateReason: 'no digest-pinned reference' });
+    const { target, done } = await render(detail(PATH, 'http-service', { template: t }, { template: true }), { createService: true });
+    expect(target.querySelector('[data-testid="create-form"]')).toBeNull();
+    expect(target.querySelector('[data-testid="golden-path-create"]')?.textContent).toContain('no digest-pinned reference');
     done();
   });
 

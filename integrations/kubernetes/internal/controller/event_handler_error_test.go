@@ -12,7 +12,7 @@ import (
 	"fmt"
 	"testing"
 
-	pactov1alpha1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/v1alpha1"
+	pactov1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -26,7 +26,7 @@ func TestMapObjectToPactos_ListError(t *testing.T) {
 	c := fake.NewClientBuilder().WithScheme(s).
 		WithInterceptorFuncs(interceptor.Funcs{
 			List: func(ctx context.Context, c client.WithWatch, list client.ObjectList, opts ...client.ListOption) error {
-				if _, ok := list.(*pactov1alpha1.PactoList); ok {
+				if _, ok := list.(*pactov1.PactoList); ok {
 					return fmt.Errorf("list failed")
 				}
 				return c.List(ctx, list, opts...)

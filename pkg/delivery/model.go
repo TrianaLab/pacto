@@ -3,19 +3,21 @@
 // promoter, the CLI and the MCP tools all call to decide whether a change may
 // move, whether a person must agree and who.
 //
-// Experimental: not covered by semantic versioning. Delivery is Alpha, and
-// this API may change in a minor release.
+// Stable: the wire types the delivery CRDs embed (Stage, Operation and
+// Approval specs and statuses) are covered by semantic versioning from core
+// 4.7; the delivery promoter's behaviour stays Alpha (docs:
+// delivery-setup.md).
 //
 // The decision path (plan, the verdict mappings and the intent digest) holds no
 // Kubernetes, registry or clock dependency: what it reads arrives in PlanInput
 // and through the Registry interface. The package also holds the gate
 // providers that call out over HTTP (http, mira and eval, in gate.go, mira.go
 // and eval.go); they run only where the promoter is configured with them, and
-// CheckTimeout bounds each check. The wire types below are
-// embedded verbatim by the delivery CRDs (delivery.pacto.trianalab.io/v1alpha1 in
-// integrations/kubernetes), so a client decoding a Stage or an Operation reads
-// exactly the struct the controller wrote, and the intent digest a client
-// computes is byte-for-byte the one the controller recomputes.
+// CheckTimeout bounds each check. The wire types below are embedded verbatim
+// by the delivery CRDs (delivery.pacto.trianalab.io/v1 and the deprecated
+// v1alpha1 in integrations/kubernetes), so a client decoding a Stage or an
+// Operation reads exactly the struct the controller wrote, and the intent
+// digest a client computes is byte-for-byte the one the controller recomputes.
 package delivery
 
 import "encoding/json"
@@ -297,7 +299,9 @@ type StageSpec struct {
 	// declares (environments[].name): a contract that declares environments
 	// must declare this one, with values that satisfy its configuration
 	// schemas, or the promote waits for a person (pacto.environment). It
-	// also places the Pactos and Stages a change's consumers run on.
+	// also places the Pactos and Stages a change's consumers run on, and
+	// selects the values the applier may apply: values-<environment>.yaml or
+	// overlays/<environment>. It is fixed at creation.
 	Environment string `json:"environment"`
 	// ApplyRef is the object the promoter points at a version: a Flux
 	// OCIRepository (it sets spec.ref.digest) or an Argo CD Application (it

@@ -297,7 +297,7 @@ identity_rbac_views() {
     ref="$(contract "$ns-svc" 1.0.0 service)"
     kubectl create namespace "$ns" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
     kubectl apply -n "$ns" -f - >/dev/null <<YAML
-apiVersion: pacto.trianalab.io/v1alpha1
+apiVersion: pacto.trianalab.io/v1
 kind: Pacto
 metadata: {name: $ns-svc}
 spec:
@@ -820,7 +820,7 @@ identity_scenario() {
     g="groups: ${3:-$(jq -c .status.userInfo.groups <<<"$w")}"
     [ "${3:-}" = omit ] && g=""
     as_token "$1" -n prod create --validate=false -f - <<YAML
-apiVersion: delivery.pacto.trianalab.io/v1alpha1
+apiVersion: delivery.pacto.trianalab.io/v1
 kind: Approval
 metadata: {name: $2}
 spec:

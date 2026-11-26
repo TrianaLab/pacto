@@ -43,9 +43,10 @@ export class ApiError extends Error {
 // ── generated response types (never redeclared) ──────────────────────────────
 // Product responses are inline operation payloads; alias them from the generated
 // operations so the facade and UI consume the generated wire types.
-// Only operations that answer 200: a create answers 201 and has no 200 entry.
+// Only operations that answer 200 with JSON: a create answers 201 and has no 200 entry,
+// and a download answers another media type.
 type OpsWith200 = {
-  [K in keyof operations]: operations[K]['responses'] extends { 200: unknown } ? K : never;
+  [K in keyof operations]: operations[K]['responses'] extends { 200: { content: { 'application/json': unknown } } } ? K : never;
 }[keyof operations];
 type JSON200<T extends OpsWith200> =
   operations[T]['responses'][200]['content']['application/json'];
@@ -70,6 +71,12 @@ export type DeclareAnswer = JSON200<'fleet-declare'>;
 export type DeclareAcceptAnswer = JSON200<'fleet-declare-accept'>;
 type DeclareBody = operations['fleet-declare']['requestBody']['content']['application/json'];
 type DeclareAcceptBody = operations['fleet-declare-accept']['requestBody']['content']['application/json'];
+/** A create plan from a golden path: what 0.1.0 would publish, the offerings it may set values on and who signs. */
+export type CreateServiceAnswer = JSON200<'fleet-create-service'>;
+/** What accepting a create plan wrote and the person's own handover, or why nothing was. */
+export type CreateServiceAcceptAnswer = JSON200<'fleet-create-service-accept'>;
+type CreateServiceBody = operations['fleet-create-service']['requestBody']['content']['application/json'];
+type CreateServiceAcceptBody = operations['fleet-create-service-accept']['requestBody']['content']['application/json'];
 export type ProductRevisionDocument = JSON200<'fleet-revision-document'>;
 export type ProductOfferingVersions = JSON200<'fleet-versions'>;
 export type ProductStats = JSON200<'get-stats'>;
@@ -79,6 +86,8 @@ export type ProductMeta = ProductOverview['meta'];
 /** The member clusters of a hub: approved, pending and removed, with the counts a reader may not see. */
 export type ClusterJoinList = components['schemas']['Delivery.ClusterJoinList'];
 export type ClusterJoinState = components['schemas']['Delivery.ClusterJoinState'];
+/** A cluster the hub's GitOps or cluster managers know, matched to a member only by a UID it states. */
+export type ClusterCandidate = components['schemas']['Delivery.ClusterCandidate'];
 
 // JSONBody / GetResponse / PostResponse derive an operation's 200 application/json
 // body straight from the generated `paths`, keyed by the exact path a facade method
@@ -509,6 +518,9 @@ export const api = {
       throw e;
     }
   },
+  /** The YAML that installs the Pacto chart on every member through the engine from. */
+  fleetClusterInstall: (from: 'argocd' | 'flux'): Promise<string> =>
+    unwrap(client.GET('/api/fleet/clusters/install', { params: { query: { from } }, parseAs: 'text' })),
   fleetEntities: (params: FleetEntitiesInput = {}): Promise<ProductEntityList> => {
     const { kinds, ...rest } = params;
     return productGet(client.GET('/api/fleet/entities', {
@@ -557,6 +569,12 @@ export const api = {
   /** Signs a reviewed declaration plan, saves it as a draft or accepts a draft, by its intent digest. */
   fleetDeclareAccept: (body: DeclareAcceptBody): Promise<DeclareAcceptAnswer> =>
     unwrap(client.POST('/api/fleet/declare/accept', { body })),
+  /** Plans creating a service from a declared golden path. It writes nothing. */
+  fleetCreateService: (body: CreateServiceBody): Promise<CreateServiceAnswer> =>
+    unwrap(client.POST('/api/fleet/services', { body })),
+  /** Publishes a reviewed create plan signed by the person, or saves it as a draft, by its intent digest. */
+  fleetCreateServiceAccept: (body: CreateServiceAcceptBody): Promise<CreateServiceAcceptAnswer> =>
+    unwrap(client.POST('/api/fleet/services/accept', { body })),
   /** Lazily reads ONE document body belonging to exactly this revision. Kept off
    *  the entity detail so a revision page stays bounded. */
   fleetRevisionDocument: (key: string, path: string): Promise<ProductRevisionDocument> =>
@@ -609,16 +627,16 @@ export const api = {
     unwrap(client.GET('/api/delivery/history', {
       params: { query: { ...query, namespace: namespace || undefined, stage: stage || undefined } },
     })),
-  deliveryBlame: (namespace: string, stage: string, digest = ''): Promise<DeliveryBlame> =>
-    unwrap(client.GET('/api/delivery/blame', { params: { query: { namespace, stage, digest: digest || undefined } } })),
+  deliveryBlame: (namespace: string, stage: string, digest = '', cluster?: string): Promise<DeliveryBlame> =>
+    unwrap(client.GET('/api/delivery/blame', { params: { query: { namespace, stage, digest: digest || undefined, cluster: cluster || undefined } } })),
   deliveryUndo: (namespace: string, name: string, stage = ''): Promise<DeliveryUndo> =>
     unwrap(client.GET('/api/delivery/undo', { params: { query: { namespace, name, stage: stage || undefined } } })),
-  deliveryProgress: (namespace: string, stage: string): Promise<DeliveryProgress> =>
-    unwrap(client.GET('/api/delivery/progress', { params: { query: { namespace, stage } } })),
+  deliveryProgress: (namespace: string, stage: string, cluster?: string): Promise<DeliveryProgress> =>
+    unwrap(client.GET('/api/delivery/progress', { params: { query: { namespace, stage, cluster: cluster || undefined } } })),
   deliveryLifecycle: (query: DeliveryQuery<'/api/delivery/lifecycle'>): Promise<DeliveryLifecycle> =>
     unwrap(client.GET('/api/delivery/lifecycle', { params: { query } })),
-  deliveryRecord: (namespace: string, stage: string, id: string): Promise<DeliveryRecord> =>
-    unwrap(client.GET('/api/delivery/record', { params: { query: { namespace, stage, id } } })),
+  deliveryRecord: (namespace: string, stage: string, id: string, cluster?: string): Promise<DeliveryRecord> =>
+    unwrap(client.GET('/api/delivery/record', { params: { query: { namespace, stage, id, cluster: cluster || undefined } } })),
   deliveryRefusals: (): Promise<DeliveryRefusals> => unwrap(client.GET('/api/delivery/refusals')),
   deliveryOperation: (namespace: string, name: string): Promise<DeliveryOperation> =>
     unwrap(client.GET('/api/delivery/operations/{namespace}/{name}', { params: { path: { namespace, name } } })),

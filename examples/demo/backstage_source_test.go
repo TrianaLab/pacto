@@ -1,7 +1,9 @@
 package main
 
 import (
+	"fmt"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/trianalab/pacto/v4/pkg/backstage"
@@ -81,7 +83,46 @@ func TestDemoBackstageEdge(t *testing.T) {
 	if len(facts) != 1 || facts[0].FromService != demoBilling || facts[0].ToService != "invoices" || facts[0].Provenance != fleet.ProvenanceInferred {
 		t.Fatalf("service fact edges = %+v", facts)
 	}
-	if slices.ContainsFunc(snap.Relationships, func(r fleet.Relationship) bool { return r.FromService == demoBilling }) {
+	if slices.ContainsFunc(snap.Relationships, func(r fleet.Relationship) bool { return r.FromService == demoBilling && r.ToExternal == "" }) {
 		t.Error("the catalog edge reached the declared relationships")
+	}
+}
+
+// demoGoldenPaths is how many golden paths the demo declares: http-service.
+const demoGoldenPaths = 1
+
+// TestDemoInferredTemplates: the catalog's springboot-service template is an
+// inferred golden path with a scaffolder link on the configured base; its
+// http-service template is folded into the declared http-service golden
+// path, which keeps it as its link and is listed once.
+func TestDemoInferredTemplates(t *testing.T) {
+	res, err := fleet.NewQuery(demoFleet(t)).Entities(fleet.EntityFilter{Template: fleet.TemplateOnly})
+	if err != nil {
+		t.Fatal(err)
+	}
+	list := res.InferredTemplates
+	if list == nil || list.Total != 1 || len(list.Items) != 1 {
+		t.Fatalf("inferred templates = %+v", list)
+	}
+	sb := list.Items[0]
+	if sb.Name != "springboot-service" || sb.Provenance != fleet.ProvenanceInferred || !sb.Acceptable ||
+		sb.URL != demoBackstageBase+"/create/templates/default/springboot-service" || sb.Entity != "template:default/springboot-service" {
+		t.Errorf("springboot-service = %+v", sb)
+	}
+	if len(res.Entities) != demoGoldenPaths {
+		t.Fatalf("golden paths = %+v, want %d", res.Entities, demoGoldenPaths)
+	}
+	if d := list.Declared; len(d) != 1 || d[0].Name != "http-service" || d[0].DeclaredAs != res.Entities[0].Key {
+		t.Errorf("declared = %+v, golden path %q", d, res.Entities[0].Key)
+	}
+}
+
+// TestDemoInferredTemplatesPartial: the demo's registry mirror and edge
+// cluster are not read whole, so a listed template may already be declared:
+// the list says so.
+func TestDemoInferredTemplatesPartial(t *testing.T) {
+	list := fleet.NewQuery(demoFleet(t)).InferredTemplates("")
+	if list.Completeness != fleet.CompletenessPartial || !strings.Contains(fmt.Sprint(list.Limitations), "may already be declared") {
+		t.Errorf("completeness %s limitations %+v", list.Completeness, list.Limitations)
 	}
 }

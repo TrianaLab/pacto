@@ -1,0 +1,32 @@
+- apiVersion: apiextensions.crossplane.io/v1
+  kind: Composition
+  metadata:
+    name: small
+  spec:
+    compositeTypeRef:
+      apiVersion: storage.acme.io/v1beta1
+      kind: XBucket
+- apiVersion: apiextensions.crossplane.io/v1
+  kind: Composition
+  metadata:
+    name: large
+  spec:
+    compositeTypeRef:
+      apiVersion: storage.acme.io/v1alpha1
+      kind: XBucket
+- apiVersion: apiextensions.crossplane.io/v1
+  kind: Composition
+  metadata:
+    name: other-group
+  spec:
+    compositeTypeRef:
+      apiVersion: other.acme.io/v1
+      kind: XBucket
+- apiVersion: apiextensions.crossplane.io/v1
+  kind: Composition
+  metadata:
+    name: queue-default
+  spec:
+    compositeTypeRef:
+      apiVersion: messaging.acme.io/v1
+      kind: XQueue

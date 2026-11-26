@@ -62,6 +62,7 @@ func wantDuplicateRejected(t *testing.T, root *contract.Contract, kind, name str
 // Identical bytes are the hard case: nothing about the RESOLUTION distinguishes
 // the two declarations, so a builder that only compares resolutions sees one.
 func TestReferenceClosure_DuplicateConfigurationSameRef(t *testing.T) {
+	t.Parallel()
 	wantDuplicateRejected(t, &contract.Contract{
 		Service: contract.Service{Name: "app", Version: "1.0.0"},
 		Configurations: []contract.Configuration{
@@ -72,6 +73,7 @@ func TestReferenceClosure_DuplicateConfigurationSameRef(t *testing.T) {
 }
 
 func TestReferenceClosure_DuplicateConfigurationDifferentRef(t *testing.T) {
+	t.Parallel()
 	wantDuplicateRejected(t, &contract.Contract{
 		Service: contract.Service{Name: "app", Version: "1.0.0"},
 		Configurations: []contract.Configuration{
@@ -82,6 +84,7 @@ func TestReferenceClosure_DuplicateConfigurationDifferentRef(t *testing.T) {
 }
 
 func TestReferenceClosure_DuplicatePolicySameRef(t *testing.T) {
+	t.Parallel()
 	wantDuplicateRejected(t, &contract.Contract{
 		Service: contract.Service{Name: "app", Version: "1.0.0"},
 		Policies: []contract.Policy{
@@ -92,6 +95,7 @@ func TestReferenceClosure_DuplicatePolicySameRef(t *testing.T) {
 }
 
 func TestReferenceClosure_DuplicatePolicyDifferentRef(t *testing.T) {
+	t.Parallel()
 	wantDuplicateRejected(t, &contract.Contract{
 		Service: contract.Service{Name: "app", Version: "1.0.0"},
 		Policies: []contract.Policy{
@@ -105,6 +109,7 @@ func TestReferenceClosure_DuplicatePolicyDifferentRef(t *testing.T) {
 // gate built only from the refs the walk resolves never sees this pair -- and
 // the surviving ref entry would be filed under a name the contract uses twice.
 func TestReferenceClosure_DuplicateConfigurationOnlyOneOfWhichIsARef(t *testing.T) {
+	t.Parallel()
 	wantDuplicateRejected(t, &contract.Contract{
 		Service: contract.Service{Name: "app", Version: "1.0.0"},
 		Configurations: []contract.Configuration{
@@ -117,6 +122,7 @@ func TestReferenceClosure_DuplicateConfigurationOnlyOneOfWhichIsARef(t *testing.
 // The rule is a property of every contract in the closure, not of the root: a
 // referenced bundle declaring one name twice is just as unlockable.
 func TestReferenceClosure_DuplicateInsideAReferencedContract(t *testing.T) {
+	t.Parallel()
 	child := &contract.Contract{
 		Service: contract.Service{Name: "child", Version: "1.0.0"},
 		Configurations: []contract.Configuration{
@@ -149,6 +155,7 @@ func TestReferenceClosure_DuplicateInsideAReferencedContract(t *testing.T) {
 // The rule is per kind. A configuration and a policy sharing a name are two
 // different lookups, and locking them must keep working.
 func TestReferenceClosure_ConfigAndPolicyMaySharedAName(t *testing.T) {
+	t.Parallel()
 	s := NewService(dupStore(), nil)
 	refs, err := s.buildReferenceClosure(context.Background(), &contract.Contract{
 		Service:        contract.Service{Name: "app", Version: "1.0.0"},

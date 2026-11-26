@@ -423,15 +423,14 @@ func readCluster(ctx context.Context, dyn dynamic.Interface, c ClusterOptions, n
 	// here may call a Service anywhere, and only the drafts keep to the
 	// namespaces asked for.
 	for _, into := range []struct {
-		r        schema.GroupVersionResource
-		source   string
-		to       *[]unstructured.Unstructured
-		optional bool
-	}{{gvrServices, "services", &cl.services, false}, {gvrEndpointSlices, "endpointslices", &cl.slices, false},
-		{k8sclient.PactosGVR, "pactos", &cl.pactos, true}} {
-		*into.to, _, _, _ = rd.page(into.r, metav1.NamespaceAll, into.source, into.optional, "")
+		r      schema.GroupVersionResource
+		source string
+		to     *[]unstructured.Unstructured
+	}{{gvrServices, "services", &cl.services}, {gvrEndpointSlices, "endpointslices", &cl.slices}} {
+		*into.to, _, _, _ = rd.page(into.r, metav1.NamespaceAll, into.source, false, "")
 	}
-	nros, _, _, _ := rd.page(kubesink.GVR, metav1.NamespaceAll, "runtime-calls", true, "")
+	cl.pactos = rd.pageServed(k8sclient.PactosGVR, "pactos")
+	nros := rd.pageServed(kubesink.GVR, "runtime-calls")
 	cl.readObservations(rd, nros)
 	cl.observed = len(cl.snaps) > 0
 	if !cl.observed {
@@ -450,11 +449,26 @@ type reader struct {
 	coverage map[string]contract.InferredCoverage
 }
 
+// errNotServed is page's answer for an optional CRD the cluster does not serve.
+var errNotServed = errors.New("not served")
+
+// pageServed lists the optional CRD r in every namespace at r's version and,
+// when the cluster does not serve that, at the deprecated v1alpha1 a chart-6
+// cluster still serves. Served at neither, the CRD is not installed: no rows.
+func (rd *reader) pageServed(r schema.GroupVersionResource, source string) []unstructured.Unstructured {
+	items, _, _, err := rd.page(r, metav1.NamespaceAll, source, true, "")
+	if errors.Is(err, errNotServed) {
+		r.Version = "v1alpha1"
+		items, _, _, _ = rd.page(r, metav1.NamespaceAll, source, true, "")
+	}
+	return items
+}
+
 // page lists r in ns from the API continue tok, counting toward source's
 // bound, until the list ends or the bound is reached. more is true when the
 // bound stopped it before the list ended (or before it started), with next
 // the API continue to resume from. A list error fails the source and is
-// returned; a missing optional CRD is no error and no rows.
+// returned; a missing optional CRD fails nothing and returns errNotServed.
 // ponytail: one bound per source; a per-namespace bound if one namespace starves the rest.
 func (rd *reader) page(r schema.GroupVersionResource, ns, source string, optional bool, tok string) ([]unstructured.Unstructured, string, bool, error) {
 	var items []unstructured.Unstructured
@@ -467,7 +481,7 @@ func (rd *reader) page(r schema.GroupVersionResource, ns, source string, optiona
 		l, err := rd.dyn.Resource(r).Namespace(ns).List(rd.ctx, metav1.ListOptions{Limit: int64(min(500, left)), Continue: tok})
 		switch {
 		case optional && apierrors.IsNotFound(err):
-			return items, "", false, nil // the CRD is not installed
+			return items, "", false, errNotServed
 		case err != nil:
 			rd.mark(source, contract.CoverageFailed, failure(err))
 			return items, "", false, fmt.Errorf("listing %s: %w", r.Resource, err)

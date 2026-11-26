@@ -1,6 +1,7 @@
 package delivery
 
 import (
+	"encoding/json"
 	"slices"
 	"strings"
 	"time"
@@ -12,6 +13,21 @@ type PlanAnswer struct {
 	Plan
 	// Next says what happens once the operation is proposed and what to do.
 	Next []string `json:"next,omitempty"`
+	// Members is the plan over a hub's members, only for a member request.
+	Members *MemberPlan `json:"members,omitempty"`
+}
+
+// MarshalJSON writes a member request's answer as its members alone: the
+// Stage plan fields are empty there, and an empty intent digest is no plan
+// to propose.
+func (a PlanAnswer) MarshalJSON() ([]byte, error) {
+	if a.Members != nil {
+		return json.Marshal(struct {
+			Members *MemberPlan `json:"members"`
+		}{a.Members})
+	}
+	type plain PlanAnswer // no MarshalJSON: the default encoding
+	return json.Marshal(plain(a))
 }
 
 // AnswerPlan is p with what it means for a caller of class on stage.

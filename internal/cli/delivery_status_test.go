@@ -21,7 +21,7 @@ func statusDeps(fields map[string]any) deps {
 	plain := d.newDynamic
 	d.newDynamic = func() (dynamic.Interface, error) {
 		c, err := plain()
-		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1alpha1", Resource: "stages"}).Namespace("prod")
+		stages := c.Resource(schema.GroupVersionResource{Group: "delivery.pacto.trianalab.io", Version: "v1", Resource: "stages"}).Namespace("prod")
 		s, _ := stages.Get(context.Background(), "payments-prod", metav1.GetOptions{})
 		for k, v := range fields {
 			_ = unstructured.SetNestedField(s.Object, v, "status", k)
@@ -159,4 +159,26 @@ func TestDeliveryStatusApplierLine(t *testing.T) {
 		{"text", []string{"status", "--service", "payments"}, false, []string{"\napplier: Argo CD (Application payments, tracking annotation) (as of 2026-11-15T09:59:00Z"}},
 		{"json", []string{"status", "--service", "payments"}, false, []string{`"applier": {`, `"display": "Argo CD (Application payments, tracking annotation)"`}},
 	})
+}
+
+// TestEnvironmentsTextShowsValues: the applier line names the values file
+// or overlay each Stage's applier selects, so Stages that differ only in
+// their values get a line each.
+func TestEnvironmentsTextShowsValues(t *testing.T) {
+	now := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+	argo := func(values string) *delivery.ApplierStatus {
+		return &delivery.ApplierStatus{Manager: "argocd", Display: "Argo CD Application payments", State: delivery.ApplierAdopted,
+			AsOf: "2026-11-15T09:59:30Z", StaleAt: "2026-11-15T10:30:00Z", Values: values}
+	}
+	var b strings.Builder
+	printApplier(&b, []delivery.StageRow{{Namespace: "test", Stage: "payments", Applier: argo("values-staging.yaml")},
+		{Namespace: "production", Stage: "payments", Applier: argo("values-production.yaml")}}, now)
+	for _, want := range []string{
+		"  test/payments: Argo CD Application payments, values values-staging.yaml (as of 2026-11-15T09:59:30Z)\n",
+		"  production/payments: Argo CD Application payments, values values-production.yaml (as of 2026-11-15T09:59:30Z)\n",
+	} {
+		if !strings.Contains(b.String(), want) {
+			t.Fatalf("want %q in\n%s", want, b.String())
+		}
+	}
 }

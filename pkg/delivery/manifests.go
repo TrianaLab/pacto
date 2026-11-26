@@ -6,6 +6,8 @@ import (
 	"cmp"
 	"compress/gzip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,6 +19,8 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/trianalab/pacto/v4/pkg/contract"
 )
 
 // GateManifests refuses a promote whose deploy artifact reaches outside the
@@ -125,6 +129,17 @@ type ManifestTarget struct {
 	// Infra tells claims, composites and managed resources of a group
 	// outside crossplaneGroup; nil tells them by group only.
 	Infra InfraFunc
+	// Environment is the environment the Stage delivers to.
+	Environment string
+	// ValuesFile is the values file of the chart (Argo CD selects it) or
+	// the Kustomize overlay the applier selects for Environment, "" for
+	// none.
+	ValuesFile string
+	// valuesChart says ValuesFile is a file of the chart, not an overlay.
+	valuesChart bool
+	// HelmRelease names the Flux HelmRelease that applies the chart, which
+	// selects no values file inside it.
+	HelmRelease string
 }
 
 // ManifestInspection is what a version's deploy artifact applies, and what of
@@ -145,6 +160,12 @@ type ManifestInspection struct {
 	// when RefuseInfra holds, else a question for a person.
 	Infra       []string
 	RefuseInfra bool
+	// ValuesFile is the values file or overlay read from the artifact,
+	// ValuesDigest the sha256 of the file's bytes (none for an overlay),
+	// Values the file decoded.
+	ValuesFile   string
+	ValuesDigest string
+	Values       map[string]any `json:"-"`
 }
 
 // ManifestTargetOf is the target of a Stage: its namespace, unless the applier
@@ -154,48 +175,63 @@ type ManifestInspection struct {
 // the applyRef OCIRepository count.
 func ManifestTargetOf(stage StageObject, applier map[string]any, ks []KustomizationView, ksErr error) ManifestTarget {
 	ns, ref := stage.Metadata.Namespace, stage.Spec.ApplyRef
-	t := ManifestTarget{Namespace: ns}
+	t := ManifestTarget{Namespace: ns, Environment: stage.Spec.Environment}
+	sel := SelectedValues(ref, applier, ks, ns, t.Environment)
 	switch refKind(ref) {
 	case ApplierHelmRelease:
+		t.HelmRelease = ref.Name
 		t.judgeApplier("HelmRelease "+ref.Name, str(applier, "spec", "targetNamespace"), present(applier, []string{"spec", "postRenderers"}))
 	case ApplierArgoCD:
-		t.judgeApplier("Application "+ref.Name, str(applier, "spec", "destination", "namespace"),
-			present(applier, []string{"spec", "source", "helm"}, []string{"spec", "source", "kustomize"}, []string{"spec", "source", "plugin"},
-				[]string{"spec", "source", "directory", "jsonnet"}))
+		transforms := present(applier, []string{"spec", "source", "helm"}, []string{"spec", "source", "kustomize"}, []string{"spec", "source", "plugin"},
+			[]string{"spec", "source", "directory", "jsonnet"})
+		if sel.Form == FormHelmValues && sel.Problem == "" && helmSelectsValuesOnly(applier) {
+			// The environment's values file alone selects
+			// values the inspector reads; it transforms nothing else.
+			transforms, t.valuesChart = slices.DeleteFunc(transforms, func(f string) bool { return f == "spec.source.helm" }), true
+		}
+		t.judgeApplier("Application "+ref.Name, str(applier, "spec", "destination", "namespace"), transforms)
 		t.Path = cleanPath(str(applier, "spec", "source", "path"))
 	default:
-		if ksErr != nil {
-			t.Unread = append(t.Unread, "the Kustomizations: "+ksErr.Error())
-		}
-		paths := map[string]bool{}
-		for _, k := range ks {
-			// A Kustomization in another namespace applies as that
-			// namespace's identity: it is that namespace's concern, and a
-			// tenant there cannot change this Stage's verdict.
-			src := k.Spec.SourceRef
-			if src.Kind != ApplierFlux || k.Metadata.Namespace != ns || cmp.Or(src.Namespace, ns) != ns || src.Name != ref.Name {
-				continue
-			}
-			paths[cleanPath(k.Spec.Path)] = true
-			var fields []string
-			for f, raw := range map[string][]byte{"patches": k.Spec.Patches, "postBuild": k.Spec.PostBuild, "components": k.Spec.Components} {
-				if len(raw) > 0 && string(raw) != "null" {
-					fields = append(fields, "spec."+f)
-				}
-			}
-			slices.Sort(fields)
-			// Without spec.targetNamespace a Kustomization applies an object
-			// that names no namespace into its own.
-			t.judgeApplier("Kustomization "+k.Metadata.Name, cmp.Or(k.Spec.TargetNamespace, k.Metadata.Namespace), fields)
-		}
-		switch keys := slices.Sorted(maps.Keys(paths)); {
-		case len(keys) == 1:
-			t.Path = keys[0]
-		case len(keys) > 1:
-			t.Unread = append(t.Unread, "the Kustomizations build different paths of the artifact: "+strings.Join(keys, ", "))
-		}
+		t.judgeKustomizations(ref.Name, ks, ksErr)
+	}
+	switch {
+	case sel.Problem != "":
+		t.Unread = append(t.Unread, sel.Problem)
+	case t.valuesChart || sel.Form == FormKustomizeOverlay && sel.File == t.Path:
+		t.ValuesFile = sel.File
 	}
 	return t
+}
+
+// judgeKustomizations judges the Kustomizations of ks applying the
+// OCIRepository name, and takes the one path they build.
+func (t *ManifestTarget) judgeKustomizations(name string, ks []KustomizationView, ksErr error) {
+	if ksErr != nil {
+		t.Unread = append(t.Unread, "the Kustomizations: "+ksErr.Error())
+	}
+	paths := map[string]bool{}
+	for _, k := range ks {
+		if !appliesStage(k, t.Namespace, name) {
+			continue
+		}
+		paths[cleanPath(k.Spec.Path)] = true
+		var fields []string
+		for f, raw := range map[string][]byte{"patches": k.Spec.Patches, "postBuild": k.Spec.PostBuild, "components": k.Spec.Components} {
+			if len(raw) > 0 && string(raw) != "null" {
+				fields = append(fields, "spec."+f)
+			}
+		}
+		slices.Sort(fields)
+		// Without spec.targetNamespace a Kustomization applies an object
+		// that names no namespace into its own.
+		t.judgeApplier("Kustomization "+k.Metadata.Name, cmp.Or(k.Spec.TargetNamespace, k.Metadata.Namespace), fields)
+	}
+	switch keys := slices.Sorted(maps.Keys(paths)); {
+	case len(keys) == 1:
+		t.Path = keys[0]
+	case len(keys) > 1:
+		t.Unread = append(t.Unread, "the Kustomizations build different paths of the artifact: "+strings.Join(keys, ", "))
+	}
 }
 
 // cleanPath is a path of the artifact as its tar names it: "" for the root.
@@ -264,8 +300,16 @@ func InspectArtifact(mediaType string, layer []byte, target ManifestTarget, scop
 	var docs []doc
 	if mediaType == HelmChartMediaType {
 		in.Artifact, docs = "chart", chartDocs(files, &in)
+		in.readChartValues(files, target)
 	} else {
 		in.Artifact, docs = fluxDocs(files, &in)
+		switch {
+		case target.valuesChart:
+			in.Unread = append(in.Unread, "the applier selects "+target.ValuesFile+", and this version is not a Helm chart")
+		case target.ValuesFile != "":
+			// The overlay is the path the applier builds, which holds files.
+			in.ValuesFile = target.ValuesFile
+		}
 	}
 	k := kindInfo{scope, target.Infra}
 	for _, d := range docs {
@@ -275,6 +319,43 @@ func InspectArtifact(mediaType string, layer []byte, target ManifestTarget, scop
 		}
 	}
 	return in
+}
+
+// readChartValues reads the values file the applier selects from the chart,
+// under its one top directory. A missing or unreadable file is unread, and a
+// HelmRelease, which selects no values file, is unread when the chart
+// carries one for the Stage's environment.
+func (in *ManifestInspection) readChartValues(files []tarFile, target ManifestTarget) {
+	file := func(name string) (tarFile, bool) {
+		i := slices.IndexFunc(files, func(f tarFile) bool { _, rel, _ := strings.Cut(f.name, "/"); return rel == name })
+		if i < 0 {
+			return tarFile{}, false
+		}
+		return files[i], true
+	}
+	envFile := "values-" + target.Environment + ".yaml"
+	switch {
+	case target.valuesChart:
+		f, ok := file(target.ValuesFile)
+		if !ok {
+			in.Unread = append(in.Unread, target.ValuesFile+" is not in the chart of this version, so Argo CD cannot render it for "+target.Environment)
+			return
+		}
+		// Decoded as an environment file is, so the environment gate compares
+		// like with like.
+		values, err := contract.ParseEnvironmentValues(f.data)
+		if err != nil {
+			in.Unread = append(in.Unread, target.ValuesFile+" in this version is not valid YAML")
+			return
+		}
+		sum := sha256.Sum256(f.data)
+		in.ValuesFile, in.ValuesDigest, in.Values = target.ValuesFile, "sha256:"+hex.EncodeToString(sum[:]), values
+	case target.HelmRelease != "" && target.Environment != "":
+		if _, ok := file(envFile); ok {
+			in.Unread = append(in.Unread, "the chart carries "+envFile+", and HelmRelease "+target.HelmRelease+
+				" takes its chart from an OCIRepository, which selects no values file inside the chart, so "+target.Environment+" would run on values.yaml")
+		}
+	}
 }
 
 // under is the files under dir, named relative to it; every file for "".
@@ -864,6 +945,12 @@ func (in ManifestInspection) Verdict() Verdict {
 	if len(unread) > 0 {
 		v.Citation["unread"] = listed(unread)
 	}
+	if in.ValuesFile != "" {
+		v.Citation["valuesFile"] = in.ValuesFile
+	}
+	if in.ValuesDigest != "" {
+		v.Citation["valuesDigest"] = in.ValuesDigest
+	}
 	return v
 }
 
@@ -906,23 +993,25 @@ func InspectRevision(ctx context.Context, reg Registry, repo, digest string, tar
 // rejects. An Unknown with an unknown publication asks one question naming
 // both and stops the chain, as the publication's own question does;
 // otherwise it returns what Pacto cannot tell, for the caller to ask after
-// the later gates. It reports whether the promote may go on.
-func manifestsGate(ctx context.Context, in PlanInput, p *Plan, pub Verdict) (bool, string) {
+// the later gates. It returns the inspection, for the environment gate to
+// read the values the applier applies, and reports whether the promote may
+// go on.
+func manifestsGate(ctx context.Context, in PlanInput, p *Plan, pub Verdict) (ManifestInspection, bool, string) {
 	ins := in.Manifests(ctx)
 	ins.RefuseInfra = in.RefuseRawInfra
 	v := ins.Verdict()
 	p.Verdicts = append(p.Verdicts, v)
 	switch v.Result {
 	case Fail:
-		return false, ""
+		return ins, false, ""
 	case Unknown:
 		what := "what " + short(p.To) + " applies: " + v.Citation["unread"]
 		if pub.Result == Unknown {
 			p.Floor = Floor{Human: true, Decision: AcceptUnknown}
 			p.Question = "Pacto cannot tell whether pacto publish published " + short(p.To) + ": " + pub.Message + "; and " + what + ". Accept the unknown?"
-			return false, ""
+			return ins, false, ""
 		}
-		return true, what
+		return ins, true, what
 	}
-	return true, ""
+	return ins, true, ""
 }

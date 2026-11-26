@@ -14,6 +14,7 @@ import (
 )
 
 func TestHistoryAtNamesTheSignedRevision(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	_, r2 := e.twoRecords()
 	ctx := context.Background()
@@ -44,6 +45,7 @@ func TestHistoryAtNamesTheSignedRevision(t *testing.T) {
 }
 
 func TestAtUnreadStageUnknown(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t)
 	failOperations(e.c)
 	a, err := e.d.HistoryAt(context.Background(), "prod", delivery.ServiceRef{}, "", time.Now())
@@ -54,6 +56,7 @@ func TestAtUnreadStageUnknown(t *testing.T) {
 }
 
 func TestAtForbiddenNamespacePartial(t *testing.T) {
+	t.Parallel()
 	e := newRecordEnv(t, obj("v1", "Namespace", "", "prod", nil), obj("v1", "Namespace", "", "test", nil))
 	e.twoRecords()
 	refuseStages(e, "", "test")

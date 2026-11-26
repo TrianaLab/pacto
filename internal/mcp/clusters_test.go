@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/trianalab/pacto/v4/pkg/dashboard"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/fleet"
 )
@@ -79,7 +80,10 @@ func TestMCPTextNeverCallsAClusterAnAgent(t *testing.T) {
 		texts = append(texts, tool.Description)
 	}
 	// meta.clusters[].link reaches every pacto_fleet_* answer with these docs.
-	for _, typ := range []reflect.Type{reflect.TypeFor[fleet.ClusterSummary](), reflect.TypeFor[fleet.ClusterLink](), reflect.TypeFor[fleet.IssuerModel]()} {
+	// The member plan and refusal rows reach the plan and refusals answers.
+	for _, typ := range []reflect.Type{reflect.TypeFor[fleet.ClusterSummary](), reflect.TypeFor[fleet.ClusterLink](), reflect.TypeFor[fleet.IssuerModel](),
+		reflect.TypeFor[delivery.MemberPlan](), reflect.TypeFor[delivery.MemberState](), reflect.TypeFor[delivery.MemberPlacementPlan](),
+		reflect.TypeFor[dashboard.PublishRefusal](), reflect.TypeFor[delivery.Request]()} {
 		for f := range typ.Fields() {
 			texts = append(texts, f.Tag.Get("doc"))
 		}
@@ -117,5 +121,28 @@ func TestClusterListToolShowsMappings(t *testing.T) {
 	}
 	if !strings.Contains(clusterListTool().Description, "pacto cluster map-groups`; this server never writes them") {
 		t.Error("the description does not say who writes group mappings")
+	}
+}
+
+func TestClusterListToolCarriesCandidates(t *testing.T) {
+	list := delivery.ClusterJoinList{Completeness: fleet.CompletenessComplete, CandidatesCompleteness: fleet.CompletenessComplete, HiddenCandidates: 1,
+		Candidates: []delivery.ClusterCandidate{{Source: "argocd", Kind: "Secret", Namespace: "argocd", Name: "eu", Match: delivery.CandidateUnmatched,
+			Reason: "the candidate states no cluster UID"}}}
+	server := mustNew("test", Authoring{}, clusterModes(t, func(context.Context) (delivery.ClusterJoinList, error) { return list, nil }))
+	var got delivery.ClusterJoinList
+	decode(t, callToolOn(t, server, "pacto_cluster_list", map[string]any{}), &got)
+	if !reflect.DeepEqual(got.Candidates, list.Candidates) || got.HiddenCandidates != 1 || got.CandidatesCompleteness != fleet.CompletenessComplete {
+		t.Errorf("answer = %+v", got)
+	}
+	if d := clusterListTool().Description; !strings.Contains(d, "candidate clusters") || !strings.Contains(d, "hiddenCandidates") {
+		t.Errorf("description = %s", d)
+	}
+}
+
+// TestClusterInstructionsSayMember: the candidate sentence says member for a
+// joined cluster and never calls a cluster an agent.
+func TestClusterInstructionsSayMember(t *testing.T) {
+	if !strings.Contains(clustersInstructions, "matched to a member only by a UID the cluster states") || strings.Contains(strings.ToLower(clustersInstructions), "agent") {
+		t.Errorf("instructions = %s", clustersInstructions)
 	}
 }

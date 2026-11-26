@@ -106,6 +106,7 @@ type MapGroup struct {
 	Services        int            `json:"services" doc:"Nodes in the group: services, or targets in the environment grouping, inferred ones included"`
 	Inferred        int            `json:"inferred" doc:"Of those, the inferred ones"`
 	Externals       int            `json:"externals,omitempty" doc:"External systems, in the external group"`
+	OutsideContract int            `json:"outsideContract,omitempty" doc:"Managed resources of the group's external systems no offering produced"`
 	X               float64        `json:"x"`
 	Y               float64        `json:"y"`
 	R               float64        `json:"r"`
@@ -391,6 +392,7 @@ func (b *mapBuild) externalGroup() {
 	g := b.group(mapKeyExternal, "External systems", MapKindExternal)
 	for k, e := range b.q.snap.Externals {
 		g.nodes = append(g.nodes, layoutNode{key: string(k), degree: len(e.Consumers)})
+		g.g.OutsideContract += b.q.outsideContract(e)
 	}
 	g.g.Externals = len(g.nodes)
 }
@@ -506,6 +508,10 @@ func (b *mapBuild) fleetTallies() (MatchTally, KnowledgeTally) {
 		m.Dependencies.add(me.state)
 	}
 	m.finish(b.q.snap.Completeness)
+	m.Resources = b.q.resourceCoverage()
+	if m.Resources != nil && b.q.resourcesIncomplete() != nil {
+		m.Completeness = partialOf(m.Completeness)
+	}
 	k.finish()
 	return m, k
 }

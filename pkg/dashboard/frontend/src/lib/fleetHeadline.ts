@@ -16,7 +16,7 @@ type CoverageRecord = NonNullable<Bucket['coverage']>;
 /** A match tally's four states, for services or for dependencies. */
 export interface MatchCounts { matched: number; expectedOnly: number; observedOnly: number; insufficient: number }
 /** The match figure: fleet.MatchTally's shape, from the overview or from a coverage record. */
-export interface MatchFigure { services: MatchCounts; dependencies: MatchCounts; percent?: number; coverage?: number }
+export interface MatchFigure { services: MatchCounts; dependencies: MatchCounts; percent?: number; coverage?: number; resources?: { discovered: number; throughOfferings: number; percent?: number } }
 /** The completeness figure: fleet.FleetCompleteness's shape; a coverage record has no most-missing list. */
 export interface CompletenessFigure { percentComplete?: number; judged: number; unknown: number; fullyDescribed: number; mostMissing?: { section: string; count: number }[] | null }
 
@@ -57,15 +57,19 @@ export function completenessTrend(st: ProductStats): (number | null)[] {
 }
 
 export interface FigureSegment { label: string; value: number; tone?: string; hatch?: boolean }
-/** What a figure tile says: its value, the words after it, a sub-line and the segment bar. */
-export interface FigureTile { value: string; unknown: boolean; note: string; sub: string; segments: FigureSegment[]; total: number }
+/** What a figure tile says: its value, the words after it, a sub-line and the segment bar;
+ *  resources is the match tile's managed-resource line, '' when it has none. */
+export interface FigureTile { value: string; unknown: boolean; note: string; sub: string; segments: FigureSegment[]; total: number; resources?: string }
 
 const sum2 = (m: MatchFigure, k: keyof MatchCounts) => (m.services[k] ?? 0) + (m.dependencies[k] ?? 0);
 
 /** matchTile says the match figure. Unknown never counts as matched: insufficient
  *  evidence is its own hatched segment, outside the percentage. */
 export function matchTile(m: MatchFigure | null | undefined): FigureTile {
-  if (!m) return { value: 'unknown', unknown: true, note: '', sub: 'No match figure has been recorded yet.', segments: [], total: 0 };
+  if (!m) return { value: 'unknown', unknown: true, note: '', sub: 'No match figure has been recorded yet.', segments: [], total: 0, resources: '' };
+  // The managed resources an offering produced over those discovered: only once any was.
+  const r = m.resources;
+  const resources = r?.discovered ? `Resources through offerings: ${formatCount(r.throughOfferings)} of ${formatCount(r.discovered)}` : '';
   const segments: FigureSegment[] = [
     { label: 'Matched', value: sum2(m, 'matched'), tone: 'ok' },
     { label: 'Expected, not observed', value: sum2(m, 'expectedOnly'), tone: 'info' },
@@ -73,8 +77,8 @@ export function matchTile(m: MatchFigure | null | undefined): FigureTile {
     { label: 'Insufficient evidence', value: sum2(m, 'insufficient'), tone: 'neutral', hatch: true },
   ];
   const total = segments.reduce((n, x) => n + x.value, 0);
-  if (m.percent == null) return { value: 'none yet', unknown: true, note: '', sub: 'Pacto observes nothing yet, so nothing can match.', segments, total };
-  return { value: `${m.percent}%`, unknown: false, note: 'of what Pacto can observe', sub: `${m.coverage ?? 0}% observed coverage · unknown never counts as matched`, segments, total };
+  if (m.percent == null) return { value: 'none yet', unknown: true, note: '', sub: 'Pacto observes nothing yet, so nothing can match.', segments, total, resources };
+  return { value: `${m.percent}%`, unknown: false, note: 'of what Pacto can observe', sub: `${m.coverage ?? 0}% observed coverage · unknown never counts as matched`, segments, total, resources };
 }
 
 /** completenessTile says the completeness figure over its judged base, never past it. */

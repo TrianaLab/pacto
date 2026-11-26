@@ -1,6 +1,6 @@
 <!--
   GENERATED FILE -- DO NOT EDIT.
-  Produced by release/scripts/gen_integration_docs.py from internal/observer/runtime.go, pkg/evidence, pkg/finding, pkg/runtimefacts, api/v1alpha1.
+  Produced by release/scripts/gen_integration_docs.py from internal/observer/runtime.go, pkg/evidence, pkg/finding, pkg/runtimefacts, api/v1.
   Regenerate with `make docs-generate`; drift is a CI failure (`make docs-check`).
 -->
 
@@ -110,8 +110,10 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `CONFIG_REF_UNRESOLVED` | `UnresolvedReference` |
 | `CONFIG_REF_VERSION_OUTSIDE_RANGE` | `InvalidReference` |
 | `CONFIG_VALUES_VALIDATION_FAILED` | `ConfigurationViolation` |
+| `ClassNotOffered` | `ConfigurationViolation` |
 | `DECLARATION_ACCEPTED_MISMATCH` | `InvalidFile` |
 | `DECLARATION_EXTERNAL_MISMATCH` | `InvalidFile` |
+| `DECLARATION_OFFERING_MISMATCH` | `InvalidFile` |
 | `DECLARATION_RANGE_NOT_ACCEPTED` | `InvalidFile` |
 | `DEPENDENCY_NAME_REQUIRED` | `InvalidDependency` |
 | `DEPENDENCY_UNREACHABLE` | `RuntimeDrift` |
@@ -164,9 +166,13 @@ A finding is one conclusion from the engine. Findings fall in two families. Conf
 | `POLICY_VIOLATION` | `PolicyViolation` |
 | `PUBLISH_NEEDS_SERVICE_NAME` | `SchemaViolation` |
 | `PUBLISH_NEEDS_SERVICE_VERSION` | `InvalidVersion` |
+| `ParameterNotDeclared` | `ConfigurationViolation` |
+| `ParameterOutOfRange` | `ConfigurationViolation` |
+| `ParameterSensitive` | `ConfigurationViolation` |
 | `SCHEMA_ERROR` | `SchemaViolation` |
 | `SCHEMA_VIOLATION` | `SchemaViolation` |
 | `STATELESS_PERSISTENT_CONFLICT` | `StateMismatch` |
+| `TierNotTunable` | `ConfigurationViolation` |
 | `UNSUPPORTED_PACTO_VERSION` | `InvalidVersion` |
 | `VALUES_WITHOUT_SCHEMA` | `MissingConfiguration` |
 | `WORKLOAD_MISMATCH` | `RuntimeDrift` |

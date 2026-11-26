@@ -12,6 +12,7 @@ import (
 	"github.com/trianalab/pacto/v4/examples/story"
 	"github.com/trianalab/pacto/v4/internal/fleetgen"
 	"github.com/trianalab/pacto/v4/pkg/contract"
+	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/detect"
 	"github.com/trianalab/pacto/v4/pkg/evidence"
 	"github.com/trianalab/pacto/v4/pkg/externalcatalog"
@@ -140,6 +141,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 	handover, handoverBundle, handedOver := demoHandover(demoNow(), prodCluster.ID)
 	col.Revisions = append(col.Revisions, handover)
 	byRef[handover.ResolvedRef] = handoverBundle
+	// objectstore 1.0.0, accepted from an inferred offering that has since drifted.
+	objectstore, objectstoreBundle := demoDeclaredObjectstore()
+	col.Revisions = append(col.Revisions, objectstore)
+	byRef[objectstore.ResolvedRef] = objectstoreBundle
 	for _, c := range claims {
 		col.Revisions = append(col.Revisions, c)
 		byRef[c.ResolvedRef] = c.Bundle
@@ -203,7 +208,7 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 		Cluster:      prodCluster,
 		Providers:    []fleet.Provider{crdRow, demoKernelEgressRow()},
 		Targets:      targets,
-		Provisioning: demoProvisioning(src),
+		Provisioning: append(demoProvisioning(src), demoManagedProvisioning(src)),
 		Extensions:   demoExtensionRecords(src),
 		Usage:        demoUsage(src),
 		ExternalUses: demoExternalUses(demoNow()),
@@ -236,10 +241,11 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 	// A registry mirror that answered, but not with everything it holds: partial is a
 	// third source state, distinct from available and unavailable, and the source
 	// health strip is meant to distinguish all three.
-	// It also holds stripe's two inferred contracts (source_inferred.go), which the
-	// fleet shows on the stripe external, never as a service.
+	// It also holds stripe's and orders-db's two inferred contracts each
+	// (source_inferred.go, source_managed.go), which the fleet shows on their
+	// externals, never as services.
 	mirror := fleet.NewMemorySource("registry-mirror", "oci", &fleet.Collection{
-		Revisions:   demoInferredRevisions(),
+		Revisions:   append(demoInferredRevisions(), demoOrdersDBRevisions()...),
 		State:       &fleet.SourceState{Status: fleet.SourcePartial},
 		Limitations: []fleet.Limitation{{Code: fleet.LimitationSourcePartial, Source: "registry-mirror", Message: "tag listing truncated by the mirror"}},
 	})
@@ -255,14 +261,21 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 	})
 	// What the cluster's operator detected: an advisory source whose rows are
 	// hints, dated now so they read current. The trace backends it found are
-	// read by their own edge sources, one row each.
+	// read by their own edge sources, one row each. It also read the managed
+	// cloud resources and the Secret names that join them to their consumers
+	// (source_managed.go).
 	detected, err := demoDetection(prodCluster.ID)
 	if err != nil {
 		return nil, nil, err
 	}
+	detected = withDemoManaged(detected, prodCluster)
 	rest, traceSources := demoTraceSources(detected, demoNow())
+	// It also reads the inferred offerings the operator maps from the
+	// cluster's XRDs (source_offering.go).
 	detection := fleet.NewMemorySource("cluster-detection", fleet.SourceKindDetection, &fleet.Collection{
-		Advisory: true, Providers: detect.ProviderRows(rest, "cluster-detection", demoNow()),
+		Advisory: true, Providers: append(detect.ProviderRows(rest, "cluster-detection", demoNow()), demoOfferingRow()),
+		Revisions: demoInferredOfferings(), Offerings: []fleet.OfferingObservation{demoOfferingObservation()},
+		ManagedResources: rest.ManagedResources, SecretRefs: rest.SecretRefs,
 	})
 	linked := fleet.NewMemorySource("k8s-production-linked", fleet.SourceKindLinked, &fleet.Collection{
 		Cluster: prodCluster, Targets: linkedTargets,
@@ -283,9 +296,10 @@ func buildDemoFleet(src, partnersSrc *EmbedSource, claims ...fleet.RawRevision) 
 		return nil, nil, err
 	}
 	// The hub's approved members (source_clusters.go), each one cluster of its own,
-	// and their link facts.
+	// their link facts and the count of the clusters that are not members yet
+	// (the pending ap-dev), which holds a BREAKING change and is listed nowhere.
 	sources := append([]fleet.Source{fleet.NewMemorySource("local", "local", col), partnerRegistrySource, storySource, cluster, workloads, telemetry, mirror, unavailable, detection, linked, demoMeshSource(prodCluster, demoNow()), catalogSource, evidence},
-		append(traceSources, append(demoMemberSources(), demoMemberLinks())...)...)
+		append(traceSources, append(demoMemberSources(), demoMemberLinks(), delivery.UnreadClusters(demoClusterJoins()))...)...)
 	snap, err := fleet.Build(context.Background(),
 		fleet.BuildOptions{Now: demoNow, FreshnessWindow: 24 * time.Hour, ExternalCatalog: cat, DeclarationSigners: demoHandoverSigners()},
 		sources...)

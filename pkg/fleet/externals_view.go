@@ -39,6 +39,8 @@ func foldExternals(s *FleetSnapshot) (*FleetSnapshot, map[ExternalKey]*ExternalR
 		folded[k] = true
 		other.Folded++
 		other.Sources = append(other.Sources, rec.Sources...)
+		other.Resources = append(other.Resources, rec.Resources...)
+		other.HiddenResources += rec.HiddenResources
 		for c, n := range rec.declarations {
 			other.declarations[c] += n
 		}
@@ -72,14 +74,15 @@ func foldInto(rels []Relationship, folded map[ExternalKey]bool) []Relationship {
 }
 
 // restrictExternals keeps, in out, the external systems a visible service
-// names, each with the sources and counts of visible consumers only, and
-// counts the rest into hiddenExternals (decision 5). out's services,
+// names or a managed resource visible says yes to names, each with the
+// sources and counts of visible consumers and the visible resources only,
+// and counts the rest into hiddenExternals (decision 5). out's services,
 // revisions and targets must already be restricted.
-func restrictExternals(out, s *FleetSnapshot) {
+func restrictExternals(out, s *FleetSnapshot, visible func(cluster, namespace string) bool) {
 	out.Externals = nil
 	out.hiddenExternals = s.hiddenExternals
 	for k, rec := range s.Externals {
-		r := restrictExternal(out, rec)
+		r := restrictExternal(out, rec, visible)
 		if r == nil {
 			out.hiddenExternals++
 			continue
@@ -94,10 +97,12 @@ func restrictExternals(out, s *FleetSnapshot) {
 // restrictExternal is rec as out's viewer sees it: a source stays only for a
 // visible service, a kept revision and a kept (or no) target, and a consumer
 // only while one of its sources stays. Every consumer it loses is counted
-// into HiddenConsumers, never named. It is nil when no source stays.
-func restrictExternal(out *FleetSnapshot, rec *ExternalRecord) *ExternalRecord {
+// into HiddenConsumers, never named, and every resource visible says no to
+// into HiddenResources. It is nil when no source and no resource stays.
+func restrictExternal(out *FleetSnapshot, rec *ExternalRecord, visible func(cluster, namespace string) bool) *ExternalRecord {
 	r := *rec
 	r.Sources = nil
+	r.Resources, r.HiddenResources = visibleResources(rec.Resources, visible)
 	kept := map[ServiceKey]bool{}
 	// An inferred use counts once per source, so one dropped with its
 	// target leaves its consumer's count too.
@@ -111,7 +116,7 @@ func restrictExternal(out *FleetSnapshot, rec *ExternalRecord) *ExternalRecord {
 			droppedUses[src.Service]++
 		}
 	}
-	if len(r.Sources) == 0 {
+	if len(r.Sources)+len(r.Resources) == 0 {
 		return nil
 	}
 	r.declarations = map[ServiceKey]int{}
@@ -149,6 +154,10 @@ func restrictClaim(out *FleetSnapshot, c *ExternalClaim) *ExternalClaim {
 // expected: `pacto fleet get external:stripe`.
 const ExternalSubjectPrefix = "external:"
 
+// OfferingSubjectPrefix is the declare subject of an inferred offering a
+// person accepts: offering:<name>.
+const OfferingSubjectPrefix = "offering:"
+
 // ParseExternalSubject reports whether s names an external system, and which.
 func ParseExternalSubject(s string) (ExternalKey, bool) {
 	k, ok := strings.CutPrefix(s, ExternalSubjectPrefix)
@@ -172,8 +181,9 @@ func (q *Query) lookupExternal(key string) (*ExternalRecord, ExternalKey, error)
 }
 
 // boundExternal is a copy of rec listing at most MaxExternalSources
-// consumers, in key order, and only their sources.
-func boundExternal(rec *ExternalRecord) ExternalRecord {
+// consumers, in key order, and only their sources, and at most
+// MaxExternalResources resources, each with its contract state.
+func (q *Query) boundExternal(rec *ExternalRecord) ExternalRecord {
 	out := *rec
 	out.Consumers, _, _ = boundSlice(rec.Consumers, MaxExternalSources)
 	out.Sources = nil
@@ -182,6 +192,7 @@ func boundExternal(rec *ExternalRecord) ExternalRecord {
 			out.Sources = append(out.Sources, src)
 		}
 	}
+	out.Resources, _, _ = boundSlice(q.managedResources(rec), MaxExternalResources)
 	return out
 }
 

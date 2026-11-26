@@ -51,6 +51,7 @@ func (e *declareEnv) claimed(t *testing.T) *DeclareResult {
 }
 
 func TestClaimPlanMinimalFolder(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.claimReq("team-platform")
 	req.Dynamic = nil
@@ -68,6 +69,7 @@ func TestClaimPlanMinimalFolder(t *testing.T) {
 // TestClaimReadsNoWorkload: a plan writes nothing, and with a cluster client
 // the claim reads the signer policy and no workload.
 func TestClaimReadsNoWorkload(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.plan(t, e.claimReq("team-platform"))
 	if len(e.stripeTags(t)) != 0 {
@@ -81,6 +83,7 @@ func TestClaimReadsNoWorkload(t *testing.T) {
 }
 
 func TestClaimPlanName(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.claimReq("team-platform")
 	req.Name = "payments-provider"
@@ -100,6 +103,7 @@ func TestClaimPlanName(t *testing.T) {
 }
 
 func TestClaimRefusesOtherEgress(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	for _, s := range []string{"external:other-egress", "external:", "external:Stripe"} {
 		req := e.claimReq("team-platform")
@@ -111,6 +115,7 @@ func TestClaimRefusesOtherEgress(t *testing.T) {
 }
 
 func TestClaimRefusesNoOwner(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	_, _, err := e.svc.PlanDeclare(t.Context(), e.claimReq(""))
 	if de := refusal(t, err); de.Code != codeOwnerRequired || de.CLI != "pacto claim stripe --owner <team> --registry "+e.host+"/acme" {
@@ -119,6 +124,7 @@ func TestClaimRefusesNoOwner(t *testing.T) {
 }
 
 func TestClaimRefusesInferredRepository(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.claimReq("team-platform")
 	req.Registry = e.host + "/acme/" + contract.InferredRepository
@@ -128,6 +134,7 @@ func TestClaimRefusesInferredRepository(t *testing.T) {
 }
 
 func TestClaimBaselineOtherExternalRefused(t *testing.T) {
+	t.Parallel()
 	for external, want := range map[string]string{"  external: twilio\n": "which describes twilio", "": "which describes no external"} {
 		e := newDeclareEnv(t)
 		person := e.signer(t, personToken("ana@acme.com"))
@@ -142,6 +149,7 @@ func TestClaimBaselineOtherExternalRefused(t *testing.T) {
 }
 
 func TestClaimBaselineSameExternalOwnerChangeChecked(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.claimed(t)
@@ -159,6 +167,7 @@ func TestClaimBaselineSameExternalOwnerChangeChecked(t *testing.T) {
 }
 
 func TestClaimSameOwnerUnchanged(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.claimed(t)
@@ -169,6 +178,7 @@ func TestClaimSameOwnerUnchanged(t *testing.T) {
 }
 
 func TestClaimPublishesThroughDeclare(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	res := e.claimed(t)
@@ -192,6 +202,7 @@ func TestClaimPublishesThroughDeclare(t *testing.T) {
 }
 
 func TestClaimDefaultApproverAllowed(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	p, _ := e.plan(t, e.claimReq("team-platform"))
@@ -209,6 +220,7 @@ func TestClaimDefaultApproverAllowed(t *testing.T) {
 // first owner: a person who is no default approver is refused before
 // anything is pushed.
 func TestClaimRoutingGrantsNoOwnerRight(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.login(personToken("eve@acme.com"))
@@ -222,6 +234,7 @@ func TestClaimRoutingGrantsNoOwnerRight(t *testing.T) {
 }
 
 func TestClaimNoPolicyUnverified(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.login(personToken("admin@acme.com"))
 	p, _ := e.plan(t, e.claimReq("team-platform"))
@@ -234,10 +247,10 @@ func TestClaimNoPolicyUnverified(t *testing.T) {
 }
 
 func TestClaimKeyWritesDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	dir := t.TempDir()
 	keyFiles(t, dir)
-	t.Setenv("COSIGN_PASSWORD", "pw")
 	req := e.claimReq("team-platform")
 	req.Signing.Key, req.OnBehalfOf = filepath.Join(dir, "cosign.key"), "ana"
 	res := e.declare(t, req)
@@ -269,6 +282,7 @@ func (e *declareEnv) claimDraft(tag string) DeclareRequest {
 }
 
 func TestClaimFromDraft(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.agentClaim(t)
@@ -285,6 +299,7 @@ func TestClaimFromDraft(t *testing.T) {
 }
 
 func TestClaimFromDraftOtherSystemRefused(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.agentClaim(t)
 	e.login(personToken("admin@acme.com"))
@@ -303,6 +318,7 @@ func TestClaimFromDraftOtherSystemRefused(t *testing.T) {
 }
 
 func TestClaimFromDraftNoClusterInput(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.agentClaim(t)
@@ -315,6 +331,7 @@ func TestClaimFromDraftNoClusterInput(t *testing.T) {
 }
 
 func TestClaimFromDraftTakesDraftOwner(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.agentClaim(t)
@@ -332,6 +349,7 @@ func TestClaimFromDraftTakesDraftOwner(t *testing.T) {
 // TestClaimFromDraftWithoutOwnerRefused: a draft whose pacto.yaml names no
 // team leaves the claim with no owner.
 func TestClaimFromDraftWithoutOwnerRefused(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	rec := &contract.InferredRecord{Format: contract.InferredRecordFormat, Inputs: contract.InferredInputs{Pacto: "dev"}, Fields: []contract.Inferred{},
 		Declaration: &contract.InferredDeclaration{State: contract.DeclarationDraft, Asker: contract.InferredSigner{Issuer: contract.SignerUnsigned, Class: contract.SignerClassAgent},
@@ -375,6 +393,7 @@ func TestClaimRefusalCLIIsClaim(t *testing.T) {
 }
 
 func TestClaimFolderWriteFails(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	e.withOwnerPolicy(t)
 	e.claimed(t)
@@ -393,6 +412,7 @@ func TestClaimFolderWriteFails(t *testing.T) {
 }
 
 func TestClaimDraftFolderUnreadable(t *testing.T) {
+	t.Parallel()
 	e := newDeclareEnv(t)
 	req := e.claimReq("")
 	req.Dir = filepath.Join(t.TempDir(), "missing")

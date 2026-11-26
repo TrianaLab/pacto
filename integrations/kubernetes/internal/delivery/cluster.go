@@ -32,7 +32,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v6/api/delivery/v1alpha1"
+	dv1 "github.com/trianalab/pacto/integrations/kubernetes/v7/api/delivery/v1"
 	"github.com/trianalab/pacto/v4/pkg/delivery"
 	"github.com/trianalab/pacto/v4/pkg/workloadmanager"
 )
@@ -42,7 +42,7 @@ import (
 var (
 	gvkOCIRepository = schema.GroupVersionKind{Group: "source.toolkit.fluxcd.io", Version: "v1", Kind: "OCIRepository"}
 	gvkKustomization = schema.GroupVersionKind{Group: "kustomize.toolkit.fluxcd.io", Version: "v1", Kind: "KustomizationList"}
-	gvkPactoList     = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1alpha1", Kind: "PactoList"}
+	gvkPactoList     = schema.GroupVersionKind{Group: "pacto.trianalab.io", Version: "v1", Kind: "PactoList"}
 	gvkApplication   = schema.GroupVersionKind{Group: "argoproj.io", Version: "v1alpha1", Kind: "Application"}
 )
 
@@ -79,6 +79,10 @@ type Cluster struct {
 	// promoter trusts no upstream key: such a Stage is not Ready and offers
 	// nothing.
 	Upstream func(ctx context.Context, r delivery.RemoteStage, seen delivery.RecordMark, acked []string) (*delivery.StageStatus, string)
+	// Members reads what a promote in an environment projects onto beyond
+	// this cluster's own Pactos: the clusters that joined it (PeerMembers).
+	// Nil reads none.
+	Members func(ctx context.Context, environment string, known map[string]bool) delivery.Members
 	// Infra tells which kinds the manifest inspector reads as infrastructure
 	// Crossplane manages (kubecluster.Infra over cached API discovery). Nil
 	// tells them by group only.
@@ -126,7 +130,7 @@ type applier interface {
 	// applied reports whether the applier applied digest (Cluster.applied).
 	applied(ctx context.Context, c Cluster, ns, digest string) (ok, failed bool, msg string, err error)
 	// mediated is the Mediated condition of a labelled applier.
-	mediated(ctx context.Context, c Cluster, ns string) (delivery.Condition, error)
+	mediated(ctx context.Context, c Cluster, ns, env string) (delivery.Condition, error)
 	// notReady says what keeps a labelled applier from taking a version,
 	// nil when nothing does; what names it in the message.
 	notReady(what string) *delivery.Condition

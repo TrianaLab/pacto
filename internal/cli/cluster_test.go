@@ -120,7 +120,13 @@ func (e *clusterEnv) hub() *dynamicfake.FakeDynamicClient {
 			"metadata": map[string]any{"namespace": delivery.PolicyNamespace, "name": delivery.PolicyConfigMap},
 			"data":     map[string]any{delivery.PolicyKey: string(policy)}}})
 	}
-	c := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), objs...)
+	// Its kinds, and the delivery lists, so a delivery read lists nothing.
+	scheme := runtime.NewScheme()
+	for _, o := range objs {
+		gvk := o.GetObjectKind().GroupVersionKind()
+		scheme.AddKnownTypeWithName(gvk.GroupVersion().WithKind(gvk.Kind+"List"), &unstructured.UnstructuredList{})
+	}
+	c := dynamicfake.NewSimpleDynamicClientWithCustomListKinds(scheme, map[schema.GroupVersionResource]string{gvrTestStages: "StageList", gvrTestOps: "OperationList"}, objs...)
 	c.PrependReactor("create", "selfsubjectaccessreviews", func(k8stesting.Action) (bool, runtime.Object, error) {
 		return true, &unstructured.Unstructured{Object: map[string]any{"status": map[string]any{"allowed": e.mayApprove}}}, nil
 	})
@@ -673,5 +679,68 @@ func TestFindClusterInPartialList(t *testing.T) {
 	_, err := findCluster(delivery.ClusterJoinList{Repository: "r", Completeness: fleet.CompletenessPartial}, "9f1c4e2a")
 	if err == nil || !strings.Contains(err.Error(), "the list is partial: name its full id") {
 		t.Fatal(err)
+	}
+}
+
+// candidatesBeside writes a clusters.json beside a detection file and returns
+// the detection's path: a candidate that states uid, and one that states none.
+func candidatesBeside(t *testing.T, uid string) string {
+	t.Helper()
+	dir := t.TempDir()
+	b, err := detect.EncodeClusters(detect.Clusters{AsOf: time.Now(), Sources: []detect.InventorySource{{Source: detect.SourceArgoCD, Completeness: detect.Complete}},
+		Candidates: []detect.Candidate{{Source: detect.SourceArgoCD, Kind: "Secret", Namespace: "argocd", Name: "eu", DisplayName: "eu", UID: uid,
+			UIDSource: "annotation " + detect.ClusterUIDAnnotation, Labels: map[string]string{"env": "prod"}},
+			{Source: detect.SourceCAPI, Kind: "Cluster", Namespace: "fleet", Name: "us", DisplayName: "us"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, detect.ClustersConfigMapKey), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(dir, "detected.json")
+}
+
+func TestClusterListJSONCarriesCandidates(t *testing.T) {
+	e := newClusterEnv(t, capabilities.ReferrersNative)
+	m := newJoinMember(euProd, "eu-prod")
+	e.publish(t, m, m.key)
+	out, _, err := e.run(t, "list", "--detected", candidatesBeside(t, euProd), "--output-format", "json")
+	var l delivery.ClusterJoinList
+	if err != nil || json.Unmarshal([]byte(out), &l) != nil {
+		t.Fatalf("%q %v", out, err)
+	}
+	// The member is pending: its UID is stated, never matched.
+	if len(l.Candidates) != 2 || l.Candidates[0].Match != delivery.CandidateSameUID || l.Candidates[1].Match != delivery.CandidateUnmatched ||
+		l.CandidatesCompleteness != fleet.CompletenessComplete || l.Clusters[0].InventoryEnvironments != nil {
+		t.Fatalf("%s", out)
+	}
+}
+
+func TestClusterListPrintsCandidates(t *testing.T) {
+	l := delivery.ClusterJoinList{Hub: delivery.ClusterRef{UID: "h"}, CandidatesAsOf: "t", CandidatesCompleteness: fleet.CompletenessComplete, HiddenCandidates: 3,
+		Candidates: []delivery.ClusterCandidate{
+			{Source: "argocd", Kind: "Secret", Namespace: "argocd", Name: "eu", DisplayName: "eu", UID: euProd, Labels: map[string]string{"region": "eu", "env": "prod"},
+				Match: delivery.CandidateMatched, Member: &delivery.ClusterRef{UID: euProd, Name: "eu-prod"}},
+			{Source: "argocd", Kind: "Secret", Namespace: "argocd", Name: "ap", UID: euProd, Match: delivery.CandidateSameUID, Reason: "self|reported"},
+			{Source: "rancher", Kind: "Cluster", Name: "c-m-1", DisplayName: "c-m-1", Match: delivery.CandidateUnmatched, Reason: "the candidate states no cluster UID"}}}
+	var b bytes.Buffer
+	printClusterList(&b, l)
+	want := "candidate clusters (complete, as of t)\n  from Argo CD\n    eu (Secret argocd/eu)  env=prod region=eu  matched member eu-prod\n" +
+		"    ap (Secret argocd/ap)  states the same UID as a member: self|reported\n  from Rancher\n" +
+		"    c-m-1 (Cluster c-m-1)  not matched: the candidate states no cluster UID\n3 candidate clusters are hidden: they show to those who may approve clusterjoins\n"
+	if !strings.HasSuffix(b.String(), want) || strings.Contains(b.String(), euProd) {
+		t.Fatalf("%q", b.String())
+	}
+	b.Reset()
+	printClusterListMarkdown(&b, l)
+	for _, row := range []string{"Candidate clusters (complete, as of t)\n\n| Source | Name | Labels | Match |\n",
+		"| Argo CD | eu (Secret argocd/eu) | env=prod region=eu | matched member eu-prod |\n", "| Argo CD | ap (Secret argocd/ap) | - | states the same UID as a member: self\\|reported |\n",
+		"| Rancher | c-m-1 (Cluster c-m-1) | - | not matched: the candidate states no cluster UID |\n"} {
+		if !strings.Contains(b.String(), row) {
+			t.Fatalf("%q in %q", row, b.String())
+		}
+	}
+	if strings.Contains(b.String(), euProd) {
+		t.Fatalf("raw UID in %q", b.String())
 	}
 }

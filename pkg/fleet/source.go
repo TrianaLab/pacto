@@ -81,6 +81,12 @@ const SourceKindLinked = "kubernetes-linked"
 // records and lists it nowhere: it is no source a reader configured.
 const SourceKindMemberLinks = "member-links"
 
+// SourceKindClusterJoins is the Kind of the hub's carrier of the unread
+// cluster count ([Collection.UnreadClusters]): clusters that publish to its
+// targets repository and are not members. Build copies the count and the
+// carrier's limitations and lists it nowhere: it reads no runtime.
+const SourceKindClusterJoins = "cluster-joins"
+
 type Source interface {
 	// ID is the stable identifier of this source instance (e.g. "oci", "k8s",
 	// "local", or a named environment like "production-eu"). Used as provenance.
@@ -163,6 +169,15 @@ type Collection struct {
 	// system, kept apart from declared and observed ones and out of every
 	// index a gate reads: an inferred use never clears a gate.
 	ExternalUses []RawExternalUse
+	// ManagedResources are the managed cloud resources a source read: a
+	// cluster object, a Terraform state entry or a cloud inventory item.
+	// [Build] puts each on its external system's record, names only, never
+	// a value: no attribute value or Secret content is ever carried.
+	ManagedResources []RawManagedResource
+	// SecretRefs are the Secret names the pod templates of a source's
+	// workloads reference, names only, never a value. [Build] joins a
+	// managed resource's connection Secret to the workloads that use it.
+	SecretRefs []RawSecretRef
 	// InferredServices are workloads no contract describes. [Build] makes each
 	// an inferred service and never a target, so it never counts in
 	// compliance, link or target tallies. Their cluster is [Collection.Cluster].
@@ -173,6 +188,18 @@ type Collection struct {
 	// inferred edges: they never fill a declared field, never become an owner
 	// claim and never enter an index a gate reads.
 	ServiceFacts []RawServiceFact
+	// InferredTemplates are golden paths a catalog outside every registry
+	// holds. [Build] lists them as inferred, never as services, and never
+	// offers them for creation.
+	InferredTemplates []RawInferredTemplate
+	// ListsTemplates says the source lists inferred templates. It is set even
+	// when the source read none or failed, so an unavailable lister reads as
+	// partial, never as "no templates".
+	ListsTemplates bool
+	// TemplatesComplete says a partial source still read every template: its
+	// limitations are about other entities and never make the templates
+	// partial.
+	TemplatesComplete bool
 	// Providers are rows describing what this source detected and read;
 	// Build copies them, fills Source and Cluster and never lets a row claim
 	// better health than the source.
@@ -183,6 +210,13 @@ type Collection struct {
 	// ClusterLinks are member link facts by cluster id, read only from a
 	// [SourceKindMemberLinks] source.
 	ClusterLinks map[string]ClusterLink
+	// Offerings are the inferred-offering observations installations
+	// advertised; never a service.
+	Offerings []OfferingObservation
+	// UnreadClusters counts clusters that publish to the hub's targets
+	// repository and are not members, read only from a
+	// [SourceKindClusterJoins] source.
+	UnreadClusters int
 }
 
 // RawServiceFact is what a source outside every contract (an IDP's catalog)
@@ -210,6 +244,37 @@ type RawServiceFact struct {
 	// Exported marks a record Pacto itself wrote to the source: reading it
 	// back would echo Pacto's own values, so [Build] skips it.
 	Exported bool
+}
+
+// RawInferredTemplate is one golden path a catalog outside every registry
+// holds. It is never a service, never signed and never declared until a
+// person accepts it.
+type RawInferredTemplate struct {
+	// Name is the catalog's name for the template, kept only when a contract
+	// can carry it as service.name.
+	Name string
+	// Entity is the source's own reference, such as
+	// template:default/springboot-service.
+	Entity string
+	// Title is the catalog's display title.
+	Title string
+	// Summary is the catalog's description, cut to the service.summary bound.
+	Summary string
+	// Type is the catalog's template type, such as service or website.
+	Type string
+	// Owner is the owner the catalog names; it is shown, never declared.
+	Owner contract.Owner
+	// From is the display origin the source writes, such as
+	// Catalog (catalog.acme.io).
+	From string
+	// URL is where a person opens the template, empty when the source cannot
+	// give one a browser opens.
+	URL string
+	// Acceptable says the source is one an operator configured, so a person
+	// may accept the template as a golden path.
+	Acceptable bool
+	// ObservedAt is when the source read the template.
+	ObservedAt *time.Time
 }
 
 // RawFactRef names a service a [RawServiceFact] depends on, matched like the
@@ -270,6 +335,54 @@ type RawExternalUse struct {
 	Confidence, Kind, Where    string
 	Host, Entry, Catalog       string
 	ObservedAt                 *time.Time
+}
+
+// RawManagedResource is one managed cloud resource a source read, as names
+// only: no attribute value or Secret content is ever carried. Identity is
+// the external identity it was classified as by the catalog entry Entry of
+// the catalog whose digest is Catalog; Missing lists the identity segments
+// that were not read, so Identity is then the entry identity.
+type RawManagedResource struct {
+	// Source is the reader: crossplane, ack, config-connector, aso,
+	// terraform, aws-resource-explorer, gcp-cloud-asset or
+	// azure-resource-graph.
+	Source   string   `json:"source"`
+	Identity string   `json:"identity"`
+	Missing  []string `json:"missing,omitempty"`
+	Entry    string   `json:"entry,omitempty"`
+	Catalog  string   `json:"catalog,omitempty"`
+	// Type is the <group>/<Kind> of a cluster object, the Terraform type or
+	// the inventory type.
+	Type string `json:"type"`
+	// Cluster and ClusterName are the cluster that read it, empty for a
+	// state file the CLI read.
+	Cluster     string `json:"cluster,omitempty"`
+	ClusterName string `json:"clusterName,omitempty"`
+	Namespace   string `json:"namespace,omitempty"`
+	// Name is the object name, the Terraform address or the inventory id.
+	Name string `json:"name"`
+	// Location is the state URL or file name, never its contents.
+	Location string `json:"location,omitempty"`
+	// ConnectionSecrets are the <namespace>/<name> of the Secrets the
+	// resource, and its verified claim, write the connection to.
+	ConnectionSecrets []string `json:"connectionSecrets,omitempty"`
+	// Claim is the verified claim, <Kind> <namespace>/<name>.
+	Claim string `json:"claim,omitempty"`
+	// Engine is the observed engine; EngineRequested a desired-only one.
+	Engine          string     `json:"engine,omitempty"`
+	EngineRequested string     `json:"engineRequested,omitempty"`
+	ObservedAt      *time.Time `json:"observedAt,omitempty"`
+}
+
+// RawSecretRef is one Secret name the pod template of a workload (Kind,
+// Name) in Namespace references, read on Cluster: a name only, never a value.
+type RawSecretRef struct {
+	Cluster     string `json:"cluster,omitempty"`
+	ClusterName string `json:"clusterName,omitempty"`
+	Namespace   string `json:"namespace"`
+	Kind        string `json:"kind"`
+	Name        string `json:"name"`
+	Secret      string `json:"secret"`
 }
 
 // RawProvisioning is one provider report about the resource a consumer
@@ -388,6 +501,26 @@ type Contributor struct {
 	Producer, KeyID string
 	ReadAt, AsOf    time.Time
 	NewerRefused    string
+	// Renews is the digest of the record this one repeats, re-pushed only to
+	// renew its age (contract.AnnotationRenews), or "".
+	Renews string
+	// Cluster is the cluster whose installation advertised the repository
+	// the record was read from; empty for a producer the trust config grants.
+	Cluster string
+}
+
+// OfferingObservation is what an installation's inferred-offering producer
+// advertised it observed: the slugs of its last complete run and when that
+// run finished, why the newest run stopped short and why Pacto could not
+// read its records. Drift reads it so a head that stopped moving never
+// reads as in sync.
+type OfferingObservation struct {
+	Producer, Cluster string
+	Observed          []string
+	AsOf              *time.Time
+	// Partial is why the producer's newest run stopped short; Unread why
+	// its records could not all be read.
+	Partial, Unread string
 }
 
 // OwnerView is raw as the owner rule reads it, before Build: its service,

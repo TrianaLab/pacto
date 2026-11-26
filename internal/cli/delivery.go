@@ -2,6 +2,7 @@ package cli
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -41,7 +42,7 @@ func newRecordRepo(path string, hosts ...string) (*remote.Repository, error) {
 		Insecure: append(oci.EnvInsecureRegistries(), hosts...)})
 }
 
-func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
+func newDeliveryCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delivery",
 		Short: "Plan, propose and approve changes to what runs (needs delivery.enabled on the pacto-operator chart)",
@@ -55,17 +56,19 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.PersistentFlags().String("delivery-namespace", delivery.PolicyNamespace, "namespace Pacto delivery runs in, whose published identity policy (agent, break-glass and human groups, team prefix) says who is an agent and who may answer")
 	cmd.PersistentFlags().String("trust", "", "the trust config delivery records are verified with: the recorder's PEM public key, "+
 		"or a YAML file of keys and the streams each may sign (default $"+app.TrustEnv+")")
+	cmd.PersistentFlags().String("detected", "", "what the hub's operator detected, read for the registry it advertises: k8s:<namespace>/<name> of its <release>-detected ConfigMap, "+
+		"or a file holding the same JSON; a promote's plan then reads the hub's approved member clusters too")
 	cmd.AddCommand(
 		newDeliveryTypesCommand(v),
 		newDeliveryDescribeCommand(v),
 		newDeliveryCandidatesCommand(v, d),
 		newDeliveryStatusCommand(v, d),
 		newDeliveryLifecycleCommand(v, d),
-		newDeliveryPlanCommand(v, d),
-		newDeliveryProposeCommand(v, d),
+		newDeliveryPlanCommand(svc, v, d),
+		newDeliveryProposeCommand(svc, v, d),
 		newDeliveryGetCommand(v, d),
 		newDeliveryCancelCommand(d),
-		newDeliveryApproveCommand(v, d),
+		newDeliveryApproveCommand(svc, v, d),
 		newDeliveryExplainCommand(v, d),
 		newDeliveryHistoryCommand(v, d),
 		newDeliveryBlameCommand(v, d),
@@ -74,7 +77,7 @@ func newDeliveryCommand(v *viper.Viper, d deps) *cobra.Command {
 		newDeliveryTargetsCommand(v, d),
 		newDeliveryLadderCommand(v, d),
 	)
-	cmd.AddCommand(newDeliveryViewCommands(d)...)
+	cmd.AddCommand(newDeliveryViewCommands(svc, d)...)
 	return cmd
 }
 
@@ -111,7 +114,21 @@ func deliveryClientFor(cmd *cobra.Command, d deps, dyn dynamic.Interface) (*app.
 		return nil, "", err
 	}
 	return &app.Delivery{Dynamic: dyn, Registry: d.newDeliveryRegistry, Records: d.newRecordRepo, Trust: trust,
-		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now}, ns, nil
+		Policy: delivery.DefaultClassPolicy(), PolicyNamespace: policyNS, Now: time.Now, ServedVersions: servedVersions(d),
+		Members: promoteMembers(cmd, dyn, policyNS)}, ns, nil
+}
+
+// promoteMembers reads, for each promote, the approved members of the hub dyn
+// reaches, from the registry what its operator detected (--detected)
+// advertises; nil without --detected.
+func promoteMembers(cmd *cobra.Command, dyn dynamic.Interface, policyNS string) func(context.Context, string, map[string]bool) delivery.Members {
+	detected, _ := cmd.Flags().GetString("detected")
+	if detected == "" {
+		return nil
+	}
+	return app.NewService(nil, nil).PlanMembers(&app.JoinOptions{Resolve: func(ctx context.Context) (app.JoinOptions, error) {
+		return joinsOn(ctx, dyn, "", detected, policyNS)
+	}})
 }
 
 func newDeliveryTypesCommand(v *viper.Viper) *cobra.Command {
@@ -177,7 +194,7 @@ func orNone(s []string) string {
 
 // addRequestFlags declares the flags that describe an operation.
 func addRequestFlags(cmd *cobra.Command) {
-	cmd.Flags().String("stage", "", "the Stage to change (required)")
+	cmd.Flags().String("stage", "", "the Stage to change; or name --service and --environment to request a promote on the hub's members")
 	cmd.Flags().String("type", delivery.TypePromote, "operation type")
 	cmd.Flags().String("to", "", "where to move: for a pointer type a version (3.0.0), a tag or an artifact digest (sha256:...), "+
 		"where a version or tag must name exactly one version pacto publish published that the Stage may take (list them with pacto delivery candidates); "+
@@ -191,7 +208,10 @@ func addRequestFlags(cmd *cobra.Command) {
 	cmd.Flags().String("on-behalf-of", "", "the person an agent acts for, as the Kubernetes username the cluster authenticates them as (what kubectl auth whoami prints for them, any OIDC prefix included); asserted, not verified; required when an agent proposes, never a service account or other system user, and that person may not approve the change")
 	cmd.Flags().String("cause-verdict", "", "a verdict (JSON, as `pacto delivery explain --output-format json` prints it) you cite as the cause; "+
 		"the promoter runs it again and refuses a cause that does not hold")
-	_ = cmd.MarkFlagRequired("stage")
+	cmd.Flags().String("service", "", "member mode: the service to promote on the members of this hub, with --environment and a sha256: --to")
+	cmd.Flags().String("environment", "", "member mode: the environment to promote it in")
+	cmd.Flags().StringArray("member", nil, "member mode: a member to request on, by its uid or an 8-character prefix (repeatable; default every placed member)")
+	cmd.Flags().String("registry", "", "member mode: the registry the members publish to, or its pacto-targets repository")
 }
 
 func requestFrom(cmd *cobra.Command, ns string) (delivery.Request, error) {
@@ -200,8 +220,13 @@ func requestFrom(cmd *cobra.Command, ns string) (delivery.Request, error) {
 	if !strings.Contains(typ, "/") {
 		typ = "delivery.pacto.trianalab.io/" + typ
 	}
+	members, _ := cmd.Flags().GetStringArray("member")
 	req := delivery.Request{Namespace: ns, Stage: get("stage"), Type: typ, To: get("to"), From: get("from"),
-		Undoes: get("undoes"), Record: get("record"), Reason: get("reason"), CorrelationID: get("correlation-id"), OnBehalfOf: get("on-behalf-of")}
+		Undoes: get("undoes"), Record: get("record"), Reason: get("reason"), CorrelationID: get("correlation-id"), OnBehalfOf: get("on-behalf-of"),
+		Service: get("service"), Environment: get("environment"), Members: members}
+	if err := delivery.CheckRequestMode(req, get("registry")); err != nil {
+		return req, err
+	}
 	if raw := get("cause-verdict"); raw != "" {
 		var v delivery.Verdict
 		if err := json.Unmarshal([]byte(raw), &v); err != nil {
@@ -212,25 +237,34 @@ func requestFrom(cmd *cobra.Command, ns string) (delivery.Request, error) {
 	return req, nil
 }
 
-func newDeliveryPlanCommand(v *viper.Viper, d deps) *cobra.Command {
+func newDeliveryPlanCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "plan",
 		Short: "Predict what the promoter will do: verdicts, the approval floor, the one question for a person and what must move first",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			c, ns, err := deliveryClient(cmd, d)
-			if err != nil {
-				return err
-			}
+			ns, _ := cmd.Flags().GetString("namespace")
 			req, err := requestFrom(cmd, ns)
 			if err != nil {
 				return err
 			}
-			plan, _, err := c.Plan(cmd.Context(), req)
+			var plan delivery.PlanAnswer
+			if req.MemberMode() {
+				plan, _, err = planMembers(cmd, d, svc, req)
+			} else {
+				var c *app.Delivery
+				if c, _, err = deliveryClient(cmd, d); err == nil {
+					plan, _, err = c.Plan(cmd.Context(), req)
+				}
+			}
 			if err != nil {
 				return err
 			}
 			return formatResult(cmd, v.GetString(outputFormatKey), plan, func() error {
+				if plan.Members != nil {
+					printMemberPlan(cmd.OutOrStdout(), *plan.Members)
+					return nil
+				}
 				printPlan(cmd.OutOrStdout(), plan)
 				return nil
 			}, nil)
@@ -291,6 +325,7 @@ func printPlan(w io.Writer, p delivery.PlanAnswer) {
 	_, _ = fmt.Fprintf(w, "change:    %s %s -> %s\n", p.Type, orNone([]string{p.From}), orNone([]string{p.To}))
 	_, _ = fmt.Fprintf(w, "predicted: %s\n", p.Predicted)
 	printPlanApplier(w, p)
+	printPlanValues(w, p)
 	for _, v := range p.Verdicts {
 		printVerdict(w, "  ", v)
 	}
@@ -331,6 +366,33 @@ func printPlanApplier(w io.Writer, p delivery.PlanAnswer) {
 		observed += ", " + c["state"]
 	}
 	_, _ = fmt.Fprintf(w, "applier:   %s; declared %s\n", observed, c["declared"])
+}
+
+// printPlanValues names, from the pacto.manifests citation, the values file
+// or overlay the applier applies, read from the digest the promote ships;
+// the upstream Stage that verified that digest, from a passing
+// pacto.published; and, from pacto.environment, the contract environment
+// file holding the same values. Nothing when the inspector read none.
+func printPlanValues(w io.Writer, p delivery.PlanAnswer) {
+	citation := func(gate string) map[string]string {
+		if i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == gate }); i >= 0 {
+			return p.Verdicts[i].Citation
+		}
+		return nil
+	}
+	m := citation(delivery.GateManifests)
+	if m["valuesFile"] == "" {
+		return
+	}
+	line := strings.TrimSpace(m["valuesFile"]+" "+shortDigest(m["valuesDigest"])) + " in " + shortDigest(p.To)
+	if i := slices.IndexFunc(p.Verdicts, func(v delivery.Verdict) bool { return v.Gate == delivery.GatePublished }); i >= 0 &&
+		p.Verdicts[i].Result == delivery.Pass && p.Verdicts[i].Citation["upstream"] != "" {
+		line += " (the digest " + p.Verdicts[i].Citation["upstream"] + " verified)"
+	}
+	if f := citation(delivery.GateEnvironment)["checkedValues"]; f != "" {
+		line += "; Pacto checks the same values as " + f
+	}
+	_, _ = fmt.Fprintf(w, "values:    %s\n", line)
 }
 
 // printPlanManifests lists, from the pacto.manifests citation, the objects
@@ -382,17 +444,25 @@ func printOrder(w io.Writer, o *delivery.Order) {
 	}
 }
 
-func newDeliveryProposeCommand(v *viper.Viper, d deps) *cobra.Command {
+func newDeliveryProposeCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "propose",
 		Short: "Propose an operation; with --intent-digest it fails with PlanStale if anything moved since the plan or the reason or on-behalf-of differs",
-		Args:  cobra.NoArgs,
+		Long: "Propose an operation on a Stage of this cluster. In member mode (--service, --environment, a sha256: --to and --registry) " +
+			"it plans the promote over the hub's members and, with --confirm, logs you in again in your browser and signs one request per " +
+			"placed member (or per --member) keyless as you, pushed to that member's request stream; without --confirm it prints the plan and signs nothing. " +
+			"Each member verifies the request, checks your grant there and raises the promote as a proposal its own gates and approvals decide.",
+		Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			c, ns, err := deliveryClient(cmd, d)
+			ns, _ := cmd.Flags().GetString("namespace")
+			req, err := requestFrom(cmd, ns)
 			if err != nil {
 				return err
 			}
-			req, err := requestFrom(cmd, ns)
+			if req.MemberMode() {
+				return proposeMembers(cmd, v, d, svc, req)
+			}
+			c, _, err := deliveryClient(cmd, d)
 			if err != nil {
 				return err
 			}
@@ -416,6 +486,10 @@ func newDeliveryProposeCommand(v *viper.Viper, d deps) *cobra.Command {
 	addRequestFlags(cmd)
 	cmd.Flags().String("intent-digest", "", "the intent digest from your plan; propose refuses if it no longer matches, so pass the same --to, --reason and --on-behalf-of")
 	cmd.Flags().String("name", "", "the Operation name (generated when empty)")
+	cmd.Flags().Bool("confirm", false, "member mode: sign one request per member as you, after a fresh login in your browser")
+	cmd.Flags().String("issuer", "", "member mode: the approver signer's OIDC issuer, when the hub lists several")
+	cmd.Flags().String("fulcio-url", "", "member mode: Fulcio to get the signing certificate from, when the hub's signer names none")
+	cmd.Flags().String("timestamp-url", "", "member mode: timestamp authority to date the signature with, when the hub's signer names none")
 	return cmd
 }
 
@@ -516,7 +590,7 @@ var deliveryDecisions = []string{string(delivery.Approve), string(delivery.Rejec
 // person's shell (an agent included) can reuse them: it logs the person in
 // again in their browser and sends the Approval with that login's token, then
 // drops it.
-func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
+func newDeliveryApproveCommand(svc *app.Service, v *viper.Viper, d deps) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "approve [<operation>]",
 		Short: "Record your decision on a held operation (people only)",
@@ -541,7 +615,7 @@ func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 				return errApproveOne
 			}
 			if intent != "" {
-				return approveIntent(cmd, v, d, intent, decision, note)
+				return approveIntent(cmd, v, d, svc, intent, decision, note)
 			}
 			return approveInCluster(cmd, v, d, decision, args[0], note)
 		},
@@ -560,6 +634,8 @@ func newDeliveryApproveCommand(v *viper.Viper, d deps) *cobra.Command {
 	cmd.Flags().String("intent", "", "approve the operation this intent record names (<repository>:<tag> or <repository>@<digest>) "+
 		"with no kubeconfig: the intent must verify with --trust, and the decision is signed keyless under a signer --signers names")
 	cmd.Flags().String("signers", "", signersFlagHelp)
+	cmd.Flags().String("registry", "", "with --intent and no --trust: the registry the hub's members publish to; the intent then verifies "+
+		"under the recorder key its member advertises, on that member's Stage streams only, and the hub's approver signers sign the decision unless --signers names others")
 	for _, f := range []string{"oidc-issuer-url", "oidc-client-id", "oidc-extra-scopes", "oidc-redirect-port", "oidc-ca-file"} {
 		_ = v.BindPFlag("delivery."+f, cmd.Flags().Lookup(f))
 	}

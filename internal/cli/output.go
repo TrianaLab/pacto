@@ -621,12 +621,13 @@ func printExplainInferred(w io.Writer, result *app.ExplainResult) {
 }
 
 // declarationFrom is what a declaration was inferred from as explain
-// words it: the workload, external <identity> or a folder.
+// words it: the workload, external <identity>, offering <producer>/<service>
+// or a folder.
 func declarationFrom(inferredFrom string) string {
 	if id, ok := contract.InferredFromExternal(inferredFrom); ok {
 		return "external " + id
 	}
-	return cmp.Or(inferredFrom, "a folder")
+	return cmp.Or(inferredFromText(inferredFrom), "a folder")
 }
 
 // printExplainDeclaration prints who the record says declared the service,
@@ -638,6 +639,9 @@ func printExplainDeclaration(w io.Writer, result *app.ExplainResult) {
 	case d == nil:
 	case d.State == contract.DeclarationDraft:
 		from, accept := declarationFrom(d.InferredFrom), "pacto declare "+result.Name
+		if _, _, _, ok := contract.InferredFromOffering(d.InferredFrom); ok {
+			accept = "pacto declare " + fleet.OfferingSubjectPrefix + result.Name
+		}
 		if id, ok := contract.InferredFromExternal(d.InferredFrom); ok {
 			accept = "pacto claim " + id
 			if result.Name != inferredcontract.ServiceName(fleet.ExternalKey(id)) {

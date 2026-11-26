@@ -2,6 +2,7 @@ package dashboard
 
 import (
 	"context"
+	"encoding/json"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -102,12 +103,40 @@ func TestDeclareRefusalEnumCarriesClaimCodes(t *testing.T) {
 	if !slices.Contains(app, "ClaimRepositoryInferred") {
 		t.Fatalf("read no claim code from internal/app: %v", app)
 	}
-	own := []string{"IdentityRequired", "SignInLinkReadsFleet", "ReviewFailed", "ClusterNotReviewable", "NotAllowed", "DraftNotOffered"}
+	own := []string{"IdentityRequired", "SignInLinkReadsFleet", "ReviewFailed", "ClusterNotReviewable", "NotAllowed", "DraftNotOffered", "TemplateSourceUnverified"}
 	f2, _ := reflect.TypeFor[DeclareRefusal]().FieldByName("Code")
 	enum := strings.Split(f2.Tag.Get("enum"), ",")
 	for _, c := range slices.Concat(app, own, delivery.OwnerRightCodes) {
 		if c != "RepositoryUnknown" && c != "RepositoryUnconfirmed" && !slices.Contains(enum, c) {
 			t.Errorf("DeclareRefusal.code has no %s", c)
 		}
+	}
+}
+
+// TestDeclareInputKeepsClaimOfferingApartFromAcceptance: a claim's offering
+// (a string) and an offering acceptance (an object) reach the declarer under
+// their own keys on the plan and accept routes: neither shadows the other in
+// the decoded input or in the route's body schema.
+func TestDeclareInputKeepsClaimOfferingApartFromAcceptance(t *testing.T) {
+	body := map[string]any{"serviceKey": "external:stripe", "owner": "team-pay", "offering": "postgresql", "offeringAcceptance": map[string]any{"version": "1.0.0"}}
+	var plan DeclareInput
+	raw, _ := json.Marshal(body)
+	if err := json.Unmarshal(raw, &plan); err != nil || plan.Offering != "postgresql" || plan.OfferingAcceptance == nil || plan.OfferingAcceptance.Version != "1.0.0" {
+		t.Fatalf("plan %+v, %v", plan, err)
+	}
+	d := &fakeDeclarer{write: true}
+	base := claimServer(t, nil, d)
+	var out DeclareAnswer
+	postJSON(t, base+"/api/fleet/declare", body, http.StatusOK, &out)
+	var got DeclareAcceptInput
+	d.accept = func(in DeclareAcceptInput) (*DeclareAcceptAnswer, error) {
+		got = in
+		return &DeclareAcceptAnswer{Tag: "0.1.0"}, nil
+	}
+	body["intentDigest"], body["mode"] = "sha256:i", "sign"
+	var acc DeclareAcceptAnswer
+	postJSON(t, base+"/api/fleet/declare/accept", body, http.StatusOK, &acc)
+	if got.Offering != "postgresql" || got.OfferingAcceptance == nil || got.OfferingAcceptance.Version != "1.0.0" {
+		t.Fatalf("accept got %+v", got)
 	}
 }
