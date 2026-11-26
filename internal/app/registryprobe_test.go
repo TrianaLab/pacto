@@ -84,7 +84,9 @@ func TestProbedServerNeverReusesAnAddress(t *testing.T) {
 		srv.Start()
 		return srv
 	})
-	if got := srv.Listener.Addr().String(); got == addr || reused != 2 {
+	// Parallel tests hand out addresses too, so the fresh server may itself
+	// land on one and be dropped: at least two starts, never the reused one.
+	if got := srv.Listener.Addr().String(); got == addr || reused < 2 {
 		t.Fatalf("probedServer handed out %s again (%d servers started)", got, reused)
 	}
 }
