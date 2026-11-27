@@ -6,6 +6,6 @@
 ```bash
 helm upgrade pacto-operator \
   oci://ghcr.io/trianalab/pacto/charts/pacto-operator \
-  --version 6.6.0 \
+  --version 7.0.0 \
   --namespace pacto-operator-system
 ```

@@ -1,5 +1,9 @@
 # @pacto/cli
 
+## 4.7.0
+
+No changes in this release.
+
 ## 4.6.1
 
 No changes in this release.

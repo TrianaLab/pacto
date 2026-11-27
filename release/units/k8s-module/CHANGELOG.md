@@ -1,5 +1,284 @@
 # @pacto/k8s-module
 
+## 7.0.0
+
+### Major Changes
+
+- e5f0efc: Graduate the Pacto CRDs to v1. All six CRDs (pactos, pactorevisions and noderuntimeobservations in pacto.trianalab.io; stages, operations and approvals in delivery.pacto.trianalab.io) store v1 and keep serving v1alpha1 with a deprecation warning until chart 8.0. On startup the operator and the delivery promoter rewrite every stored object as v1 and set the CRD's storedVersions to [v1], retrying until the new CRDs are served; the log line `storage migration: <crd> rewrote N objects as v1` reports it. On helm install and upgrade the chart refuses to render a CRD that drops a version the cluster still stores. The operator and the promoter need get on their CRDs and patch on their status, scoped by name. The Go module path is github.com/trianalab/pacto/integrations/kubernetes/v7; types live in api/v1 and api/delivery/v1. The CLI and dashboard default to v1 and read the version a cluster serves, so they keep working with chart 6; manifests that pacto init --delivery writes need chart 7. The pkg/delivery wire types are covered by semantic versioning. See MIGRATION.md.
+
+### Minor Changes
+
+- 21f959b: A workload whose running image a published bundle records, or which carries pacto.trianalab.io/contract, is evaluated with no Pacto. The operator links it to the published contract, judges it with the same evaluation a Pacto resource gets and writes the result to the `linked.json` key of its `<release>-detected` ConfigMap and to the signed target snapshot. `pacto fleet --detected`, the dashboard, the TUI and the MCP fleet tools read each linked workload as a target of its contract revision with a `link`, and hand its inferred twin over to the declared service; the `Replacement.link` enum gains `observed`. A hand-written Pacto resource still wins, ambiguous matches link nothing and a digest several release versions record links to the newest with `LINK_VERSION_AMBIGUOUS`, which `pacto impact` reads as unverified. No Helm value, RBAC rule, CRD or contract field changes.
+- 21f959b: A cluster that already runs an OpenTelemetry Collector, Tempo or Jaeger now
+  gives the operational graph observed calls between services with no chart
+  value. The operator detects each backend, plus a Datadog Agent, from the pods
+  and Services it already reads. The dashboard reads the calls of the last 15
+  minutes from Jaeger's `/api/dependencies` and from the service graph that
+  Tempo's metrics-generator or the Collector's `servicegraph` connector writes to
+  Prometheus, all read-only. For a Collector with no Prometheus, the dashboard
+  receives OTLP/HTTP JSON traces on port 4318 (`--otlp-receiver`, set by the
+  operator), keeps no span, serves nothing else there and turns off while
+  another source proves complete coverage. The chart adds a NetworkPolicy that
+  admits 4318 from pods in the cluster only. Receiver calls never corroborate a
+  declared dependency and never clear a gate. Each backend is one Detected
+  providers row with its own status, the reason it is partial and the Collector
+  configuration to fix it. Pacto reads no Datadog Secret and holds no Datadog
+  client.
+- 21f959b: Choose an installation profile with one chart value: `profile: hardened` installs without cluster-wide roles, managed dashboard, node agent or created namespaces, `profile: idp` turns on probing, metrics observation and Pacto delivery, and `pacto_capabilities` and `/api/capabilities` report how the installation runs.
+- 21f959b: The operator-managed dashboard now serves MCP to AI agents at `/mcp` by default, an upgrade with `--reuse-values` included, in the same process and behind the same Service with its sign-in; set `dashboard.mcp.enabled=false` to turn it off, and `profile: hardened` has no managed dashboard and so no endpoint. New chart values `dashboard.mcp.enabled`, `dashboard.mcp.url` and `dashboard.mcp.exchangeAudience`, operator flags `--dashboard-mcp`, `--dashboard-mcp-url` and `--dashboard-mcp-exchange-audience`, and `pacto dashboard --mcp`, `--mcp-url` and `--mcp-exchange-audience`. The install notes print an MCP client snippet with a `pacto-viewer` token. A ServiceAccount token minted for `pacto-dashboard` reads the fleet only and `pacto_capabilities` says so with a hint; one also minted for the cluster's audience proposes and cancels delivery operations as that ServiceAccount; a person's own token reads as them; with an exchange audience an issuer token is exchanged. Nobody gets an approve tool.
+- afb8709: Deliver through the upstream Flux that IDP mode installs. Under `profile: idp`, the new chart value `idp.flux.install=true` installs upstream Flux 2.10.1 (source, kustomize and helm controllers, vendored and pinned under `files/flux/`, with the multi-tenancy lockdown) and upgrades it with the Pacto release; turning it off or uninstalling Pacto leaves Flux and its workloads running. Where no GitOps engine runs, Detected providers shows an Applier row that proposes that value. A Stage whose applier API is not served reads `Ready` `False` with the reason `NoApplier` and never promotes. The new `pacto.manifests` gate reads a version's Flux or Helm artifact before the promoter writes its pointer and refuses cluster-scoped kinds, objects outside the Stage namespace, RoleBindings to ClusterRoles and delivery, Flux or Argo CD objects; it judges every chart template as if it renders. Under `profile: idp` it also refuses raw infrastructure (Crossplane claims, composites, definitions, compositions and managed resources) with the code `RawInfraInArtifact` and the next step "declare a dependency on an offering"; under `default` and `hardened` those objects ask a person. Each refusal is a signed `apply-refusal/v1` record, listed beside refused publishes on `pacto delivery refusals`, `pacto_delivery_refusals`, `/api/delivery/refusals` and the dashboard, and `pacto delivery plan` lists the objects a promote applies. The inspector (`delivery.manifestInspector`, default `auto`) is now on for every delivery-enabled install, including upgrades; set `delivery.manifestInspector: false` to opt out.
+- afb8709: With delivery on, Pacto creates and retires each delivered service's Stages
+  from the installation ladder, so a service published with `pacto ci --publish`
+  needs no `environments[]`, Stage or Flux object of its own. The chart value
+  `delivery.environments.ladder` (default `staging` then `production`) is the
+  declared chain; the promoter proposes further rungs from namespaces and
+  cluster names, and a person confirms them once with
+  `pacto delivery ladder confirm`, a keyless record in the approvals repository.
+  Each service is placed by a hand-written Stage, a signed placement policy
+  (`delivery.pacto.trianalab.io/placement/v1`), its running Pacto, the workload
+  its contract was inferred from, a GitOps source or the namespace named after
+  the environment, and never in a system namespace or another team's. Pacto
+  creates Stages only beside an adopted Argo CD or Flux applier; under
+  `profile: idp` it creates suspended Flux objects, and a person's first
+  approval confirms the placement, creates the `<service>-deployer` account and
+  unsuspends them. Pacto-created Stages retire `delivery.environments.retireAfter`
+  (default `168h`) after their environment leaves the ladder or the contract or
+  expires, with one `EnvironmentCreated` and `EnvironmentDeleted` each; Pacto
+  deletes no namespace or workload. New chart values:
+  `delivery.environments.{enabled,ladder,createNamespaces,retireAfter}`; an
+  upgrade that reuses older values renders none of it. `pacto delivery
+  environments`, the inbox, MCP and the dashboard show each environment's source
+  and placement and the open proposal.
+  
+  `pactoVersion` 2.6 makes `environments[].file` optional: an environment with
+  no values file adds no values of its own and is checked on its
+  configurations' defaults. A contract older than 2.6 still requires `file`.
+  
+  `pacto init --delivery` no longer writes environments, Stages or Flux objects;
+  `--env` is deprecated and ignored.
+- e5f0efc: One deploy digest now carries every environment's values, and each Stage runs
+  it with the values file its applier already selects: an Argo CD Application
+  with `spec.source.helm.valueFiles: [values-<environment>.yaml]` or a Flux
+  Kustomization that builds `overlays/<environment>`. Pacto reads the selection
+  and never writes or renders it. The delivery plan reads the selected file from
+  the digest it promotes and cites the file and its sha256 on `pacto.manifests`,
+  and `pacto.environment` passes only when those values equal the environment
+  values Pacto checked. Different values, a declared environment with no file
+  while the applier applies one, a missing values file and a HelmRelease chart
+  that carries `values-<environment>.yaml` wait for a person. `pacto delivery
+  plan` prints a `values:` line, and `pacto delivery environments`, `pacto
+  delivery status`, MCP and the dashboard's Applier line show the selection.
+  
+  For a configuration whose `ref` reaches an offering whose schema declares tiers
+  (`x-pacto-tier`), an environment may change only `tunable` fields within the
+  offering's bounds, enums and classes. `pacto validate`, `pacto ci`,
+  `pacto_check` and the delivery plan refuse the rest with four new codes,
+  `TierNotTunable`, `ParameterOutOfRange`, `ParameterNotDeclared` and
+  `ClassNotOffered`, each with the closest valid name and a `Next:` step, and
+  the plan stops on them with no approval. Values outside a tiered offering's
+  parameters that used to report `ENVIRONMENT_VALUES_INVALID` or
+  `CONFIG_VALUES_VALIDATION_FAILED` now report these codes. An offering whose
+  schema declares no tier keeps today's codes, and an inferred offering leaves
+  the values `ENVIRONMENT_VALUES_UNVERIFIED`.
+  
+  The Stage records the selection as observed in `status.applier.values`, a new
+  optional status field. `Mediated` accepts exactly the Stage's own selection;
+  any other, such as two value files or `values-staging.yaml` on a production
+  Stage, reads `False` with `OtherEnvironmentValues`. This also refuses an
+  existing install whose Kustomization builds `overlays/<name>` where `<name>`
+  differs from `spec.environment`, such as `overlays/prod` on a Stage with
+  `spec.environment: production`, and its promotes wait for a person: rename the overlay or create the Stage with
+  the matching environment. `spec.environment` must now be a DNS label and is
+  fixed at creation; an existing Stage keeps its value, and so does the policy
+  an Operation records from it. A `valueFiles` entry that is a URL or an
+  absolute path shows as "a values file outside the chart", so Stage status
+  never carries a credential or an internal host from the Application.
+- 21f959b: The dashboard declares an inferred service from its page. Declare this service
+  plans what pacto declare would publish, read with the person's own cluster
+  credentials, with one accept box per proposed range and the service's drafts.
+  A person whose OIDC session's issuer the installation's Fulcio trusts for a
+  second signing client (--sign-client-id) signs with a fresh login; everyone
+  else saves an unsigned write-once draft-<n> tag and gets the pacto declare
+  --from-draft command. Accept on a draft shows that draft's own plan, with what
+  nothing backs, before it signs. Signing, saving and accepting need update on
+  the workload in its own cluster. A shared dashboard writes only with its own
+  push credential (--declare-registry-config, from the chart's
+  dashboard.declare.registryCredentials), scoped to the one bundle repository;
+  dashboard.ociSecrets stays read-only. Accept all proposed ranges now signs or
+  saves an acceptance draft the same way. pacto declare gains --draft and every
+  declare plan lists the drafts waiting; over HTTP pacto_declare writes a draft
+  for the caller it reviewed when the server has a registry and a push
+  credential. Drafts never become versions, bases or declared ranges.
+  nextAction is now {verb, tool, cli}: cli is the command a person runs and is
+  always set, tool is named only when the answering server registers it (the
+  dashboard and CLI JSON answers never name one), and the verbs gain accept,
+  claim and approve-cluster. UNCONTRACTED_CALLER, INFERRED_REPLACED,
+  inferred services and uncontracted observed consumers carry one. The chart
+  gains dashboard.auth.oidc.signClientID, signClientSecretRef and
+  signRedirectURL, dashboard.declare.registryCredentials and declare.signing.
+- 21f959b: Join a cluster to a hub through the registry with one approval. The operator's target snapshot gains a `join` block (display name and its source, inferred environments and the installation key), and a hub lists every cluster that publishes to `<registry>/pacto-targets` with `pacto cluster list`, the MCP tool `pacto_cluster_list` and `GET /api/fleet/clusters`. `pacto cluster approve <uid> --key sha256:<key id>` and `pacto cluster remove <uid>` record a keyless decision signed as you; approving needs `approve` on `clusterjoins.pacto.trianalab.io` granted to your user and `delivery.identities.signers` on the hub. An approved member's services, targets and workloads join the hub's fleet from its next build, verified under the approved key; a removed member leaves it, and a member with a new key reads pending again. A hub dashboard reading a private registry needs a pull-only Secret in `dashboard.ociSecrets`.
+- 21f959b: Review signed-in people in every member cluster with that cluster's own RBAC: `hub.url` makes a joined cluster a member whose operator dials the hub over WebSocket, proves its installation key and answers per-person list reviews with its own SubjectAccessReview, with no inbound port and no impersonate right. A member whose apiserver accepts the hub's issuer gets a token exchanged for it alone (`pacto-member-<uid>`, `--members-token-audience`); a member with another issuer is read under a person-approved group mapping (`pacto cluster map-groups`), for reads only. The hub dashboard takes `--members-host`, every hub answer lists `meta.clusters[].link` and Needs attention raises `CLUSTER_ISSUER_DIFFERS`.
+- e5f0efc: A hub lists the candidate clusters its Argo CD, Flux, Cluster API, OCM and Rancher already know, and hands out the install of the Pacto chart on every one of them through Argo CD or Flux. A person grants the reads with the new chart values `clusterInventory.enabled` and `clusterInventory.secretNamespaces`, both off by default: Secrets are listed as metadata only through a Role in each named namespace, and the inventory APIs only where the cluster serves them. The operator writes the candidates to the `clusters.json` key of its `<release>-detected` ConfigMap, and a Cluster inventory row on Data sources proposes the grant. Data sources (a collapsed Candidate clusters disclosure in the Clusters block), `pacto cluster list` and the MCP tool `pacto_cluster_list` show each candidate with its labels and source, to people who may approve clusterjoins. A candidate matches a member only by a cluster UID its object states, under the key a person approved; a pending member with that UID reads "states the same UID" and every other candidate "not matched", never merged by name. Environment labels of a matched candidate appear as inferred inventory environments on the member's join state and never reach a gate or placement. The new `pacto cluster install --from argocd|flux` prints an ApplicationSet or Flux HelmReleases whose values are only `registry` and `hub.url` when set; `--push` pushes them as one OCI artifact to `pacto-targets`, tagged by digest, and prints a Flux bootstrap that pins it. The dashboard downloads the same files with no `hub.url`. Removal orphans by default, and Pacto writes nothing to Git. The operator gains `--cluster-inventory`, `--cluster-inventory-namespaces` and `--chart-version`. The new [Install members](https://pacto.run/latest/install-members/) page shows the whole path. No contract field, `pactoVersion`, CRD or MCP tool changes.
+- e5f0efc: Deliver to a member through the registry. On a hub, `pacto delivery plan --service <svc> --environment <env> --to sha256:... --registry <registry>` plans a promote over the approved members and names its placement (`policy` from a signed placement rule, `unconfirmed` from the environments members take requests for, `advertised` with `confirmedBy` once a person signed) and each member's state; `pacto delivery propose ... --confirm` signs one member request per placed member keyless as you and pushes it to that member's request stream in `<registry>/pacto-targets`. The hub writes nothing into a member. Each member's operator verifies the request under its own approver signers, checks your grant there with its own SubjectAccessReview, its allowlist and that the Stage did not move, then raises one promote as an agent on your behalf that its own gates and approvals decide; every refusal and conclusion is an outcome record signed with the member's installation key, shown on the hub's plan, the Members block of the Environments board, `pacto delivery refusals --registry` and `pacto_delivery_refusals` (`check: member`). `pacto delivery approve --intent <record> --registry <registry>` approves a held member promote with no trust file. New chart values `delivery.remote.enabled` (`auto`) and `delivery.remote.allow` (`services`, `namespaces`, `environments`, which only narrow); the operator gains a separate `<release>-member-intake` ClusterRole under delivery (Stage reads, and with member requests Operation create, SubjectAccessReview create and the identities ConfigMap) and a `<release>-member-recorder-key` ConfigMap. The join block gains `recorderKey`, `streamsRepository`, `streams`, `streamsCut` and `requests`, and a placement rule gains `clusters` (member uids); a managed Stage whose upstream rung runs on another member follows that member's Stage stream with its advertised recorder key. The several-clusters delivery reference moves to its own page and leaves Experimental.
+- e5f0efc: Consumers and delivery state across every cluster of a hub. An impact answer over more than one cluster carries `clusters` (each with its status and the new `asOf`), each consumer's `clusters` (ids into that list) and `unreadClusters`: once a person approved or removed a member, the clusters that publish to the hub's targets repository and are not members are counted, never named, with a `CLUSTERS_UNREAD` limitation, and a `BREAKING` change stays `unverified` with the new gate code `CLUSTERS_UNREAD`. A consumer with a target in a stale or unreachable cluster turns a `compatible` verdict into `unknown`, with a note naming the cluster and its age; an `incompatible` verdict stays. `pacto impact` prints a `Clusters read:` line and a `clusters:` line under each consumer, and Change analysis names each target in the Runs on cell with its cluster. Single-cluster answers are unchanged.
+  
+  A promote planned on a hub reads every approved member's signed snapshot beside the hub's own Pactos, through one join reader the CLI, dashboard and promoter share, so a consumer in another cluster that does not accept the change asks its owners, and a member that went stale, a join list Pacto could not read or a cluster that is not a member yet asks a person to accept the unknown for a change that is not plainly non-breaking. `pacto delivery` gains `--detected` to read the hub's members. The promoter derives the targets repository from `--registry`. A member's promoter runs with the new `--member` flag, which the chart passes whenever `hub.url` is set: it reads no joins and asks a person here for any change that is not plainly non-breaking, since consumers in other clusters are read on the hub.
+  
+  The dashboard's inbox, Environments and History, and the MCP tools that answer them, read delivery from every kubeconfig context the dashboard reads, each read reviewed for the person per cluster, namespace and object. Rows carry `cluster`, `listing.clusters` gives per-cluster completeness and `listing.hiddenClusters` counts the clusters the reader may not see. Rows of another cluster are read-only: acting on one is refused with `RemoteClusterReadOnly` and the command that acts there. The history, blame, undo, record, operation and progress routes and the MCP tools `pacto_delivery_get`, `pacto_delivery_explain`, `pacto_delivery_history`, `pacto_delivery_blame`, `pacto_delivery_record_get` and `pacto_delivery_undo_plan` take `cluster`. No contract field, `pactoVersion` or CRD changes.
+- afb8709: Profile idp turns on the Evidence Server and the recorder only where their
+  prerequisites hold, detects Crossplane, can bootstrap upstream Crossplane on
+  request and suggests one provisioning step when nothing reported.
+  `pacto fleet providers`, `pacto_fleet_status.providers` and Detected providers
+  on Data sources say why each piece is on or off, and
+  `installation.provisioning.engine` reads `crossplane`, `adapter`, `none` or
+  `unknown`. An explicit `delivery.recorder.enabled: false` keeps the recorder
+  off under idp.
+- e5f0efc: A platform with Crossplane never hand-writes an offering contract an XRD already describes. The operator reads each XRD and the Compositions that select it, read-only, and pushes it once a minute as an inferred offering, signed with the installation key, to its own `<registry>/pacto-inferred/crossplane-<clusterID>/services`: the XRD's spec schema as the `provisioning` configuration with its bounds and enums kept and every object closed, and the Composition names as the `class` enum. It is on by default with a registry on a cluster-wide operator; turn it off with `crossplane.offerings.enabled=false` (`--crossplane-offerings=false`). The format is public: a contribution whose `pacto.yaml` also declares `service.offering`, `service.summary` and `configurations`, so any tool may push one. `pacto fleet offerings` lists the declared offerings with a drift line when an accepted offering's source changed, and `--inferred` (`pacto_fleet_entities` and the dashboard with `declaration: inferred` and kind `offering`) lists the inferred ones, muted, with their source object, producer and classes. An inferred offering never counts as declared, never satisfies a range, never clears a gate and is never consumable. A person accepts one with `pacto declare offering:<name> --from <ref> --detected <detection> --version <version> --owner <team>`, plan first, signed by their Sigstore login, with a declaration naming `inferredFrom: offering:<producer>/<service>@<digest>`, which `pacto validate` refuses with `DECLARATION_OFFERING_MISMATCH` when it names an offering `service.offering` does not; `pacto_declare` writes a draft and the dashboard's offering page offers **Accept this offering**. An open parameter schema is refused with `OfferingSchemaOpen` naming each open path. When both revisions declare `service.offering`, `pacto diff` grades the configuration schema as consumer input. No `pactoVersion` or contract field changes. See [Inferred offerings](https://pacto.run/latest/inferred-offerings/).
+- afb8709: Pacto reads the owners, systems and component dependencies a Backstage catalog
+  already holds. `--backstage-url` on `pacto fleet`, `pacto impact`, `pacto tui`,
+  `pacto mcp --fleet`, `pacto export backstage` and `pacto dashboard`
+  (`PACTO_DASHBOARD_BACKSTAGE_URL`) names the catalog, and the reader token comes
+  only from `PACTO_BACKSTAGE_TOKEN`. Each value is inferred, with its source,
+  entity and read time: it never fills `owner` or the business domain, never
+  becomes an owner claim, never clears a gate and never changes an impact
+  verdict. The `backstage-catalog` source is advisory, so an unreachable or
+  capped catalog shows as its own state and never makes an answer partial or
+  blocks the Backstage export. Entities Pacto exported are never read back.
+  
+  Fleet answers and `pacto_fleet_get` carry the new keys `inferredOwner` and
+  `inferredBusinessDomain`, the dashboard detail carries `ownership.inferred`
+  and `inferredBusinessDomain`, and `ownerProvenance` reads `inferred` when no
+  other owner exists. A name that matches several services raises
+  `SERVICE_FACT_AMBIGUOUS`. `pacto export backstage` writes the inferred owner
+  and domain only to the `pacto.trianalab.io/inferred-owner` and
+  `pacto.trianalab.io/inferred-business-domain` annotations, with their
+  `-source` annotations, and keeps `spec.owner: unknown`.
+  
+  The chart adds `dashboard.backstage.url` and `dashboard.backstage.tokenSecret`
+  (the operator flags `--dashboard-backstage-url`,
+  `--dashboard-backstage-token-secret` and `--dashboard-backstage-token-key`).
+  Every dashboard user sees the owners, systems and dependencies the reader
+  token can read, so give it catalog read on the entities every dashboard user
+  may see. Detection proposes an in-cluster Backstage on port 7007, and with no
+  URL set the dashboard reads it without a token.
+- 21f959b: See the vendors and legacy systems your workloads call, including calls that
+  no configuration, trace or contract names. The node agent now reads the DNS
+  answers its pods receive (UDP from port 53, at most 512 bytes) on the same eBPF
+  attach and with no new capability, and names each connection `host` from its
+  own workload's answers; a shared CDN address stays unnamed. To make room for
+  names in the node status, the node-wide connection cap drops from 4096 to 3072.
+  The operator writes the named calls that leave the cluster to
+  `status.observedEgress` (at most 32 per Pacto) with
+  `status.observedEgressCoverage`, which counts the nodes with an agent and says
+  why it is partial; the Pacto status format becomes 4. Istio, Linkerd and
+  Hubble telemetry add calls to external hosts from the mesh source. With
+  `controller.egressGatewayLogs=on` the operator reads the access log tail of
+  the Istio egress gateways in `istio-system`, through a Role there that grants
+  `pods/log get`; the default `auto` reads nothing and proposes the value.
+  Cilium `toFQDNs` rules that select a workload become inferred `ciliumFQDN`
+  external uses, which never clear a gate. Every call joins the External the
+  catalog names, observed, and partial egress coverage turns external answers
+  partial. The `kernel-egress`, `istio-egress`, `cilium-fqdn` and
+  `egress-gateway` rows show in Detected providers, `pacto fleet providers`,
+  `pacto_fleet_status` and `GET /api/sources`.
+- e5f0efc: External systems list the managed resources Pacto read for them: Crossplane, ACK, Config Connector and ASO objects the operator lists, Terraform and OpenTofu states (remote ones listed in `controller.terraformStates`, a local file with `pacto fleet --tf-state`) and the cloud inventory once `controller.cloudInventory` names `aws`, `gcp` or `azure` (default `"off"`). Pacto keeps only each resource's type, name, account, region and engine and reads no Secret; a workload that names a resource's connection Secret becomes its consumer through an inferred `connectionSecret` use. Each resource reads through an offering only when a verified, current `ResourceProvisioned` record from the offering's provider names it, and outside contract otherwise; the Overview shows "Resources through offerings", the fleet map badges external systems with resources outside contract and `pacto fleet entities --outside-contract` (MCP `outside_contract`) lists them. `pacto claim --offering` (MCP `offering`, refusal `OfferingInvalid`) records the offering a claimed system is meant to join as display-only metadata. The observed engine is published as `run.pacto.external.engine` on the inferred contract, and a move between engines raises `EXTERNAL_CHANGED`. The external catalog gains an `inventory` key and the ACK, Config Connector and ASO kinds, so the default catalog digest changes. The chart grants `list` only on the catalog's managed-resource kinds the cluster serves at install or upgrade, plus Crossplane XRD composite and claim kinds, and a group served later raises `MANAGED_GROUP_UNREAD` until `helm upgrade`. Repository discovery proposes Terraform backends as `TERRAFORM_BACKEND`. No contract schema field changes.
+
+### Patch Changes
+
+- 21f959b: The dashboard shows the whole fleet on one map with its problems on it, from
+  40 services to 10000. The Overview leads with the map, the declared ↔ observed
+  match and contract completeness, with the attention list beside the map; the
+  Operational graph page is the same map on the whole page. The map zooms from
+  groups to services, names and details, groups by domain, owner team or
+  environment, switches between what is declared, observed or both and focuses
+  any service on its callers and callees. Needs attention leaves the navigation:
+  `#/fleet/attention` links open the Overview with the list filtered.
+  
+  `pacto fleet map` and the MCP tool `pacto_fleet_map` give the same answers.
+  `pacto validate`, `pacto_check`, `pacto fleet get`, `pacto fleet status`,
+  `pacto fleet overview` and the matching fleet tools return contract
+  completeness: how much of each service its contract declares, in eight
+  sections, where unknown and inferred never count as declared.
+- 21f959b: pacto ci --publish keeps the owner and the accepted ranges a person declared
+  in the registry with pacto declare until the repository's pacto.yaml writes
+  them. The owner is carried only when the owner rule accepts the declaration,
+  and a range only when an owner of the service signed it. A counted
+  declaration is the baseline the next derived version is measured from, so
+  the first CI publish after a declaration no longer stops at no verifiable
+  baseline. The published pacto.inferred.yaml cites the declaration under
+  inputs.declaration, and the plan prints and returns (carried, in JSON) each
+  carried, overridden or dropped field. A plain pacto publish carries nothing
+  and says which declared fields the new version leaves out. The fleet field
+  provenance of a carried field names the declaration it was carried from.
+  pkg/publish gains VerifiedBaseline, FollowsBaseline, NotCounted and
+  Derived.BaselineRecord, and DeriveInput.Verify receives the tag.
+- 21f959b: pacto declare names the service's source repository and folder, and how it
+  found them, in the new declaration.repository block of pacto.inferred.yaml:
+  from a verified keyless signature or signed SLSA provenance attestation, the
+  GitOps source, the image's org.opencontainers.image.source label or a
+  --repo-map file, with --repository and --folder overriding every source.
+  pacto declare --pr --yes then commits the bundle's pacto.yaml and
+  pacto.inferred.yaml on a new branch and opens a pull request on GitHub,
+  GitLab, Bitbucket Cloud or Gitea/Forgejo with your own Git token, from the
+  host's environment variable or git credential fill. An unsigned label, an
+  agent's repository and a public repository need a person's --repository.
+  pacto_declare gains pr, repository, folder and repo_map; a stdio server
+  opens the pull request and an HTTP server refuses it with
+  PullRequestNeedsLocalToken. The dashboard Declare panel shows the --pr
+  command and never holds a Git credential. pkg/publish gains
+  ProvenanceSigners.
+- afb8709: Pacto finds golden paths and offerings in the registry they are published to.
+  `pacto fleet`, `pacto mcp`, `pacto tui`, `pacto export` and `pacto stats` take
+  `--discover <registry>[/<path>]` (repeatable), and `pacto dashboard --registry`
+  and the operator-managed dashboard (the chart's `registry`) discover under the
+  installation registry. Pacto lists `<registry>/pacto-index` first, then
+  `_catalog` under the path where the registry serves it, and keeps only
+  templates and offerings whose name matches their repository. On a registry
+  with no `_catalog`, such as GHCR, the answer is partial with
+  `REGISTRY_LISTING_INDEX_ONLY`, so an unlisted path reads unknown, never absent.
+  `pacto impact` and `pacto ci` ignore `--discover`.
+  
+  Bundles pushed from this release on carry an artifactType and a kind
+  annotation, so new content gets a different manifest digest than an older
+  Pacto would give it. Tags and digests already published never move:
+  `pacto push`, `pacto publish`, the inferred-contract repair and the demo
+  publisher treat the older digest of the same content as identical.
+  
+  The chart value `dashboard.repositories` and the operator flag
+  `--dashboard-repositories` are deprecated and still read: set `registry`.
+- e5f0efc: A Backstage catalog Pacto reads now also gives its software templates
+  (`scaffolder.backstage.io` Template entities) as inferred golden paths. They
+  show as muted rows on the dashboard's Golden paths page, under
+  `pacto fleet entities --template` and as `inferredTemplates` in
+  `pacto_fleet_entities` and `GET /api/fleet/entities` with `template: only`,
+  each with where and when it was read, an "Open in Backstage" link for a
+  configured catalog and the block's completeness. `--declaration inferred`
+  keeps only those. An inferred golden path is never signed, never counted and
+  never offered by `pacto init --from`, `pacto_create` or Create service, which
+  refuse a `template:` reference with the command that accepts it.
+  
+  `pacto declare template:<namespace>/<name>` with `--backstage-url`,
+  `pacto_declare` with that `service` and the dashboard's Accept as golden path
+  button plan a contract-only golden path at `<registry>/<name>` that declares
+  `service.template`. Only a template from the configured catalog is accepted,
+  only into a repository with no version yet, and on a shared dashboard only by
+  a person who may `update pactos` in the installation namespace. New refusal
+  codes: `TemplateNotFound`, `TemplateCatalogUnset`,
+  `TemplateCatalogUnavailable`, `TemplateNameInvalid`, `TemplateNameTaken` and
+  `TemplateSourceUnverified`.
+  
+  Detection now reports the Backstage row as `not detected`, partial, when no
+  Backstage runs in a watched namespace; the dashboard hides that row when
+  `dashboard.backstage.url` is set. `backstage.ReadCatalogPage` returns a
+  `CatalogRead` struct with the facts, templates, next cursor and trimmed flag.
+  No contract schema or `pactoVersion` change.
+- afb8709: An automatic Stage that is not Ready no longer raises a promote: it would
+  only be refused, and each refusal named the next promote anew, so the
+  promoter raised one rejected promote and signed record after another. The
+  reason the promoter waits now says the Stage is not Ready and why. The Flux
+  pointer Pacto creates under `profile: idp` sets `spec.insecure` when the
+  promoter reaches its registry over plain HTTP.
+
 ## 6.6.0
 
 ### Minor Changes

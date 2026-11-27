@@ -1,6 +1,6 @@
 {
   "name": "@pacto/dashboard-contract-bundle",
-  "version": "4.6.1",
+  "version": "4.7.0",
   "private": true,
   "pacto": {
     "releaseUnit": "dashboard-contract-bundle",
