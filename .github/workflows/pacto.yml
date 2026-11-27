@@ -67,7 +67,7 @@ jobs:
         if: github.event_name != 'release'
         run: bash release/scripts/retry.sh go install ./cmd/pacto
 
-      - uses: trianalab/pacto-actions@3ae26607b3d6f33caec1213e148ba3feab571ef4 # v1.8.2
+      - uses: trianalab/pacto-actions@8b64cfe46f01f82a1b990afc5b64a01a73d0f4d0 # v2.0.0
         if: github.event_name == 'release'
         with:
           command: setup
