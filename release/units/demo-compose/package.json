@@ -1,6 +1,6 @@
 {
   "name": "@pacto/demo-compose",
-  "version": "4.6.1",
+  "version": "4.7.0",
   "private": true,
   "pacto": {
     "releaseUnit": "demo-compose",

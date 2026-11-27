@@ -4,74 +4,74 @@
     "cli": {
       "artifactKind": "binaries",
       "coordinate": "github.com/trianalab/pacto releases",
-      "tag": "v4.6.1",
-      "version": "4.6.1"
+      "tag": "v4.7.0",
+      "version": "4.7.0"
     },
     "core": {
       "artifactKind": "go-module",
       "coordinate": "github.com/trianalab/pacto/v4",
-      "tag": "v4.6.1",
-      "version": "4.6.1"
+      "tag": "v4.7.0",
+      "version": "4.7.0"
     },
     "dashboard-contract-bundle": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/dashboard-contract",
-      "tag": "4.6.1",
-      "version": "4.6.1"
+      "tag": "4.7.0",
+      "version": "4.7.0"
     },
     "dashboard-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/dashboard",
-      "tag": "4.6.1",
-      "version": "4.6.1"
+      "tag": "4.7.0",
+      "version": "4.7.0"
     },
     "delivery-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/delivery",
-      "tag": "6.6.0",
-      "version": "6.6.0"
+      "tag": "7.0.0",
+      "version": "7.0.0"
     },
     "demo-bundles": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto",
-      "tag": "4.6.1",
-      "version": "4.6.1"
+      "tag": "4.7.0",
+      "version": "4.7.0"
     },
     "demo-compose": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/demo",
-      "tag": "4.6.1",
-      "version": "4.6.1"
+      "tag": "4.7.0",
+      "version": "4.7.0"
     },
     "external-catalog": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/external-catalog",
-      "tag": "4.6.1",
-      "version": "4.6.1"
+      "tag": "4.7.0",
+      "version": "4.7.0"
     },
     "k8s-docs": {
       "artifactKind": "docs",
       "coordinate": "mkdocs:integrations/kubernetes",
-      "tag": "6.6.0",
-      "version": "6.6.0"
+      "tag": "7.0.0",
+      "version": "7.0.0"
     },
     "k8s-module": {
       "artifactKind": "go-module",
       "coordinate": "github.com/trianalab/pacto/integrations/kubernetes/v7",
       "tag": "integrations/kubernetes/v7.0.0",
-      "version": "6.6.0"
+      "version": "7.0.0"
     },
     "operator-chart": {
       "artifactKind": "helm-chart",
       "coordinate": "ghcr.io/trianalab/pacto/charts/pacto-operator",
-      "tag": "6.6.0",
-      "version": "6.6.0"
+      "tag": "7.0.0",
+      "version": "7.0.0"
     },
     "operator-image": {
       "artifactKind": "oci-image",
       "coordinate": "ghcr.io/trianalab/pacto/operator",
-      "tag": "6.6.0",
-      "version": "6.6.0"
+      "tag": "7.0.0",
+      "version": "7.0.0"
     }
   }
 }
